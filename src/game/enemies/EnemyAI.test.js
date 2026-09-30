@@ -74,28 +74,43 @@ function run(ai, enemy, seconds, playerX) {
 }
 
 describe("roster", () => {
-  it("creates 30 creatures", () => {
-    expect(createCreatureRoster()).toHaveLength(30);
+  it("creates a large roster across every zone", () => {
+    const roster = createCreatureRoster();
+
+    expect(roster.length).toBe(76);
   });
 
-  it("spreads them evenly across the three behaviors", () => {
+  it("covers all three behaviors", () => {
     const counts = { passive: 0, semi: 0, active: 0 };
 
     for (const enemy of createCreatureRoster()) {
-      counts[
-        enemy.behavior === BEHAVIOR.PASSIVE
-          ? "passive"
-          : enemy.behavior === BEHAVIOR.SEMI_PASSIVE
-            ? "semi"
-            : "active"
-      ] += 1;
+      if (enemy.behavior === BEHAVIOR.PASSIVE) {
+        counts.passive += 1;
+      } else if (
+        enemy.behavior === BEHAVIOR.SEMI_PASSIVE
+      ) {
+        counts.semi += 1;
+      } else {
+        counts.active += 1;
+      }
     }
 
-    expect(counts).toEqual({
-      passive: 10,
-      semi: 10,
-      active: 10,
-    });
+    for (const key of ["passive", "semi", "active"]) {
+      expect(counts[key], key).toBeGreaterThan(0);
+    }
+  });
+
+  it("includes every creature type", () => {
+    const seen = new Set(
+      createCreatureRoster().map(
+        (enemy) =>
+          enemy.id.replace(/_\d+$/, ""),
+      ),
+    );
+
+    for (const typeId of Object.keys(CREATURE_TYPES)) {
+      expect(seen.has(typeId), typeId).toBe(true);
+    }
   });
 
   it("gives every creature a unique id and a valid spawn", () => {
@@ -110,9 +125,7 @@ describe("roster", () => {
       expect(enemy.hp).toBe(enemy.maxHp);
       expect(enemy.spawnX).toBe(enemy.x);
       expect(enemy.spawnY).toBe(enemy.y);
-
       expect(enemy.behavior).toBeDefined();
-      expect(enemy.aggroRange).toBeGreaterThanOrEqual(0);
     }
   });
 
@@ -131,7 +144,7 @@ describe("roster", () => {
     }
   });
 
-  it("places each creature type inside a matching zone", () => {
+  it("places every creature inside a zone", () => {
     const roster = createCreatureRoster();
 
     for (const enemy of roster) {
@@ -144,20 +157,73 @@ describe("roster", () => {
       );
 
       expect(zone, enemy.id).toBeDefined();
+    }
+  });
 
-      const expected = CREATURE_TYPES[enemy.id.replace(
-        /_\d+$/,
-        "",
-      )].behavior;
+  it("matches the dominant behavior of each zone", () => {
+    const roster = createCreatureRoster();
 
-      const kind =
-        expected === BEHAVIOR.PASSIVE
-          ? "passive"
-          : expected === BEHAVIOR.SEMI_PASSIVE
-            ? "semi"
-            : "active";
+    for (const zone of ZONES) {
+      if (zone.kind === "training") continue;
 
-      expect(zone.kind, enemy.id).toBe(kind);
+      const members = roster.filter(
+        (enemy) =>
+          enemy.x >= zone.x &&
+          enemy.x <= zone.x + zone.width &&
+          enemy.y >= zone.y &&
+          enemy.y <= zone.y + zone.height,
+      );
+
+      expect(members.length, zone.id).toBeGreaterThan(0);
+
+      const tally = {
+        passive: 0,
+        semi: 0,
+        active: 0,
+      };
+
+      for (const member of members) {
+        if (member.behavior === BEHAVIOR.PASSIVE) {
+          tally.passive += 1;
+        } else if (
+          member.behavior === BEHAVIOR.SEMI_PASSIVE
+        ) {
+          tally.semi += 1;
+        } else {
+          tally.active += 1;
+        }
+      }
+
+      const dominant = Object.entries(tally).sort(
+        (a, b) => b[1] - a[1],
+      )[0][0];
+
+      expect(dominant, zone.id).toBe(zone.kind);
+    }
+  });
+
+  it("mixes more than one creature type per zone", () => {
+    const roster = createCreatureRoster();
+
+    for (const zone of ZONES) {
+      if (zone.kind === "training") continue;
+
+      const types = new Set(
+        roster
+          .filter(
+            (enemy) =>
+              enemy.x >= zone.x &&
+              enemy.x <= zone.x + zone.width &&
+              enemy.y >= zone.y &&
+              enemy.y <= zone.y + zone.height,
+          )
+          .map(
+            (enemy) =>
+              enemy.id.replace(/_\d+$/, ""),
+          ),
+      );
+
+      expect(types.size, zone.id).toBeGreaterThan(1);
     }
   });
 
@@ -354,12 +420,12 @@ describe("active behavior", () => {
     ai.provoke(enemy);
     run(ai, enemy, 14);
 
-    expect(
-      Math.hypot(
-        enemy.x - home.x,
-        enemy.y - home.y,
-      ),
-    ).toBeGreaterThan(
+    const strayed = Math.hypot(
+      enemy.x - home.x,
+      enemy.y - home.y,
+    );
+
+    expect(strayed).toBeGreaterThan(
       CREATURE_TYPES.skeleton.leash,
     );
 
@@ -375,13 +441,16 @@ describe("active behavior", () => {
 
     run(ai, enemy, 20);
 
-    expect(
-      Math.hypot(
-        enemy.x - home.x,
-        enemy.y - home.y,
-      ),
-    ).toBeLessThan(60);
+    // ao chegar em casa ele volta a vagar ate o wanderRadius
+    const wander = CREATURE_TYPES.skeleton.wanderRadius;
 
+    const returned = Math.hypot(
+      enemy.x - home.x,
+      enemy.y - home.y,
+    );
+
+    expect(returned).toBeLessThan(wander + 40);
+    expect(returned).toBeLessThan(strayed);
     expect(hits.length).toBe(hitsBeforeEscape);
   });
 });

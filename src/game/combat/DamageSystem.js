@@ -1,8 +1,14 @@
 export class DamageSystem {
-  constructor({ statuses, effects, onDamaged = null }) {
+  constructor({
+    statuses,
+    effects,
+    onDamaged = null,
+    onDeath = null,
+  }) {
     this.statuses = statuses;
     this.effects = effects;
     this.onDamaged = onDamaged;
+    this.onDeath = onDeath;
   }
 
   applyDamage(attacker, target, action, options = {}) {
@@ -108,9 +114,15 @@ export class DamageSystem {
     }
 
     if (target.hp <= 0) {
+      const died = target.alive !== false;
+
       target.alive = false;
       target.statusEffects = [];
       target.respawnTimer = 5;
+
+      if (died) {
+        this.onDeath?.(attacker, target, action);
+      }
     }
 
     return amount;

@@ -1,6 +1,29 @@
 import { createPlayer } from "../entities/Player.js";
 import { createTrainingDummies } from "../entities/TrainingDummy.js";
 import { EnemyAI } from "../enemies/EnemyAI.js";
+import { Inventory } from "../inventory/Inventory.js";
+import { Equipment } from "../equipment/Equipment.js";
+import {
+  grantXp,
+  statsForLevel,
+  xpForKill,
+  xpToNext,
+} from "../progression/Levels.js";
+import { QuestLog } from "../quests/QuestLog.js";
+import { isAutoCompletable } from "../../data/quests/index.js";
+import { RARITY_ORDER } from "../../data/items/index.js";
+import { LootSystem } from "../loot/LootSystem.js";
+import { TerrainRenderer } from "../terrain/TerrainRenderer.js";
+import { PropRenderer } from "../props/PropRenderer.js";
+import {
+  getItem,
+  ITEM_TYPE,
+  rarityOf,
+} from "../../data/items/index.js";
+
+function itemTypeOf(itemId) {
+  return getItem(itemId)?.type ?? null;
+}
 import { CollisionSystem } from "../collision/CollisionSystem.js";
 import { StatusSystem } from "../effects/StatusSystem.js";
 import { EffectSystem } from "../effects/EffectSystem.js";
@@ -15,10 +38,12 @@ import {
   drawMinimap,
   MINIMAP_HEIGHT,
   MINIMAP_RIGHT,
-  MINIMAP_TOP,
+  MINIMAP_SLIDE,
+  MINIMAP_TOP_IDLE,
+  MINIMAP_TOP_TARGETED,
   MINIMAP_WIDTH,
 } from "../ui/minimap.js";
-import { MAP_META } from "../../data/maps/index.js";
+import { getZoneById, MAP_META } from "../../data/maps/index.js";
 import {
   BEHAVIOR,
   createCreatureRoster,
@@ -87,6 +112,8 @@ const BEHAVIOR_COLORS = {
   [BEHAVIOR.ACTIVE]: "#e05a4a",
 };
 
+const COIN_COLOR = "#ffc857";
+
 const ZONE_BEHAVIOR_COLORS = {
   training: "#6fbf8a",
   passive: "#6fbf8a",
@@ -147,6 +174,10 @@ export class GameEngine {
       projectiles: [],
       pendingPulses: [],
       delayedEffects: [],
+      drops: [],
+      inventory: new Inventory(),
+      equipment: new Equipment(),
+      quests: new QuestLog(),
 
       map: null,
       collision: null,
@@ -162,6 +193,8 @@ export class GameEngine {
 
     this.effects = new EffectSystem();
     this.statuses = new StatusSystem();
+    this.loot = new LootSystem(this.world);
+
     this.damage = new DamageSystem({
       statuses: this.statuses,
       effects: this.effects,
@@ -169,6 +202,9 @@ export class GameEngine {
         if (attacker === this.world.player) {
           this.enemyAI?.provoke(target);
         }
+      },
+      onDeath: (attacker, target) => {
+        this.handleKill(target);
       },
     });
 
@@ -202,6 +238,12 @@ export class GameEngine {
     this.spriteSheet = null;
     this.spriteTime = 0;
     this.minimapCache = null;
+    this.terrain = new TerrainRenderer();
+    this.props = new PropRenderer();
+    this.world.sort = [];
+    this.frameErrors = 0;
+    this.minimapY = MINIMAP_TOP_IDLE;
+    this.frameDelta = 1 / 60;
 
     const spriteDefinition = getClassSprite(
       classDefinition.id,
@@ -272,6 +314,7 @@ export class GameEngine {
     );
 
     this.handleResize();
+    this.applyEquipment();
     this.sendSnapshot();
 
     this.animationFrame = requestAnimationFrame(
@@ -282,6 +325,7 @@ export class GameEngine {
   setMap(map) {
     this.world.map = map;
     this.world.collision = new CollisionSystem(map);
+    this.world.props = map.props ?? [];
     this.world.player.x = map.spawn.x;
     this.world.player.y = map.spawn.y;
   }
@@ -492,16 +536,268 @@ export class GameEngine {
 
   isAutoActive() {
     return (
-      this.autoPlay || this.engagedTargetId !== null
+      this.autoPlay ||
+      this.engagedTargetId !== null ||
+      this.getQuestObjective() !== null
     );
+  }
+
+  focusQuest(questId) {
+    const quests = this.world.quests;
+
+    const wasAuto =
+      quests.autoEnabled && quests.objectiveId === questId;
+
+    if (!quests.focusQuest(questId)) return false;
+
+    const quest = quests.currentObjective;
+
+    if (!isAutoCompletable(quest)) {
+      this.showMessage(
+        "Esta missão precisa ser feita manualmente.",
+        true,
+      );
+
+      this.sendSnapshot();
+
+      return false;
+    }
+
+    if (wasAuto) {
+      quests.setAuto(false);
+      quests.clearObjective();
+      this.setAutoPlay(false);
+
+      this.showMessage(`Auto desligado: ${quest.name}`);
+
+      this.sendSnapshot();
+
+      return true;
+    }
+
+    quests.setAuto(true);
+    this.setAutoPlay(true);
+
+    this.showMessage(`Auto: ${quest.summary}`);
+
+    this.sendSnapshot();
+
+    return true;
+  }
+
+  toggleQuestAuto() {
+    const quests = this.world.quests;
+    const enabled = quests.toggleAuto();
+
+    if (enabled) {
+      const objective = quests.objective();
+
+      if (!objective) {
+        quests.setAuto(false);
+        this.showMessage(
+          "Nenhuma missão automática disponível.",
+          true,
+        );
+
+        this.sendSnapshot();
+
+        return false;
+      }
+
+      this.setAutoPlay(true);
+      this.showMessage(
+        `Auto: ${objective.summary}`,
+      );
+    } else {
+      this.showMessage("Auto de missão desligado.");
+    }
+
+    this.sendSnapshot();
+
+    return enabled;
   }
 
   setSkillAuto(skillId, enabled) {
     return setSkillAuto(skillId, enabled);
   }
 
+  checkEquipQuest() {
+    const equipment = this.world.equipment;
+
+    for (const item of equipment.getEquippedItems()) {
+      const rarity = item?.rarity;
+
+      if (!rarity) continue;
+
+      this.resolveQuestProgress(
+        this.world.quests.onEquipRarity(rarity),
+      );
+    }
+  }
+
+  acceptSideQuest(questId) {
+    const accepted = this.world.quests.acceptSide(questId);
+
+    if (!accepted) {
+      this.showMessage(
+        "Termine a missão secundária atual primeiro.",
+        true,
+      );
+
+      return false;
+    }
+
+    this.showMessage(
+      "Missão secundária aceita.",
+    );
+
+    this.sendSnapshot();
+
+    return true;
+  }
+
+  abandonSideQuest() {
+    const dropped = this.world.quests.abandonSide();
+
+    if (dropped) {
+      this.showMessage(
+        "Missão secundária abandonada.",
+      );
+    }
+
+    this.sendSnapshot();
+
+    return dropped;
+  }
+
   getSkillAuto(skillId) {
     return isSkillAuto(skillId);
+  }
+
+  equipItem(uid, slotId) {
+    const inventory = this.world.inventory;
+    const equipment = this.world.equipment;
+
+    const stack = inventory.findByUid(uid);
+
+    if (!stack) return false;
+
+    if (!equipment.canEquip(stack.itemId, slotId)) {
+      return false;
+    }
+
+    const previous = equipment.equip(stack.itemId, slotId);
+
+    inventory.takeUid(uid, 1);
+
+    if (previous) {
+      inventory.add(previous, 1);
+    }
+
+    this.applyEquipment();
+    this.checkEquipQuest();
+    this.sendSnapshot();
+
+    return true;
+  }
+
+  unequipItem(slotId) {
+    const equipment = this.world.equipment;
+
+    const previous = equipment.unequip(slotId);
+
+    if (!previous) return false;
+
+    const result = this.world.inventory.add(previous, 1);
+
+    this.applyEquipment();
+    this.sendSnapshot();
+
+    return result.added > 0;
+  }
+
+  autoEquipBest() {
+    const inventory = this.world.inventory;
+    const equipment = this.world.equipment;
+
+    let changed = false;
+
+    for (const slot of equipment.getSlots()) {
+      let best = null;
+      let bestScore = -Infinity;
+
+      for (const stack of inventory.stacks) {
+        if (!slot.accepts.includes(itemTypeOf(stack.itemId))) {
+          continue;
+        }
+
+        const item = getItem(stack.itemId);
+
+        if (!item) continue;
+
+        const score = item.value;
+
+        if (score > bestScore) {
+          bestScore = score;
+          best = stack;
+        }
+      }
+
+      if (!best) continue;
+
+      if (equipment.slotAccepts(slot.id, best.itemId)) {
+        changed = this.equipItem(best.uid, slot.id) || changed;
+      }
+    }
+
+    if (changed) {
+      this.showMessage("Equipamento ajustado.");
+    }
+
+    return changed;
+  }
+
+  applyEquipment() {
+    const player = this.world.player;
+    const stats = player.definition.stats;
+    const bonus = this.world.equipment.bonuses();
+    const growth = statsForLevel(player.level ?? 1);
+
+    const maxHp =
+      stats.hp + growth.maxHp + (bonus.maxHp ?? 0);
+
+    const previousMax = player.maxHp;
+
+    player.maxHp = maxHp;
+    player.maxResource =
+      stats.resource + (bonus.resource ?? 0);
+
+    player.attack =
+      stats.attack + growth.attack + (bonus.attack ?? 0);
+    player.defense =
+      stats.defense +
+      growth.defense +
+      (bonus.defense ?? 0);
+    player.speed = stats.speed + (bonus.speed ?? 0);
+    player.range = stats.range;
+
+    player.attackSpeedBonus = bonus.attackSpeed ?? 0;
+    player.resourceRegenBonus =
+      bonus.resourceRegen ?? 0;
+
+    if (maxHp > previousMax) {
+      player.hp += maxHp - previousMax;
+    }
+
+    player.hp = Math.max(
+      0,
+      Math.min(player.hp, player.maxHp),
+    );
+
+    player.resource = Math.max(
+      0,
+      Math.min(player.resource, player.maxResource),
+    );
   }
 
   useSkillSlot(slot) {
@@ -572,7 +868,69 @@ export class GameEngine {
     );
   }
 
+  getQuestObjective() {
+    return this.world.quests.objective();
+  }
+
+  getQuestZone(quest) {
+    if (!quest?.location) return null;
+
+    return getZoneById(quest.location);
+  }
+
   pickAutoTarget() {
+    const objective = this.getQuestObjective();
+    const player = this.world.player;
+    const leash = this.autoLeashRange;
+
+    const zone = this.getQuestZone(objective);
+
+    let best = null;
+    let bestDistance = Infinity;
+
+    for (const enemy of this.world.enemies) {
+      if (!enemy.alive) continue;
+
+      if (!enemy.isCreature) continue;
+
+      if (
+        objective?.target &&
+        enemy.id.replace(/_\d+$/, "") !==
+          objective.target
+      ) {
+        continue;
+      }
+
+      const dx = enemy.x - player.x;
+      const dy = enemy.y - player.y;
+      const squared = dx * dx + dy * dy;
+
+      if (zone) {
+        const inside =
+          enemy.x >= zone.x &&
+          enemy.x <= zone.x + zone.width &&
+          enemy.y >= zone.y &&
+          enemy.y <= zone.y + zone.height;
+
+        if (!inside) continue;
+      } else if (squared > leash * leash) {
+        continue;
+      }
+
+      if (squared < bestDistance) {
+        bestDistance = squared;
+        best = enemy;
+      }
+    }
+
+    if (best) return best;
+
+    if (zone) return null;
+
+    return this.pickNearestCreature();
+  }
+
+  pickNearestCreature() {
     const player = this.world.player;
     const leash = this.autoLeashRange;
 
@@ -595,6 +953,36 @@ export class GameEngine {
     }
 
     return best;
+  }
+
+  autoPlayTarget() {
+    const objective = this.getQuestObjective();
+    const target = this.pickAutoTarget();
+
+    if (target) return target;
+
+    const zone = this.getQuestZone(objective);
+
+    if (!zone) return null;
+
+    if (this.reachedQuestZone(zone)) return null;
+
+    return {
+      x: zone.x + zone.width / 2,
+      y: zone.y + zone.height / 2,
+      isWaypoint: true,
+    };
+  }
+
+  reachedQuestZone(zone) {
+    const player = this.world.player;
+
+    return (
+      player.x >= zone.x &&
+      player.x <= zone.x + zone.width &&
+      player.y >= zone.y &&
+      player.y <= zone.y + zone.height
+    );
   }
 
   canAutoUse(action) {
@@ -718,6 +1106,7 @@ export class GameEngine {
   updateAutoPlay(deltaTime) {
     this.autoMoveDirection = null;
     this.autoFacing = null;
+    this.autoWaypoint = null;
 
     if (!this.isAutoActive()) return;
 
@@ -725,39 +1114,79 @@ export class GameEngine {
 
     if (player.hp <= 0) return;
 
-    let target = this.findEnemyById(
-      this.engagedTargetId,
-    );
-
-    if (target) {
-      this.selectedTargetId = target.id;
-    } else {
-      if (this.engagedTargetId !== null) {
-        this.engagedTargetId = null;
-
-        if (!this.autoPlay) {
-          this.selectedTargetId = null;
-          this.showMessage("Alvo eliminado.");
-          return;
-        }
-      }
-
-      this.autoDecisionTimer -= deltaTime;
-
-      if (this.autoDecisionTimer <= 0) {
-        this.autoDecisionTimer = AUTO_RETARGET_INTERVAL;
-
-        this.selectedTargetId =
-          this.pickAutoTarget()?.id ?? null;
-      }
-
-      target = this.findEnemyById(
-        this.selectedTargetId,
-      );
-
-      if (!target) return;
+    if (this.engagedTargetId !== null) {
+      this.runEngagedTarget(player);
+      return;
     }
 
+    if (this.autoPlay) {
+      this.runAutoHunt(deltaTime, player);
+    }
+  }
+
+  runEngagedTarget(player) {
+    let target = this.findEnemyById(this.engagedTargetId);
+
+    if (!target) {
+      this.engagedTargetId = null;
+      this.selectedTargetId = null;
+      this.showMessage("Alvo eliminado.");
+      return;
+    }
+
+    this.selectedTargetId = target.id;
+    this.approachTarget(player, target);
+  }
+
+  runAutoHunt(deltaTime, player) {
+    this.autoDecisionTimer -= deltaTime;
+
+    if (this.autoDecisionTimer <= 0) {
+      this.autoDecisionTimer = AUTO_RETARGET_INTERVAL;
+
+      const picked = this.autoPlayTarget();
+
+      this.autoWaypoint = picked?.isWaypoint
+        ? picked
+        : null;
+
+      this.selectedTargetId = picked?.isWaypoint
+        ? null
+        : (picked?.id ?? null);
+    }
+
+    if (this.autoWaypoint) {
+      this.walkToward(
+        player,
+        this.autoWaypoint,
+      );
+
+      return;
+    }
+
+    const target = this.findEnemyById(
+      this.selectedTargetId,
+    );
+
+    if (!target) return;
+
+    this.approachTarget(player, target);
+  }
+
+  walkToward(player, point) {
+    const dx = point.x - player.x;
+    const dy = point.y - player.y;
+
+    if (Math.hypot(dx, dy) < 24) return;
+
+    this.autoFacing = { x: dx, y: dy };
+
+    if (!this.statuses.canMove(player)) return;
+
+    this.autoMoveDirection = normalize(dx, dy);
+  }
+
+  approachTarget(player, target) {
     const targetDistance = distance(player, target);
 
     this.autoFacing = {
@@ -791,6 +1220,7 @@ export class GameEngine {
   }
 
   update(deltaTime) {
+    this.frameDelta = deltaTime;
     this.world.time += deltaTime;
 
     if (this.message) {
@@ -817,6 +1247,8 @@ export class GameEngine {
     this.updateEnemies(deltaTime);
 
     this.effects.update(deltaTime);
+
+    this.updateDrops(deltaTime);
 
     this.snapshotAccumulator += deltaTime;
 
@@ -1028,14 +1460,156 @@ export class GameEngine {
     }
   }
 
+  handleKill(enemy) {
+    this.announceLoot(
+      this.loot.collectFrom(enemy),
+    );
+
+    const typeId = enemy.isCreature
+      ? enemy.id.replace(/_\d+$/, "")
+      : null;
+
+    if (typeId) {
+      this.resolveQuestProgress(
+        this.world.quests.onKill(typeId, 1),
+      );
+    }
+
+    const levels = grantXp(
+      this.world.player,
+      xpForKill(enemy),
+    );
+
+    for (const level of levels) {
+      this.announceLevelUp(level);
+
+      this.resolveQuestProgress(
+        this.world.quests.onLevelUp(level),
+      );
+    }
+
+    if (levels.length > 0) {
+      this.applyEquipment();
+      this.sendSnapshot();
+    }
+  }
+
+  resolveQuestProgress(quests) {
+    if ((quests ?? []).length === 0) return;
+
+    for (const quest of quests) {
+      this.showMessage(
+        `Missão concluída: ${quest.name}`,
+      );
+    }
+
+    for (const { reward } of this.world.quests.drainRewards()) {
+      if (!reward) continue;
+
+      if (reward.coins > 0) {
+        this.world.inventory.addCoins(reward.coins);
+      }
+
+      for (const entry of reward.items ?? []) {
+        this.world.inventory.add(
+          entry.itemId,
+          entry.count,
+        );
+      }
+
+      if (reward.xp > 0) {
+        const levels = grantXp(
+          this.world.player,
+          reward.xp,
+        );
+
+        for (const level of levels) {
+          this.announceLevelUp(level);
+        }
+      }
+    }
+
+    this.sendSnapshot();
+  }
+
+  announceLevelUp(level) {
+    this.showMessage(`Nível ${level} alcançado!`);
+  }
+
+  announceLoot(collected) {
+    const parts = [];
+
+    if (collected.coins > 0) {
+      parts.push(`+${collected.coins} moedas`);
+    }
+
+    for (const entry of collected.items) {
+      const item = getItem(entry.itemId);
+
+      if (!item) continue;
+
+      parts.push(
+        entry.count > 1
+          ? `${item.name} x${entry.count}`
+          : item.name,
+      );
+    }
+
+    if (parts.length > 0) {
+      this.showMessage(parts.join(" · "));
+    }
+
+    if (collected.dropped > 0) {
+      this.showMessage(
+        "Inventário cheio: o excedente ficou no chão.",
+        true,
+      );
+    }
+  }
+
+  updateDrops(deltaTime) {
+    this.loot.update(deltaTime);
+
+    const collected = this.loot.collectNear(
+      this.world.player,
+    );
+
+    if (collected.coins <= 0 && collected.items.length === 0) {
+      return;
+    }
+
+    const parts = [];
+
+    if (collected.coins > 0) {
+      parts.push(`+${collected.coins} moedas`);
+    }
+
+    for (const entry of collected.items) {
+      const item = getItem(entry.itemId);
+
+      if (!item) continue;
+
+      parts.push(
+        entry.count > 1
+          ? `${item.name} x${entry.count}`
+          : item.name,
+      );
+    }
+
+    if (parts.length > 0) {
+      this.showMessage(parts.join(" · "));
+    }
+
+    if (collected.rejected > 0) {
+      this.sendSnapshot();
+    }
+  }
+
   sendSnapshot() {
     if (!this.onSnapshot) return;
 
     const player = this.world.player;
-    const selectedTarget = this.world.enemies.find(
-      (enemy) =>
-        enemy.id === this.selectedTargetId && enemy.alive,
-    );
+    const selectedTarget = this.getLiveTarget();
 
     this.onSnapshot({
       time: this.world.time,
@@ -1043,11 +1617,19 @@ export class GameEngine {
       autoPlay: this.autoPlay,
       engaged: this.engagedTargetId !== null,
 
+      inventory: this.world.inventory.summary(
+        this.world.equipment,
+      ),
+      equipment: this.world.equipment.summary(),
+      quests: this.world.quests.snapshot(),
+
       player: {
         id: player.id,
         name: player.name,
         className: player.definition.name,
         level: player.level,
+        xp: Math.floor(player.xp ?? 0),
+        xpToNext: xpToNext(player.level ?? 1),
 
         hp: Math.ceil(player.hp),
         maxHp: player.maxHp,
@@ -1095,6 +1677,10 @@ export class GameEngine {
   boundLoop(timestamp) {
     if (this.destroyed) return;
 
+    this.animationFrame = requestAnimationFrame(
+      this.boundLoop,
+    );
+
     const deltaTime = Math.min(
       (timestamp - this.lastTime) / 1000,
       0.05,
@@ -1102,12 +1688,29 @@ export class GameEngine {
 
     this.lastTime = timestamp;
 
-    this.update(deltaTime);
-    this.render();
+    try {
+      this.update(deltaTime);
+      this.render();
+    } catch (error) {
+      this.reportFrameError(error);
+    }
+  }
 
-    this.animationFrame = requestAnimationFrame(
-      this.boundLoop,
+  reportFrameError(error) {
+    this.frameErrors += 1;
+
+    if (this.frameErrors > 3) return;
+
+    console.error(
+      `[GameEngine] erro no frame: ${error?.message ?? error}`,
+      error,
     );
+
+    if (this.frameErrors === 3) {
+      console.error(
+        "[GameEngine] suprimindo logs de erro apos 3 falhas",
+      );
+    }
   }
 
   render() {
@@ -1131,9 +1734,7 @@ export class GameEngine {
     this.drawMap(context);
     this.drawAim(context);
     this.drawSelectedTarget(context);
-    this.drawEnemies(context);
-    this.drawProjectiles(context);
-    this.drawPlayer(context);
+    this.drawWorldSorted(context);
     this.effects.draw(context);
 
     context.restore();
@@ -1143,6 +1744,91 @@ export class GameEngine {
     }
 
     this.drawMinimap(context, width, height);
+  }
+
+  drawWorldSorted(context) {
+    const list = this.world.sort;
+    list.length = 0;
+
+    if (this.props.isReady()) {
+      for (const prop of this.props.collectVisible(
+        this.world.props,
+        this.getViewBounds(),
+      )) {
+        list.push({ y: prop.y, kind: 1, ref: prop });
+      }
+    }
+
+    for (const drop of this.world.drops) {
+      list.push({ y: drop.y, kind: 2, ref: drop });
+    }
+
+    for (const enemy of this.world.enemies) {
+      if (!enemy.alive) continue;
+
+      list.push({ y: enemy.y, kind: 3, ref: enemy });
+    }
+
+    const player = this.world.player;
+
+    if (player.hp > 0) {
+      list.push({
+        y: player.y,
+        kind: 4,
+        ref: player,
+      });
+    }
+
+    list.sort((a, b) => a.y - b.y);
+
+    for (const entry of list) {
+      if (entry.kind === 1) {
+        this.props.drawShadow(context, entry.ref);
+        this.props.drawProp(context, entry.ref);
+        continue;
+      }
+
+      if (entry.kind === 2) {
+        this.drawDrop(context, entry.ref);
+        continue;
+      }
+
+      if (entry.kind === 3) {
+        this.drawEnemy(context, entry.ref);
+        continue;
+      }
+
+      this.drawPlayer(context);
+    }
+
+    this.drawProjectiles(context);
+  }
+
+  getViewBounds() {
+    return {
+      x: this.world.player.x - this.viewport.width / 2,
+      y: this.world.player.y - this.viewport.height / 2,
+      width: this.viewport.width,
+      height: this.viewport.height,
+    };
+  }
+
+  getLiveTarget() {
+    if (this.selectedTargetId === null) {
+      return null;
+    }
+
+    return (
+      this.world.enemies.find(
+        (enemy) =>
+          enemy.id === this.selectedTargetId &&
+          enemy.alive,
+      ) ?? null
+    );
+  }
+
+  hasLiveTarget() {
+    return this.getLiveTarget() !== null;
   }
 
   drawMinimap(context, width, height) {
@@ -1155,15 +1841,30 @@ export class GameEngine {
 
     const panelHeight = Math.min(
       MINIMAP_HEIGHT,
-      height - MINIMAP_TOP - MINIMAP_RIGHT,
+      height - MINIMAP_TOP_IDLE - MINIMAP_RIGHT,
     );
 
     if (panelWidth < 80 || panelHeight < 60) {
       return;
     }
 
+    const resting = this.hasLiveTarget()
+      ? MINIMAP_TOP_TARGETED
+      : MINIMAP_TOP_IDLE;
+
+    const blend = 1 - Math.pow(
+      1 - MINIMAP_SLIDE,
+      this.frameDelta * 60,
+    );
+
+    this.minimapY += (resting - this.minimapY) * blend;
+
+    if (Math.abs(resting - this.minimapY) < 0.5) {
+      this.minimapY = resting;
+    }
+
     const originX = width - MINIMAP_RIGHT - panelWidth;
-    const originY = MINIMAP_TOP;
+    const originY = Math.round(this.minimapY);
 
     drawMinimap(context, {
       map: this.world.map,
@@ -1214,24 +1915,22 @@ export class GameEngine {
   drawMap(context) {
     const map = this.world.map;
 
-    context.fillStyle = map.background;
-    context.fillRect(0, 0, map.width, map.height);
-
-    context.strokeStyle = "rgba(180, 220, 190, 0.045)";
-    context.lineWidth = 1;
-    context.beginPath();
-
-    for (let x = 0; x <= map.width; x += 80) {
-      context.moveTo(x, 0);
-      context.lineTo(x, map.height);
+    if (this.terrain.isReady()) {
+      this.terrain.draw(
+        context,
+        map,
+        MAP_META.zones,
+        {
+          x: this.world.player.x - this.viewport.width / 2,
+          y: this.world.player.y - this.viewport.height / 2,
+          width: this.viewport.width,
+          height: this.viewport.height,
+        },
+      );
+    } else {
+      context.fillStyle = map.background;
+      context.fillRect(0, 0, map.width, map.height);
     }
-
-    for (let y = 0; y <= map.height; y += 80) {
-      context.moveTo(0, y);
-      context.lineTo(map.width, y);
-    }
-
-    context.stroke();
 
     for (const zone of map.zones) {
       context.fillStyle = zone.color;
@@ -1260,81 +1959,6 @@ export class GameEngine {
       map.bounds.width,
       map.bounds.height,
     );
-
-    for (const wall of map.walls) {
-      context.fillStyle = "rgba(0,0,0,0.28)";
-      context.fillRect(
-        wall.x + 8,
-        wall.y + 10,
-        wall.width,
-        wall.height,
-      );
-
-      context.fillStyle = "#46534e";
-      context.fillRect(
-        wall.x,
-        wall.y,
-        wall.width,
-        wall.height,
-      );
-
-      context.strokeStyle = "#697970";
-      context.lineWidth = 2;
-      context.strokeRect(
-        wall.x,
-        wall.y,
-        wall.width,
-        wall.height,
-      );
-
-      context.fillStyle = "rgba(255,255,255,0.08)";
-      context.fillRect(
-        wall.x + 5,
-        wall.y + 5,
-        Math.max(0, wall.width - 10),
-        5,
-      );
-    }
-
-    for (const obstacle of map.obstacles) {
-      context.fillStyle = "#735336";
-      context.fillRect(
-        obstacle.x,
-        obstacle.y,
-        obstacle.width,
-        obstacle.height,
-      );
-
-      context.strokeStyle = "#aa7a4f";
-      context.lineWidth = 4;
-      context.strokeRect(
-        obstacle.x,
-        obstacle.y,
-        obstacle.width,
-        obstacle.height,
-      );
-
-      context.beginPath();
-      context.moveTo(
-        obstacle.x,
-        obstacle.y,
-      );
-      context.lineTo(
-        obstacle.x + obstacle.width,
-        obstacle.y + obstacle.height,
-      );
-
-      context.moveTo(
-        obstacle.x + obstacle.width,
-        obstacle.y,
-      );
-      context.lineTo(
-        obstacle.x,
-        obstacle.y + obstacle.height,
-      );
-
-      context.stroke();
-    }
   }
 
   drawAim(context) {
@@ -1369,10 +1993,7 @@ export class GameEngine {
   }
 
   drawSelectedTarget(context) {
-    const target = this.world.enemies.find(
-      (enemy) =>
-        enemy.id === this.selectedTargetId && enemy.alive,
-    );
+    const target = this.getLiveTarget();
 
     if (!target) return;
 
@@ -1392,26 +2013,73 @@ export class GameEngine {
     context.restore();
   }
 
-  drawEnemies(context) {
-    for (const enemy of this.world.enemies) {
-      if (!enemy.alive) continue;
+  drawDrop(context, drop) {
+    const color =
+      drop.kind === "coins"
+        ? COIN_COLOR
+        : (rarityOf(getItem(drop.itemId))?.color ??
+          "#ffffff");
 
-      const sheet = this.enemySprites.get(enemy.id);
+    const bob = Math.sin(drop.age * 3 + drop.x) * 2;
+    const size = drop.kind === "coins" ? 7 : 9;
 
-      const drawn = sheet
-        ? sheet.drawCreature(
-            context,
-            enemy,
-            this.spriteTime + enemy.spriteOffset,
-          )
-        : false;
+    context.save();
 
-      if (!drawn) {
-        this.drawEnemyBody(context, enemy);
-      }
+    context.globalAlpha = 0.22;
+    context.fillStyle = color;
+    context.beginPath();
+    context.ellipse(
+      drop.x,
+      drop.y + 6,
+      size * 1.5,
+      size * 0.6,
+      0,
+      0,
+      Math.PI * 2,
+    );
+    context.fill();
 
-      this.drawEnemyStatus(context, enemy);
+    context.globalAlpha = 0.95;
+    context.fillStyle = color;
+    context.strokeStyle = "rgba(6, 10, 14, 0.9)";
+    context.lineWidth = 2;
+
+    context.beginPath();
+    context.arc(drop.x, drop.y + bob, size, 0, Math.PI * 2);
+    context.fill();
+    context.stroke();
+
+    context.fillStyle = "rgba(10, 14, 19, 0.9)";
+    context.font = `700 ${drop.kind === "coins" ? 8 : 10}px Inter, sans-serif`;
+    context.textAlign = "center";
+    context.textBaseline = "middle";
+    context.fillText(
+      drop.kind === "coins"
+        ? String(drop.coins)
+        : (getItem(drop.itemId)?.icon ?? "•"),
+      drop.x,
+      drop.y + bob,
+    );
+
+    context.restore();
+  }
+
+  drawEnemy(context, enemy) {
+    const sheet = this.enemySprites.get(enemy.id);
+
+    const drawn = sheet
+      ? sheet.drawCreature(
+          context,
+          enemy,
+          this.spriteTime + enemy.spriteOffset,
+        )
+      : false;
+
+    if (!drawn) {
+      this.drawEnemyBody(context, enemy);
     }
+
+    this.drawEnemyStatus(context, enemy);
   }
 
   drawEnemyShadow(context, enemy) {

@@ -1,7 +1,12 @@
-export const MINIMAP_WIDTH = 210;
+import { minimapColorFor } from "../../data/terrain/index.js";
+
+export const MINIMAP_WIDTH = 240;
 export const MINIMAP_HEIGHT = 146;
-export const MINIMAP_TOP = 190;
 export const MINIMAP_RIGHT = 20;
+
+export const MINIMAP_TOP_IDLE = 84;
+export const MINIMAP_TOP_TARGETED = 190;
+export const MINIMAP_SLIDE = 0.18;
 
 const PANEL_BG = "rgba(7, 11, 15, 0.82)";
 const PANEL_BORDER = "rgba(255, 255, 255, 0.14)";
@@ -112,7 +117,9 @@ export function drawMinimap(
   context.fillRect(0, 0, transform.width, transform.height);
 
   for (const zone of zones) {
-    context.fillStyle = zone.mapColor;
+    context.fillStyle =
+      zone.mapColor ??
+      minimapColorFor(zone.terrain);
 
     context.fillRect(
       baseX + zone.x * scale,
@@ -124,12 +131,18 @@ export function drawMinimap(
 
   context.fillStyle = "rgba(255, 255, 255, 0.1)";
 
-  for (const wall of map.walls) {
+  for (const prop of map.blocking ?? []) {
+    context.fillStyle = prop.isTree
+      ? "rgba(34, 63, 45, 0.8)"
+      : "rgba(150, 155, 160, 0.6)";
+
+    const size = Math.max(1, prop.radius * scale * 0.5);
+
     context.fillRect(
-      baseX + wall.x * scale,
-      baseY + wall.y * scale,
-      Math.max(1, wall.width * scale),
-      Math.max(1, wall.height * scale),
+      baseX + prop.x * scale - size / 2,
+      baseY + prop.y * scale - size / 2,
+      size,
+      size,
     );
   }
 

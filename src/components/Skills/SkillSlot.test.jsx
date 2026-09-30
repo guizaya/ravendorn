@@ -55,9 +55,19 @@ describe("SkillSlot render", () => {
   it("does not show the drag hint while idle", () => {
     const markup = render({ draggable: true, auto: true });
 
-    expect(markup).toContain("AUTO</span>");
+    expect(markup).toContain("skill-slot__auto-badge");
     expect(markup).not.toContain("skill-slot__drag-hint");
     expect(markup).not.toContain("is-dragging");
+  });
+
+  it("keeps the circular frame for the metalic look", () => {
+    expect(render({})).toContain("skill-slot__frame");
+  });
+
+  it("does not render a slot name inside the circle", () => {
+    expect(render({})).not.toContain(
+      "skill-slot__name",
+    );
   });
 
   it("marks auto slots so the border can animate", () => {

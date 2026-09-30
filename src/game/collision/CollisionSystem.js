@@ -8,7 +8,12 @@ const CELL_SIZE = 220;
 export class CollisionSystem {
   constructor(map) {
     this.map = map;
-    this.solids = [...map.walls, ...map.obstacles];
+
+    this.solids = [
+      ...(map.solids ?? []),
+      ...(map.walls ?? []),
+      ...(map.obstacles ?? []),
+    ];
 
     this.cellSize = CELL_SIZE;
 

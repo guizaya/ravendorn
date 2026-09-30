@@ -3,7 +3,8 @@ import {
   computeMinimapTransform,
   MINIMAP_HEIGHT,
   MINIMAP_RIGHT,
-  MINIMAP_TOP,
+  MINIMAP_TOP_IDLE,
+  MINIMAP_TOP_TARGETED,
   MINIMAP_WIDTH,
   worldToMinimap,
 } from "./minimap.js";
@@ -20,18 +21,35 @@ const TARGET_PANEL = {
 };
 
 describe("minimap layout", () => {
-  it("sits below the topbar and the target panel", () => {
-    expect(MINIMAP_TOP).toBeGreaterThan(
+  it("sits below the topbar in both states", () => {
+    expect(MINIMAP_TOP_IDLE).toBeGreaterThan(
       HUD_TOPBAR_HEIGHT,
     );
+    expect(MINIMAP_TOP_TARGETED).toBeGreaterThan(
+      HUD_TOPBAR_HEIGHT,
+    );
+  });
 
-    expect(MINIMAP_TOP).toBeGreaterThan(
+  it("takes the target panel slot when idle", () => {
+    expect(MINIMAP_TOP_IDLE).toBe(TARGET_PANEL.top);
+    expect(MINIMAP_WIDTH).toBe(TARGET_PANEL.width);
+  });
+
+  it("drops below the target panel when targeted", () => {
+    expect(MINIMAP_TOP_TARGETED).toBeGreaterThan(
       TARGET_PANEL.top + TARGET_PANEL.height,
     );
   });
 
+  it("moves down when a target appears", () => {
+    expect(MINIMAP_TOP_TARGETED).toBeGreaterThan(
+      MINIMAP_TOP_IDLE,
+    );
+  });
+
   it("keeps clear of the controls hint", () => {
-    const bottom = MINIMAP_TOP + MINIMAP_HEIGHT;
+    const bottom =
+      MINIMAP_TOP_TARGETED + MINIMAP_HEIGHT;
 
     // o hint fica a 150px do rodape com ~110px de altura
     const hintTop = 720 - 150 - 110;
@@ -39,15 +57,18 @@ describe("minimap layout", () => {
     expect(bottom).toBeLessThan(hintTop);
   });
 
-  it("stays inside a 1280x720 viewport", () => {
-    const left = 1280 - MINIMAP_RIGHT - MINIMAP_WIDTH;
-    const right = 1280 - MINIMAP_RIGHT;
+  it("stays inside a 1280x720 viewport in both states", () => {
+    for (const top of [
+      MINIMAP_TOP_IDLE,
+      MINIMAP_TOP_TARGETED,
+    ]) {
+      const left = 1280 - MINIMAP_RIGHT - MINIMAP_WIDTH;
+      const right = 1280 - MINIMAP_RIGHT;
 
-    expect(left).toBeGreaterThanOrEqual(0);
-    expect(right).toBeLessThanOrEqual(1280);
-    expect(MINIMAP_TOP + MINIMAP_HEIGHT).toBeLessThanOrEqual(
-      720,
-    );
+      expect(left).toBeGreaterThanOrEqual(0);
+      expect(right).toBeLessThanOrEqual(1280);
+      expect(top + MINIMAP_HEIGHT).toBeLessThanOrEqual(720);
+    }
   });
 
   it("aligns its right edge with the target panel", () => {

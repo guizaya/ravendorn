@@ -142,6 +142,8 @@ export default function SkillSlot({
       aria-label={`Usar ${skill.name}`}
       aria-pressed={showAuto}
     >
+      <span className="skill-slot__frame" />
+
       <span
         className="skill-slot__cooldown"
         style={{
@@ -157,10 +159,6 @@ export default function SkillSlot({
         {skill.icon}
       </span>
 
-      <span className="skill-slot__name">
-        {skill.name}
-      </span>
-
       {cooldown > 0 && (
         <span className="skill-slot__timer">
           {cooldown.toFixed(1)}
@@ -169,13 +167,13 @@ export default function SkillSlot({
 
       {canDrag && showAuto && !drag && (
         <span className="skill-slot__auto-badge">
-          AUTO
+          A
         </span>
       )}
 
       {drag && drag.direction !== 0 && (
         <span className="skill-slot__drag-hint">
-          {drag.direction > 0 ? "AUTO" : "MANUAL"}
+          {drag.direction > 0 ? "AUTO" : "MAN"}
         </span>
       )}
     </button>

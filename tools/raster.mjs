@@ -27,6 +27,12 @@ export function blend(target, color, alpha) {
 }
 
 export function setPixel(surface, x, y, color) {
+  if (!color) {
+    throw new Error(
+      `setPixel sem cor valida em (${x}, ${y})`,
+    );
+  }
+
   const px = Math.round(x);
   const py = Math.round(y);
 
@@ -57,6 +63,19 @@ export function fillEllipse(
   ry,
   color,
 ) {
+  if (
+    !Number.isFinite(cx) ||
+    !Number.isFinite(cy) ||
+    !Number.isFinite(rx) ||
+    !Number.isFinite(ry) ||
+    rx <= 0 ||
+    ry <= 0
+  ) {
+    throw new Error(
+      `fillEllipse com geometria invalida: c=(${cx},${cy}) r=(${rx},${ry})`,
+    );
+  }
+
   for (let py = Math.floor(cy - ry); py <= Math.ceil(cy + ry); py += 1) {
     for (
       let px = Math.floor(cx - rx);
@@ -94,4 +113,124 @@ export function drawLine(surface, x0, y0, x1, y1, color) {
       color,
     );
   }
+}
+
+export function mix(a, b, t) {
+  const amount = Math.max(0, Math.min(1, t));
+
+  return [
+    Math.round(a[0] + (b[0] - a[0]) * amount),
+    Math.round(a[1] + (b[1] - a[1]) * amount),
+    Math.round(a[2] + (b[2] - a[2]) * amount),
+  ];
+}
+
+export function fillAll(surface, color) {
+  for (let i = 0; i < surface.data.length; i += 4) {
+    surface.data[i] = color[0];
+    surface.data[i + 1] = color[1];
+    surface.data[i + 2] = color[2];
+    surface.data[i + 3] = 255;
+  }
+}
+
+export function speckle(surface, color, density, seed = 1) {
+  let state = seed | 0 || 1;
+
+  const random = () => {
+    state = (state + 0x6d2b79f5) | 0;
+
+    let t = Math.imul(state ^ (state >>> 15), 1 | state);
+
+    t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t;
+
+    return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+  };
+
+  for (let y = 0; y < surface.height; y += 1) {
+    for (let x = 0; x < surface.width; x += 1) {
+      if (random() >= density) continue;
+
+      const index = (y * surface.width + x) * 4;
+
+      if (surface.data[index + 3] === 0) continue;
+
+      surface.data[index] = color[0];
+      surface.data[index + 1] = color[1];
+      surface.data[index + 2] = color[2];
+    }
+  }
+}
+
+export function pick(palette, noise, amount = 1) {
+  const scaled = Math.max(
+    0,
+    Math.min(0.9999, noise) * (palette.length - 1),
+  );
+
+  const index = Math.floor(scaled);
+  const blend = scaled - index;
+
+  if (index >= palette.length - 1) {
+    return palette[palette.length - 1];
+  }
+
+  return mix(
+    palette[index],
+    palette[index + 1],
+    blend * amount,
+  );
+}
+
+export function valueNoise(random) {
+  const size = 8;
+  const lattice = new Float32Array(size * size);
+
+  for (let i = 0; i < lattice.length; i += 1) {
+    lattice[i] = random();
+  }
+
+  const smooth = (t) => t * t * (3 - 2 * t);
+
+  const at = (x, y) => {
+    const wrappedX = ((x % size) + size) % size;
+    const wrappedY = ((y % size) + size) % size;
+
+    return lattice[wrappedY * size + wrappedX];
+  };
+
+  return (x, y) => {
+    const xi = Math.floor(x);
+    const yi = Math.floor(y);
+
+    const tx = smooth(x - xi);
+    const ty = smooth(y - yi);
+
+    const top =
+      at(xi, yi) + (at(xi + 1, yi) - at(xi, yi)) * tx;
+
+    const bottom =
+      at(xi, yi + 1) +
+      (at(xi + 1, yi + 1) - at(xi, yi + 1)) * tx;
+
+    return top + (bottom - top) * ty;
+  };
+}
+
+export function fbm(noise, x, y, octaves = 3) {
+  let total = 0;
+  let amplitude = 1;
+  let frequency = 1;
+  let norm = 0;
+
+  for (let octave = 0; octave < octaves; octave += 1) {
+    total +=
+      noise(x * frequency, y * frequency) * amplitude;
+
+    norm += amplitude;
+    amplitude *= 0.5;
+    frequency *= 2;
+  }
+
+  return total / norm;
 }
