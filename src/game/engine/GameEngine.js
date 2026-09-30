@@ -1,4 +1,4 @@
-import { createPlayer } from "../entities/Player.js";
+﻿import { createPlayer } from "../entities/Player.js";
 import { createTrainingDummies } from "../entities/TrainingDummy.js";
 import { EnemyAI } from "../enemies/EnemyAI.js";
 import { Inventory } from "../inventory/Inventory.js";
@@ -10,9 +10,18 @@ import {
   xpToNext,
 } from "../progression/Levels.js";
 import { QuestLog } from "../quests/QuestLog.js";
+import { Bestiary } from "../bestiary/Bestiary.js";
 import { isAutoCompletable } from "../../data/quests/index.js";
 import { RARITY_ORDER } from "../../data/items/index.js";
 import { LootSystem } from "../loot/LootSystem.js";
+import {
+  describeFilter,
+  isCollectedId,
+  loadLootFilter,
+  LOOT_CATEGORY,
+  normalizeLootFilter,
+  saveLootFilter,
+} from "../loot/lootFilter.js";
 import { TerrainRenderer } from "../terrain/TerrainRenderer.js";
 import { PropRenderer } from "../props/PropRenderer.js";
 import {
@@ -20,9 +29,32 @@ import {
   ITEM_TYPE,
   rarityOf,
 } from "../../data/items/index.js";
+import {
+  describeBonus,
+  getBestiaryEntry,
+} from "../../data/bestiary/index.js";
 
 function itemTypeOf(itemId) {
   return getItem(itemId)?.type ?? null;
+}
+
+/**
+ * soma dicionarios de bonus stat por chave.
+ * spread nao serve aqui: equipamento e bestiario usam as mesmas
+ * chaves (maxHp, attack...) e uma sobrescreveria a outra.
+ */
+export function mergeBonuses(...sources) {
+  const total = {};
+
+  for (const source of sources) {
+    for (const [stat, value] of Object.entries(
+      source ?? {},
+    )) {
+      total[stat] = (total[stat] ?? 0) + value;
+    }
+  }
+
+  return total;
 }
 import { CollisionSystem } from "../collision/CollisionSystem.js";
 import { StatusSystem } from "../effects/StatusSystem.js";
@@ -158,6 +190,9 @@ export class GameEngine {
     this.autoFacing = null;
     this.autoLeashRange = AUTO_LEASH_RANGE;
 
+    this.bestiaryTargetType = null;
+    this.bestiaryOwnsAutoPlay = false;
+
     this.world = {
       time: 0,
 
@@ -178,6 +213,7 @@ export class GameEngine {
       inventory: new Inventory(),
       equipment: new Equipment(),
       quests: new QuestLog(),
+      bestiary: new Bestiary(),
 
       map: null,
       collision: null,
@@ -194,6 +230,8 @@ export class GameEngine {
     this.effects = new EffectSystem();
     this.statuses = new StatusSystem();
     this.loot = new LootSystem(this.world);
+    this.lootFilter = loadLootFilter();
+    this.loot.setFilter(this.lootFilter);
 
     this.damage = new DamageSystem({
       statuses: this.statuses,
@@ -328,6 +366,7 @@ export class GameEngine {
     this.world.props = map.props ?? [];
     this.world.player.x = map.spawn.x;
     this.world.player.y = map.spawn.y;
+    this.autoWaypoint = null;
   }
 
   destroy() {
@@ -519,6 +558,14 @@ export class GameEngine {
       this.selectedTargetId = null;
       this.autoMoveDirection = null;
       this.autoFacing = null;
+      this.autoWaypoint = null;
+
+      // o botao de auto e parada-mestre: se a cacada do bestiario
+      // sobreviver a ele, a box continuaria mostrando AUTO sem
+      // ninguem cacando. clearBestiaryAuto nao volta aqui porque
+      // o alvo ja foi limpo antes.
+      this.bestiaryTargetType = null;
+      this.bestiaryOwnsAutoPlay = false;
     }
 
     this.showMessage(
@@ -538,8 +585,127 @@ export class GameEngine {
     return (
       this.autoPlay ||
       this.engagedTargetId !== null ||
+      this.bestiaryTargetType !== null ||
       this.getQuestObjective() !== null
     );
+  }
+
+  /**
+   * o auto do bestiario e um auto dedicado a uma criatura: ele
+   * vira o objetivo do piloto, entao todo o resto (escolher alvo,
+   * ir ate a zona, chegar na distancia) ja funciona sem duplicar
+   * nada. clicar no mesmo bicho de novo desliga.
+   */
+  toggleBestiaryAuto(creatureId) {
+    if (this.bestiaryTargetType === creatureId) {
+      return this.clearBestiaryAuto();
+    }
+
+    return this.setBestiaryAuto(creatureId);
+  }
+
+  setBestiaryAuto(creatureId) {
+    const entry = getBestiaryEntry(creatureId);
+
+    if (!entry) {
+      this.showMessage(
+        "Criatura desconhecida no bestiario.",
+        true,
+      );
+
+      this.sendSnapshot();
+
+      return false;
+    }
+
+    this.bestiaryTargetType = entry.creatureId;
+    this.autoDecisionTimer = 0;
+    this.engagedTargetId = null;
+    this.selectedTargetId = null;
+    this.autoWaypoint = null;
+
+    if (!this.autoPlay) {
+      this.bestiaryOwnsAutoPlay = true;
+      this.setAutoPlay(true);
+    }
+
+    this.showMessage(
+      `Auto: caçando ${entry.name}` +
+        `${entry.zoneName ? ` em ${entry.zoneName}` : ""}.`,
+    );
+
+    this.sendSnapshot();
+
+    return true;
+  }
+
+  clearBestiaryAuto() {
+    if (this.bestiaryTargetType === null) return false;
+
+    const entry = getBestiaryEntry(this.bestiaryTargetType);
+
+    this.bestiaryTargetType = null;
+    this.selectedTargetId = null;
+    this.autoDecisionTimer = 0;
+    this.autoWaypoint = null;
+
+    if (this.bestiaryOwnsAutoPlay) {
+      this.bestiaryOwnsAutoPlay = false;
+      this.setAutoPlay(false);
+    }
+
+    this.showMessage(
+      `Auto do bestiario desligado` +
+        `${entry ? `: ${entry.name}` : ""}.`,
+    );
+
+    this.sendSnapshot();
+
+    return true;
+  }
+
+  get isBestiaryAutoOn() {
+    return this.bestiaryTargetType !== null;
+  }
+
+  bestiaryAutoSnapshot() {
+    if (this.bestiaryTargetType === null) return null;
+
+    const entry = getBestiaryEntry(this.bestiaryTargetType);
+
+    if (!entry) return null;
+
+    return {
+      creatureId: entry.creatureId,
+      name: entry.name,
+      icon: entry.icon,
+      color: entry.color,
+      zoneId: entry.zoneId,
+      zoneName: entry.zoneName,
+      kills: this.world.bestiary.kills.get(entry.creatureId) ?? 0,
+    };
+  }
+
+  /**
+   * o objetivo que o auto segue agora. quando o bestiario esta
+   * ativo ele tem prioridade sobre a missao, e usa o mesmo formato
+   * { target, location } para o piloto nao saber a diferenca.
+   */
+  getAutoObjective() {
+    if (this.bestiaryTargetType !== null) {
+      const entry = getBestiaryEntry(this.bestiaryTargetType);
+
+      if (entry) {
+        return {
+          target: entry.creatureId,
+          location: entry.zoneId,
+          summary: `Cacar ${entry.name}`,
+          fromBestiary: true,
+        };
+      }
+    }
+
+    return this.getQuestObjective();
   }
 
   focusQuest(questId) {
@@ -554,7 +720,7 @@ export class GameEngine {
 
     if (!isAutoCompletable(quest)) {
       this.showMessage(
-        "Esta missão precisa ser feita manualmente.",
+        "Esta missÃ£o precisa ser feita manualmente.",
         true,
       );
 
@@ -595,7 +761,7 @@ export class GameEngine {
       if (!objective) {
         quests.setAuto(false);
         this.showMessage(
-          "Nenhuma missão automática disponível.",
+          "Nenhuma missÃ£o automÃ¡tica disponÃ­vel.",
           true,
         );
 
@@ -609,7 +775,7 @@ export class GameEngine {
         `Auto: ${objective.summary}`,
       );
     } else {
-      this.showMessage("Auto de missão desligado.");
+      this.showMessage("Auto de missÃ£o desligado.");
     }
 
     this.sendSnapshot();
@@ -640,7 +806,7 @@ export class GameEngine {
 
     if (!accepted) {
       this.showMessage(
-        "Termine a missão secundária atual primeiro.",
+        "Termine a missÃ£o secundÃ¡ria atual primeiro.",
         true,
       );
 
@@ -648,7 +814,7 @@ export class GameEngine {
     }
 
     this.showMessage(
-      "Missão secundária aceita.",
+      "MissÃ£o secundÃ¡ria aceita.",
     );
 
     this.sendSnapshot();
@@ -661,7 +827,7 @@ export class GameEngine {
 
     if (dropped) {
       this.showMessage(
-        "Missão secundária abandonada.",
+        "MissÃ£o secundÃ¡ria abandonada.",
       );
     }
 
@@ -716,6 +882,94 @@ export class GameEngine {
     return result.added > 0;
   }
 
+  /** remove a peÃ§a do inventÃ¡rio sem qualquer contrapartida */
+  discardItem(uid, count = Number.POSITIVE_INFINITY) {
+    const taken = this.world.inventory.takeUid(uid, count);
+
+    if (!taken) return false;
+
+    const name = getItem(taken.itemId)?.name ?? taken.itemId;
+
+    this.showMessage(
+      `${taken.count}x ${name} descartado.`,
+    );
+
+    this.sendSnapshot();
+
+    return true;
+  }
+
+  /** tira a peÃ§a do corpo e some com ela */
+  discardEquipped(slotId) {
+    const equipped = this.world.equipment.getEquipped(slotId);
+
+    if (!equipped) return false;
+
+    const previous = this.world.equipment.unequip(slotId);
+
+    if (!previous) return false;
+
+    this.world.inventory.take(previous, 1);
+
+    this.applyEquipment();
+    this.checkEquipQuest();
+    this.showMessage(`${equipped.name} descartado.`);
+    this.sendSnapshot();
+
+    return true;
+  }
+
+  setLootFilter(filter) {
+    this.lootFilter = normalizeLootFilter(filter);
+    saveLootFilter(this.lootFilter);
+
+    const removed = this.loot.setFilter(this.lootFilter);
+
+    if (removed > 0) {
+      this.showMessage(
+        `${removed} no chao descartado(s) pelo filtro.`,
+      );
+    }
+
+    this.sendSnapshot();
+
+    return this.lootFilter;
+  }
+
+  /** limpa da mochila o que o filtro reprova */
+  pruneInventory() {
+    const inventory = this.world.inventory;
+    let removed = 0;
+
+    for (let index = inventory.stacks.length - 1; index >= 0; index -= 1) {
+      const stack = inventory.stacks[index];
+
+      if (isCollectedId(stack.itemId, this.lootFilter)) {
+        continue;
+      }
+
+      const taken = inventory.takeUid(stack.uid);
+
+      removed += taken?.count ?? 0;
+    }
+
+    if (removed > 0) {
+      this.showMessage(
+        `${removed} item(ns) da mochila descartado(s).`,
+      );
+      this.sendSnapshot();
+    }
+
+    return removed;
+  }
+
+  lootFilterSummary() {
+    return {
+      ...this.lootFilter,
+      label: describeFilter(this.lootFilter),
+    };
+  }
+
   autoEquipBest() {
     const inventory = this.world.inventory;
     const equipment = this.world.equipment;
@@ -760,8 +1014,16 @@ export class GameEngine {
   applyEquipment() {
     const player = this.world.player;
     const stats = player.definition.stats;
-    const bonus = this.world.equipment.bonuses();
     const growth = statsForLevel(player.level ?? 1);
+
+    // equipamento + bestiario no mesmo pipeline. as cacadas fechadas
+    // somam como se fosse item vestida, entao as duas fontes precisam
+    // ser SOMADAS por stat: um spread sobrescreveria o maxHp do
+    // equipamento com o do bestiario.
+    const bonus = mergeBonuses(
+      this.world.equipment.bonuses(),
+      this.world.bestiary.bonuses(),
+    );
 
     const maxHp =
       stats.hp + growth.maxHp + (bonus.maxHp ?? 0);
@@ -879,7 +1141,7 @@ export class GameEngine {
   }
 
   pickAutoTarget() {
-    const objective = this.getQuestObjective();
+    const objective = this.getAutoObjective();
     const player = this.world.player;
     const leash = this.autoLeashRange;
 
@@ -956,7 +1218,7 @@ export class GameEngine {
   }
 
   autoPlayTarget() {
-    const objective = this.getQuestObjective();
+    const objective = this.getAutoObjective();
     const target = this.pickAutoTarget();
 
     if (target) return target;
@@ -1106,20 +1368,23 @@ export class GameEngine {
   updateAutoPlay(deltaTime) {
     this.autoMoveDirection = null;
     this.autoFacing = null;
-    this.autoWaypoint = null;
 
-    if (!this.isAutoActive()) return;
+    if (!this.isAutoActive()) {
+      this.autoWaypoint = null;
+      return;
+    }
 
     const player = this.world.player;
 
     if (player.hp <= 0) return;
 
     if (this.engagedTargetId !== null) {
+      this.autoWaypoint = null;
       this.runEngagedTarget(player);
       return;
     }
 
-    if (this.autoPlay) {
+    if (this.autoPlay || this.bestiaryTargetType !== null) {
       this.runAutoHunt(deltaTime, player);
     }
   }
@@ -1156,10 +1421,9 @@ export class GameEngine {
     }
 
     if (this.autoWaypoint) {
-      this.walkToward(
-        player,
-        this.autoWaypoint,
-      );
+      if (!this.walkToward(player, this.autoWaypoint)) {
+        this.autoWaypoint = null;
+      }
 
       return;
     }
@@ -1173,17 +1437,20 @@ export class GameEngine {
     this.approachTarget(player, target);
   }
 
+  /** true enquanto ainda ha caminho, false quando chegou */
   walkToward(player, point) {
     const dx = point.x - player.x;
     const dy = point.y - player.y;
 
-    if (Math.hypot(dx, dy) < 24) return;
+    if (Math.hypot(dx, dy) < 24) return false;
 
     this.autoFacing = { x: dx, y: dy };
 
-    if (!this.statuses.canMove(player)) return;
+    if (!this.statuses.canMove(player)) return true;
 
     this.autoMoveDirection = normalize(dx, dy);
+
+    return true;
   }
 
   approachTarget(player, target) {
@@ -1334,23 +1601,38 @@ export class GameEngine {
       );
 
       player.moveDirection = direction;
+      player.facing = direction;
       player.animationTime += deltaTime * 9;
     } else {
       player.animationTime += deltaTime * 2;
     }
 
-    if (this.autoFacing) {
-      player.facing = normalize(
-        this.autoFacing.x,
-        this.autoFacing.y,
-      );
-    } else if (this.input.pointer.inside) {
-      const facing = normalize(
+    player.walkPhase += deltaTime;
+
+    const walkTarget = player.isMoving ? 1 : 0;
+
+    player.walkBlend +=
+      (walkTarget - player.walkBlend) *
+      Math.min(1, deltaTime * 12);
+
+    const autoFacing = this.autoFacing
+      ? normalize(this.autoFacing.x, this.autoFacing.y)
+      : null;
+
+    const pointerFacing = this.input.pointer.inside
+      ? normalize(
         this.input.pointer.x - player.x,
         this.input.pointer.y - player.y,
-      );
+      )
+      : null;
 
-      player.facing = facing;
+    const aimDirection = autoFacing ?? pointerFacing;
+
+    if (
+      aimDirection &&
+      (aimDirection.x !== 0 || aimDirection.y !== 0)
+    ) {
+      player.aimDirection = aimDirection;
     }
 
     const resourceRegen =
@@ -1473,6 +1755,10 @@ export class GameEngine {
       this.resolveQuestProgress(
         this.world.quests.onKill(typeId, 1),
       );
+
+      this.resolveBestiaryProgress(
+        this.world.bestiary.onKill(typeId, 1),
+      );
     }
 
     const levels = grantXp(
@@ -1494,12 +1780,26 @@ export class GameEngine {
     }
   }
 
+  resolveBestiaryProgress(hunts) {
+    if ((hunts ?? []).length === 0) return;
+
+    for (const hunt of hunts) {
+      this.showMessage(
+        `Cacada do bestiario: ${hunt.title} (${describeBonus(hunt.reward)})`,
+      );
+    }
+
+    // o bonus e permanente: recalcula os stats na hora
+    this.applyEquipment();
+    this.sendSnapshot();
+  }
+
   resolveQuestProgress(quests) {
     if ((quests ?? []).length === 0) return;
 
     for (const quest of quests) {
       this.showMessage(
-        `Missão concluída: ${quest.name}`,
+        `MissÃ£o concluÃ­da: ${quest.name}`,
       );
     }
 
@@ -1533,7 +1833,7 @@ export class GameEngine {
   }
 
   announceLevelUp(level) {
-    this.showMessage(`Nível ${level} alcançado!`);
+    this.showMessage(`NÃ­vel ${level} alcanÃ§ado!`);
   }
 
   announceLoot(collected) {
@@ -1556,12 +1856,12 @@ export class GameEngine {
     }
 
     if (parts.length > 0) {
-      this.showMessage(parts.join(" · "));
+      this.showMessage(parts.join(" Â· "));
     }
 
     if (collected.dropped > 0) {
       this.showMessage(
-        "Inventário cheio: o excedente ficou no chão.",
+        "InventÃ¡rio cheio: o excedente ficou no chÃ£o.",
         true,
       );
     }
@@ -1597,7 +1897,7 @@ export class GameEngine {
     }
 
     if (parts.length > 0) {
-      this.showMessage(parts.join(" · "));
+      this.showMessage(parts.join(" Â· "));
     }
 
     if (collected.rejected > 0) {
@@ -1616,11 +1916,14 @@ export class GameEngine {
 
       autoPlay: this.autoPlay,
       engaged: this.engagedTargetId !== null,
+      bestiaryAuto: this.bestiaryAutoSnapshot(),
 
       inventory: this.world.inventory.summary(
         this.world.equipment,
       ),
       equipment: this.world.equipment.summary(),
+      lootFilter: this.lootFilterSummary(),
+      bestiary: this.world.bestiary.snapshot(),
       quests: this.world.quests.snapshot(),
 
       player: {
@@ -1653,16 +1956,20 @@ export class GameEngine {
         ...player.cooldowns,
       },
 
-      selectedTarget: selectedTarget
+selectedTarget: selectedTarget
         ? {
-            id: selectedTarget.id,
-            name: selectedTarget.name,
-            hp: Math.ceil(selectedTarget.hp),
-            maxHp: selectedTarget.maxHp,
-            statusEffects: this.statuses.snapshot(
-              selectedTarget,
-            ),
-          }
+          id: selectedTarget.id,
+          name: selectedTarget.name,
+          level: Math.max(
+            1,
+            Math.round(selectedTarget.level ?? 1),
+          ),
+          hp: Math.ceil(selectedTarget.hp),
+          maxHp: selectedTarget.maxHp,
+          statusEffects: this.statuses.snapshot(
+            selectedTarget,
+          ),
+        }
         : null,
 
       message: this.message
@@ -1736,6 +2043,7 @@ export class GameEngine {
     this.drawSelectedTarget(context);
     this.drawWorldSorted(context);
     this.effects.draw(context);
+    this.drawEnemyHpBar(context);
 
     context.restore();
 
@@ -1829,6 +2137,58 @@ export class GameEngine {
 
   hasLiveTarget() {
     return this.getLiveTarget() !== null;
+  }
+
+  /** inimigo debaixo do cursor, usando a mesma tolerancia do clique */
+  getHoveredEnemy() {
+    const pointer = this.input.pointer;
+
+    if (!pointer?.inside) return null;
+
+    let best = null;
+    let bestDistance = Infinity;
+
+    for (const enemy of this.world.enemies) {
+      if (!enemy.alive) continue;
+
+      const reach = enemy.radius + 18;
+      const distance =
+        (enemy.x - pointer.x) ** 2 +
+        (enemy.y - pointer.y) ** 2;
+
+      if (distance > reach * reach) continue;
+
+      // sobrepostos: o alvo atual tem prioridade para a barra nao pular
+      if (enemy.id === this.selectedTargetId) {
+        return enemy;
+      }
+
+      if (distance < bestDistance) {
+        best = enemy;
+        bestDistance = distance;
+      }
+    }
+
+    return best;
+  }
+
+  /** o que a barra de vida deve descrever: cursor primeiro, alvo depois */
+  getInspectedEnemy() {
+    return this.getHoveredEnemy() ?? this.getLiveTarget();
+  }
+
+  /** topo visual do mob, seja sprite seja corpo de fallback */
+  enemyHeadTop(enemy) {
+    const definition =
+      this.enemySprites.get(enemy.id)?.definition;
+
+    if (!definition) return enemy.y - enemy.radius;
+
+    return (
+      enemy.y +
+      (definition.footOffset ?? 0) -
+      definition.anchorY * definition.scale
+    );
   }
 
   drawMinimap(context, width, height) {
@@ -2056,7 +2416,7 @@ export class GameEngine {
     context.fillText(
       drop.kind === "coins"
         ? String(drop.coins)
-        : (getItem(drop.itemId)?.icon ?? "•"),
+        : (getItem(drop.itemId)?.icon ?? "â€¢"),
       drop.x,
       drop.y + bob,
     );
@@ -2078,8 +2438,134 @@ export class GameEngine {
     if (!drawn) {
       this.drawEnemyBody(context, enemy);
     }
+  }
 
-    this.drawEnemyStatus(context, enemy);
+  /**
+   * barra de vida no estilo OSRS: nome, barra e numeros.
+   * so aparece no mob sob o cursor ou no alvo, entao some com o clique.
+   */
+  drawEnemyHpBar(context) {
+    const enemy = this.getInspectedEnemy();
+
+    if (!enemy) return;
+
+    const definition =
+      this.enemySprites.get(enemy.id)?.definition;
+
+    const barWidth = Math.max(
+      78,
+      (definition?.frameWidth ?? 32) *
+        (definition?.scale ?? 1),
+    );
+    const barHeight = 9;
+
+    const left = enemy.x - barWidth / 2;
+    const top = this.enemyHeadTop(enemy) - 9;
+
+    const maxHp = Math.max(1, Math.ceil(enemy.maxHp));
+    const hp = Math.max(0, Math.ceil(enemy.hp));
+    const ratio = Math.max(0, Math.min(1, hp / maxHp));
+    const filled = barWidth * ratio;
+
+    context.save();
+    context.textAlign = "center";
+    context.lineJoin = "round";
+
+    // moldura preta da barra
+    context.fillStyle = "rgba(4, 6, 9, 0.92)";
+    context.fillRect(
+      left - 2,
+      top - 2,
+      barWidth + 4,
+      barHeight + 4,
+    );
+
+    context.strokeStyle = "rgba(0, 0, 0, 0.9)";
+    context.lineWidth = 1;
+    context.strokeRect(
+      left - 2.5,
+      top - 2.5,
+      barWidth + 5,
+      barHeight + 5,
+    );
+
+    // preenchimento
+    if (filled > 0) {
+      context.fillStyle =
+        ratio > 0.35 ? "#c1160f" : "#8f0f0a";
+      context.fillRect(left, top, filled, barHeight);
+
+      context.fillStyle = "rgba(255, 255, 255, 0.24)";
+      context.fillRect(left, top, filled, 2);
+    }
+
+    // faixa de comportamento das criaturas
+    if (enemy.isCreature) {
+      context.fillStyle =
+        BEHAVIOR_COLORS[enemy.behavior] ?? "#8d97a3";
+      context.fillRect(
+        left,
+        top + barHeight + 3,
+        filled,
+        2,
+      );
+    }
+
+    // nome
+    context.font = "700 11px Inter, sans-serif";
+    context.textBaseline = "bottom";
+    context.lineWidth = 3;
+    context.strokeStyle = "rgba(0, 0, 0, 0.85)";
+    context.strokeText(enemy.name, enemy.x, top - 6);
+    context.fillStyle = "#f0e6d2";
+    context.fillText(enemy.name, enemy.x, top - 6);
+
+    // numeros: nivel a esquerda e vida a direita, ancorados na barra
+    // (sem measureText: os proxies de teste nao devolvem metricas)
+    const level = Math.max(1, Math.round(enemy.level ?? 1));
+    const textY = top + barHeight + 8;
+
+    context.font = "700 9px Inter, sans-serif";
+    context.textBaseline = "top";
+    context.lineWidth = 3;
+    context.strokeStyle = "rgba(0, 0, 0, 0.85)";
+
+    const levelLabel = `Nv.${level}`;
+
+    context.textAlign = "left";
+    context.strokeText(levelLabel, left, textY);
+    context.fillStyle = "#e5bb68";
+    context.fillText(levelLabel, left, textY);
+
+    const hpLabel = `${hp} / ${maxHp}`;
+
+    context.textAlign = "right";
+    context.strokeText(hpLabel, left + barWidth, textY);
+    context.fillStyle = "#cfc3ae";
+    context.fillText(hpLabel, left + barWidth, textY);
+
+    context.textAlign = "center";
+
+    // efeitos de status
+    const dots = Math.min(4, enemy.statusEffects.length);
+
+    for (let index = 0; index < dots; index += 1) {
+      const effect = enemy.statusEffects[index];
+
+      context.fillStyle = this.getStatusColor(effect.type);
+
+      context.beginPath();
+      context.arc(
+        enemy.x - (dots - 1) * 5 + index * 10,
+        top + barHeight + 22,
+        3,
+        0,
+        Math.PI * 2,
+      );
+      context.fill();
+    }
+
+    context.restore();
   }
 
   drawEnemyShadow(context, enemy) {
@@ -2147,72 +2633,6 @@ export class GameEngine {
     context.restore();
   }
 
-  drawEnemyStatus(context, enemy) {
-    const sheet = this.enemySprites.get(enemy.id);
-
-    const barWidth = Math.max(
-      46,
-      (sheet?.definition.frameWidth ?? 32) *
-        (sheet?.definition.scale ?? 1),
-    );
-
-    const barY =
-      enemy.y - enemy.radius - (sheet ? 34 : 18);
-
-    context.save();
-
-    context.fillStyle = "rgba(0,0,0,0.7)";
-    context.fillRect(
-      enemy.x - barWidth / 2,
-      barY,
-      barWidth,
-      7,
-    );
-
-    context.fillStyle = "#d75c5c";
-    context.fillRect(
-      enemy.x - barWidth / 2 + 1,
-      barY + 1,
-      (barWidth - 2) * (enemy.hp / enemy.maxHp),
-      5,
-    );
-
-    if (enemy.isCreature) {
-      const color = BEHAVIOR_COLORS[enemy.behavior];
-
-      context.fillStyle = color;
-      context.fillRect(
-        enemy.x - barWidth / 2,
-        barY - 4,
-        barWidth,
-        2,
-      );
-    }
-
-    for (
-      let statusIndex = 0;
-      statusIndex < Math.min(4, enemy.statusEffects.length);
-      statusIndex += 1
-    ) {
-      const effect = enemy.statusEffects[statusIndex];
-
-      context.fillStyle = this.getStatusColor(
-        effect.type,
-      );
-
-      context.beginPath();
-      context.arc(
-        enemy.x - 12 + statusIndex * 8,
-        barY - 9,
-        3,
-        0,
-        Math.PI * 2,
-      );
-      context.fill();
-    }
-
-    context.restore();
-  }
 
   drawProjectiles(context) {
     for (const projectile of this.world.projectiles) {

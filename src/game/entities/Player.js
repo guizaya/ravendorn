@@ -18,6 +18,11 @@ export function createPlayer(classDefinition, spawn) {
       y: 0,
     },
 
+    aimDirection: {
+      x: 1,
+      y: 0,
+    },
+
     moveDirection: {
       x: 0,
       y: 0,
@@ -46,6 +51,8 @@ export function createPlayer(classDefinition, spawn) {
 
     isMoving: false,
     animationTime: 0,
+    walkPhase: 0,
+    walkBlend: 0,
     attackAnimation: 0,
     hitFlash: 0,
     cast: null,

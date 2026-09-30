@@ -1,3 +1,5 @@
+import { RARITY } from "../data/items/index.js";
+
 export const BALANCE = {
   difficulty: "hard",
 
@@ -11,9 +13,32 @@ export const BALANCE = {
     dummy: 0.25,
   },
 
-  dropChance: 0.1,
+  /**
+   * multiplicador global sobre a chance authored de cada criatura.
+   * 0.1 Leaving itens comuns praticamente impossiveis; 0.5 mantem
+   * o grind pesado sem esconder o loot basico.
+   */
+  dropChance: 0.5,
 
-  maxItemsPerKill: 1,
+  maxItemsPerKill: 2,
+
+  /**
+   * peso extra por raridade na hora de escolher o item da tabela.
+   * o comum virou o grosso do loot, o lendario continua rarissimo.
+   */
+  rarityDropWeight: {
+    [RARITY.COMMON]: 3,
+    [RARITY.UNCOMMON]: 1.6,
+    [RARITY.RARE]: 0.7,
+    [RARITY.EPIC]: 0.25,
+    [RARITY.LEGENDARY]: 0.08,
+  },
+
+  /** itens de missao caem bem mais vezes que a media da tabela */
+  questItemBonus: 2.2,
+
+  /** materiais empilhavel vem em pilhas de 1..N em vez de unidade */
+  stackableDropMax: 3,
 };
 
 export function levelRequirement(level) {
@@ -35,7 +60,10 @@ export function totalXpForLevel(targetLevel) {
 export function applyDropScaling(loot) {
   return {
     ...loot,
-    itemChance: loot.itemChance * BALANCE.dropChance,
+    itemChance: Math.min(
+      loot.itemChance * BALANCE.dropChance,
+      1,
+    ),
     maxItems: Math.min(
       loot.maxItems ?? 1,
       BALANCE.maxItemsPerKill,

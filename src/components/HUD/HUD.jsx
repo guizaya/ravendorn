@@ -2,7 +2,9 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import SkillSlot from "../Skills/SkillSlot.jsx";
 import InventoryPanel from "../Inventory/InventoryPanel.jsx";
 import QuestPanel from "../Quests/QuestPanel.jsx";
+import BestiaryPanel from "../Bestiary/BestiaryPanel.jsx";
 import { getItem } from "../../data/items/index.js";
+import { DEFAULT_LOOT_FILTER } from "../../game/loot/lootFilter.js";
 import {
   isSkillAuto,
   setSkillAuto,
@@ -118,6 +120,44 @@ function BuffStrip({ effects }) {
         </span>
       ))}
     </div>
+  );
+}
+
+function BestiaryAutoBox({ hunt, onStop }) {
+  if (!hunt) return null;
+
+  return (
+    <button
+      type="button"
+      className="bst-auto"
+      onClick={onStop}
+      title="Parar a caça automática"
+    >
+      <span
+        className="bst-auto__icon"
+        style={{ color: hunt.color }}
+      >
+        {hunt.icon}
+      </span>
+
+      <span className="bst-auto__text">
+        <small className="bst-auto__tag">
+          AUTO
+        </small>
+
+        <strong>
+          Caçando {hunt.name}
+        </strong>
+
+        <span className="bst-auto__zone">
+          {hunt.zoneName ?? "Procurando"}
+        </span>
+      </span>
+
+      <span className="bst-auto__stop">
+        Parar
+      </span>
+    </button>
   );
 }
 
@@ -256,6 +296,9 @@ export default function HUD({
   const [page, setPage] = useState(0);
   const [inventoryOpen, setInventoryOpen] = useState(false);
   const [questsOpen, setQuestsOpen] = useState(false);
+  const [bestiaryOpen, setBestiaryOpen] = useState(false);
+
+  const bestiary = snapshot?.bestiary ?? null;
 
   useEffect(() => {
     const onKey = (event) => {
@@ -265,6 +308,10 @@ export default function HUD({
 
       if (event.code === "KeyQ") {
         setQuestsOpen((current) => !current);
+      }
+
+      if (event.code === "KeyB") {
+        setBestiaryOpen((current) => !current);
       }
     };
 
@@ -340,6 +387,38 @@ export default function HUD({
     engineRef.current?.autoEquipBest();
   }, [engineRef]);
 
+  const handleDiscardItem = useCallback(
+    (uid) => {
+      engineRef.current?.discardItem(uid);
+    },
+    [engineRef],
+  );
+
+  const handleDiscardEquipped = useCallback(
+    (slotId) => {
+      engineRef.current?.discardEquipped(slotId);
+    },
+    [engineRef],
+  );
+
+  const handleFilterChange = useCallback(
+    (key, value) => {
+      engineRef.current?.setLootFilter({
+        ...(snapshot?.lootFilter ?? {}),
+        [key]: value,
+      });
+    },
+    [engineRef, snapshot],
+  );
+
+  const handleFilterReset = useCallback(() => {
+    engineRef.current?.setLootFilter(DEFAULT_LOOT_FILTER);
+  }, [engineRef]);
+
+  const handleFilterPrune = useCallback(() => {
+    engineRef.current?.pruneInventory();
+  }, [engineRef]);
+
   const handleAcceptQuest = useCallback(
     (questId) => {
       engineRef.current?.acceptSideQuest(questId);
@@ -360,6 +439,17 @@ export default function HUD({
 
   const handleToggleQuestAuto = useCallback(() => {
     engineRef.current?.toggleQuestAuto();
+  }, [engineRef]);
+
+  const handleHuntCreature = useCallback(
+    (creatureId) => {
+      engineRef.current?.toggleBestiaryAuto(creatureId);
+    },
+    [engineRef],
+  );
+
+  const handleStopBestiaryAuto = useCallback(() => {
+    engineRef.current?.clearBestiaryAuto();
   }, [engineRef]);
 
   const openFirstFreeSlot = useCallback(
@@ -482,6 +572,29 @@ export default function HUD({
 
         <button
           type="button"
+          className={[
+            "hud-btn",
+            "hud-btn--bestiary",
+            bestiaryOpen ? "is-active" : "",
+          ]
+            .filter(Boolean)
+            .join(" ")}
+          onClick={() =>
+            setBestiaryOpen((current) => !current)
+          }
+          title="Bestiario (B)"
+        >
+          ☠
+          {bestiary &&
+            bestiary.completed > 0 && (
+              <i className="hud-btn__badge">
+                {bestiary.completed}
+              </i>
+            )}
+        </button>
+
+        <button
+          type="button"
           className="hud-btn hud-btn--reset"
           onClick={handleReset}
           title="Restaurar alvos"
@@ -513,9 +626,16 @@ export default function HUD({
       {snapshot?.selectedTarget && (
         <section className="target-panel">
           <span className="eyebrow">ALVO</span>
-          <strong>
-            {snapshot.selectedTarget.name}
-          </strong>
+
+          <div className="target-panel__head">
+            <strong>
+              {snapshot.selectedTarget.name}
+            </strong>
+
+            <span className="target-panel__level">
+              Nv.{snapshot.selectedTarget.level ?? 1}
+            </span>
+          </div>
 
           <div className="target-panel__bar">
             <div
@@ -586,12 +706,19 @@ export default function HUD({
         </p>
       </footer>
 
-      <QuestTracker
-        quests={snapshot?.quests}
-        player={player}
-        onOpen={() => setQuestsOpen(true)}
-        onFocus={handleFocusQuest}
-      />
+      <div className="hud-stack">
+        <QuestTracker
+          quests={snapshot?.quests}
+          player={player}
+          onOpen={() => setQuestsOpen(true)}
+          onFocus={handleFocusQuest}
+        />
+
+        <BestiaryAutoBox
+          hunt={snapshot?.bestiaryAuto ?? null}
+          onStop={handleStopBestiaryAuto}
+        />
+      </div>
 
       {questsOpen && (
         <QuestPanel
@@ -604,14 +731,30 @@ export default function HUD({
         />
       )}
 
+      {bestiaryOpen && (
+        <BestiaryPanel
+          bestiary={bestiary}
+          hunting={snapshot?.bestiaryAuto?.creatureId ?? null}
+          onHunt={handleHuntCreature}
+          onClose={() => setBestiaryOpen(false)}
+        />
+      )}
+
       {inventoryOpen && (
         <InventoryPanel
           inventory={summary}
           equipment={snapshot?.equipment}
+          player={player}
+          lootFilter={snapshot?.lootFilter}
           onClose={() => setInventoryOpen(false)}
           onEquip={(entry) => openFirstFreeSlot(entry)}
           onUnequip={handleUnequip}
+          onDiscardItem={handleDiscardItem}
+          onDiscardEquipped={handleDiscardEquipped}
           onAutoEquip={handleAutoEquip}
+          onFilterChange={handleFilterChange}
+          onFilterReset={handleFilterReset}
+          onFilterPrune={handleFilterPrune}
         />
       )}
 

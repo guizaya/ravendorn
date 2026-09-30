@@ -1,5 +1,11 @@
 import { randomBetween } from "../math.js";
-import { getItem, RARITY } from "../../data/items/index.js";
+import { BALANCE } from "../balance.js";
+import { isCollected, isCollectedId } from "./lootFilter.js";
+import {
+  getItem,
+  isStackable,
+  RARITY,
+} from "../../data/items/index.js";
 
 export const MAX_GROUND_DROPS = 60;
 export const PICKUP_RADIUS = 46;
@@ -8,6 +14,52 @@ export class LootSystem {
   constructor(world) {
     this.world = world;
     this.sequence = 0;
+    this.filter = null;
+  }
+
+  setFilter(filter) {
+    this.filter = filter;
+
+    return this.pruneDrops();
+  }
+
+  /**
+   * itens barrados pelo filtro saem do pool antes do sorteio: assim
+   * nunca viram drop, nunca vao para o chao e nunca entram na mochila.
+   */
+  allowedPool(pool) {
+    if (!this.filter) return pool;
+
+    return pool.filter((entry) =>
+      isCollected(getItem(entry.id), this.filter),
+    );
+  }
+
+  /** limpa do chao o loot que parou de passar no filtro */
+  pruneDrops() {
+    if (!this.filter) return 0;
+
+    const drops = this.world.drops;
+    let removed = 0;
+
+    for (
+      let index = drops.length - 1;
+      index >= 0;
+      index -= 1
+    ) {
+      const drop = drops[index];
+
+      if (drop.kind !== "item") continue;
+
+      if (isCollectedId(drop.itemId, this.filter)) {
+        continue;
+      }
+
+      removed += drop.count ?? 1;
+      drops.splice(index, 1);
+    }
+
+    return removed;
   }
 
   spawnGroundDrop(drop) {
@@ -59,7 +111,7 @@ export class LootSystem {
   }
 
   rollItems(table) {
-    const pool = table.items ?? [];
+    const pool = this.allowedPool(table.items ?? []);
 
     if (pool.length === 0) return [];
 
@@ -85,7 +137,7 @@ export class LootSystem {
 
       picked.push({
         itemId: item.id,
-        count: 1,
+        count: this.rollCount(item),
       });
     }
 
@@ -100,11 +152,39 @@ export class LootSystem {
     return 1 + Math.floor(Math.random() * max);
   }
 
+  /** materiais empilhavel chegam em pilhas, nunca em unidade solitaria */
+  rollCount(item) {
+    const max = BALANCE.stackableDropMax ?? 1;
+
+    if (!isStackable(item) || max <= 1) return 1;
+
+    return 1 + Math.floor(Math.random() * max);
+  }
+
+  /**
+   * peso autoral corrigido pelos biais de balance: comum pesa muito mais
+   * que lendario e item de missao ganha um empurrao extra.
+   */
+  effectiveWeight(entry) {
+    const item = getItem(entry.id);
+
+    if (!item) return entry.weight ?? 1;
+
+    const rarityWeight =
+      BALANCE.rarityDropWeight?.[item.rarity] ?? 1;
+
+    const questWeight = item.quest
+      ? (BALANCE.questItemBonus ?? 1)
+      : 1;
+
+    return (entry.weight ?? 1) * rarityWeight * questWeight;
+  }
+
   pickWeighted(pool) {
     let total = 0;
 
     for (const entry of pool) {
-      total += entry.weight ?? 1;
+      total += this.effectiveWeight(entry);
     }
 
     if (total <= 0) return null;
@@ -112,7 +192,7 @@ export class LootSystem {
     let roll = Math.random() * total;
 
     for (const entry of pool) {
-      roll -= entry.weight ?? 1;
+      roll -= this.effectiveWeight(entry);
 
       if (roll <= 0) {
         return getItem(entry.id);
@@ -275,4 +355,7 @@ export const LOOT_CONSTANTS = {
   MAX_GROUND_DROPS,
   PICKUP_RADIUS,
   RARITY,
+  rarityDropWeight: BALANCE.rarityDropWeight,
+  questItemBonus: BALANCE.questItemBonus,
+  stackableDropMax: BALANCE.stackableDropMax,
 };

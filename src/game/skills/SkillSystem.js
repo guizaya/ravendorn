@@ -78,7 +78,10 @@ export class SkillSystem {
     if (action.targetType === "self") {
       return {
         point: { x: this.player.x, y: this.player.y },
-        direction: { x: this.player.facing.x, y: this.player.facing.y },
+        direction: {
+          x: this.player.aimDirection.x,
+          y: this.player.aimDirection.y,
+        },
         targetId: null,
       };
     }

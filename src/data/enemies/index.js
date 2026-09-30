@@ -1,4 +1,4 @@
-import { createRandom, getZoneById, MAP_SEED } from "../maps/index.js";
+﻿import { createRandom, getZoneById, MAP_SEED } from "../maps/index.js";
 import { applyDropScaling } from "../../game/balance.js";
 
 export const BEHAVIOR = {
@@ -7,11 +7,54 @@ export const BEHAVIOR = {
   ACTIVE: "active",
 };
 
+/**
+ * quanto cada nivel acima do base da criatura engrossa o bicho.
+ * o HP e o dano sobem mais rapido que a defesa, senao o mob fica
+ * imortal contra quem tem pouco ataque.
+ */
+export const CREATURE_GROWTH = {
+  hpPerLevel: 0.22,
+  damagePerLevel: 0.16,
+  defensePerLevel: 0.12,
+};
+
+/** variacao de nivel sorteada no roster: a maioria fica no base */
+export const LEVEL_TIERS = [0, 0, 0, 1, 2];
+
+/**
+ * escala relativa ao nivel base do tipo: no nivel base o multador e 1,
+ * entao o balanceamento atual continua igual.
+ */
+export function scaleForLevel(type, level) {
+  const base = type.level ?? 1;
+  const steps = (level ?? base) - base;
+
+  return {
+    maxHp: Math.max(
+      1,
+      Math.round(type.maxHp * (1 + CREATURE_GROWTH.hpPerLevel * steps)),
+    ),
+    damage: Math.max(
+      1,
+      Math.round(type.damage * (1 + CREATURE_GROWTH.damagePerLevel * steps)),
+    ),
+    defense: Math.max(
+      0,
+      Math.round(type.defense * (1 + CREATURE_GROWTH.defensePerLevel * steps)),
+    ),
+  };
+}
+
+export function resolveLevel(type, level) {
+  return Math.max(1, Math.round(level ?? type.level ?? 1));
+}
+
 export const CREATURE_TYPES = {
   slime: {
     id: "slime",
     name: "Limo Preguiçoso",
     behavior: BEHAVIOR.PASSIVE,
+    level: 1,
     maxHp: 140,
     defense: 2,
     radius: 21,
@@ -41,6 +84,7 @@ export const CREATURE_TYPES = {
     id: "rat",
     name: "Rato da Toca",
     behavior: BEHAVIOR.PASSIVE,
+    level: 2,
     maxHp: 90,
     defense: 1,
     radius: 15,
@@ -70,6 +114,7 @@ export const CREATURE_TYPES = {
     id: "goblin",
     name: "Goblin Saqueador",
     behavior: BEHAVIOR.SEMI_PASSIVE,
+    level: 5,
     maxHp: 260,
     defense: 8,
     radius: 20,
@@ -100,6 +145,7 @@ export const CREATURE_TYPES = {
     id: "ghoul",
     name: "Ghoul Faminto",
     behavior: BEHAVIOR.SEMI_PASSIVE,
+    level: 8,
     maxHp: 420,
     defense: 14,
     radius: 23,
@@ -118,7 +164,8 @@ export const CREATURE_TYPES = {
       itemChance: 0.56,
       maxItems: 2,
       items: [
-        { id: "ghoul_claw", weight: 66 },
+        { id: "ghoul_rot", weight: 78 },
+        { id: "ghoul_claw", weight: 52 },
         { id: "ghoul_rib", weight: 30 },
         { id: "ghoul_relic", weight: 3.5 },
         { id: "skeleton_crown", weight: 0.5 },
@@ -130,6 +177,7 @@ export const CREATURE_TYPES = {
     id: "skeleton",
     name: "Sentinela Esquelética",
     behavior: BEHAVIOR.ACTIVE,
+    level: 11,
     maxHp: 520,
     defense: 22,
     radius: 22,
@@ -160,6 +208,7 @@ export const CREATURE_TYPES = {
     id: "ogre",
     name: "Ogre da Pedreira",
     behavior: BEHAVIOR.ACTIVE,
+    level: 15,
     maxHp: 1250,
     defense: 34,
     radius: 32,
@@ -178,7 +227,7 @@ export const CREATURE_TYPES = {
       itemChance: 0.78,
       maxItems: 3,
       items: [
-        { id: "ogre_pebble", weight: 46 },
+        { id: "ogre_pebble", weight: 58 },
         { id: "ogre_hide", weight: 38 },
         { id: "ogre_hammer", weight: 13 },
         { id: "ogre_heart", weight: 2.6 },
@@ -254,7 +303,7 @@ export const TRAINING_DUMMY_BLUEPRINTS = [
   },
 ];
 
-const ZONE_ROSTER = [
+export const ZONE_ROSTER = [
   {
     zone: "floresta",
     count: 7,
@@ -369,16 +418,29 @@ function buildZoneTypes(entry) {
   return types;
 }
 
-export function createCreature(typeId, position, index) {
+export function createCreature(
+  typeId,
+  position,
+  index,
+  level,
+) {
   const type = CREATURE_TYPES[typeId];
 
   if (!type) {
     throw new Error(`tipo de criatura desconhecido: ${typeId}`);
   }
 
+  const resolvedLevel = resolveLevel(type, level);
+  const scaled = scaleForLevel(type, resolvedLevel);
+
   return {
     ...type,
+    ...scaled,
+
     id: `${typeId}_${index}`,
+
+    level: resolvedLevel,
+    baseLevel: type.level ?? 1,
 
     x: position.x,
     y: position.y,
@@ -386,7 +448,7 @@ export function createCreature(typeId, position, index) {
     spawnX: position.x,
     spawnY: position.y,
 
-    hp: type.maxHp,
+    hp: scaled.maxHp,
     alive: true,
 
     isCreature: true,
@@ -456,11 +518,22 @@ export function createCreatureRoster(seed = MAP_SEED) {
         ),
       };
 
+      const type = CREATURE_TYPES[types[slot]];
+
+      const level = Math.max(
+        1,
+        (type.level ?? 1) +
+          LEVEL_TIERS[
+            Math.floor(random() * LEVEL_TIERS.length)
+          ],
+      );
+
       roster.push(
         createCreature(
           types[slot],
           position,
           index,
+          level,
         ),
       );
 
@@ -485,6 +558,9 @@ export const DUMMY_LOOT = applyDropScaling({
 export function createTrainingDummy(blueprint) {
   return {
     ...blueprint,
+
+    level: 1,
+    baseLevel: 1,
 
     x: blueprint.position.x,
     y: blueprint.position.y,

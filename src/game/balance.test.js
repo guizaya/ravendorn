@@ -10,19 +10,49 @@ import {
   CREATURE_TYPES,
   DUMMY_LOOT,
 } from "../data/enemies/index.js";
-import { getItem, RARITY } from "../data/items/index.js";
+import {
+  getItem,
+  isQuestItem,
+  QUEST_ITEM_IDS,
+  RARITY,
+  RARITY_ORDER,
+} from "../data/items/index.js";
+import { LootSystem } from "./loot/LootSystem.js";
 
 describe("balance knobs", () => {
   it("scales the level curve ten times over the old base", () => {
     expect(BALANCE.levelCurve.base).toBe(550);
   });
 
-  it("scales drop chance down to a tenth", () => {
-    expect(BALANCE.dropChance).toBeCloseTo(0.1, 5);
+  it("keeps drop chance at a sane half of the authored table", () => {
+    expect(BALANCE.dropChance).toBeCloseTo(0.5, 5);
   });
 
-  it("caps items per kill at one", () => {
-    expect(BALANCE.maxItemsPerKill).toBe(1);
+  it("lets a kill drop up to two items", () => {
+    expect(BALANCE.maxItemsPerKill).toBe(2);
+  });
+
+  it("weights commons far above legendaries", () => {
+    expect(
+      BALANCE.rarityDropWeight[RARITY.COMMON],
+    ).toBeGreaterThan(
+      BALANCE.rarityDropWeight[RARITY.LEGENDARY] * 20,
+    );
+
+    for (const rarity of RARITY_ORDER) {
+      expect(
+        BALANCE.rarityDropWeight[rarity],
+        rarity,
+      ).toBeGreaterThan(0);
+    }
+  });
+
+  it("boosts quest items above the table average", () => {
+    expect(BALANCE.questItemBonus).toBeGreaterThan(1.5);
+  });
+
+  it("drops stackable materials in piles", () => {
+    expect(BALANCE.stackableDropMax).toBeGreaterThan(1);
   });
 });
 
@@ -83,7 +113,7 @@ describe("level curve difficulty", () => {
 });
 
 describe("drop scaling", () => {
-  it("divides every chance by ten", () => {
+  it("halves every authored chance and caps it at one", () => {
     const authored = {
       coins: { min: 1, max: 2 },
       itemChance: 0.5,
@@ -93,10 +123,14 @@ describe("drop scaling", () => {
 
     expect(
       applyDropScaling(authored).itemChance,
-    ).toBeCloseTo(0.05, 5);
+    ).toBeCloseTo(0.25, 5);
+
+    expect(
+      applyDropScaling({ itemChance: 4 }).itemChance,
+    ).toBe(1);
   });
 
-  it("never leaves more than one item per kill", () => {
+  it("never leaves more than maxItemsPerKill per kill", () => {
     for (const type of Object.values(CREATURE_TYPES)) {
       expect(
         type.loot.maxItems,
@@ -105,19 +139,106 @@ describe("drop scaling", () => {
     }
   });
 
-  it("leaves every creature table properly scaled", () => {
+  it("leaves every creature table droppable but not certain", () => {
     for (const type of Object.values(CREATURE_TYPES)) {
       expect(
         type.loot.itemChance,
         type.id,
-      ).toBeLessThanOrEqual(0.08);
+      ).toBeLessThanOrEqual(0.4);
 
-      expect(type.loot.itemChance, type.id).toBeGreaterThan(0);
+      expect(
+        type.loot.itemChance,
+        type.id,
+      ).toBeGreaterThan(0.1);
     }
   });
 
   it("scales the training dummy table too", () => {
-    expect(DUMMY_LOOT.itemChance).toBeCloseTo(0.03, 5);
+    expect(DUMMY_LOOT.itemChance).toBeCloseTo(0.15, 5);
+  });
+});
+
+describe("common item flow", () => {
+  it("raises every common material above the old tenth-of-a-tenth", () => {
+    for (const type of Object.values(CREATURE_TYPES)) {
+      expect(
+        type.loot.itemChance,
+        type.id,
+      ).toBeGreaterThan(0.34 * 0.1);
+    }
+  });
+
+  it("keeps commons the bulk of every effective table", () => {
+    const system = new LootSystem({ drops: [] });
+
+    for (const type of Object.values(CREATURE_TYPES)) {
+      let total = 0;
+      let commons = 0;
+
+      for (const entry of type.loot.items) {
+        const weight = system.effectiveWeight(entry);
+
+        total += weight;
+
+        if (
+          getItem(entry.id)?.rarity === RARITY.COMMON
+        ) {
+          commons += weight;
+        }
+      }
+
+      expect(commons / total, type.id).toBeGreaterThan(0.5);
+    }
+  });
+});
+
+describe("quest item flow", () => {
+  it("weights every quest item above its authored weight", () => {
+    const system = new LootSystem({ drops: [] });
+
+    for (const type of Object.values(CREATURE_TYPES)) {
+      for (const entry of type.loot.items) {
+        const item = getItem(entry.id);
+
+        if (!item?.quest) continue;
+
+        expect(
+          system.effectiveWeight(entry),
+          `${type.id} / ${entry.id}`,
+        ).toBeGreaterThan(entry.weight);
+      }
+    }
+  });
+
+  it("rolls quest materials more often than the table average", () => {
+    const system = new LootSystem({ drops: [] });
+    const table = CREATURE_TYPES.skeleton.loot;
+
+    let quest = 0;
+    let total = 0;
+
+    for (const entry of table.items) {
+      total += system.effectiveWeight(entry);
+
+      if (getItem(entry.id)?.quest) {
+        quest += system.effectiveWeight(entry);
+      }
+    }
+
+    expect(quest / total).toBeGreaterThan(
+      BALANCE.questItemBonus > 1 ? 0.5 : 0,
+    );
+  });
+
+  it("marks the items quests hand out", () => {
+    expect(QUEST_ITEM_IDS.length).toBeGreaterThan(0);
+
+    for (const id of QUEST_ITEM_IDS) {
+      expect(getItem(id)?.quest, id).toBe(true);
+    }
+
+    expect(isQuestItem("skeleton_bone")).toBe(true);
+    expect(isQuestItem("slime_gel")).toBe(false);
   });
 });
 

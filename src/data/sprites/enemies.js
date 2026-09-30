@@ -4,6 +4,7 @@ import goblinUrl from "../../assets/sprites/enemies/goblin.png";
 import ghoulUrl from "../../assets/sprites/enemies/ghoul.png";
 import skeletonUrl from "../../assets/sprites/enemies/skeleton.png";
 import ogreUrl from "../../assets/sprites/enemies/ogre.png";
+import { SPRITE_FORMAT } from "./index.js";
 
 const FRAME_WIDTH = 32;
 const FRAME_HEIGHT = 32;
@@ -18,6 +19,7 @@ export function createEnemySpriteDefinition(
 ) {
   return {
     id,
+    format: SPRITE_FORMAT.SHEET,
     src,
 
     frameWidth: FRAME_WIDTH,

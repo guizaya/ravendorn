@@ -1,3 +1,46 @@
+export const DIRECTION_KEYS = [
+  "east",
+  "south-east",
+  "south",
+  "south-west",
+  "west",
+  "north-west",
+  "north",
+  "north-east",
+];
+
+const DIRECTION_SECTOR =
+  (Math.PI * 2) / DIRECTION_KEYS.length;
+
+const DEFAULT_DIRECTION = "south";
+
+export function isDirectionalFormat(definition) {
+  return definition?.format === "directional";
+}
+
+export function resolveDirectionKey(
+  facing,
+  fallback = DEFAULT_DIRECTION,
+) {
+  const x = Number(facing?.x) || 0;
+  const y = Number(facing?.y) || 0;
+
+  if (x === 0 && y === 0) {
+    return fallback;
+  }
+
+  const steps = Math.round(
+    Math.atan2(y, x) / DIRECTION_SECTOR,
+  );
+
+  const index =
+    ((steps % DIRECTION_KEYS.length) +
+      DIRECTION_KEYS.length) %
+    DIRECTION_KEYS.length;
+
+  return DIRECTION_KEYS[index];
+}
+
 export function resolveDirection(facing, directions) {
   const absX = Math.abs(facing.x);
   const absY = Math.abs(facing.y);
@@ -15,9 +58,13 @@ export function resolveDirection(facing, directions) {
   };
 }
 
-export function resolveAnimation(player) {
+export function resolveAnimation(player, definition) {
   if (player.attackAnimation > 0) {
-    return "attack";
+    const animations = definition?.animations;
+
+    if (!animations || animations.attack) {
+      return "attack";
+    }
   }
 
   return player.isMoving ? "walk" : "idle";
@@ -67,6 +114,31 @@ export function resolveFrameRect(
   elapsed,
   facing,
 ) {
+  if (isDirectionalFormat(definition)) {
+    const key = resolveDirectionKey(
+      facing,
+      definition.fallbackDirection,
+    );
+
+    const animation =
+      definition.animations[animationName] ??
+      definition.animations.walk;
+
+    const row = animation.row ??
+      definition.directions[key] ??
+      0;
+
+    const column = resolveFrame(animation, elapsed);
+
+    return {
+      x: column * definition.frameWidth,
+      y: row * definition.frameHeight,
+      width: definition.frameWidth,
+      height: definition.frameHeight,
+      flip: false,
+    };
+  }
+
   const animation = definition.animations[animationName];
   const direction = resolveDirection(
     facing,
@@ -81,6 +153,26 @@ export function resolveFrameRect(
     width: definition.frameWidth,
     height: definition.frameHeight,
     flip: direction.flip,
+  };
+}
+
+export function resolveWalkOffset(definition, entity) {
+  const bob = definition.walkBob;
+  const blend = entity.walkBlend ?? 0;
+
+  if (!bob || bob.amplitude <= 0 || blend <= 0) {
+    return { x: 0, y: 0 };
+  }
+
+  const phase =
+    (entity.walkPhase ?? 0) *
+    bob.frequency *
+    Math.PI *
+    2;
+
+  return {
+    x: 0,
+    y: -Math.abs(Math.sin(phase)) * bob.amplitude * blend,
   };
 }
 

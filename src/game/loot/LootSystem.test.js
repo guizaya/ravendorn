@@ -11,7 +11,11 @@ import {
   TRAINING_DUMMY_BLUEPRINTS,
   createTrainingDummy,
 } from "../../data/enemies/index.js";
-import { getItem, ITEM_LIST } from "../../data/items/index.js";
+import {
+  getItem,
+  ITEM_LIST,
+  RARITY,
+} from "../../data/items/index.js";
 
 function createHarness(capacity = 20) {
   const world = {
@@ -165,6 +169,216 @@ describe("rolling", () => {
 
     expect(result.coins).toBe(0);
     expect(result.items).toHaveLength(0);
+  });
+});
+
+describe("loot filter", () => {
+  const epicOnly = {
+    equipment: RARITY.EPIC,
+    material: RARITY.EPIC,
+  };
+
+  const noMaterials = {
+    equipment: null,
+    material: RARITY.LEGENDARY,
+  };
+
+  it("keeps every item when no filter is set", () => {
+    const { loot } = createHarness();
+
+    for (let roll = 0; roll < 3000; roll += 1) {
+      for (const entry of loot.rollItems(
+        CREATURE_TYPES.slime.loot,
+      )) {
+        expect(
+          getItem(entry.itemId),
+          entry.itemId,
+        ).not.toBe(null);
+      }
+    }
+  });
+
+  it("never rolls an item the filter rejects", () => {
+    const { loot } = createHarness();
+
+    loot.setFilter(epicOnly);
+
+    for (let roll = 0; roll < 4000; roll += 1) {
+      for (const entry of loot.rollItems(
+        CREATURE_TYPES.ghoul.loot,
+      )) {
+        expect(
+          [
+            RARITY.EPIC,
+            RARITY.LEGENDARY,
+          ],
+          `${entry.itemId} nao deveria sair`,
+        ).toContain(getItem(entry.itemId).rarity);
+      }
+    }
+  });
+
+  it("drops nothing at all when the whole pool is rejected", () => {
+    const { loot } = createHarness();
+
+    loot.setFilter(noMaterials);
+
+    for (let roll = 0; roll < 500; roll += 1) {
+      expect(
+        loot.rollItems(CREATURE_TYPES.slime.loot),
+      ).toHaveLength(0);
+    }
+  });
+
+  it("still pays coins when every item is rejected", () => {
+    const { loot } = createHarness();
+
+    loot.setFilter(noMaterials);
+
+    let coins = 0;
+
+    for (let roll = 0; roll < 200; roll += 1) {
+      coins += loot.roll(creature("slime")).coins;
+    }
+
+    expect(coins).toBeGreaterThan(0);
+  });
+
+  it("never spawns a rejected item on the ground", () => {
+    const { world, loot } = createHarness();
+
+    loot.setFilter(noMaterials);
+
+    for (let kill = 0; kill < 300; kill += 1) {
+      loot.dropFrom(creature("skeleton"));
+    }
+
+    for (const drop of world.drops) {
+      if (drop.kind !== "item") continue;
+
+      expect(
+        getItem(drop.itemId).rarity,
+        drop.itemId,
+      ).not.toBe(RARITY.COMMON);
+    }
+  });
+
+  it("never puts a rejected item in the inventory", () => {
+    const { world, loot } = createHarness();
+
+    loot.setFilter(epicOnly);
+
+    for (let kill = 0; kill < 400; kill += 1) {
+      loot.collectFrom(creature("skeleton"));
+    }
+
+    for (const stack of world.inventory.stacks) {
+      expect(
+        [
+          RARITY.EPIC,
+          RARITY.LEGENDARY,
+        ],
+        stack.itemId,
+      ).toContain(getItem(stack.itemId).rarity);
+    }
+  });
+
+  it("clears rejected items already lying on the ground", () => {
+    const { world, loot } = createHarness();
+
+    loot.spawnGroundDrop({
+      kind: "item",
+      itemId: "skeleton_bone",
+      count: 3,
+      x: 0,
+      y: 0,
+    });
+
+    loot.spawnGroundDrop({
+      kind: "coins",
+      coins: 50,
+      x: 0,
+      y: 0,
+    });
+
+    loot.spawnGroundDrop({
+      kind: "item",
+      itemId: "skeleton_crown",
+      count: 1,
+      x: 0,
+      y: 0,
+    });
+
+    const removed = loot.setFilter(noMaterials);
+
+    expect(removed).toBe(3);
+    expect(world.drops).toHaveLength(2);
+    expect(
+      world.drops.some((drop) => drop.kind === "item"),
+    ).toBe(true);
+    expect(
+      world.drops.some((drop) => drop.kind === "coins"),
+    ).toBe(true);
+  });
+
+  it("keeps the ground untouched when clearing the filter", () => {
+    const { world, loot } = createHarness();
+
+    loot.spawnGroundDrop({
+      kind: "item",
+      itemId: "skeleton_bone",
+      count: 2,
+      x: 0,
+      y: 0,
+    });
+
+    loot.setFilter(null);
+
+    expect(world.drops).toHaveLength(1);
+  });
+
+  it("favours what the player asked to keep", () => {
+    const { loot } = createHarness();
+
+    const sample = () => {
+      const tally = { rare: 0, epic: 0, total: 0 };
+
+      for (let roll = 0; roll < 6000; roll += 1) {
+        for (const entry of loot.rollItems(
+          CREATURE_TYPES.ogre.loot,
+        )) {
+          tally.total += 1;
+
+          const rarity = getItem(entry.itemId).rarity;
+
+          if (rarity === RARITY.RARE) tally.rare += 1;
+          if (rarity === RARITY.EPIC) tally.epic += 1;
+        }
+      }
+
+      return tally;
+    };
+
+    // sem filtro o ogre costuma soltar marreta de pedra, que e rara
+    const before = sample();
+
+    expect(before.total).toBeGreaterThan(0);
+    expect(before.rare / before.total).toBeGreaterThan(0.01);
+
+    loot.setFilter({
+      equipment: RARITY.EPIC,
+      material: RARITY.COMMON,
+    });
+
+    const after = sample();
+
+    expect(after.total).toBeGreaterThan(0);
+
+    // barrando o raro, ele some de vez
+    expect(after.rare).toBe(0);
+
+    // e o que foi pedido realmente passa a sair
+    expect(after.epic).toBeGreaterThan(0);
   });
 });
 

@@ -1,5 +1,5 @@
-import { beforeEach, describe, expect, it } from "vitest";
-import { GameEngine } from "./GameEngine.js";
+﻿import { beforeEach, describe, expect, it } from "vitest";
+import { GameEngine, mergeBonuses } from "./GameEngine.js";
 import {
   isSkillAuto,
   setSkillAuto,
@@ -10,7 +10,7 @@ import {
   isAutoCompletable,
   QUEST_TYPE,
 } from "../../data/quests/index.js";
-
+import { getItem } from "../../data/items/index.js";
 function advanceMainTo(quests, predicate) {
   let guard = 0;
 
@@ -1207,6 +1207,538 @@ describe("loot and inventory", () => {
     expect(
       engine.world.inventory.coins,
     ).toBeGreaterThan(0);
+
+    engine.destroy();
+  });
+});
+
+describe("discarding items", () => {
+  it("removes a stack from the inventory", () => {
+    const { engine } = createEngine(ALL_CLASSES[0]);
+    const inventory = engine.world.inventory;
+
+    inventory.clear();
+    inventory.add("ogre_hammer", 1);
+
+    const stack = inventory.findStack("ogre_hammer");
+
+    expect(engine.discardItem(stack.uid)).toBe(true);
+    expect(inventory.count("ogre_hammer")).toBe(0);
+
+    engine.destroy();
+  });
+
+  it("drops the whole stack by default", () => {
+    const { engine } = createEngine(ALL_CLASSES[0]);
+    const inventory = engine.world.inventory;
+
+    inventory.clear();
+    inventory.add("dummy_wood", 12);
+
+    const stack = inventory.findStack("dummy_wood");
+
+    engine.discardItem(stack.uid);
+
+    expect(inventory.count("dummy_wood")).toBe(0);
+
+    engine.destroy();
+  });
+
+  it("reports failure for an unknown uid", () => {
+    const { engine } = createEngine(ALL_CLASSES[0]);
+
+    expect(engine.discardItem("nao_existe#99")).toBe(false);
+
+    engine.destroy();
+  });
+
+  it("unequips and destroys the piece in one go", () => {
+    const { engine } = createEngine(ALL_CLASSES[0]);
+    const inventory = engine.world.inventory;
+
+    inventory.clear();
+    inventory.add("ember_blade", 1);
+
+    const stack = inventory.findStack("ember_blade");
+
+    engine.equipItem(stack.uid, "weapon");
+
+    expect(
+      engine.world.equipment.getEquipped("weapon"),
+    ).not.toBe(null);
+
+    engine.discardEquipped("weapon");
+
+    expect(
+      engine.world.equipment.getEquipped("weapon"),
+    ).toBe(null);
+    expect(inventory.count("ember_blade")).toBe(0);
+
+    engine.destroy();
+  });
+
+  it("reports failure for an empty slot", () => {
+    const { engine } = createEngine(ALL_CLASSES[0]);
+
+    expect(engine.discardEquipped("head")).toBe(false);
+
+    engine.destroy();
+  });
+});
+
+describe("loot filter integration", () => {
+  it("starts with everything collectable", () => {
+    const { engine } = createEngine(ALL_CLASSES[0]);
+
+    expect(engine.lootFilterSummary()).toEqual({
+      equipment: null,
+      material: null,
+      label: expect.any(String),
+    });
+
+    engine.destroy();
+  });
+
+  it("never lets a rejected item reach the ground or the bag", () => {
+    const { engine } = createEngine(ALL_CLASSES[0]);
+    const inventory = engine.world.inventory;
+
+    inventory.clear();
+
+    engine.setLootFilter({
+      equipment: null,
+      material: "legendary",
+    });
+
+    for (let round = 0; round < 200; round += 1) {
+      const target = engine.world.enemies[round % 7];
+
+      target.hp = 1;
+      target.alive = true;
+
+      engine.damage.applyDamage(
+        engine.world.player,
+        target,
+        { damage: 9999, damageType: "physical" },
+      );
+    }
+
+    for (const stack of inventory.stacks) {
+      expect(
+        getItem(stack.itemId).type,
+        stack.itemId,
+      ).not.toBe("material");
+    }
+
+    for (const drop of engine.world.drops) {
+      if (drop.kind !== "item") continue;
+
+      expect(
+        getItem(drop.itemId).type,
+        drop.itemId,
+      ).not.toBe("material");
+    }
+
+    engine.destroy();
+  });
+
+  it("still pays coins with a strict filter", () => {
+    const { engine } = createEngine(ALL_CLASSES[0]);
+
+    engine.world.inventory.clear();
+
+    engine.setLootFilter({
+      equipment: "legendary",
+      material: "legendary",
+    });
+
+    for (let round = 0; round < 150; round += 1) {
+      const target = engine.world.enemies[round % 7];
+
+      target.hp = 1;
+      target.alive = true;
+
+      engine.damage.applyDamage(
+        engine.world.player,
+        target,
+        { damage: 9999, damageType: "physical" },
+      );
+    }
+
+    expect(
+      engine.world.inventory.coins,
+    ).toBeGreaterThan(0);
+
+    engine.destroy();
+  });
+
+  it("clears the ground when the filter tightens", () => {
+    const { engine } = createEngine(ALL_CLASSES[0]);
+
+    engine.world.inventory.clear();
+
+    engine.loot.spawnGroundDrop({
+      kind: "item",
+      itemId: "skeleton_bone",
+      count: 4,
+      x: 10,
+      y: 10,
+    });
+
+    expect(engine.world.drops).toHaveLength(1);
+
+    engine.setLootFilter({
+      equipment: null,
+      material: "legendary",
+    });
+
+    expect(engine.world.drops).toHaveLength(0);
+
+    engine.destroy();
+  });
+
+  it("cleans the bag on demand", () => {
+    const { engine } = createEngine(ALL_CLASSES[0]);
+    const inventory = engine.world.inventory;
+
+    inventory.clear();
+    inventory.add("skeleton_bone", 1);
+    inventory.add("ogre_hammer", 1);
+
+    engine.setLootFilter({
+      equipment: null,
+      material: "legendary",
+    });
+
+    const removed = engine.pruneInventory();
+
+    expect(removed).toBe(1);
+    expect(inventory.count("skeleton_bone")).toBe(0);
+    expect(inventory.count("ogre_hammer")).toBe(1);
+
+    engine.destroy();
+  });
+
+  it("restores the default filter", () => {
+    const { engine } = createEngine(ALL_CLASSES[0]);
+
+    engine.setLootFilter({
+      equipment: "epic",
+      material: "legendary",
+    });
+
+    engine.setLootFilter({
+      equipment: null,
+      material: null,
+    });
+
+    expect(engine.lootFilterSummary()).toMatchObject({
+      equipment: null,
+      material: null,
+    });
+
+    engine.destroy();
+  });
+
+  it("publishes the filter in the snapshot", () => {
+    const { engine, getSnapshot } = createEngine(ALL_CLASSES[0]);
+
+    engine.setLootFilter({
+      equipment: "rare",
+      material: null,
+    });
+
+    expect(getSnapshot().lootFilter).toMatchObject({
+      equipment: "rare",
+      material: null,
+    });
+
+    engine.destroy();
+  });
+});
+
+describe("mergeBonuses", () => {
+  it("soma a mesma chave em vez de sobrescrever", () => {
+    expect(
+      mergeBonuses({ maxHp: 180 }, { maxHp: 45 }),
+    ).toEqual({ maxHp: 225 });
+  });
+
+  it("mantem chaves que so existem em uma fonte", () => {
+    expect(
+      mergeBonuses(
+        { maxHp: 10, defense: 8 },
+        { speed: 4 },
+      ),
+    ).toEqual({
+      maxHp: 10,
+      defense: 8,
+      speed: 4,
+    });
+  });
+
+  it("soma varias fontes", () => {
+    expect(
+      mergeBonuses(
+        { attack: 6 },
+        { attack: 6 },
+        { attack: 12 },
+      ),
+    ).toEqual({ attack: 24 });
+  });
+
+  it("aceita fonte vazia ou nula", () => {
+    expect(mergeBonuses(null, { maxHp: 5 }, undefined))
+      .toEqual({ maxHp: 5 });
+
+    expect(mergeBonuses()).toEqual({});
+  });
+
+  it("preserva o valor zero em vez de descartar", () => {
+    expect(
+      mergeBonuses({ attack: 0 }, { attack: 7 }),
+    ).toEqual({ attack: 7 });
+  });
+});
+
+describe("bestiary integration", () => {
+  /**
+   * mata `times` criaturas do tipo, ressuscitando as ja abatidas
+   * em vez de esperar o respawn do jogo
+   */
+  function kill(engine, typeId, times) {
+    const pool = engine.world.enemies.filter(
+      (enemy) =>
+        enemy.isCreature &&
+        enemy.id.replace(/_\d+$/, "") === typeId,
+    );
+
+    if (pool.length === 0) return false;
+
+    let killed = 0;
+
+    for (let round = 0; round < times; round += 1) {
+      const target = pool[round % pool.length];
+
+      target.hp = 1;
+      target.alive = true;
+      target.respawnTimer = 0;
+
+      engine.damage.applyDamage(
+        engine.world.player,
+        target,
+        { damage: 9999, damageType: "physical" },
+      );
+
+      killed += 1;
+    }
+
+    return killed;
+  }
+
+  it("starts with an empty bestiary in the snapshot", () => {
+    const { engine, getSnapshot } = createEngine(ALL_CLASSES[0]);
+
+    const bestiary = getSnapshot().bestiary;
+
+    expect(bestiary.completed).toBe(0);
+    expect(bestiary.total).toBeGreaterThan(0);
+    expect(bestiary.bonuses).toEqual({});
+    expect(bestiary.entries.length).toBeGreaterThan(0);
+
+    engine.destroy();
+  });
+
+  it("counts kills on the target creature", () => {
+    const { engine } = createEngine(ALL_CLASSES[0]);
+
+    expect(kill(engine, "slime", 2)).toBe(2);
+
+    // o snapshot e throttled e so sobe no update, entendo leio o estado
+    expect(
+      engine.world.bestiary.kills.get("slime"),
+    ).toBe(2);
+
+    engine.destroy();
+  });
+
+  it("does not raise max hp before the hunt closes", () => {
+    const { engine } = createEngine(ALL_CLASSES[0]);
+    const before = engine.world.player.maxHp;
+
+    kill(engine, "slime", 4);
+
+    expect(engine.world.player.maxHp).toBe(before);
+
+    engine.destroy();
+  });
+
+  it("raises max hp for good when the hunt closes", () => {
+    const { engine } = createEngine(ALL_CLASSES[0]);
+    const before = engine.world.player.maxHp;
+
+    expect(kill(engine, "slime", 5)).toBe(5);
+
+    // 5 limos = +12 vida
+    expect(engine.world.player.maxHp).toBe(before + 12);
+
+    engine.destroy();
+  });
+
+  it("raises speed when the rat hunt closes", () => {
+    const { engine } = createEngine(ALL_CLASSES[0]);
+    const before = engine.world.player.speed;
+
+    // 5 ratos = +6 velocidade
+    expect(kill(engine, "rat", 5)).toBe(5);
+
+    expect(engine.world.player.speed).toBe(before + 6);
+
+    engine.destroy();
+  });
+
+  it("raises attack speed on the second rat hunt", () => {
+    const { engine } = createEngine(ALL_CLASSES[0]);
+    const before = engine.world.player.attackSpeedBonus;
+
+    // 15 ratos = +5% vel de ataque
+    expect(kill(engine, "rat", 15)).toBe(15);
+
+    expect(
+      engine.world.player.attackSpeedBonus,
+    ).toBeCloseTo(before + 0.05, 5);
+
+    engine.destroy();
+  });
+
+  it("stacks bestiary bonus on top of equipment", () => {
+    const { engine } = createEngine(ALL_CLASSES[0]);
+    const inventory = engine.world.inventory;
+    const player = engine.world.player;
+
+    inventory.clear();
+
+    // um item que da vida
+    inventory.add("ogre_heart", 1);
+    const stack = inventory.findStack("ogre_heart");
+
+    engine.equipItem(stack.uid, "trinket1");
+
+    const withGear = player.maxHp;
+
+    expect(
+      engine.world.equipment.bonuses().maxHp,
+    ).toBeGreaterThan(0);
+
+    // 5 ghouls = +45 vida de bestiario
+    expect(kill(engine, "ghoul", 5)).toBe(5);
+
+    // matar dá xp e pode subir de nivel, entao a diferenca exata nao
+    // fecha: o que importa e o bestiario ter entrado por cima do gear
+    expect(player.maxHp).toBeGreaterThan(withGear);
+    expect(
+      engine.world.bestiary.bonuses().maxHp,
+    ).toBe(45);
+    expect(
+      engine.world.equipment.bonuses().maxHp,
+    ).toBeGreaterThan(0);
+
+    engine.destroy();
+  });
+
+  it("adds bestiary and equipment max hp instead of overwriting", () => {
+    const { engine } = createEngine(ALL_CLASSES[0]);
+    const inventory = engine.world.inventory;
+    const player = engine.world.player;
+
+    inventory.clear();
+
+    const gearHp =
+      getItem("ogre_heart").stats.maxHp; // 180
+
+    inventory.add("ogre_heart", 1);
+    engine.equipItem(
+      inventory.findStack("ogre_heart").uid,
+      "trinket1",
+    );
+
+    kill(engine, "ghoul", 5); // +45 de bestiario
+
+    // os dois precisam estar na soma
+    expect(
+      mergeBonuses(
+        engine.world.equipment.bonuses(),
+        engine.world.bestiary.bonuses(),
+      ).maxHp,
+    ).toBe(gearHp + 45);
+
+    engine.destroy();
+  });
+
+  it("announces the closed hunt", () => {
+    const { engine, getSnapshot } = createEngine(ALL_CLASSES[0]);
+
+    kill(engine, "slime", 5);
+
+    expect(getSnapshot().message.text).toContain(
+      "Cacada do bestiario",
+    );
+
+    engine.destroy();
+  });
+
+  it("accumulates several creatures in the snapshot", () => {
+    const { engine, getSnapshot } = createEngine(ALL_CLASSES[0]);
+
+    kill(engine, "slime", 5); // +12 vida
+    kill(engine, "rat", 5); // +6 velocidade
+
+    const bestiary = getSnapshot().bestiary;
+
+    expect(bestiary.completed).toBe(2);
+    expect(bestiary.bonuses).toEqual({
+      maxHp: 12,
+      speed: 6,
+    });
+
+    engine.destroy();
+  });
+
+  it("ignores training dummy kills", () => {
+    const { engine, getSnapshot } = createEngine(ALL_CLASSES[0]);
+
+    const dummy = engine.world.enemies.find(
+      (enemy) => !enemy.isCreature,
+    );
+
+    for (let round = 0; round < 30; round += 1) {
+      dummy.hp = 1;
+      dummy.alive = true;
+
+      engine.damage.applyDamage(
+        engine.world.player,
+        dummy,
+        { damage: 9999, damageType: "physical" },
+      );
+    }
+
+    expect(getSnapshot().bestiary.completed).toBe(0);
+    expect(getSnapshot().bestiary.bonuses).toEqual({});
+
+    engine.destroy();
+  });
+
+  it("keeps the bonus when the gear is unequipped", () => {
+    const { engine } = createEngine(ALL_CLASSES[0]);
+    const inventory = engine.world.inventory;
+
+    kill(engine, "slime", 5);
+
+    const withHunt = engine.world.player.maxHp;
+
+    engine.unequipItem("head");
+
+    expect(engine.world.player.maxHp).toBe(withHunt);
 
     engine.destroy();
   });

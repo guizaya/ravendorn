@@ -3,6 +3,7 @@ import { renderToStaticMarkup } from "react-dom/server";
 import HUD from "./HUD.jsx";
 import { CHARACTER_CLASSES } from "../../data/characters/index.js";
 import { getCharacterDefinition } from "../../data/characters/index.js";
+import { Bestiary } from "../../game/bestiary/Bestiary.js";
 
 const CLASS = CHARACTER_CLASSES[0];
 
@@ -275,5 +276,182 @@ describe("HUD resilience", () => {
         snapshot: snapshot(),
       }),
     ).not.toThrow();
+  });
+});
+
+describe("bestiary menu", () => {
+  it("has a monster button next to the back button", () => {
+    const html = render({ snapshot: snapshot() });
+
+    expect(html).toContain("hud-btn--bestiary");
+    expect(html).toContain("Bestiario (B)");
+  });
+
+  it("shows no badge while nothing is done", () => {
+    const html = render({ snapshot: snapshot() });
+
+    expect(html).not.toContain("hud-btn__badge");
+  });
+
+  it("shows the closed hunt count as a badge", () => {
+    const bestiary = new Bestiary();
+    bestiary.onKill("slime", 5);
+
+    const html = render({
+      snapshot: snapshot({ bestiary: bestiary.snapshot() }),
+    });
+
+    expect(html).toContain("hud-btn__badge");
+    expect(html).toContain("1");
+  });
+
+  it("keeps the bestiary in the hud-menu with the back button", () => {
+    const html = render({ snapshot: snapshot() });
+
+    const menu = html.slice(
+      html.indexOf("hud-menu"),
+      html.indexOf("hud-menu") + 900,
+    );
+
+    expect(menu).toContain("Voltar para as classes");
+    expect(menu).toContain("hud-btn--bestiary");
+  });
+});
+
+describe("bestiary auto box", () => {
+  const hunt = {
+    creatureId: "ogre",
+    name: "Ogre da Pedreira",
+    icon: "⛊",
+    color: "#d98b5f",
+    zoneId: "pedreira",
+    zoneName: "Pedreira do Ogro",
+    kills: 7,
+  };
+
+  it("stays hidden while no hunt is running", () => {
+    const html = render({ snapshot: snapshot() });
+
+    expect(html).not.toContain("bst-auto");
+  });
+
+  it("appears below the missions box with the hunt details", () => {
+    const html = render({
+      snapshot: snapshot({ bestiaryAuto: hunt }),
+    });
+
+    expect(html).toContain("bst-auto");
+    expect(html).toContain("Ogre da Pedreira");
+    expect(html).toContain("Pedreira do Ogro");
+    expect(html).toContain("AUTO");
+  });
+
+  it("is a clickable button that offers to stop", () => {
+    const html = render({
+      snapshot: snapshot({ bestiaryAuto: hunt }),
+    });
+
+    const tag = html.match(
+      /<button[^>]*class="bst-auto"[^>]*>/,
+    );
+
+    expect(tag, "a box precisa ser um button").not.toBe(null);
+    expect(html).toContain("Parar");
+  });
+
+  it("renders after the quest tracker, not before it", () => {
+    const withQuests = {
+      snapshot: snapshot({
+        bestiaryAuto: hunt,
+        quests: {
+          main: {
+            current: {
+              id: "principal_1",
+              name: "Abrir caminho",
+              summary: "Mate 3 slimes",
+              progress: 1,
+              total: 3,
+              autoCompletable: true,
+            },
+          },
+        },
+      }),
+    };
+
+    const html = render(withQuests);
+
+    const tracker = html.indexOf("qst-tracker");
+    const box = html.indexOf("bst-auto");
+
+    expect(tracker).toBeGreaterThan(-1);
+    expect(box).toBeGreaterThan(-1);
+    expect(box).toBeGreaterThan(tracker);
+  });
+
+  it("renders even with no quest to track", () => {
+    const html = render({
+      snapshot: snapshot({
+        bestiaryAuto: hunt,
+        quests: { main: { current: null } },
+      }),
+    });
+
+    expect(html).toContain("bst-auto");
+    expect(html).not.toContain("qst-tracker__row");
+  });
+
+  it("survives a hunt without a zone", () => {
+    const html = render({
+      snapshot: snapshot({
+        bestiaryAuto: { ...hunt, zoneName: null },
+      }),
+    });
+
+    expect(html).toContain("bst-auto");
+    expect(html).toContain("Procurando");
+  });
+});
+
+describe("target level", () => {
+  it("shows the enemy level next to its health", () => {
+    const html = render({
+      snapshot: snapshot({
+        selectedTarget: {
+          id: "ogre_3",
+          name: "Ogre da Pedreira",
+          level: 17,
+          hp: 900,
+          maxHp: 1250,
+          statusEffects: [],
+        },
+      }),
+    });
+
+    expect(html).toContain("Ogre da Pedreira");
+    expect(html).toContain("Nv.17");
+    expect(html).toContain("900");
+    expect(html).toContain("1250");
+  });
+
+  it("falls back to level 1 when the target has no level", () => {
+    const html = render({
+      snapshot: snapshot({
+        selectedTarget: {
+          id: "slime_1",
+          name: "Limo Preguicoso",
+          hp: 100,
+          maxHp: 140,
+          statusEffects: [],
+        },
+      }),
+    });
+
+    expect(html).toContain("Nv.1");
+  });
+
+  it("shows no level badge without a target", () => {
+    const html = render({ snapshot: snapshot() });
+
+    expect(html).not.toContain("target-panel__level");
   });
 });

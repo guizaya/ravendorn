@@ -1,4 +1,4 @@
-export const RARITY = {
+﻿export const RARITY = {
   COMMON: "common",
   UNCOMMON: "uncommon",
   RARE: "rare",
@@ -64,6 +64,7 @@ function createItem(config) {
     rarity: RARITY.COMMON,
     value: 10,
     tier: 0,
+    quest: false,
     stats: {},
     ...config,
   };
@@ -86,6 +87,7 @@ export const ITEMS = {
     rarity: RARITY.UNCOMMON,
     type: ITEM_TYPE.MATERIAL,
     value: 18,
+    quest: true,
   }),
 
   rat_tail: createItem({
@@ -104,6 +106,7 @@ export const ITEMS = {
     rarity: RARITY.UNCOMMON,
     type: ITEM_TYPE.MATERIAL,
     value: 16,
+    quest: true,
   }),
 
   goblin_dagger: createItem({
@@ -114,6 +117,7 @@ export const ITEMS = {
     type: ITEM_TYPE.WEAPON,
     tier: 1,
     value: 40,
+    quest: true,
     stats: { attack: 6 },
   }),
 
@@ -124,6 +128,7 @@ export const ITEMS = {
     rarity: RARITY.COMMON,
     type: ITEM_TYPE.MATERIAL,
     value: 8,
+    quest: true,
   }),
 
   goblin_totem: createItem({
@@ -137,6 +142,15 @@ export const ITEMS = {
     stats: { attack: 4, resourceRegen: 1 },
   }),
 
+  ghoul_rot: createItem({
+    id: "ghoul_rot",
+    name: "Creme do Ghoul",
+    icon: "◌",
+    rarity: RARITY.COMMON,
+    type: ITEM_TYPE.MATERIAL,
+    value: 6,
+  }),
+
   ghoul_claw: createItem({
     id: "ghoul_claw",
     name: "Garra de Ghoul",
@@ -144,6 +158,7 @@ export const ITEMS = {
     rarity: RARITY.UNCOMMON,
     type: ITEM_TYPE.MATERIAL,
     value: 22,
+    quest: true,
   }),
 
   ghoul_relic: createItem({
@@ -183,6 +198,7 @@ export const ITEMS = {
     type: ITEM_TYPE.WEAPON,
     tier: 2,
     value: 130,
+    quest: true,
     stats: { attack: 12 },
   }),
 
@@ -193,6 +209,7 @@ export const ITEMS = {
     rarity: RARITY.COMMON,
     type: ITEM_TYPE.MATERIAL,
     value: 9,
+    quest: true,
   }),
 
   skeleton_crown: createItem({
@@ -222,6 +239,7 @@ export const ITEMS = {
     rarity: RARITY.UNCOMMON,
     type: ITEM_TYPE.MATERIAL,
     value: 30,
+    quest: true,
   }),
 
   ogre_hammer: createItem({
@@ -286,6 +304,7 @@ export const ITEMS = {
     type: ITEM_TYPE.TRINKET,
     tier: 2,
     value: 88,
+    quest: true,
     stats: { attack: 6, maxHp: 40 },
   }),
 
@@ -347,3 +366,12 @@ export function rarityOf(item) {
 export function isStackable(item) {
   return Boolean(item?.stackable) && (item?.maxStack ?? 1) > 1;
 }
+
+export function isQuestItem(id) {
+  return Boolean(ITEMS[id]?.quest);
+}
+
+/** itens que alguma missao entrega como recompensa */
+export const QUEST_ITEM_IDS = ITEM_LIST.filter(
+  (item) => item.quest,
+).map((item) => item.id);

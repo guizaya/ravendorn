@@ -1,9 +1,9 @@
 import {
   resolveAnimation,
   resolveCreatureAnimation,
-  resolveDirection,
   resolveDrawRect,
   resolveFrameRect,
+  resolveWalkOffset,
 } from "./animation.js";
 
 export class SpriteSheet {
@@ -20,34 +20,80 @@ export class SpriteSheet {
       return;
     }
 
-    this.image = new Image();
+    this.image = this.createImage(definition.src);
 
-    this.image.onload = () => {
+    if (!this.image) {
+      this.failed = true;
+    }
+  }
+
+  createImage(src) {
+    if (typeof Image === "undefined") return null;
+
+    const image = new Image();
+
+    image.onload = () => {
       this.loaded = true;
     };
 
-    this.image.onerror = () => {
+    image.onerror = () => {
       this.failed = true;
     };
 
-    this.image.src = definition.src;
+    image.src = src;
+
+    return image;
   }
 
   get ready() {
     return this.loaded && this.image !== null;
   }
 
-  getScratch(width, height) {
-    if (
-      this.scratch &&
-      (this.scratch.width !== width ||
-        this.scratch.height !== height)
-    ) {
-      this.scratch.width = width;
-      this.scratch.height = height;
+  createScratch() {
+    if (this.scratch) return this.scratch;
+
+    try {
+      if (
+        typeof document !== "undefined" &&
+        typeof document.createElement === "function"
+      ) {
+        const canvas = document.createElement("canvas");
+
+        if (canvas && typeof canvas.getContext === "function") {
+          this.scratch = canvas;
+          return canvas;
+        }
+      }
+    } catch {
+      this.scratch = null;
     }
 
-    return this.scratch;
+    try {
+      if (typeof OffscreenCanvas !== "undefined") {
+        this.scratch = new OffscreenCanvas(1, 1);
+        return this.scratch;
+      }
+    } catch {
+      this.scratch = null;
+    }
+
+    return null;
+  }
+
+  getScratch(width, height) {
+    const scratch = this.createScratch();
+
+    if (!scratch) return null;
+
+    if (
+      scratch.width !== width ||
+      scratch.height !== height
+    ) {
+      scratch.width = width;
+      scratch.height = height;
+    }
+
+    return scratch;
   }
 
   draw(context, player, elapsed) {
@@ -55,7 +101,7 @@ export class SpriteSheet {
       context,
       player,
       elapsed,
-      resolveAnimation(player),
+      resolveAnimation(player, this.definition),
     );
   }
 
@@ -81,10 +127,14 @@ export class SpriteSheet {
     );
 
     const target = resolveDrawRect(definition, entity);
+    const offset = resolveWalkOffset(definition, entity);
+
+    target.x += offset.x;
+    target.y += offset.y;
 
     context.save();
 
-    if (target.flip) {
+    if (source.flip) {
       context.translate(
         target.x + target.width,
         target.y,
@@ -187,6 +237,7 @@ export class SpriteSheet {
       this.image.src = "";
     }
 
+    this.image = null;
     this.scratch = null;
     this.loaded = false;
   }
