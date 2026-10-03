@@ -4,6 +4,7 @@ import {
   isAutoCompletable,
   MAIN_QUESTS,
   meetsRarity,
+  normalizeRewards,
   QUEST_SCOPE,
   QUEST_TYPE,
   SIDE_QUESTS,
@@ -15,6 +16,16 @@ export class QuestLog {
     this.mainProgress = 0;
     this.mainDone = false;
 
+    /**
+     * O nivel do jogador, para as missoes de nivel.
+     *
+     * A missao "Alcance o nivel 5" se compara com ISTE numero, e
+     * nao com uma contagem de quantas vezes o jogador subiu de
+     * nivel. A diferencia aparece quando ele chega no nivel antes da
+     * missao virar a atual
+     */
+    this.playerLevel = 1;
+
     this.sideId = null;
     this.sideProgress = 0;
     this.sideCompleted = 0;
@@ -23,6 +34,16 @@ export class QuestLog {
     this.objectiveId = null;
 
     this.completedSide = new Set();
+
+    /**
+     * As recompensas CONCLUIDAS E NAO RESGATADAS.
+     *
+     * Cada entrada e `{ questId, reward, scope }`, e o `questId` e o
+     * que torna o resgate unico: e por ele que o botao [RECEBER]
+     * encontra a recompensa, e e por ele que o segundo clique nao
+     * paga de novo. Uma missao so entra aqui uma vez, entao a lista
+     * nunca tem duas linhas do mesmo `questId`
+     */
     this.pending = [];
   }
 
@@ -139,10 +160,81 @@ export class QuestLog {
     return true;
   }
 
-  complete(reward, scope) {
-    this.pending.push({ reward, scope });
+  /**
+   * A missao terminou: a recompensa entra na fila de resgate.
+   *
+   * Ela NAO e paga aqui. O painel mostra [RECEBER] e o pagamento
+   * acontece quando o jogador clica, o que muda duas coisas: ele ve
+   * o que ganhou antes de receber, e o resgate pode ser conferido
+   * contra o que a missao de fato promete
+   *
+   * O `questId` e obrigatorio de proposito. Sem ele nao haveria como
+   * ligar um botao a uma recompensa, e o resgate voltaria a ser
+   * "paga tudo que estiver na fila", que e exatamente o que o segundo
+   * clique precisa NAO fazer
+   */
+  complete(reward, scope, questId) {
+    if (!questId) return null;
 
-    return reward;
+    const entrada = {
+      questId,
+      scope: scope ?? QUEST_SCOPE.MAIN,
+      reward: normalizeRewards(reward),
+    };
+
+    const indice = this.pending.findIndex(
+      (item) => item.questId === questId,
+    );
+
+    // a mesma missao nunca entra duas vezes. Trocar no lugar em vez
+    // de empilhar mantem o resgate unico mesmo se um `complete`
+    // escapingasse por algum caminho
+    if (indice >= 0) {
+      this.pending[indice] = entrada;
+    } else {
+      this.pending.push(entrada);
+    }
+
+    return entrada;
+  }
+
+  /** Esta missao tem recompensa esperando o clique em [RECEBER]? */
+  isClaimable(questId) {
+    return this.pending.some((item) => item.questId === questId);
+  }
+
+  /**
+   * Tira a recompensa da fila e devolve.
+   *
+   * E o UNICO caminho que paga. `splice` remove a linha do mesmo
+   * passo que a devolve, entao o segundo clique do mesmo botao nao
+   * encontra mais o que pagar e devolve `null`. E por isso que a
+   * protecao contra clique duplo nao precisa de memoria do painel:
+   * ela esta no lugar onde o dinheiro sai
+   */
+  claim(questId) {
+    const indice = this.pending.findIndex(
+      (item) => item.questId === questId,
+    );
+
+    if (indice < 0) return null;
+
+    const [entrada] = this.pending.splice(indice, 1);
+
+    return entrada;
+  }
+
+  /** Quantas missoes tem recompensa nao resgatada. */
+  get claimableCount() {
+    return this.pending.length;
+  }
+
+  /** A linha da fila de um `questId`, ou `null`. */
+  pendingOf(questId) {
+    return (
+      this.pending.find((item) => item.questId === questId) ??
+      null
+    );
   }
 
   focusNextMain() {
@@ -166,7 +258,11 @@ export class QuestLog {
       return false;
     }
 
-    this.complete(quest.rewards, QUEST_SCOPE.MAIN);
+    this.complete(
+      quest.rewards,
+      QUEST_SCOPE.MAIN,
+      quest.id,
+    );
     this.mainProgress = 0;
     this.mainIndex += 1;
 
@@ -200,7 +296,11 @@ export class QuestLog {
       return false;
     }
 
-    this.complete(quest.rewards, QUEST_SCOPE.SIDE);
+    this.complete(
+      quest.rewards,
+      QUEST_SCOPE.SIDE,
+      quest.id,
+    );
 
     this.completedSide.add(quest.id);
     this.sideCompleted += 1;
@@ -278,32 +378,79 @@ export class QuestLog {
     return [];
   }
 
-  onLevelUp(level) {
-    const main = this.currentMain;
+  /**
+   * Confere a missao de NÍVEL contra o nivel ATUAL do jogador.
+   *
+   * A missao "Alcance o nivel 5" era contada por EVENTO: so
+   * `onLevelUp` a completava. Quem chegou no nivel 5 antes de a
+   * missao virar a atual ficava preso nela: o objetivo ja estava
+   * cumprido, o painel mostrava 0 de 5, e nada mais disparava. No
+   * pior caso e Permanente: se a missao e "Alcance o nivel 10" e o
+   * jogador ja esta no maximo, nenhum level-up acontece nunca mais.
+   *
+   * Aqui o nivel e lido do personagem, entao a missao compara com o
+   * que ele TEM, e nao com o que ele deixou de acontecer. O laco
+   * importa: quem farmou ate o nivel 12 de uma vez cumpre
+   * `nivel_5` e `nivel_10` de uma vez, em vez de ficar preso na
+   * primeira ate o proximo level-up.
+   *
+   * Devolve as missoes concluidas, para o aviso e a recompensa sairem
+   * pelo mesmo caminho de sempre.
+   */
+  syncLevel(level) {
+    this.playerLevel = Math.max(1, Math.floor(level ?? 1));
 
-    if (!main || main.type !== QUEST_TYPE.LEVEL) {
-      return [];
+    const concluidas = [];
+
+    // few missoes de nivel no total, entao o laco termina rapido.
+    // O `mainDone` e o guarda: sem ele, um `currentMain` nulo
+    // entraria aqui e o laco sairia pela lista, nao pela condicao
+    for (let passo = 0; passo < MAIN_QUESTS.length; passo += 1) {
+      const main = this.currentMain;
+
+      if (!main || main.type !== QUEST_TYPE.LEVEL) break;
+
+      if (this.playerLevel < main.count) break;
+
+      this.mainProgress = main.count;
+      this.advanceMain();
+      concluidas.push(main);
     }
 
-    if (level < main.count) return [];
-
-    this.mainProgress = main.count;
-
-    if (this.advanceMain()) {
-      return [main];
-    }
-
-    return [];
+    return concluidas;
   }
 
-  drainRewards() {
-    if (this.pending.length === 0) return [];
+  /** so o nivel que a sessao conhece; usado para o painel */
+  get levelConhecido() {
+    return this.playerLevel;
+  }
 
-    const rewards = this.pending;
+  onLevelUp(level) {
+    return this.syncLevel(level);
+  }
 
-    this.pending = [];
+  /**
+   * A fila de resgate, do jeito que o painel desenha.
+   *
+   * Cada linha traz o NOME e o RESUMO junto da recompensa. O painel
+   * precisa dos dois para montar o card [RECEBER], e ele nao pode
+   * procurar a missao no catalogo: a do jogador pode ser a principal
+   * ou a secundaria, e as duas tem nomes diferentes
+   */
+  claimableSnapshot() {
+    return this.pending.map((entrada) => {
+      const quest =
+        getMainQuest(this.mainIndexOf(entrada.questId)) ??
+        getSideQuest(entrada.questId);
 
-    return rewards;
+      return {
+        id: entrada.questId,
+        scope: entrada.scope,
+        name: quest?.name ?? entrada.questId,
+        summary: quest?.summary ?? "",
+        rewards: entrada.reward,
+      };
+    });
   }
 
   isSideDone(questId) {
@@ -335,6 +482,16 @@ export class QuestLog {
           : null,
       },
 
+      /**
+       * As recompensas esperando o clique em [RECEBER].
+       *
+       * A lista e do JOGADOR, nao do catalogo: e o que ele ganhou e
+       * ainda nao recebeu. Uma missao ja resgatada nao aparece aqui,
+       * e por isso que o segundo clique encontra uma lista vazia em
+       * vez de pagar de novo
+       */
+      claimable: this.claimableSnapshot(),
+
       main: {
         index: this.mainIndex,
         total: MAIN_QUESTS.length,
@@ -351,6 +508,7 @@ export class QuestLog {
               location: main.location ?? null,
               rarity: main.rarity ?? null,
               autoCompletable: isAutoCompletable(main),
+              rewards: normalizeRewards(main.rewards),
             }
           : null,
         steps: MAIN_QUESTS.map((quest, index) => ({
@@ -363,6 +521,14 @@ export class QuestLog {
             index === this.mainIndex
               ? this.mainProgress
               : 0,
+          /**
+           * `claimable` e um estado do PASSO, e nao da missao: o
+           * passo ja foi concluido e a recompensa ainda esta na
+           * fila. Sem este campo o painel mostraria o passo como
+           * `done`, e o botao [RECEBER] nao teria onde aparecer
+           */
+          claimable: this.isClaimable(quest.id),
+          rewards: normalizeRewards(quest.rewards),
           state:
             index < this.mainIndex
               ? "done"
@@ -384,6 +550,7 @@ export class QuestLog {
               progress: this.sideProgress,
               target: side.target,
               location: side.location ?? null,
+              rewards: normalizeRewards(side.rewards),
             }
           : null,
         available: SIDE_QUESTS.map((quest) => ({
@@ -395,6 +562,8 @@ export class QuestLog {
           location: quest.location ?? null,
           done: this.isSideDone(quest.id),
           active: this.sideId === quest.id,
+          claimable: this.isClaimable(quest.id),
+          rewards: normalizeRewards(quest.rewards),
         })),
       },
     };

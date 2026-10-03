@@ -59,6 +59,13 @@ export class SkillSystem {
     this.player.cooldowns[action.id] = action.cooldown;
     this.player.attackAnimation = 0.22;
 
+    // a arte de tiro e direcional: so vale com alvo de verdade.
+    // um buff proprio aciona attackAnimation tambem, e nesse caso
+    // o arqueiro tem de continuar na pose de idle. guarda o id,
+    // e nao um booleano, porque o engine usa isso para virar o
+    // arqueiro para o alvo durante o tiro.
+    this.player.firingTargetId = aim.targetId ?? null;
+
     if (action.castTime > 0) {
       this.player.cast = {
         action,
@@ -136,7 +143,15 @@ export class SkillSystem {
     this.updatePendingCasts(deltaTime);
     this.updateDelayedPulses(deltaTime);
     this.updatePendingHits(deltaTime);
-    this.updateProjectiles(deltaTime);
+
+    // `updateProjectiles` NAO e chamada aqui de proposito.
+    //
+    // O `world.projectiles` e do mundo COMPARTILHADO, e o motor
+    // roda este `update` dentro do laco POR JOGADOR. Com duas
+    // pessoas online cada flecha andava duas vezes mais rapido,
+    // porque o mesmo `updateProjectiles` passava duas vezes pela
+    // lista. O motor chama `updateProjectiles` uma vez por tick, na
+    // parte compartilhada do tick.
   }
 
   updatePendingCasts(deltaTime) {

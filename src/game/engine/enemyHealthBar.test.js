@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { GameEngine } from "./GameEngine.js";
 import { CHARACTER_CLASSES } from "../../data/characters/index.js";
-import { TEST_MAP } from "../../data/maps/index.js";
+import { MAP_1 } from "../../data/maps/index.js";
 import { installDomStubs } from "./testHarness.js";
 
 installDomStubs();
@@ -101,7 +101,7 @@ function createEngine() {
     () => {},
   );
 
-  engine.setMap(TEST_MAP);
+  engine.setMap(MAP_1);
   engine.context = context;
 
   return { engine, context };

@@ -1,9 +1,12 @@
 import {
   circleIntersectsRect,
+  circleRectPenetration,
   distanceSquared,
 } from "../math.js";
 
 const CELL_SIZE = 220;
+
+const CORNER_ESCAPE_TURN = 0.5;
 
 export class CollisionSystem {
   constructor(map) {
@@ -210,43 +213,171 @@ export class CollisionSystem {
     return false;
   }
 
+  clampToBounds(entity, radius) {
+    const bounds = this.map.bounds;
+
+    const minX = bounds.x + radius;
+    const maxX = bounds.x + bounds.width - radius;
+    const minY = bounds.y + radius;
+    const maxY = bounds.y + bounds.height - radius;
+
+    const x = Math.max(minX, Math.min(maxX, entity.x));
+    const y = Math.max(minY, Math.min(maxY, entity.y));
+
+    const clamped = x !== entity.x || y !== entity.y;
+
+    entity.x = x;
+    entity.y = y;
+
+    return clamped;
+  }
+
+  /**
+   * tira a entidade de dentro de qualquer solido (e de fora dos
+   * limites do mapa). sem isso, entrar 1px num obstaculo trava o
+   * movimento para sempre, porque isPositionFree so responde
+   * sim ou nao e nenhuma posicao vizinha seria valida.
+   *
+   * devolve true quando teve que mover algo.
+   */
+  resolveOverlap(entity, radius, passes = 3) {
+    let corrected = false;
+
+    for (let pass = 0; pass < passes; pass += 1) {
+      let movedThisPass = false;
+
+      const candidates = [
+        ...this.nearbySolids(
+          entity.x,
+          entity.y,
+          radius,
+        ),
+      ];
+
+      for (const rect of candidates) {
+        if (rect.passable) continue;
+
+        const push = circleRectPenetration(
+          { x: entity.x, y: entity.y, radius },
+          rect,
+        );
+
+        if (!push) continue;
+
+        entity.x += push.x;
+        entity.y += push.y;
+
+        movedThisPass = true;
+        corrected = true;
+      }
+
+      if (this.clampToBounds(entity, radius)) {
+        movedThisPass = true;
+        corrected = true;
+      }
+
+      if (!movedThisPass) break;
+    }
+
+    return corrected;
+  }
+
   moveEntity(entity, deltaX, deltaY, entities = []) {
     const startX = entity.x;
     const startY = entity.y;
 
-    const nextX = {
-      x: entity.x + deltaX,
-      y: entity.y,
-    };
+    if (deltaX !== 0) {
+      const nextX = entity.x + deltaX;
 
-    if (
-      this.isPositionFree(
-        nextX,
-        entity.radius,
-        entities,
-        entity.id,
-      )
-    ) {
-      entity.x = nextX.x;
+      if (
+        this.isPositionFree(
+          { x: nextX, y: entity.y },
+          entity.radius,
+          entities,
+          entity.id,
+        )
+      ) {
+        entity.x = nextX;
+      }
     }
 
-    const nextY = {
-      x: entity.x,
-      y: entity.y + deltaY,
-    };
+    if (deltaY !== 0) {
+      const nextY = entity.y + deltaY;
 
+      if (
+        this.isPositionFree(
+          { x: entity.x, y: nextY },
+          entity.radius,
+          entities,
+          entity.id,
+        )
+      ) {
+        entity.y = nextY;
+      }
+    }
+
+    const movedX = entity.x - startX;
+    const movedY = entity.y - startY;
+
+    // preso num canto: os dois eixos bloqueados nao tem diagonal
+    // livre, entao a entidade fica sem escorregar. tenta girar o
+    // passo para sair pela diagonal.
     if (
-      this.isPositionFree(
-        nextY,
-        entity.radius,
-        entities,
-        entity.id,
-      )
+      movedX === 0 &&
+      movedY === 0 &&
+      (deltaX !== 0 || deltaY !== 0)
     ) {
-      entity.y = nextY.y;
+      this.escapeCorner(
+        entity,
+        startX,
+        startY,
+        deltaX,
+        deltaY,
+        entities,
+      );
     }
 
     return Math.hypot(entity.x - startX, entity.y - startY);
+  }
+
+  escapeCorner(
+    entity,
+    startX,
+    startY,
+    deltaX,
+    deltaY,
+    entities,
+  ) {
+    const length = Math.hypot(deltaX, deltaY);
+    const angle = Math.atan2(deltaY, deltaX);
+
+    for (const turn of [
+      CORNER_ESCAPE_TURN,
+      -CORNER_ESCAPE_TURN,
+    ]) {
+      const turned = angle + turn;
+
+      const testX = startX + Math.cos(turned) * length;
+      const testY = startY + Math.sin(turned) * length;
+
+      if (
+        !this.isPositionFree(
+          { x: testX, y: testY },
+          entity.radius,
+          entities,
+          entity.id,
+        )
+      ) {
+        continue;
+      }
+
+      entity.x = testX;
+      entity.y = testY;
+
+      return true;
+    }
+
+    return false;
   }
 
   moveBySteps(entity, deltaX, deltaY, entities = []) {

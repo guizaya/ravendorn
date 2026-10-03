@@ -100,6 +100,12 @@ function countHits(system, action, ticks = 900) {
 
   for (let step = 0; step < ticks; step += 1) {
     system.update(1 / 60);
+
+    // O motor chama isto uma vez por tick, na parte compartilhada:
+    // `world.projectiles` e do mundo, e deixar a atualizacao dentro
+    // do `update` fazia a flecha voar duas vezes mais rapida com
+    // dois jogadores online
+    system.updateProjectiles(1 / 60);
   }
 
   return hits;
@@ -139,7 +145,20 @@ describe("SkillSystem pulse scheduling", () => {
       }
     }
 
-    expect(checked).toBeGreaterThan(10);
+    // a contagem e das skills de MULTI HIT que sobraram, e nao um
+    // numero solto: ela sai da propria lista de packs. O piso era 10
+    // porque eram oito classes; com quatro, oito STILL passam por
+    // aqui, e o que este teste quer dizer e "as multi hit de todas as
+    // classes foram conferidas"
+    let esperadas = 0;
+
+    for (const pack of Object.values(SKILL_PACKS)) {
+      for (const action of [...pack.skills, pack.ultimate]) {
+        if ((action.hits ?? 1) > 1) esperadas += 1;
+      }
+    }
+
+    expect(checked, "skills de multi hit conferidas").toBe(esperadas);
   });
 
   it("applies the full hit count to a target in range", () => {
@@ -220,6 +239,79 @@ describe("SkillSystem pulse scheduling", () => {
     expect(world.pendingPulses.length).toBe(0);
     expect(peakPulses).toBeLessThanOrEqual(8);
     expect(peakEffects).toBeLessThanOrEqual(400);
+  });
+});
+
+describe("SkillSystem alvo de tiro", () => {
+  const ENEMY_ACTION = {
+    id: "tiro",
+    name: "Tiro",
+    type: "projectile",
+    damage: 10,
+    resourceCost: 0,
+    cooldown: 0,
+    range: 200,
+    speed: 400,
+    count: 1,
+    hits: 1,
+    effects: [],
+    statusEffects: [],
+  };
+
+  const SELF_ACTION = {
+    ...ENEMY_ACTION,
+    id: "buff",
+    name: "Buff",
+    type: "self",
+    targetType: "self",
+  };
+
+  it("guarda o id do alvo para o sprite virar para o inimigo", () => {
+    const { world, system } = createHarness();
+
+    expect(world.player.firingTargetId).toBe(null);
+
+    system.request(
+      ENEMY_ACTION,
+      { x: 50, y: 0 },
+      "dummy_0",
+    );
+
+    // o id, e nao um booleano: o engine usa isso para achar o
+    // alvo e virar o arqueiro durante a animacao de tiro
+    expect(world.player.firingTargetId).toBe("dummy_0");
+    expect(world.player.attackAnimation).toBeGreaterThan(0);
+  });
+
+  it("nao marca alvo quando o tiro vai para o chao", () => {
+    const { world, system } = createHarness();
+
+    system.request(ENEMY_ACTION, { x: 0, y: 300 }, null);
+
+    expect(world.player.firingTargetId).toBe(null);
+    expect(world.player.attackAnimation).toBeGreaterThan(0);
+  });
+
+  it("nao marca alvo num buff proprio", () => {
+    const { world, system } = createHarness();
+
+    system.request(
+      SELF_ACTION,
+      { x: 0, y: 0 },
+      "dummy_0",
+    );
+
+    expect(world.player.firingTargetId).toBe(null);
+    expect(world.player.attackAnimation).toBeGreaterThan(0);
+  });
+
+  it("o alvo_do_arquiro_aceita_o_id_do_inimigo", () => {
+    const { world } = createHarness();
+
+    // o que o engine le para achar o inimigo
+    expect(
+      world.enemies.some((enemy) => enemy.id === "dummy_0"),
+    ).toBe(true);
   });
 });
 

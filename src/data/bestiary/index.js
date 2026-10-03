@@ -12,6 +12,12 @@ export const BESTIARY_ICON = {
   ghoul: "☠",
   skeleton: "⚔",
   ogre: "⛊",
+  zumbi_arbalist: "✜",
+  // o ogre da predeira e um ogre, entao divide o glifo do ogre da
+  // pedreira. Um glifo novo aqui seria um caractere a mais de uma
+  // fonte de icone, e a lista do bestiario ficaria com dois ogres
+  // quase iguais: o nome e o que diferencia
+  ogre_da_predeira: "⛊",
 };
 
 /**
@@ -121,6 +127,26 @@ const REWARDS = {
     { maxHp: 90 },
     { attack: 18, defense: 18 },
     { maxHp: 120, attackSpeed: 0.08, speed: 6 },
+  ],
+
+  // o arqueiro zumbi e mais fraco que o esqueleto de perto (360 de
+  // vida contra 520), mas dispara de longe. a recompensa acompanha
+  // a leitura da criatura: quem caça de longe ganha ataque e
+  // cadencia, nao defense como o esqueleto
+  zumbi_arbalist: [
+    { attack: 10 },
+    { maxHp: 40, attackSpeed: 0.05 },
+    { attack: 14, speed: 6 },
+  ],
+
+  // o ogre da predeira e o mais duro dos caçados: 1420 de vida
+  // contra 1250 do ogre da pedreira. A recompensa segue a leitura
+  // de um bicho grande e lento que chega perto: vida e defesa, e
+  // nao velocidade como o arqueiro zumbi
+  ogre_da_predeira: [
+    { maxHp: 70 },
+    { defense: 16, maxHp: 50 },
+    { attack: 16, maxHp: 90 },
   ],
 };
 

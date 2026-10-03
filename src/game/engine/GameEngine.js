@@ -1,18 +1,29 @@
-﻿import { createPlayer } from "../entities/Player.js";
 import { createTrainingDummies } from "../entities/TrainingDummy.js";
+import { createPlayerSession } from "./PlayerSession.js";
 import { EnemyAI } from "../enemies/EnemyAI.js";
-import { Inventory } from "../inventory/Inventory.js";
-import { Equipment } from "../equipment/Equipment.js";
 import {
   grantXp,
   statsForLevel,
   xpForKill,
   xpToNext,
 } from "../progression/Levels.js";
-import { QuestLog } from "../quests/QuestLog.js";
-import { Bestiary } from "../bestiary/Bestiary.js";
+import { CRAFT_RESULT } from "../craft/Craft.js";
+import { DELIVER_RESULT as COLLECTION_RESULT } from "../collection/Collection.js";
 import { isAutoCompletable } from "../../data/quests/index.js";
-import { RARITY_ORDER } from "../../data/items/index.js";
+import {
+  canEnchantItem,
+  enchantCost,
+  rollEnchant,
+} from "../../data/enchant/index.js";
+import {
+  buildStatSheet,
+  describeStatBonus,
+  statValueOf,
+} from "../stats/StatSheet.js";
+import {
+  RARITY_ORDER,
+  RARITY_STYLE,
+} from "../../data/items/index.js";
 import { LootSystem } from "../loot/LootSystem.js";
 import {
   describeFilter,
@@ -24,19 +35,19 @@ import {
 } from "../loot/lootFilter.js";
 import { TerrainRenderer } from "../terrain/TerrainRenderer.js";
 import { PropRenderer } from "../props/PropRenderer.js";
+import { PortalRenderer } from "../portais/PortalRenderer.js";
+import { portalsOf } from "../../data/portais/index.js";
+import { findMap, getMap } from "../../data/maps/index.js";
 import {
   getItem,
   ITEM_TYPE,
   rarityOf,
+  valueAt,
 } from "../../data/items/index.js";
 import {
   describeBonus,
   getBestiaryEntry,
 } from "../../data/bestiary/index.js";
-
-function itemTypeOf(itemId) {
-  return getItem(itemId)?.type ?? null;
-}
 
 /**
  * soma dicionarios de bonus stat por chave.
@@ -62,9 +73,78 @@ import { EffectSystem } from "../effects/EffectSystem.js";
 import { DamageSystem } from "../combat/DamageSystem.js";
 import { SkillSystem } from "../skills/SkillSystem.js";
 import { distance, normalize } from "../math.js";
+import { montarRank } from "../ranking/rank.js";
+import {
+  snapshotMarket,
+} from "../market/MarketStore.js";
+import {
+  ANUNCIOS_MAXIMOS,
+  PRECO_MAXIMO,
+  PRECO_MINIMO,
+} from "../../data/market/index.js";
+
+/**
+ * O painel do market quando nao ha nenhum.
+ *
+ * O store e `null` no single player — o mercado entre jogadores nao
+ * tem sentido com uma pessoa so — e o painel precisa continuar tendo
+ * a MESMA forma, para o componente nao quebrar em `null`
+ */
+const EMPTY_MARKET = {
+  listings: [],
+  meus: [],
+  historico: [],
+  total: 0,
+  coins: 0,
+  limites: {
+    maxAnuncios: ANUNCIOS_MAXIMOS,
+    precoMinimo: PRECO_MINIMO,
+    precoMaximo: PRECO_MAXIMO,
+  },
+};
+/**
+ * A GUILDA de quem nao tem store: a arvore bloqueada e nada mais.
+ *
+ * E o que o single player mostra, e o que o painel mostra antes da
+ * primeira entrada. E um objeto CONSTRUIDO, e nao `null`: o painel
+ * pergunta por `arvore` e por `cofre` sem antes perguntar se ha guilda,
+ * e `null` seria um terceiro estado que so a tela saberia tratar
+ *
+ * `disponivel: true` em todo node, e nao `false`: a arvore de quem
+ * ainda nao tem guilda esta INTEIRA disponivel, porque o que falta e a
+ * guilda, e nao o talent. Marcar tudo como bloqueado faria o jogador
+ * ver uma arvore morta em vez de uma arvore para destravar
+ */
+const EMPTY_GUILD_SNAPSHOT = {
+  guilda: null,
+  ehLider: false,
+  ehDiretoria: false,
+  pontos: 0,
+  pontosMax: GUILD_PONTOS_MAX,
+  cofre: null,
+  busca: [],
+  arvore: GUILD_TALENTS.map((node) => ({
+    id: node.id,
+    nome: node.nome,
+    custo: node.custo,
+    tier: node.tier,
+    exige: node.exige,
+    descricao: node.descricao,
+    destravado: false,
+    disponivel: true,
+  })),
+};
+
+import {
+  GUILD_PONTOS_MAX,
+  GUILD_TALENTS,
+  talentBonuses,
+} from "../../data/guild/index.js";
 import { SpriteSheet } from "../sprites/SpriteSheet.js";
+import { resolveHurtShake } from "../sprites/animation.js";
 import { getClassSprite } from "../../data/sprites/index.js";
 import { getEnemySprite } from "../../data/sprites/enemies.js";
+import { digitandoEm } from "../ui/typing.js";
 import {
   computeMinimapTransform,
   drawMinimap,
@@ -75,19 +155,24 @@ import {
   MINIMAP_TOP_TARGETED,
   MINIMAP_WIDTH,
 } from "../ui/minimap.js";
-import { getZoneById, MAP_META } from "../../data/maps/index.js";
+import { getZoneById } from "../../data/maps/index.js";
 import {
   BEHAVIOR,
   createCreatureRoster,
 } from "../../data/enemies/index.js";
-import {
-  isSkillAuto,
-  setSkillAuto,
-} from "./autoSkills.js";
 
 const AUTO_RETARGET_INTERVAL = 0.25;
 const AUTO_LEASH_RANGE = 1500;
 const AUTO_LOW_HEALTH = 0.6;
+
+/**
+ * Teto de flechas no ar, contando as do jogador e as do inimigo.
+ *
+ * O `SkillSystem` ja tem o seu (`MAX_PROJECTILES`) para nao deixar
+ * o jogador encher a tela. Este e o mesmo teto para o total, e o
+ * arco de tiro e o lugar onde uma trava apareceria primeiro.
+ */
+const MAX_FLECHAS = 256;
 
 const CONTROLLED_CODES = new Set([
   "KeyW",
@@ -108,8 +193,21 @@ const CONTROLLED_CODES = new Set([
   "Digit7",
   "Digit8",
   "KeyR",
-  "Backspace",
   "KeyT",
+
+  /**
+   * O `Backspace` esta aqui sem ser atalho de nada.
+   *
+   * Ele e a tecla que o jogador precisa para APAGAR um caractere, e o
+   * navegador antigo tratava `Backspace` como "voltar". Cancelar o
+   * evento fora do campo e o que impede essa navegacao — e dentro do
+   * campo o `digitandoEm` deixa passar, que e onde apagar tem que
+   * funcionar
+   *
+   * O atalho que existia em cima dele — ressuscitar os bonecos de
+   * treino — foi removido. Cancelar o evento e o que sobrou
+   */
+  "Backspace",
 ]);
 
 const STATUS_COLORS = {
@@ -122,16 +220,6 @@ const STATUS_COLORS = {
   weaken: "#b574d8",
   slow: "#7ba8c9",
 };
-
-const AFFINITY_COLORS = [
-  "#fff4a8",
-  "#66d9ff",
-  "#a4d96c",
-  "#e5f7ff",
-  "#ff805c",
-  "#67e890",
-  "#b76cff",
-];
 
 const SKILL_CODE_PATTERN = /^Digit([1-8])$/;
 
@@ -153,12 +241,359 @@ const ZONE_BEHAVIOR_COLORS = {
   active: "#e05a4a",
 };
 
+/**
+ * A recompensa de uma missao em uma frase, para o aviso do resgate.
+ *
+ * O NOME do item, e nao o `itemId`: o jogador conhece a peca como
+ * "Nucleo de Limo", e `slime_core` no aviso e o identificador interno
+ * vazando para a tela
+ */
+function descreverRecompensa(reward) {
+  const partes = [];
+
+  if (reward.coins > 0) {
+    partes.push(`${reward.coins} moedas`);
+  }
+
+  if (reward.xp > 0) {
+    partes.push(`${reward.xp} xp`);
+  }
+
+  for (const item of reward.items ?? []) {
+    const nome = getItem(item.itemId)?.name ?? item.itemId;
+
+    partes.push(
+      item.count > 1 ? `${nome} x${item.count}` : nome,
+    );
+  }
+
+  return partes.length > 0 ? partes.join(" · ") : "nada";
+}
+
 export class GameEngine {
-  constructor(canvas, classDefinition, onSnapshot) {
-    this.canvas = canvas;
-    this.context = canvas.getContext("2d");
+  /**
+   * Entra no mundo compartilhado.
+   *
+   * No single player e o proprio jogador local. Online o servidor
+   * chama isto uma vez por conexao, e todas as secoes apontam
+   * para a mesma lista de inimigos: e isso que faz duas pessoas
+   * verem o mesmo slime.
+   */
+  addPlayer(session, { focus = false } = {}) {
+    if (this.world.players.has(session.id)) {
+      return this.world.players.get(session.id);
+    }
+
+    this.world.players.set(session.id, session);
+
+    if (focus || !this.world.session) {
+      this.focusPlayer(session.id);
+    }
+
+    return session;
+  }
+
+  removePlayer(id) {
+    const session = this.world.players.get(id);
+
+    this.world.players.delete(id);
+
+    if (this.world.session?.id === id) {
+      // sem alguem em foco, o motor ficaria lendo `null` em
+      // `world.inventory` e estouraria em todo acesso
+      this.focusPlayer(
+        this.world.players.keys().next().value,
+      );
+    }
+
+    return session;
+  }
+
+  focusPlayer(id) {
+    this.world.session = this.world.players.get(id) ?? null;
+
+    return this.world.session;
+  }
+
+  /**
+   * Roda `fn` com a sessao de `id` em foco e devolve a sessao
+   * anterior.
+   *
+   * O motor le o estado privado por `world.inventory` e
+   * `world.player`. Em vez de reescrever centenas de linhas
+   * parametro-a-parametro, o servidor troca o foco antes de
+   * resolver a acao daquele jogador. Como o `try/finally`
+   * devolve o foco, um erro no meio do caminho nao deixa o motor
+   * com o inventario de outra pessoa em memoria.
+   */
+  withPlayer(id, fn) {
+    const anterior = this.world.session;
+
+    this.focusPlayer(id);
+
+    try {
+      return fn(this.world.session);
+    } finally {
+      this.world.session = anterior;
+    }
+  }
+
+  isPlayer(entity) {
+    return entity?.isPlayer === true;
+  }
+
+  /**
+   * Teclado e mouse do jogador em foco.
+   *
+   * Antes era um unico par no motor. No navegador continua sendo
+   * o do jogador local, entao nada muda. Online, cada sessao tem
+   * o seu e o `withPlayer` troca junto com o inventario: sem isso
+   * o Bento andaria para ONDE a Ana estivesse apertando.
+   */
+  /**
+   * O estado de COMBATE e de CACA, por jogador.
+   *
+   * Esses nove campos eram do MOTOR. No single player isso era
+   * invisivel, porque so existe uma pessoa: mas online, o
+   * `engagedTargetId` da Ana aparecia no `update` do Bento, e o
+   * Bento ia atras do mob que a Ana clicou. Pior, o `autoPlay` de
+   * um ligava o do outro.
+   *
+   * Agora sao acessorios que leem e escrevem na sessao em foco,
+   * o mesmo caminho do `input`. As escritas que o motor faz no
+   * loop de cada jogador ficam na sessao DELE, e o `finally` do
+   * `withPlayer` devolve o foco, entao nao vaza nada.
+   */
+  /**
+   * A classe do JOGADOR EM FOCO, e nao a do motor.
+   *
+   * Este e o mesmo problema dos outros campos por sessao, e o mais
+   * danoso de todos porque decide COMO o jogador ataca.
+   *
+   * O servidor tem UM motor so, criado com a primeira classe que
+   * entrou. O `this.classDefinition` era a do motor: um Arbalist
+   * que entrasse depois usaria o `basicAttack` do Warrior (cone) em
+   * vez do dele (projectile). O sintoma era o arqueiro batendo de
+   * perto, sem arte de tiro e sem flecha nenhuma voando, porque o
+   * motor estava disparando um cone.
+   *
+   * `withPlayer` troca o foco a cada jogador do laco, entao o
+   * acessor devolve a classe certa para quem esta agindo agora.
+   *
+   * O DESENHO continua lendo `this.classDefinition`: la, a classe
+   * e a do personagem que esta na tela, e isso e uma coisa so.
+   */
+  get classeDoJogador() {
+    return (
+      this.sessaoDeJogador?.classDefinition ??
+      this.classDefinition
+    );
+  }
+
+  /**
+   * O ataque basico do jogador em foco, para o auto-play.
+   *
+   * Isto era um campo do MOTOR, montado com a classe do motor. No
+   * servidor, com um so motor para o mundo inteiro, o auto-play
+   * offered o basico do primeiro jogador para todo mundo: o
+   * Arbalist ficava a 385 do alvo testando o alcance do cone do
+   * Warrior, nao encontrava acao em alcance, e parava de bater
+   * depois do primeiro golpe. O sintoma era "bate uma vez e para".
+   *
+   * Ver `classeDoJogador`: a classe e a da sessao em foco.
+   */
+  get autoBasicAction() {
+    return this.classeDoJogador.basicAttack;
+  }
+
+  /**
+   * As acoes candidatas do auto-play: o basico mais as
+   * habilidades da classe, menos as vazias.
+   *
+   * E uma lista nova a cada chamada de proposito. Sao quatro
+   * acoes por jogador, num metodo que roda umas 20 vezes por
+   * segundo: guardar em cache exigiria invalidar quando o foco
+   * muda, e um cache errado aqui significa offercer a habilidade
+   * de outro jogador. O preco de refazer a lista e uma alocacao
+   * minuscula contra um bug que ninguem entenderia depois.
+   */
+  get autoActions() {
+    return [
+      this.autoBasicAction,
+      ...this.classeDoJogador.skills.filter(Boolean),
+    ];
+  }
+
+  get engagedTargetId() {
+    return this.sessaoDeJogador?.engagedTargetId ?? null;
+  }
+
+  set engagedTargetId(valor) {
+    const sessao = this.sessaoDeJogador;
+    if (sessao) sessao.engagedTargetId = valor;
+  }
+
+  get selectedTargetId() {
+    return this.sessaoDeJogador?.selectedTargetId ?? null;
+  }
+
+  set selectedTargetId(valor) {
+    const sessao = this.sessaoDeJogador;
+    if (sessao) sessao.selectedTargetId = valor;
+  }
+
+  get autoPlay() {
+    return this.sessaoDeJogador?.autoPlay ?? false;
+  }
+
+  set autoPlay(valor) {
+    const sessao = this.sessaoDeJogador;
+    if (sessao) sessao.autoPlay = valor;
+  }
+
+  get bestiaryTargetType() {
+    return this.sessaoDeJogador?.bestiaryTargetType ?? null;
+  }
+
+  set bestiaryTargetType(valor) {
+    const sessao = this.sessaoDeJogador;
+    if (sessao) sessao.bestiaryTargetType = valor;
+  }
+
+  get autoWaypoint() {
+    return this.sessaoDeJogador?.autoWaypoint ?? null;
+  }
+
+  set autoWaypoint(valor) {
+    const sessao = this.sessaoDeJogador;
+    if (sessao) sessao.autoWaypoint = valor;
+  }
+
+  get autoMoveDirection() {
+    return this.sessaoDeJogador?.autoMoveDirection ?? null;
+  }
+
+  set autoMoveDirection(valor) {
+    const sessao = this.sessaoDeJogador;
+    if (sessao) sessao.autoMoveDirection = valor;
+  }
+
+  get autoFacing() {
+    return this.sessaoDeJogador?.autoFacing ?? null;
+  }
+
+  set autoFacing(valor) {
+    const sessao = this.sessaoDeJogador;
+    if (sessao) sessao.autoFacing = valor;
+  }
+
+  get autoDecisionTimer() {
+    return this.sessaoDeJogador?.autoDecisionTimer ?? 0;
+  }
+
+  set autoDecisionTimer(valor) {
+    const sessao = this.sessaoDeJogador;
+    if (sessao) sessao.autoDecisionTimer = valor;
+  }
+
+  get autoLeashRange() {
+    return (
+      this.sessaoDeJogador?.autoLeashRange ?? AUTO_LEASH_RANGE
+    );
+  }
+
+  set autoLeashRange(valor) {
+    const sessao = this.sessaoDeJogador;
+    if (sessao) sessao.autoLeashRange = valor;
+  }
+
+  /**
+   * O estado por jogador, ou `null` quando ninguem esta em foco.
+   *
+   * Acessivel durante a construcao, antes do world existir, por
+   * isso o `?.`: as opcoes do construtor ja gravam alguns destes
+   * campos e ainda nao ha senao.
+   */
+  get sessaoDeJogador() {
+    return this.world?.session ?? null;
+  }
+
+  get input() {
+    return this.world?.session?.input ?? this.localInput;
+  }
+
+  set input(value) {
+    // o construtor atribui o input ANTES do world existir
+    this.localInput = value;
+
+    if (this.world?.session) {
+      this.world.session.input = value;
+    }
+  }
+
+  constructor(canvas, classDefinition, onSnapshot, options = {}) {
+    // o nome curto existe porque `options.playerId` e `options.marketStore`
+    // aparecem em varias linhas e `opcoes` fica legivel demais num
+    // bloco de inicializacao longo
+    const opcoes = options;
+    // O engine roda em dois lugares: no navegador, com canvas, e no
+    // SERVIDOR, sem nada de DOM. Esta e a unica fonte de simulacao
+    // do jogo: o cliente desenha o que o servidor calculou. Rodar
+    // duas simulacoes separadas (uma no cliente, outra no servidor)
+    // faria os dois divergirem no primeiro frame, entao o servidor
+    // usa esta mesma classe sem a parte de desenhar.
+    this.headless = !canvas;
+    this.canvas = canvas ?? null;
+
+    /**
+     * O STORE do market, so no servidor.
+     *
+     * E a unica injecao que o motor recebe de fora, e ela existe
+     * porque o market e o unico subsistema que NAO e por jogador: o
+     * anuncio de um jogador e o produto que o outro compra, entao ele
+     * tem de ser de todos. Todo o resto vive na `PlayerSession`
+     *
+     * No single player fica `null` e o painel vem vazio
+     */
+    this.marketStore = opcoes.marketStore ?? null;
+
+    /**
+     * A GUILDA: estado compartilhado, injetado pelo servidor.
+     *
+     * `null` no single player, e o painel de guilda simplesmente mostra
+     * o que qualquer jogador novo ve: a arvore bloqueada e nenhum botao
+     * de criar. Sem `guildStore` a tela nao quebra, ela so nao tem o que
+     * mostrar
+     */
+    this.guildStore = opcoes.guildStore ?? null;
+
+    // No modo rede o motor vira so DESENHO. `GameEngine` continua
+    // sendo a unica fonte de layout de sprites, terreno, props e
+    // barras de vida, para o online e o offline olharem igual; o
+    // que muda e que nada here e SIMULADO, porque quem simula e o
+    // servidor. Ligado por `setNetworked`.
+    this.networked = false;
+
+    // Quem receber o clique no modo rede. O motor descobre o alvo
+    // sob o cursor (ele sabe converter tela para mundo) e
+    // entrega o id; quem fala com o servidor e a camada de rede,
+    // que o motor nao conhece.
+    this.onTargetClick = null;
+
+    this.context = canvas
+      ? canvas.getContext("2d")
+      : null;
     this.classDefinition = classDefinition;
     this.onSnapshot = onSnapshot;
+
+    // identidade do personagem. `playerId` precisa ser unico por
+    // sessao: no single player o id da classe bastava, mas com
+    // varios jogadores online dois "warrior" teriam o mesmo id e
+    // o loot do last hit nao saberia a quem pertence
+    this.playerId =
+      options.playerId ?? `p_${classDefinition.id}`;
+    this.characterName =
+      options.characterName ?? classDefinition.name;
 
     this.viewport = {
       width: 1,
@@ -166,7 +601,10 @@ export class GameEngine {
       dpr: 1,
     };
 
-    this.input = {
+    // o input nasce dentro da sessao do jogador local (ver
+    // `createPlayerSession`). aqui so guardamos uma referencia
+    // para o caso de o `input` ser lido antes do world existir
+    this.localInput = {
       keys: new Set(),
       pointer: {
         x: classDefinition.stats.range + 100,
@@ -175,45 +613,52 @@ export class GameEngine {
       },
     };
 
-    this.selectedTargetId = null;
+    // `selectedTargetId`, `autoPlay`, `engagedTargetId`,
+    // `autoDecisionTimer`, `autoMoveDirection`, `autoFacing`,
+    // `autoLeashRange` e `bestiaryTargetType` NAO sao inicializados
+    // aqui: sao acessorios que apontam para a sessao em foco, e o
+    // world ainda nem existe neste ponto do construtor. A sessao
+    // local ja nasce com eles zerados (ver `createPlayerSession`).
+    //
+    // O aviso de tela (`message`) era um destes: um campo do MOTOR.
+    // Online, todo painel lia o mesmo campo, entao o "+16 moedas" da
+    // Ana aparecia na tela de todo mundo. Agora e da sessao, e a
+    // sessao ja nasce com ele nulo.
     this.skillPage = 0;
-    this.message = null;
     this.destroyed = false;
     this.lastTime = performance.now();
     this.snapshotAccumulator = 0;
     this.canvasRect = null;
 
-    this.autoPlay = false;
-    this.engagedTargetId = null;
-    this.autoDecisionTimer = 0;
-    this.autoMoveDirection = null;
-    this.autoFacing = null;
-    this.autoLeashRange = AUTO_LEASH_RANGE;
-
-    this.bestiaryTargetType = null;
-    this.bestiaryOwnsAutoPlay = false;
-
     this.world = {
       time: 0,
 
-      player: createPlayer(classDefinition, {
-        x: 1200,
-        y: 800,
-      }),
+      // quem esta online. no single player tem uma so pessoa; o
+      // servidor enche este mapa com uma sessao por conexao
+      players: new Map(),
 
-      enemies: [
-        ...createTrainingDummies(),
-        ...createCreatureRoster(),
-      ],
+      // a sessao em foco. todo o estado privado (inventario,
+      // missoes, craft) e lido daqui, e nao do world, para que o
+      // motor unchanged funcione igual para qualquer jogador
+      session: null,
+
+      /**
+       * O resto do world e COMUM: inimigos, projeteis, drops e o
+       * mapa sao o mesmo para todo mundo. e exatamente isso que
+       * faz "os mesmos mobs" funcionar
+       *
+       * Os inimigos entram VAZIOS aqui e sao montados no `setMap`.
+       * Eles moram dentro das zonas, e a zona so existe depois que o
+       * mapa foi escolhido — no construtor ainda nao ha mapa nenhum.
+       * Com a lista pronta aqui, o hub nascia cheio de Pantano
+       * Profundo
+       */
+      enemies: [],
 
       projectiles: [],
       pendingPulses: [],
       delayedEffects: [],
       drops: [],
-      inventory: new Inventory(),
-      equipment: new Equipment(),
-      quests: new QuestLog(),
-      bestiary: new Bestiary(),
 
       map: null,
       collision: null,
@@ -225,35 +670,112 @@ export class GameEngine {
         target.pushVelocity.x += velocityX;
         target.pushVelocity.y += velocityY;
       },
+
+      // atalhos para o estado da sessao em foco. o codigo antigo
+      // usava `world.inventory` e `world.player`; manter os
+      // nomes evita reescrever as centenas de linhas que leem
+      // isso, e o resultado e o mesmo porque o world so tem um
+      // jogador em foco por vez
+      get player() {
+        return this.session?.player ?? null;
+      },
+      get inventory() {
+        return this.session?.inventory ?? null;
+      },
+      get equipment() {
+        return this.session?.equipment ?? null;
+      },
+      get quests() {
+        return this.session?.quests ?? null;
+      },
+      get bestiary() {
+        return this.session?.bestiary ?? null;
+      },
+      get craft() {
+        return this.session?.craft ?? null;
+      },
+      get collection() {
+        return this.session?.collection ?? null;
+      },
     };
+
+    // no single player o motor ja e um jogador. o servidor cria o
+    // motor uma vez e usa `addPlayer` para cada conexao
+    const sessaoLocal = createPlayerSession(classDefinition, {
+      x: 1200,
+      y: 800,
+      id: this.playerId,
+      name: this.characterName,
+      input: this.localInput,
+    });
+
+    // No single player a sessao nasce com o filtro do navegador.
+    // Online este valor e ignorado: cada sessao recebe o filtro do
+    // seu dono, e o loot e sorteado no servidor
+    sessaoLocal.lootFilter = loadLootFilter();
+
+    this.addPlayer(sessaoLocal, { focus: true });
 
     this.effects = new EffectSystem();
     this.statuses = new StatusSystem();
     this.loot = new LootSystem(this.world);
+    // so o filtro do JOGADOR LOCAL semeia a sessao dele, e vem do
+    // `localStorage` porque no single player o navegador e o dono do
+    // save. Online o valor daqui e ignorado: cada sessao recebe o
+    // filtro do seu dono, e o servidor e quem decide o loot
     this.lootFilter = loadLootFilter();
-    this.loot.setFilter(this.lootFilter);
 
     this.damage = new DamageSystem({
       statuses: this.statuses,
       effects: this.effects,
       onDamaged: (attacker, target) => {
-        if (attacker === this.world.player) {
-          this.enemyAI?.provoke(target);
+        // "o atacante e o jogador local" nao serve mais: online o
+        // segundo jogador tambem e um jogador e tambem tem que
+        // provocar o mob. o flag da entidade resolve os dois casos
+        if (attacker?.isPlayer) {
+          // O ATIRADOR vai junto, e nao so o alvo. E o que permite
+          // ao boneco de duelo travar no primeiro agressor: sem o
+          // `attacker` a IA saberia que foi levar pancada, e nao de
+          // QUEM
+          this.enemyAI?.provoke(target, attacker);
         }
       },
       onDeath: (attacker, target) => {
-        this.handleKill(target);
+        // passa o atacante: `handleKill` usa este para saber de
+        // quem e o loot. antes o parametro chegava aqui e era
+        // descartado
+        this.killEnemy(target, attacker);
+      },
+      onResolved: (attacker, target, resultado) => {
+        /**
+         * O numero sobe em DOIS lugares, e cada um no seu.
+         *
+         * No single player, o `DamageSystem` ja desenhou o texto aqui
+         * mesmo, e a tela ve direto. No modo rede o motor e o do
+         * SERVIDOR, que nao desenha: o texto morre no `EffectSystem`
+         * de um motor sem canvas. E quem tem o canvas e o cliente
+         *
+         * Por isso o motor so REPASSA o resultado. Quem decide para
+         * quem enviar — se e so para quem atirou, ou tambem para quem
+         * levou — e o dono do motor, e ele muda entre os dois usos
+         */
+        this.onDanoResolvido?.(attacker, target, resultado);
       },
     });
 
     this.enemyAI = new EnemyAI(this.world, {
-      onDamagePlayer: (enemy, amount) =>
-        this.damage.applyDamage(enemy, this.world.player, {
+      onDamagePlayer: (enemy, amount, target) =>
+        this.damage.applyDamage(enemy, target, {
           id: `${enemy.id}_attack`,
           damage: amount,
           damageType: "physical",
           color: enemy.color,
         }),
+
+      // o atirador (o arqueiro zumbi) nao causa dano direto: ele
+      // solta uma flecha que viaja e acerta depois
+      onShootPlayer: (enemy, target) =>
+        this.dispararFlechaHostil(enemy, target),
     });
 
     this.world.effects = this.effects;
@@ -266,18 +788,12 @@ export class GameEngine {
       (message) => this.showMessage(message, true),
     );
 
-    this.autoBasicAction = classDefinition.basicAttack;
-
-    this.autoActions = [
-      this.autoBasicAction,
-      ...classDefinition.skills.filter(Boolean),
-    ];
-
     this.spriteSheet = null;
     this.spriteTime = 0;
     this.minimapCache = null;
     this.terrain = new TerrainRenderer();
     this.props = new PropRenderer();
+    this.portals = new PortalRenderer();
     this.world.sort = [];
     this.frameErrors = 0;
     this.minimapY = MINIMAP_TOP_IDLE;
@@ -295,18 +811,15 @@ export class GameEngine {
 
     this.enemySprites = new Map();
 
-    for (const enemy of this.world.enemies) {
-      if (!enemy.isCreature) continue;
+    // Os sprites de CLASSE dos OUTROS jogadores, por `classId`.
+    //
+    // E um mapa por classe, e nao por jogador, de proposito: dois
+    // Arbalist na tela compartilham a MESMA imagem, e nao baixam
+    // duas copias. E o que mantem a animacao deles igual a do
+    // jogador local, em vez de virarem uma figura generica.
+    this.playerSprites = new Map();
 
-      const definition = getEnemySprite(enemy.id);
-
-      if (!definition) continue;
-
-      this.enemySprites.set(
-        enemy.id,
-        new SpriteSheet(definition),
-      );
-    }
+    this.buildEnemySprites();
 
     this.boundLoop = this.boundLoop.bind(this);
     this.handleResize = this.handleResize.bind(this);
@@ -321,17 +834,42 @@ export class GameEngine {
     this.handleBlur = this.handleBlur.bind(this);
     this.handleContextMenu = (event) => event.preventDefault();
 
-    this.canvas.addEventListener(
+    this.applyEquipment();
+    this.sendSnapshot();
+
+    // sem DOM nao ha input para escutar nem frame para pedir. o
+    // servidor chama `update` do proprio laço de tempo, e o
+    // navegador deixa o rAF cuidar disso
+    if (!this.headless) {
+      this.bindDomEvents();
+      this.handleResize();
+      this.animationFrame = requestAnimationFrame(
+        this.boundLoop,
+      );
+    }
+  }
+
+  /**
+   * Escuta teclado, mouse e janela.
+   *
+   * Fica separado do construtor porque no servidor nao ha nada
+   * disso: `window` e `canvas` nao existem, e chamar
+   * `addEventListener` la estoura.
+   */
+  bindDomEvents() {
+    const canvas = this.canvas;
+
+    canvas.addEventListener(
       "pointermove",
       this.handlePointerMove,
     );
 
-    this.canvas.addEventListener(
+    canvas.addEventListener(
       "pointerleave",
       this.handlePointerLeave,
     );
 
-    this.canvas.addEventListener(
+    canvas.addEventListener(
       "pointerdown",
       this.handlePointerDown,
     );
@@ -346,31 +884,219 @@ export class GameEngine {
       true,
     );
 
-    this.canvas.addEventListener(
+    canvas.addEventListener(
       "contextmenu",
       this.handleContextMenu,
     );
-
-    this.handleResize();
-    this.applyEquipment();
-    this.sendSnapshot();
-
-    this.animationFrame = requestAnimationFrame(
-      this.boundLoop,
-    );
   }
 
-  setMap(map) {
+  /**
+   * UMA FOLHA DE SPRITE POR INIMIGO.
+   *
+   * O filtro NAO e mais `isCreature`. Os bonecos de treino sao
+   * `isCreature: false` e ficavam sem arte, caindo no corpo vetorial.
+   * Quem decide se algo tem desenho e o registro: se `getEnemySprite`
+   * nao conhece o tipo, o boneco segue no vetor, que e o que os outros
+   * seis merecem
+   *
+   * E pelo TIPO, e nao pelo `enemy.id`: o id da criatura tem o indice
+   * (`slime_7`) e o registro de sprite usa o tipo (`slime`). Com o id
+   * inteiro o registro nunca casava e TODOS os mobs caiam no corpo
+   * vetorial de fallback
+   *
+   * Vive num metodo e nao no construtor porque os inimigos tambem
+   * dependem do mapa: no construtor ainda nao ha elenco, e a folha de
+   * cada um so existe depois do `setMap`
+   */
+  buildEnemySprites() {
+    for (const enemy of this.world.enemies) {
+      const definition = getEnemySprite(enemy.typeId);
+
+      if (!definition) continue;
+
+      this.enemySprites.set(
+        enemy.id,
+        new SpriteSheet(definition),
+      );
+    }
+  }
+
+  setMap(map, { chegada = null } = {}) {
     this.world.map = map;
     this.world.collision = new CollisionSystem(map);
     this.world.props = map.props ?? [];
-    this.world.player.x = map.spawn.x;
-    this.world.player.y = map.spawn.y;
+
+    /**
+     * Os INIMIGOS deste mapa.
+     *
+     * Eles moram dentro das zonas, entao so podem existir depois que o
+     * mapa entrou. O vale mantem as onze areas de mob e o Campo de
+     * Provas; o hub, que nao tem zona nenhuma, fica sem ninguem — que e
+     * o que um hub e
+     *
+     * A lista e recriada aqui, e nao somada: trocar de mapa tem que
+     * trocar o elenco. Um mob do pantano que sobrasse no hub andaria
+     * por fora dos limites
+     */
+    this.world.enemies = [
+      ...createTrainingDummies(map),
+      ...createCreatureRoster(map, map.seed),
+    ];
+
+    /**
+     * As folhas andam com o elenco.
+     *
+     * Era aqui que o boneco de madeira perdia a arte: as folhas eram
+     * montadas no construtor, quando a lista de inimigos ainda estava
+     * vazia
+     */
+    this.buildEnemySprites();
+
+    /**
+     * Os portais, e nao `map.portals ?? []` dentro do desenho.
+     *
+     * O mesmo motivo dos props: e o estado do mundo, montado uma vez
+     * quando o mapa entra. No desenho, o `portalsOf` ja devolve lista
+     * vazia quando falta
+     */
+    this.world.portals = portalsOf(map);
+
+    /**
+     * ONDE O JOGADOR NASCE NESTE MAPA.
+     *
+     * O spawn do mapa, por padrao. A excecao e a TRAVESSIA de portal,
+     * que chega no portal de chegada em vez do meio do mapa: atravessar
+     * o portal do hub e aparecer no meio do vale deixaria o jogador a
+     * tres mil pixels do portal de onde saiu, sem nenhuma pista de que
+     * veio de la
+     *
+     * E o proprio `setMap` que aplica, e nao quem chamou. Um
+     * `setMap` seguido de um `player.x = ...` la fora deixaria um
+     * intervalo em que o jogador esta no mapa novo, na posicao antiga
+     */
+    const ondeChega = chegada ?? map.spawn;
+
+    this.world.player.x = ondeChega.x;
+    this.world.player.y = ondeChega.y;
     this.autoWaypoint = null;
+  }
+
+  /**
+   * A folha de sprites de uma CLASSE, para desenhar os outros
+   * jogadores.
+   *
+   * O sprite de quem joga e `this.spriteSheet`, criado no
+   * construtor. Sem isto, um Arbalist que entrasse na sala
+   * apareceria com a figura do primeiro mob da lista: foi
+   * exatamente o bug que este metodo resolve.
+   *
+   * O cache e por `classId`, entao dez Arbalist na tela
+   * compartilham uma imagem.
+   */
+  spriteDeClasse(classId) {
+    if (!classId) return null;
+
+    const jaExiste = this.playerSprites.get(classId);
+
+    if (jaExiste) return jaExiste;
+
+    const definition = getClassSprite(classId);
+
+    // classe sem sprite: o desenho cai no corpo vetorial, que e o
+    // mesmo reserva que o jogador local usa
+    if (!definition) return null;
+
+    const sheet = new SpriteSheet(definition);
+
+    this.playerSprites.set(classId, sheet);
+
+    return sheet;
+  }
+
+  liberarSpritesDeJogadores() {
+    for (const sheet of this.playerSprites.values()) {
+      sheet?.destroy?.();
+    }
+
+    this.playerSprites.clear();
+  }
+
+  /**
+   * O desenho de um OUTRO jogador.
+   *
+   * Ele esta na lista de inimigos para reaproveitar o caminho de
+   * codigo do desenho de corpos, mas nao e um mob: usa a folha da
+   * CLASSE dele e a animacao de jogador (idle, walk e tiro),
+   * exatamente a mesma que o proprio jogador local usa.
+   */
+  drawJogadorRemoto(context, remoto) {
+    const sheet = this.spriteDeClasse(remoto.classId);
+
+    // a sombra vem antes: e o que separa o boneco do chao, e o
+    // jogador local tambem desenha a dele
+    context.save();
+    context.fillStyle = "rgba(0,0,0,0.32)";
+    context.beginPath();
+    context.ellipse(
+      remoto.x,
+      remoto.y + 17,
+      22,
+      10,
+      0,
+      0,
+      Math.PI * 2,
+    );
+    context.fill();
+    context.restore();
+
+    const desenhou = sheet
+      ? sheet.draw(context, remoto, this.spriteTime)
+      : false;
+
+    if (!desenhou) {
+      this.drawEnemyBody(context, remoto);
+    }
+
+    this.drawNomeDeRemoto(context, remoto);
+  }
+
+  /**
+   * O nome em cima do outro jogador.
+   *
+   * Sem isso o outro jogador e so uma figura sem nome no meio da
+   * briga: da para ver que alguem esta la, mas nao quem.
+   */
+  drawNomeDeRemoto(context, remoto) {
+    if (!remoto.name) return;
+
+    const base = this.enemyHeadTop(remoto);
+
+    context.save();
+    context.textAlign = "center";
+    context.font = "700 11px Inter, sans-serif";
+
+    // um contorno grosso porque o texto passa por cima de
+    // qualquer sprite, incluindo o escuro
+    context.lineWidth = 3;
+    context.strokeStyle = "rgba(0,0,0,0.75)";
+    context.strokeText(remoto.name, remoto.x, base - 6);
+
+    context.fillStyle = "#e8f4ff";
+    context.fillText(remoto.name, remoto.x, base - 6);
+
+    context.restore();
   }
 
   destroy() {
     this.destroyed = true;
+
+    this.liberarSpritesDeJogadores();
+
+    if (this.headless) {
+      this.enemySprites.clear();
+      this.spriteSheet = null;
+      return;
+    }
 
     cancelAnimationFrame(this.animationFrame);
 
@@ -415,6 +1141,8 @@ export class GameEngine {
   }
 
   refreshCanvasRect() {
+    if (this.headless) return;
+
     this.canvasRect =
       this.canvas.getBoundingClientRect();
   }
@@ -440,22 +1168,38 @@ export class GameEngine {
     this.context.imageSmoothingEnabled = false;
   }
 
-  screenToWorld(clientX, clientY) {
-    const rect = this.canvasRect;
+/**
+ * O PONTO DA TELA QUE O MOUSE APONTA, NO MUNDO.
+ *
+ * E o inverso exato da camera do `render`:
+ *
+ *     tela   = (mundo - jogador) * zoom + centro
+ *     mundo  = (tela - centro) / zoom + jogador
+ *
+ * O zoom aparece aqui tambem, e por um motivo bem concreto: com a
+ * camera 30% mais perto, o mesmo pixel da tela aponta para um terco de
+ * mundo a menos. Sem dividir por `z`, o clique cairia longe do ponto que
+ * o jogador esta vendo e o tiro iria para o lado errado
+ *
+ * O jogador NAO e dividido: ele e o ponto fixo do zoom, e some no
+ * `+ jogador` do fim. Com `zoom = 1` a conta volta a ser exatamente a
+ * de antes
+ */
+screenToWorld(clientX, clientY) {
+  const rect = this.canvasRect;
 
-    return {
-      x:
-        clientX -
-        rect.left -
-        this.viewport.width / 2 +
-        this.world.player.x,
-      y:
-        clientY -
-        rect.top -
-        this.viewport.height / 2 +
-        this.world.player.y,
-    };
-  }
+  const z = this.cameraZoom;
+
+  return {
+    x:
+      (clientX - rect.left - this.viewport.width / 2) / z +
+      this.world.player.x,
+    y:
+      (clientY - rect.top - this.viewport.height / 2) / z +
+      this.world.player.y,
+  };
+}
+
 
   handlePointerMove(event) {
     this.input.pointer = {
@@ -491,13 +1235,84 @@ export class GameEngine {
           (enemy.radius + 18) ** 2,
     );
 
-    this.selectedTargetId = target?.id ?? null;
-    this.engagedTargetId = target?.id ?? null;
+    const targetId = target?.id ?? null;
 
-    this.useBasicAttack();
+    // ONLINE: o clique vira um PEDIDO e quem executa e o servidor.
+    //
+    // Sem este desvio, o cliente rodava o golpe aqui mesmo: a
+    // animacao tocava, o efeito aparecia, e nada acontecia no
+    // mundo, porque o motor em modo rede nao simula. Era
+    // exatamente o sintoma de "o ataque funciona e nao acerta".
+    if (this.networked) {
+      this.onTargetClick?.(targetId, point);
+      return;
+    }
+
+    this.engageTarget(targetId);
+  }
+
+  /**
+   * "Quero brigar com este alvo": marca, ataca uma vez e CONTINUA
+   * avancando enquanto ele estiver vivo.
+   *
+   * O `engagedTargetId` e o que faz o personagem andar ate o alvo.
+   * Sem ele o golpe sai parado no lugar, sem dano nenhum, porque
+   * a habilidade de corpo a corpo nao alcança de longe. E o
+   * caminho e o mesmo para o clique e para o comando de rede: se
+   * cada um montasse o seu, o online e o offline divergiriam.
+   */
+  engageTarget(targetId, { atacarAgora = true } = {}) {
+    this.selectedTargetId = targetId;
+    this.engagedTargetId = targetId;
+
+    if (atacarAgora) {
+      this.useBasicAttack();
+    }
+  }
+
+  /**
+   * Aponta o alvo para um inimigo pela mira, sem marcar o
+   * engagement.
+   *
+   * Usado pelas habilidades de area e pelo ultimate, que miram
+   * onde a mira esta e nao o que foi clicado.
+   */
+  lookAtTarget(targetId) {
+    const alvo = this.findEnemyById(targetId);
+
+    if (!alvo) return null;
+
+    // a mira precisa estar no ALVO, e nao onde o cliente apontou
+    // na tela: o servidor nao sabe onde fica o mouse, e a
+    // resolucao do cliente nao e a de ninguem mais
+    this.input.pointer = {
+      x: alvo.x,
+      y: alvo.y,
+      inside: true,
+    };
+
+    return alvo;
   }
 
   handleKeyDown(event) {
+    /**
+     * COM O FOCO NUM CAMPO, A TECLA E DO CAMPO.
+     *
+     * Este e o terceiro consumidor de teclado do jogo — a HUD abre
+     * painel e o `GameCanvas` manda movimento — e era o unico que
+     * chamava `preventDefault`. Era ele que comia a letra: com o foco
+     * no campo do nome da guilda, o `A` de "Ana" era cancelado antes de
+     * chegar no input, e o jogador via o boneco parado, nenhum painel
+     * abrindo e o campo em branco. As outras duas guardas que eu tinha
+     * feito nao davam conta, porque nenhuma delas pode falar "nao
+     * cancele"
+     *
+     * O `preventDefault` e o `keys.add` andam juntos de proposito:
+     * cancelar o evento impede o caractere de aparecer, e o `keys.add`
+     * com a tecla ja pressionada no motor local-andava offline
+     */
+    if (digitandoEm(event)) return;
+
     if (CONTROLLED_CODES.has(event.code)) {
       event.preventDefault();
     }
@@ -505,6 +1320,15 @@ export class GameEngine {
     this.input.keys.add(event.code);
 
     if (event.repeat) return;
+
+    // ONLINE, as teclas de ORDEM nao sao do motor.
+    //
+    // `Space`, `1`-`8`, `R` e `T` sao pedidos, e quem executa pedido e
+    // o servidor. O `GameCanvas` as transforma em pacote. Se o motor
+    // tambem as tratasse aqui, ele mexeria num estado local que ninguem
+    // le: a `T` ligaria um auto play que so existe na tela, e o jogador
+    // acharia que o botao nao fez nada.
+    if (this.networked) return;
 
     if (event.code === "Space") {
       this.useBasicAttack();
@@ -523,17 +1347,19 @@ export class GameEngine {
       return;
     }
 
-    if (event.code === "Backspace") {
-      this.resetTargets();
-      return;
-    }
-
     if (event.code === "KeyT") {
       this.toggleAutoPlay();
     }
   }
 
   handleKeyUp(event) {
+    /**
+     * O `keyup` e apagado MESMO com o foco num campo.
+     *
+     * Apagar sempre e seguro e e a unica forma de soltar a tecla que o
+     * jogador apertou antes de clicar no campo. Filtrar aqui deixaria o
+     * personagem andando sozinho no single player
+     */
     this.input.keys.delete(event.code);
   }
 
@@ -545,27 +1371,74 @@ export class GameEngine {
     this.skillPage = Math.max(0, page);
   }
 
+  /**
+   * Desliga o piloto SEM avisar o jogador.
+   *
+   * Usado quando outro auto assume o comando. Sao tres pedidos
+   * diferentes - cacar perto, seguir a missao, cacar uma criatura
+   * - e so um pode estar no comando. O jogador pediu o outro, entao
+   * avisar "Auto play desativado" seria mentira: ele nao desativou
+   * nada, o personagem so mudou de tarefa.
+   *
+   * Deixa `autoPlay` intacto de proposito: quem chama ja cuidou
+   * desse flag.
+   */
+  soltarPiloto() {
+    this.engagedTargetId = null;
+    this.selectedTargetId = null;
+    this.autoMoveDirection = null;
+    this.autoFacing = null;
+    this.autoWaypoint = null;
+    this.autoDecisionTimer = 0;
+
+    this.bestiaryTargetType = null;
+  }
+
   setAutoPlay(enabled) {
     const next = Boolean(enabled);
 
     if (next === this.autoPlay) return;
 
+    // O botao (e a tecla T) e o auto de CACAR PERTO. Ele nao pode
+    // dividir o comando com a missao nem com o bestiario: com os
+    // dois ligados, o piloto obedece ao objetivo mais especifico e
+    // o botao vira um cacador que atravessa o mapa atras da zona em
+    // vez de bater no mob do lado. Ligar um desliga os outros.
+    //
+    // O bestiario e o caso que mais escapa: `getAutoObjective` da
+    // PRIORIDADE a ele, entao uma cacada de criatura que sobrevive
+    // ao botao continuava mandando no piloto, e o sintoma era
+    // exatamente "cliquei no auto e o personagem foi para a outra
+    // zona".
+    if (next) {
+      this.world.quests.setAuto(false);
+      this.bestiaryTargetType = null;
+    }
+
     this.autoPlay = next;
     this.autoDecisionTimer = 0;
 
-    if (!next) {
-      this.engagedTargetId = null;
-      this.selectedTargetId = null;
-      this.autoMoveDirection = null;
-      this.autoFacing = null;
-      this.autoWaypoint = null;
+    // O waypoint tambem e limpo AO LIGAR.
+    //
+    // Ele e o ponto que o piloto estava caminhando - e, com a missao
+    // no comando, era o centro da zona dela. Ligar o auto de cacar
+    // perto sem limpar isso deixava o personagem apontado para a
+    // zona por um tick, ate o proximo `autoPlayTarget`. Nao e um
+    // tempo perceptivel, e nao explica o sintoma sozinho, mas e o
+    // que faz o primeiro passo do piloto sair na direcao errada.
+    this.autoWaypoint = null;
+    this.engagedTargetId = null;
+    this.selectedTargetId = null;
+    this.autoMoveDirection = null;
+    this.autoFacing = null;
 
+    if (!next) {
       // o botao de auto e parada-mestre: se a cacada do bestiario
       // sobreviver a ele, a box continuaria mostrando AUTO sem
       // ninguem cacando. clearBestiaryAuto nao volta aqui porque
       // o alvo ja foi limpo antes.
       this.bestiaryTargetType = null;
-      this.bestiaryOwnsAutoPlay = false;
+      this.world.quests.setAuto(false);
     }
 
     this.showMessage(
@@ -624,10 +1497,11 @@ export class GameEngine {
     this.selectedTargetId = null;
     this.autoWaypoint = null;
 
-    if (!this.autoPlay) {
-      this.bestiaryOwnsAutoPlay = true;
-      this.setAutoPlay(true);
-    }
+    // o bestiario assume o comando. ele e um pedido dedicado a UMA
+    // criatura, e dividi-lo com o botao ou com a missao faria o
+    // piloto alternar entre alvos e nao completar nenhum
+    this.autoPlay = false;
+    this.world.quests.setAuto(false);
 
     this.showMessage(
       `Auto: caçando ${entry.name}` +
@@ -648,11 +1522,6 @@ export class GameEngine {
     this.selectedTargetId = null;
     this.autoDecisionTimer = 0;
     this.autoWaypoint = null;
-
-    if (this.bestiaryOwnsAutoPlay) {
-      this.bestiaryOwnsAutoPlay = false;
-      this.setAutoPlay(false);
-    }
 
     this.showMessage(
       `Auto do bestiario desligado` +
@@ -732,7 +1601,7 @@ export class GameEngine {
     if (wasAuto) {
       quests.setAuto(false);
       quests.clearObjective();
-      this.setAutoPlay(false);
+      this.soltarPiloto();
 
       this.showMessage(`Auto desligado: ${quest.name}`);
 
@@ -742,7 +1611,17 @@ export class GameEngine {
     }
 
     quests.setAuto(true);
-    this.setAutoPlay(true);
+
+    // A missao assume o comando. O botao e "cacar perto": se
+    // continuasse ligado, o piloto teria dois alvos e o jogador
+    // nao saberia qual dos dois o personagem estava seguindo. E o
+    // `autoPlay` nao e ligado aqui de proposito: o auto da missao
+    // funciona pelo objetivo dela, e nao por esse flag. Era
+    // justamente por ele que apertar T no meio da missao desligava
+    // o piloto e deixava a tela mostrando AUTO com o personagem
+    // parado.
+    this.autoPlay = false;
+    this.soltarPiloto();
 
     this.showMessage(`Auto: ${quest.summary}`);
 
@@ -770,12 +1649,19 @@ export class GameEngine {
         return false;
       }
 
-      this.setAutoPlay(true);
+      // a missao assume o comando: o botao e a cacada do
+      // bestiario saem, e o `autoPlay` nao e ligado (o auto da
+      // missao funciona pelo objetivo dela)
+      this.autoPlay = false;
+      this.soltarPiloto();
+
       this.showMessage(
         `Auto: ${objective.summary}`,
       );
     } else {
-      this.showMessage("Auto de missÃ£o desligado.");
+      this.soltarPiloto();
+
+      this.showMessage("Auto de missão desligado.");
     }
 
     this.sendSnapshot();
@@ -783,8 +1669,29 @@ export class GameEngine {
     return enabled;
   }
 
+  /**
+   * Liga ou desliga o automatico de UMA skill deste jogador.
+   *
+   * A flag vai para a sessao, nao para um store global. O painel
+   * e o que devolve a lista para o HUD acender o `AUTO`, entao o
+   * arrasto online tem que aparecer no proximo pacote.
+   */
   setSkillAuto(skillId, enabled) {
-    return setSkillAuto(skillId, enabled);
+    const sessao = this.sessaoDeJogador;
+
+    if (!sessao) return false;
+
+    const ligada = Boolean(enabled);
+
+    if (ligada) {
+      sessao.skillAuto.add(skillId);
+    } else {
+      sessao.skillAuto.delete(skillId);
+    }
+
+    this.sendSnapshot();
+
+    return ligada;
   }
 
   checkEquipQuest() {
@@ -837,7 +1744,19 @@ export class GameEngine {
   }
 
   getSkillAuto(skillId) {
-    return isSkillAuto(skillId);
+    return Boolean(this.sessaoDeJogador?.skillAuto?.has(skillId));
+  }
+
+  /**
+   * O slot onde este item tem que entrar, ou `null`.
+   *
+   * O painel e o auto-equip usam este para escolher o destino, em vez
+   * de varrer os slots procurando o primeiro que aceita o tipo: com
+   * tres slots de armadura, o primeiro dependia da ordem do boneco
+   * e nao do item
+   */
+  slotFor(itemId) {
+    return this.world.equipment.slotForItem(itemId);
   }
 
   equipItem(uid, slotId) {
@@ -852,12 +1771,49 @@ export class GameEngine {
       return false;
     }
 
-    const previous = equipment.equip(stack.itemId, slotId);
+    const previous = equipment.equip(
+      stack.itemId,
+      slotId,
+      stack.rarity,
+
+      /**
+       * O afixo da peca que ENTRA vai junto.
+       *
+       * Sem este quarto argumento o slot receberia `null`, e um arco
+       * encantado perderia o afixo no instante em que o jogador
+       * vestisse: o afixo estaria na mochila, o slot nao saberia, e o
+       * painel mostraria a peca sem afixo com ela vestida
+       */
+      stack.enchant,
+    );
 
     inventory.takeUid(uid, 1);
 
     if (previous) {
-      inventory.add(previous, 1);
+      // a peca trocada volta na MESMA raridade, senao um arco
+      // lendario perderia a forca so por trocar de lugar
+      inventory.add(
+        previous.itemId,
+        1,
+        previous.rarity,
+      );
+
+      /**
+       * E volta com o afixo, pela mesma razao. `add` cria uma pilha
+       * nova, entao o afixo precisa ser colado na pilha recem-criada
+       * logo depois — e pela MESMA chave `uid`, e nao por `itemId`:
+       * duas pecas iguais na mesma raridade sao pilhas diferentes, e
+       * procurar por `itemId` pegaria a primeira e trocaria o afixo
+       * entre elas
+       */
+      const devolvida = inventory.findStack(
+        previous.itemId,
+        previous.rarity,
+      );
+
+      if (devolvida && previous.enchant) {
+        devolvida.enchant = previous.enchant;
+      }
     }
 
     this.applyEquipment();
@@ -874,12 +1830,218 @@ export class GameEngine {
 
     if (!previous) return false;
 
-    const result = this.world.inventory.add(previous, 1);
+    const result = this.world.inventory.add(
+      previous.itemId,
+      1,
+      previous.rarity,
+    );
+
+    /**
+     * A peca desvestida volta com o afixo, e ele e lido do `previous`
+     * e nao do slot: o `unequip` ja devolveu a peca inteira e limpou o
+     * slot, entao o `add` comecou do zero. Sem esta linha, tirar uma
+     * arma da mao apagaria o encantamento dela
+     */
+    const devolvida = this.world.inventory.findStack(
+      previous.itemId,
+      previous.rarity,
+    );
+
+    if (devolvida && previous.enchant) {
+      devolvida.enchant = previous.enchant;
+    }
 
     this.applyEquipment();
     this.sendSnapshot();
 
     return result.added > 0;
+  }
+
+  /**
+   * ENCANTA uma peca da mochila.
+   *
+   * Sorteia o stat e a raridade, cobra o ouro e troca o afixo da peca.
+   * O afixo ANTERIOR e perdido de proposito: encantar e um reroll com
+   * preco, e guardar os dois deixaria o jogador com duas colunas de
+   * bonus no mesmo item sem nenhum motivo
+   *
+   * Devolve `{ ok, enchant }` e nao um `boolean`, porque o painel
+   * precisa saber QUAL afixo saiu para mostrar o resultado. Um
+   * `boolean` obrigaria o painel a sortear de novo para exibir, e o
+   * que ele mostraria nao seria o que o jogador comprou
+   *
+   * A peca precisa estar na MOCHILA. Encantar algo vestido exigiria o
+   * motor de guardar e restaurar o item ao trocar de slot, e o painel
+   * mostraria um boneco com a peca "saindo" no meio do sorteio — o
+   * jogador perderia a referencia de onde estava a peca
+   */
+  enchantItem(uid) {
+    const inventory = this.world.inventory;
+    const stack = inventory.findByUid(uid);
+
+    if (!stack) {
+      return { ok: false, reason: "Item não encontrado." };
+    }
+
+    return this.aplicarEncantamento({
+      itemId: stack.itemId,
+      rarity: stack.rarity,
+      gravar: (enchant) => {
+        stack.enchant = enchant;
+      },
+    });
+  }
+
+  /**
+   * ENCANTA a peca VESTIDA de um slot.
+   *
+   * O painel mostra a mochila E o que esta no corpo, e sem este metodo
+   * o jogador veria a armadura na lista e nao conseguiria encantar sem
+   * antes tira-la das costas
+   *
+   * E o mesmo sorteio do `enchantItem`, com o preco e a validacao
+   * compartilhados: os dois caminhos passam por `aplicarEncantamento`,
+   * e nao por duas copias da mesma regra. Se o custo ou a recusa
+   * divergissem entre os dois, o jogador veria um preco na caixa da
+   * esquerda e pagaria outro
+   *
+   * `trinket1` e `trinket2` sao recusados: nao ha item de reliquia no
+   * catalogo hoje, e o pedido foi arma e armadura. O `canEnchantItem`
+   * e quem decide, e ele le o TIPO do item
+   */
+  enchantSlot(slotId) {
+    const slot = this.world.equipment.getSlot(slotId);
+
+    if (!slot?.itemId) {
+      return { ok: false, reason: "Slot vazio." };
+    }
+
+    return this.aplicarEncantamento({
+      itemId: slot.itemId,
+      rarity: slot.rarity,
+      gravar: (enchant) => {
+        this.world.equipment.setSlotEnchant(slotId, enchant);
+      },
+    });
+  }
+
+  /**
+   * O comum dos dois caminhos de encantar.
+   *
+   * Sorteia, cobra e devolve o resultado. O que muda entre a mochila e
+   * o slot e SO onde o afixo e gravado, e e por isso que isso vem como
+   * `gravar` e nao como um `if` dentro do metodo
+   *
+   * A ordem e importante: o preco e conferido ANTES do sorteio. Sortear
+   * e de graca, entao sortear antes de saber se o jogador pode pagar
+   * seria jogar fora o resultado e dar ao jogador a ilusao de que o
+   * proximo vai sair diferente
+   */
+  aplicarEncantamento({ itemId, rarity, gravar }) {
+    const inventory = this.world.inventory;
+
+    if (!canEnchantItem(itemId)) {
+      return {
+        ok: false,
+        reason: "Só arma e armadura podem ser encantadas.",
+      };
+    }
+
+    const custo = enchantCost(itemId, rarity);
+
+    if (inventory.coins < custo) {
+      return {
+        ok: false,
+        reason: `Ouro insuficiente: ${custo} necessários.`,
+      };
+    }
+
+    const enchant = rollEnchant(itemId);
+
+    if (!enchant) {
+      return { ok: false, reason: "Encantamento indisponível." };
+    }
+
+    inventory.spendCoins(custo);
+
+    gravar(enchant);
+
+    this.applyEquipment();
+    this.sendSnapshot();
+
+    return { ok: true, enchant, custo };
+  }
+
+  /**
+   * Tira do corpo as pecas vestidas na posicao errada.
+   *
+   * A peca volta para a mochila, e NAO e vestida no slot certo: quem
+   * pediu foi "desequipar o que esta no lugar errado", e mover
+   * sozinho seria decisao do jogador. A peca sai do corpo, ele ve o
+   * que aconteceu e veste o que quiser
+   *
+   * A raridade volta junto, como em todo desequipar. Perder a variante
+   * ao abrir o inventario seria o pior resultado possivel para uma
+   * correcao automatica: o jogador fechava o painel e tinha menos
+   * poder do que antes, sem ter clicado em nada
+   *
+   * Existe por causa dos saves antigos. Antes de a peca declarar
+   * posicao, `head`, `chest` e `legs` aceitavam qualquer `ARMOR`, e o
+   * jogo gravava no arquivo o que o jogador vestiu. Quem tinha um
+   * capuz no peito continua com ele no arquivo, e nenhuma regra de
+   * `equip` corrigiria isso sozinha: ela so roda quando o jogador
+   * veste alguma coisa
+   */
+  fixMisplacedEquipment() {
+    const equipment = this.world.equipment;
+    const inventory = this.world.inventory;
+
+    const errados = equipment.misplacedSlots();
+
+    if (errados.length === 0) return [];
+
+    const movidos = [];
+
+    for (const slotId of errados) {
+      const peca = equipment.unequip(slotId);
+
+      if (!peca) continue;
+
+      const resultado = inventory.add(
+        peca.itemId,
+        1,
+        peca.rarity,
+      );
+
+      const item = getItem(peca.itemId);
+
+      // a peca so volta a ficar vestida se a mochila estiver cheia. Com
+      // a mochila cheia o `add` devolve 0, e a peca nao pode sumir: ela
+      // volta para o MESMO slot, que e o melhor destino que existe
+      // quando nao ha lugar na mochila. Antes era esse o destino de
+      // qualquer desequipar, entao nada se perde
+      if (resultado.added === 0) {
+        // `equip` nao serve aqui: ele recusa pela MESMA regra que
+        // detectou o erro, e a peca nunca voltaria. `restore` ignora
+        // a checagem de posicao, que e justamente o que este metodo
+        // existe para desfazer
+        equipment.restore(peca, slotId);
+      }
+
+      movidos.push({
+        itemId: peca.itemId,
+        rarity: peca.rarity,
+        name: item?.name ?? peca.itemId,
+        slotId,
+      });
+    }
+
+    if (movidos.length > 0) {
+      this.applyEquipment();
+      this.sendSnapshot();
+    }
+
+    return movidos;
   }
 
   /** remove a peÃ§a do inventÃ¡rio sem qualquer contrapartida */
@@ -899,17 +2061,19 @@ export class GameEngine {
     return true;
   }
 
-  /** tira a peÃ§a do corpo e some com ela */
+  /** tira a peca do corpo e some com ela */
   discardEquipped(slotId) {
     const equipped = this.world.equipment.getEquipped(slotId);
 
     if (!equipped) return false;
 
+    // a peca vestida NUNCA esta na mochila: ela foi retirada de
+    // la ao equipar. So tirar do slot ja a destroi, e pulling da
+    // bolsa aqui apagaria uma copia diferente da que estava no
+    // corpo.
     const previous = this.world.equipment.unequip(slotId);
 
     if (!previous) return false;
-
-    this.world.inventory.take(previous, 1);
 
     this.applyEquipment();
     this.checkEquipQuest();
@@ -919,11 +2083,35 @@ export class GameEngine {
     return true;
   }
 
+  /**
+   * Aplica o filtro de coleta do jogador em FOCO.
+   *
+   * O filtro e POR JOGADOR e mora na sessao. Antes ele era um campo
+   * do motor, e ai estavam os dois defeitos de uma vez: online o
+   * clique mudava o filtro do cliente, que nao decide loot nenhum, e
+   * o filtro do servidor valia para todo mundo no mapa.
+   *
+   * O `saveLootFilter` (localStorage) e so do single player: online o
+   * dono do filtro e o servidor, e a sessao dele e a copia que vale.
+   */
   setLootFilter(filter) {
-    this.lootFilter = normalizeLootFilter(filter);
-    saveLootFilter(this.lootFilter);
+    const normalizado = normalizeLootFilter(filter);
+    const sessao = this.world.session;
 
-    const removed = this.loot.setFilter(this.lootFilter);
+    if (!sessao) {
+      // sem sessao em foco nao ha a quem aplicar. O caminho offline
+      // sempre tem uma, entao este e o caso de seguridad
+      return null;
+    }
+
+    sessao.lootFilter = normalizado;
+
+    // so o drop DESTE jogador e podado: o filtro de um nao pode
+    // apagar o loot de outro que esteja no chao ao lado
+    const removed = this.loot.pruneDrops(
+      normalizado,
+      sessao.id,
+    );
 
     if (removed > 0) {
       this.showMessage(
@@ -933,22 +2121,31 @@ export class GameEngine {
 
     this.sendSnapshot();
 
-    return this.lootFilter;
+    return normalizado;
   }
 
-  /** limpa da mochila o que o filtro reprova */
+  /** o filtro de coleta do jogador em foco */
+  filtroDoJogador() {
+    return this.world.session?.lootFilter ?? null;
+  }
+
+  /** limpa a mochila o que o filtro reprova */
   pruneInventory() {
     const inventory = this.world.inventory;
+    const filtro = this.filtroDoJogador();
     let removed = 0;
 
     for (let index = inventory.stacks.length - 1; index >= 0; index -= 1) {
       const stack = inventory.stacks[index];
 
-      if (isCollectedId(stack.itemId, this.lootFilter)) {
+      if (isCollectedId(stack.itemId, filtro)) {
         continue;
       }
 
-      const taken = inventory.takeUid(stack.uid);
+      // A pilha INTEIRA, e nao um item. O `takeUid` tira uma unidade
+      // por padrao, entao sem a quantidade o "Limpar mochila" apagava
+      // um de cada pilha e deixava o resto
+      const taken = inventory.takeUid(stack.uid, stack.count);
 
       removed += taken?.count ?? 0;
     }
@@ -964,9 +2161,11 @@ export class GameEngine {
   }
 
   lootFilterSummary() {
+    const filtro = this.filtroDoJogador();
+
     return {
-      ...this.lootFilter,
-      label: describeFilter(this.lootFilter),
+      ...(filtro ?? {}),
+      label: describeFilter(filtro),
     };
   }
 
@@ -981,7 +2180,10 @@ export class GameEngine {
       let bestScore = -Infinity;
 
       for (const stack of inventory.stacks) {
-        if (!slot.accepts.includes(itemTypeOf(stack.itemId))) {
+        // o TIPO nao basta: os tres slots de armadura aceitam
+        // `ARMOR`, ento so o tipo deixava o auto-equip trocar o
+        // capuz pela bota, pois os dois cabiam em qualquer um dos tres
+        if (!equipment.slotAccepts(slot.id, stack.itemId)) {
           continue;
         }
 
@@ -989,7 +2191,9 @@ export class GameEngine {
 
         if (!item) continue;
 
-        const score = item.value;
+        // o score e o valor NA raridade da variante, senao um arco
+        // comum e um lendario empatariam no catalogo
+        const score = valueAt(stack.itemId, stack.rarity);
 
         if (score > bestScore) {
           bestScore = score;
@@ -1011,18 +2215,55 @@ export class GameEngine {
     return changed;
   }
 
+  /**
+ * Os BONUS dos talentos da guilda deste jogador.
+ *
+ * Objeto vazio sem store ou sem guilda, e nao `null`: o `mergeBonuses`
+ * soma os termos, e um `null` aqui viraria um `undefined` na conta
+ * dentro do `applyEquipment`
+ *
+ * Os talentos sao DA GUILDA e nao do jogador — e o desenho de "todo
+ * mundo ajuda". Quem destrava gasta o ponto DELE, e o bonus vale para
+ * todos os membros
+ */
+guildBonuses() {
+  if (!this.guildStore) return {};
+
+  const guilda = this.guildStore.guildaDoJogador(
+    chaveDaSessao(this.world.session),
+  );
+
+  if (!guilda) return {};
+
+  return talentBonuses(guilda.talentos);
+}
+
   applyEquipment() {
     const player = this.world.player;
     const stats = player.definition.stats;
     const growth = statsForLevel(player.level ?? 1);
 
-    // equipamento + bestiario no mesmo pipeline. as cacadas fechadas
-    // somam como se fosse item vestida, entao as duas fontes precisam
+    // equipamento, bestiario, colecao e guilda no mesmo pipeline. As
+    // quatro fontes somam como se fossem item vestida, entao precisam
     // ser SOMADAS por stat: um spread sobrescreveria o maxHp do
     // equipamento com o do bestiario.
+    //
+    // O quarto termo e o AFIXO das pecas vestidas. Ele e a FRACAO do
+    // stat base multiplicada pela base, e nao um valor da peca: por
+    // isso recebe `stats`, e nao o jogador. Passar o jogador inteiro
+    // faria o afixo crescer com o proprio bonus — `speed` viraria uma
+    // corrida de 2%, 2.04%, 2.08%
+    //
+    // A GUILDA e o quinto. E o unico termo que vem de um estado
+    // COMPARTILHADO, e nao da sessao: os talentos destravados sao da
+    // guilda, entao os dois jogadores da mesma guilda veem o mesmo
+    // bonus. E por isso que ele precisa do store para ser lido
     const bonus = mergeBonuses(
       this.world.equipment.bonuses(),
+      this.world.equipment.enchantBonuses(stats),
       this.world.bestiary.bonuses(),
+      this.world.collection.bonuses(),
+      this.guildBonuses(),
     );
 
     const maxHp =
@@ -1060,10 +2301,61 @@ export class GameEngine {
       0,
       Math.min(player.resource, player.maxResource),
     );
+
+    /**
+     * A FOLHA DE STATS do personagem, recalculada junto com tudo.
+     *
+     * Ela entra no MESMO ponto do pipeline dos outros stats, e nao em
+     * um `sendSnapshot` avulso: a folha le os numeros que acabaram de
+     * ser definidos, entao uma peca vestida ou uma cacada fechada
+     * aparece no painel no mesmo quadro em que muda o combate. Ler a
+     * folha em outro lugar daria uma tela que concorda com o
+     * personagem com um pacote de atraso
+     *
+     * Os cinco stats que o MOTOR calcula sao passados de volta para a
+     * folha como `atuais`. E o que garante que o ATK da tela seja o
+     * `player.attack` deste exato quadro, e nao uma segunda conta da
+     * mesma formula feita em outro lugar
+     */
+    player.stats = buildStatSheet(
+      player.definition,
+      player.level ?? 1,
+      bonus,
+      player,
+    );
+
+    /**
+     * PRECISAO e ESQUIVA viram campos do jogador, e nao so da tela.
+     *
+     * Eles eram calculados aqui, mostrados no painel, e lidos em lugar
+     * nenhum: subir de DEX aumentava "Precisao" na tela e nao mudava
+     * o combate em nada. Sao eles que decidem se um golpe passa batido
+     * (`game/combat/Chance.js`), e o combate so enxerga o que esta
+     * no objeto
+     *
+     * Sao lidos da folha que acabamos de refazer, e nao recalculados
+     * aqui: duas contas da mesma formula divergem, e a divergencia
+     * apareceria como "a tela diz 84 e o combate usa 79"
+     */
+    player.accuracy =
+      statValueOf(player.stats, "accuracy") ?? 0;
+
+    /**
+     * A ESQUIVA e uma FRACAO, e nao um numero como a precisao.
+     *
+     * A diferenca vem do `StatSheet` e e de proposito: 0.055 e "5,5% de
+     * chance de errar", e nao "0,055 de defesa". Misturar as duas
+     * unidades aqui transformaria o miss em quase zero
+     */
+    player.evasion =
+      statValueOf(player.stats, "evasion") ?? 0;
   }
 
   useSkillSlot(slot) {
-    const action = this.classDefinition.skills[slot - 1];
+    // a classe do jogador em foco, e nao a do motor: ver
+    // `classeDoJogador`. um Arbalist no servidor usaria as
+    // habilidades do Warrior sem isto
+    const action = this.classeDoJogador.skills[slot - 1];
 
     if (!action) return false;
 
@@ -1080,7 +2372,7 @@ export class GameEngine {
 
   useUltimate() {
     return this.skillSystem.request(
-      this.classDefinition.ultimate,
+      this.classeDoJogador.ultimate,
       this.input.pointer,
       this.selectedTargetId,
     );
@@ -1088,34 +2380,241 @@ export class GameEngine {
 
   useBasicAttack() {
     return this.skillSystem.request(
-      this.classDefinition.basicAttack,
+      this.classeDoJogador.basicAttack,
       this.input.pointer,
       this.selectedTargetId,
     );
   }
 
+  /**
+   * O aviso de tela do jogador em foco.
+   *
+   * Fica NA SESSAO, e nao no motor. Com uma pessoa nao faz
+   * diferenca nenhuma; online, um campo do motor e lido por todos os
+   * paineis, entao o "+16 moedas" da Ana aparecia na tela do Bento
+   * tambem -- e parecia que a recompensa tinha ido para os dois.
+   *
+   * O que decide a recompensa e o dono do abate, em `handleKill`.
+   * Aqui so decide para QUEM o aviso e escrito.
+   */
   showMessage(text, bad = false) {
-    this.message = {
-      text,
-      bad,
-      remaining: 2.5,
-    };
-  }
+    const sessao = this.world.session;
 
-  resetTargets() {
-    for (const enemy of this.world.enemies) {
-      enemy.hp = enemy.maxHp;
-      enemy.alive = true;
-      enemy.respawnTimer = 0;
-      enemy.statusEffects = [];
-      enemy.pushVelocity = { x: 0, y: 0 };
-      enemy.hitFlash = 0;
+    // sem sessao em foco nao ha a quem mostrar. Perder um aviso e
+    // melhor do que inventionar um dono: o painel de todo mundo
+    // leria `null` e nao mostraria nada
+    if (!sessao) return;
+
+    const agora = this.world.time;
+
+    // DOIS avisos no mesmo instante nao podem se comer. Fechar uma
+    // cacada e subir de nivel acontecem no mesmo abate, e o segundo
+    // `showMessage` apagava o primeiro: o jogador fechava a cacada e
+    // so via "Nivel 2 alcancado", sem a recompensa que ele acabara
+    // de ganhar. Aqui eles viram uma linha so, na ordem em que
+    // aconteceram
+    if (sessao.message && sessao.messageTick === agora) {
+      sessao.message = {
+        text: `${sessao.message.text}  ·  ${text}`,
+        bad: sessao.message.bad || bad,
+      };
+    } else {
+      sessao.message = { text, bad };
     }
 
-    this.selectedTargetId = null;
-    this.engagedTargetId = null;
+    sessao.messageTick = agora;
+    sessao.messageRemaining = 2.5;
+  }
 
-    this.showMessage("Bonecos de treinamento restaurados.");
+  /**
+   * Consome os ingredientes e cria o item. A falha nunca sai pela
+   * metade: ou a receita fecha inteira, ou nada muda na mochila.
+   */
+  craftItem(recipeId, rarity = null) {
+    const result = this.world.craft.craft(
+      this.world.inventory,
+      recipeId,
+      this.world.player.classId,
+      rarity,
+    );
+
+    if (!result.ok) {
+      this.showMessage(
+        this.craftFailureMessage(result),
+        true,
+      );
+
+      this.sendSnapshot();
+
+      return false;
+    }
+
+    const item = getItem(result.recipe.itemId);
+    const style = RARITY_STYLE[result.variant?.rarity];
+
+    this.showMessage(
+      `${item?.name ?? result.recipe.itemId} criado${
+        style ? ` (${style.label})` : ""
+      }.`,
+    );
+
+    this.sendSnapshot();
+
+    return true;
+  }
+
+  /**
+   * Entrega uma COLECAO.
+   *
+   * A entrega e a unica acao do jogo que tira item do jogador sem
+   * dar nada em troca imediato: o material vai embora e a recompensa
+   * entra em `pending` no `Collection`. Por isso a recompensa so e
+   * creditada aqui, e nunca dentro do `deliver` — a ordem e
+   *consumir, creditar, avisar, e o credito nunca pode perder o
+   * material ja consumido
+   *
+   * Devolve `true` so quando a entrega aconteceu. O painel so usa
+   * isso para saber se vale mandar o snapshot; a recusa vem no
+   * `snapshot` seguinte, com o que falta
+   */
+  deliverCollection(collectionId) {
+    const resultado = this.world.collection.deliver(
+      collectionId,
+      this.world.inventory,
+      this.world.equipment,
+    );
+
+    if (!resultado.ok) {
+      this.showMessage(this.collectionFailureMessage(resultado), true);
+      this.sendSnapshot();
+
+      return false;
+    }
+
+    /**
+     * A ENTREGA SOMA O BONUS, e o bonus entra no personagem.
+     *
+     * O `deliver` ja somou no `collection.bonus`, e e o
+     * `applyEquipment` abaixo que leva esse bonus para o jogador. A
+     * ordem importa: sem ele, o painel mostraria a colecao como
+     * entregue e os stats ainda sem o valor novo, no exato instante em
+     * que o jogador olha para os dois
+     */
+    this.applyEquipment();
+
+    this.showMessage(
+      `Colecao entregue: ${resultado.collection.name}. ` +
+        describeStatBonus(resultado.reward),
+    );
+
+    this.sendSnapshot();
+
+    return true;
+  }
+
+  /** o texto de uma entrega recusada, naming o que falta */
+  collectionFailureMessage(resultado) {
+    if (resultado.reason === COLLECTION_RESULT.DONE) {
+      return "Essa colecao ja foi entregue.";
+    }
+
+    if (resultado.reason === COLLECTION_RESULT.UNKNOWN) {
+      return "Colecao inexistente.";
+    }
+
+    if (resultado.reason === COLLECTION_RESULT.MISSING) {
+      const faltam = (resultado.faltam ?? [])
+        .map((falta) => `${falta.falta}x ${falta.label}`)
+        .join(", ");
+
+      return `Falta material: ${faltam}.`;
+    }
+
+    return "Nao foi possivel entregar a colecao.";
+  }
+
+  /** o painel da colecao, com o que falta em cada uma */
+  collectionSnapshot() {
+    if (!this.world.collection) {
+      return {
+        entries: [],
+        completed: 0,
+        total: 0,
+        isComplete: false,
+        bonuses: {},
+      };
+    }
+
+    return this.world.collection.snapshot(
+      this.world.inventory,
+      this.world.equipment,
+    );
+  }
+
+  /** o painel do craft, ja filtrado pela classe do jogador */
+  craftSnapshot() {
+    return this.world.craft.snapshot(
+      this.world.inventory,
+      this.world.player.classId,
+    );
+  }
+
+  craftFailureMessage(result) {
+    if (result.reason === CRAFT_RESULT.LOCKED) {
+      const allowed =
+        this.world.craft
+          .allowedClassesOf(result.recipe)
+          .join(", ");
+
+      return `Sua classe nao cria essa arma. Quem cria: ${
+        allowed || "ninguem"
+      }.`;
+    }
+
+    if (result.reason === CRAFT_RESULT.COINS) {
+      return "Moedas insuficientes para essa receita.";
+    }
+
+    if (result.reason === CRAFT_RESULT.FULL) {
+      return "Mochila cheia: libere um slot para criar o item.";
+    }
+
+    if (result.reason === CRAFT_RESULT.UNKNOWN) {
+      return "Receita desconhecida.";
+    }
+
+    return "Faltam materiais para essa receita.";
+  }
+
+  /**
+   * Devolve um inimigo morto a vida.
+   *
+   * Fica num metodo so porque o estado de "morto" tem varias
+   * partes: `alive`, `hp`, os efeitos, o push e o `rewardGranted`.
+   * Cada um desses e lido em um lugar diferente da simulacao, e
+   * esquecer de limpar um deles em um dos caminhos de ressurreicao
+   * (o respawn automatico e o reset manual) produz um mob que
+   * parece vivo mas nunca mais da loot, sem nenhum erro no
+   * console.
+   */
+  reviveEnemy(enemy) {
+    enemy.hp = enemy.maxHp;
+    enemy.alive = true;
+    enemy.respawnTimer = 0;
+    enemy.statusEffects = [];
+    enemy.pushVelocity = { x: 0, y: 0 };
+    enemy.hitFlash = 0;
+    enemy.aiState = "idle";
+    enemy.alerted = false;
+    enemy.provoked = false;
+    enemy.wanderTarget = null;
+    // o proximo abate deste mob precisa poder ser premiado de
+    // novo, e o loot do ciclo anterior nao pode sobrar para
+    // informar quem matou da proxima vez
+    enemy.rewardGranted = false;
+    enemy.lastHitBy = null;
+
+    return enemy;
   }
 
   findEnemyById(id) {
@@ -1264,7 +2763,7 @@ export class GameEngine {
     }
 
     const reserve =
-      this.classDefinition.basicAttack.resourceCost ?? 0;
+      this.classeDoJogador.basicAttack.resourceCost ?? 0;
 
     return (
       player.resource >= action.resourceCost + reserve
@@ -1298,7 +2797,7 @@ export class GameEngine {
 
       if (
         action !== this.autoBasicAction &&
-        !isSkillAuto(action.id)
+        !this.getSkillAuto(action.id)
       ) {
         continue;
       }
@@ -1357,7 +2856,7 @@ export class GameEngine {
   }
 
   getAutoDesiredRange() {
-    const basic = this.classDefinition.basicAttack;
+    const basic = this.classeDoJogador.basicAttack;
 
     return Math.max(
       55,
@@ -1384,7 +2883,15 @@ export class GameEngine {
       return;
     }
 
-    if (this.autoPlay || this.bestiaryTargetType !== null) {
+    // O piloto roda por ter um OBJETIVO, nao pelo `autoPlay`.
+    //
+    // O `autoPlay` e so o botao de cacar perto. O auto da missao e
+    // o do bestiario tem objetivo proprio, e e o objetivo que diz o
+    // que fazer. Quando o piloto era ligado so pelo `autoPlay`,
+    // apertar T no meio de uma missao desligava o piloto sem
+    // desligar a missao: a tela dizia AUTO e o personagem ficava
+    // parado.
+    if (this.getAutoObjective() !== null || this.autoPlay) {
       this.runAutoHunt(deltaTime, player);
     }
   }
@@ -1487,31 +2994,112 @@ export class GameEngine {
   }
 
   update(deltaTime) {
+    // No navegador o `destroy` cancela o requestAnimationFrame e o
+    // laco morre sozinho. No servidor o laco e de fora, entao um
+    // tick ja enfileirado continuaria simulando um jogador que ja
+    // saiu: o mob continuaria tomando dano de um fantasma e o loot
+    // iria para ninguem.
+    if (this.destroyed) return;
+
     this.frameDelta = deltaTime;
+
+    // MODO REDE: o cliente nao simula nada. A posicao de cada um
+    // veio do servidor, e este ramo so avanca o relogio de
+    // DESENHO (animacao dos sprites, duracao das barras) para o
+    // quadro nao ficar congelado entre um snapshot e o outro.
+    //
+    // O ramo fica ANTES de qualquer logica de jogo de proposito:
+    // se a simulacao local rodasse junto, o cliente teria uma
+    // segunda copia do mundo divergindo da do servidor, que e
+    // exatamente o problema que a autoridade do servidor veio
+    // resolver.
+    if (this.networked) {
+      this.spriteTime += deltaTime;
+      this.updatePresentation(deltaTime);
+
+      /**
+       * Os EFEITOS andam com o tempo no modo rede tambem.
+       *
+       * `effects.update` estava depois do `return` deste ramo, e o
+       * `EffectSystem` e o dono do numero de dano que sobe. Com o
+       * `update` fora, o `ttl` nao decairia: cada numero criado ficaria
+       * parado no primeiro quadro, com o mesmo texto sobreposto no
+       * mesmo pixel, para sempre — e a lista so cresceria ate o teto
+       * de 400, expulsando os mais antigos sem nunca mostrar nada
+       *
+       * Aqui dentro e nao la embaixo porque este ramo e o unico que
+       * roda no cliente, e o cliente e quem tem o canvas
+       */
+      this.effects.update(deltaTime);
+
+      this.snapshotAccumulator += deltaTime;
+
+      if (this.snapshotAccumulator >= 0.1) {
+        this.snapshotAccumulator = 0;
+        this.sendSnapshot();
+      }
+
+      return;
+    }
+
     this.world.time += deltaTime;
 
-    if (this.message) {
-      this.message.remaining -= deltaTime;
+    // o aviso de tela e POR SESSAO: cada um tem o seu e o seu
+    // relogio. Antes era um campo do motor, e o texto do "+16
+    // moedas" ficava na tela de todo mundo connected ate a mesma
+    // hora de expirar
+    for (const sessao of this.world.players.values()) {
+      if (sessao.messageRemaining <= 0) continue;
 
-      if (this.message.remaining <= 0) {
-        this.message = null;
+      sessao.messageRemaining -= deltaTime;
+
+      if (sessao.messageRemaining <= 0) {
+        sessao.message = null;
+        sessao.messageRemaining = 0;
       }
     }
 
-    this.updateCooldowns(deltaTime);
-    this.updateAutoPlay(deltaTime);
-    this.updatePlayer(deltaTime);
+    // A PARTE POR JOGADOR: cooldown, movimento, status e as
+    // habilidades de cada um. Com uma pessoa e o que sempre foi.
+    // Com varias, o foco e trocado antes de resolver cada um, e o
+    // `withPlayer` devolve o foco no fim, ate se algo estourar no
+    // meio: sem isso o jogador B andaria com o inventario do A.
+    for (const id of [...this.world.players.keys()]) {
+      // alguem pode ter saído durante o proprio tick
+      if (!this.world.players.has(id)) continue;
+
+      this.withPlayer(id, () => {
+        this.updateCooldowns(deltaTime);
+        this.updateAutoPlay(deltaTime);
+        this.updatePlayer(deltaTime);
+
+        this.skillSystem.update(deltaTime);
+
+        // o drop no chao e por jogador: cada um recolhe o que esta
+        // perto DELE, e nao o do jogador em foco
+        this.coletarDropDoChao();
+
+        this.statuses.update(
+          this.world.player,
+          deltaTime,
+        );
+      });
+    }
 
     this.spriteTime += deltaTime;
 
-    this.skillSystem.update(deltaTime);
-
-    this.statuses.update(
-      this.world.player,
-      deltaTime,
-    );
-
+    // A PARTE COMPARTILHADA: inimigos, projeteis, efeitos e
+    // drops sao o MESMO para todo mundo, entao rodam UMA vez por
+    // tick. Se estes loops ficassem dentro do de cima, um slime
+    // levaria o dano do tanto de jogadoresQuanto houvesse online
+    // e o tempo de vida dele cairia N vezes mais rapido.
     this.updateEnemies(deltaTime);
+
+    // As flechas andam aqui, e nao dentro do `skillSystem.update`:
+    // `world.projectiles` e compartilhado, entao rodar por jogador
+    // fazia a flecha voar N vezes mais rapida com N gente online
+    this.skillSystem.updateProjectiles(deltaTime);
+    this.updateFlechasHostis(deltaTime);
 
     this.effects.update(deltaTime);
 
@@ -1571,6 +3159,18 @@ export class GameEngine {
       movementY += 1;
     }
 
+    // A intencao que o SERVIDOR recebeu tem prioridade sobre o
+    // teclado. No navegador o teclado e a intencao, entao o
+    // resultado e o mesmo. Online o `keys` esta vazio e quem manda
+    // e o pacote: era este o ponto onde o servidor nao conseguia
+    // mover ninguem, porque o motor so sabia ler tecla.
+    const intencao = this.world.session?.intent;
+
+    if (intencao && intencao.seq > 0) {
+      movementX = intencao.moveX;
+      movementY = intencao.moveY;
+    }
+
     const direction = this.autoMoveDirection
       ? this.autoMoveDirection
       : normalize(movementX, movementY);
@@ -1597,7 +3197,7 @@ export class GameEngine {
         player,
         direction.x * speed * deltaTime,
         direction.y * speed * deltaTime,
-        this.world.enemies,
+        EMPTY_LIST,
       );
 
       player.moveDirection = direction;
@@ -1606,6 +3206,19 @@ export class GameEngine {
     } else {
       player.animationTime += deltaTime * 2;
     }
+
+    // o jogador so colide com solidos. inimigos nao podem virar
+    // parede: numa turba o personagem ficava cercado e sem
+    // nenhuma direcao livre. roda sempre, inclusive parado, senao
+    // a horda empilha em cima dele.
+    this.shoveEnemiesOffPlayer(player, deltaTime);
+
+    // ultimo recurso: se sobrou empurrao dentro de um obstaculo,
+    // o jogador e devolvido para fora em vez de ficar travado
+    this.world.collision.resolveOverlap(
+      player,
+      player.radius,
+    );
 
     player.walkPhase += deltaTime;
 
@@ -1633,6 +3246,21 @@ export class GameEngine {
       (aimDirection.x !== 0 || aimDirection.y !== 0)
     ) {
       player.aimDirection = aimDirection;
+    }
+
+    // atirando com foco num inimigo, o arqueiro vira para o alvo:
+    // a arte de tiro e por direcao e precisa casar com a mira.
+    // fora da janela do tiro o facing continua sendo o do
+    // movimento, como manda a regra de andar.
+    if (player.attackAnimation > 0 && player.firingTargetId) {
+      const aimed = this.findEnemyById(player.firingTargetId);
+
+      if (aimed) {
+        player.facing = normalize(
+          aimed.x - player.x,
+          aimed.y - player.y,
+        );
+      }
     }
 
     const resourceRegen =
@@ -1680,14 +3308,7 @@ export class GameEngine {
         enemy.respawnTimer -= deltaTime;
 
         if (enemy.respawnTimer <= 0) {
-          enemy.hp = enemy.maxHp;
-          enemy.alive = true;
-          enemy.statusEffects = [];
-          enemy.pushVelocity = { x: 0, y: 0 };
-          enemy.aiState = "idle";
-          enemy.alerted = false;
-          enemy.provoked = false;
-          enemy.wanderTarget = null;
+          this.reviveEnemy(enemy);
         }
 
         continue;
@@ -1698,9 +3319,15 @@ export class GameEngine {
         enemy.hitFlash - deltaTime,
       );
 
-      const dx = enemy.x - player.x;
-      const dy = enemy.y - player.y;
+      const dx = player ? enemy.x - player.x : 0;
+      const dy = player ? enemy.y - player.y : 0;
+
+      // sem ninguem no mapa nao ha o que descartar: `player` e
+      // `null` entre o ultimo jogador sair e o proximo entrar, e
+      // comparar a distancia com `null` derrubava o laco do
+      // servidor inteiro
       const nearPlayer =
+        !player ||
         dx * dx + dy * dy <= ACTIVE_RANGE * ACTIVE_RANGE;
 
       this.statuses.update(enemy, deltaTime);
@@ -1717,6 +3344,13 @@ export class GameEngine {
       enemy.pushVelocity.x *= damping;
       enemy.pushVelocity.y *= damping;
 
+      // inimigo empanado num solido fica travado igual o jogador
+      this.world.collision.resolveOverlap(
+        enemy,
+        enemy.radius,
+        2,
+      );
+
       if (
         Math.abs(enemy.pushVelocity.x) < 0.5 &&
         Math.abs(enemy.pushVelocity.y) < 0.5
@@ -1725,28 +3359,175 @@ export class GameEngine {
       }
 
       if (enemy.hp <= 0) {
-        enemy.alive = false;
-        enemy.respawnTimer = 5;
-        enemy.aiState = "dead";
-        enemy.wanderTarget = null;
-        enemy.alerted = false;
-        enemy.provoked = false;
-        enemy.stuckTimer = 0;
-        enemy.sidestepTimer = 0;
+        // o StatusSystem tira vida direto, sem passar pelo
+        // DamageSystem, entao o `onDeath` nunca dispara para
+        // veneno e queimadura. Antes este bloco so marcava o
+        // mob como morto e seguia: o loot, o xp, a missao e o
+        // bestiario eram perdidos. Um abate por DoT NAO pode ser um
+        // abate sem premio
+        this.killEnemy(enemy);
+
         continue;
       }
 
-      if (enemy.isCreature && nearPlayer) {
+      // O boneco de duelo tambem roda a IA, mesmo sem ser
+      // criatura: e ele que vai ate quem bateu nele. Sem este `||`
+      // a regra do duelo simplesmente nunca executava, e o boneco
+      // ficava travado em `idle` com o alvo travado nele
+      if ((enemy.isCreature || enemy.duelo) && nearPlayer) {
         this.enemyAI.update(enemy, deltaTime);
       }
     }
   }
 
-  handleKill(enemy) {
-    this.announceLoot(
-      this.loot.collectFrom(enemy),
-    );
+  /**
+   * afasta os inimigos que invadiram o jogador. o jogador nao
+   * cede nada: e ele quem empurra, porque o movimento dele ja e
+   * so contra solidos e nao pode ser travado por nenhum corpo.
+   */
+  shoveEnemiesOffPlayer(player, deltaTime) {
+    const collision = this.world.collision;
+    const strength = 18 * deltaTime + 2;
 
+    for (const enemy of this.world.enemies) {
+      if (!enemy.alive) continue;
+
+      const dx = enemy.x - player.x;
+      const dy = enemy.y - player.y;
+
+      const minimum =
+        player.radius + enemy.radius;
+
+      const squared = dx * dx + dy * dy;
+
+      if (squared >= minimum * minimum) continue;
+
+      let normalX = 1;
+      let normalY = 0;
+      let distance = 0;
+
+      if (squared > 0) {
+        distance = Math.sqrt(squared);
+        normalX = dx / distance;
+        normalY = dy / distance;
+      }
+
+      const overlap = minimum - distance;
+
+      // empurra o inimigo para fora, mas nunca alem do que a
+      // sobreposicao pede: evita teletransportar corpos
+      const step = Math.min(overlap, strength);
+
+      // lista vazia de proposito: se o outro inimigo bloquear o
+      // empurrao, o anel inteiro fica comprimido em cima do
+      // jogador. a separacao entre inimigos acontece no update
+      // deles e desfaz o amontoado nos frames seguintes.
+      collision.moveEntity(
+        enemy,
+        normalX * step,
+        normalY * step,
+        EMPTY_LIST,
+      );
+
+      collision.resolveOverlap(enemy, enemy.radius, 2);
+    }
+  }
+
+  /**
+   * A unica rota de morte de inimigo.
+   *
+   * Existiam duas e elas discordavam: o DamageSystem chamava
+   * `handleKill` (com loot, xp, missao e bestiario) e o
+   * `updateEnemies` apenas marcava `alive = false` quando o
+   * StatusSystem matava por veneno. O segundo caminho premiava
+   * ninguem.
+   *
+   * O dono do abate vem do ultimo a dar dano, nao de quem clicou
+   * por ultimo: com dois jogadores batendo no mesmo mob, o loot
+   * e de quem aplicou o golpe que zerou o HP. O `lastHitBy` e
+   * gravado pelo DamageSystem a cada dano e sobrevive a quem
+   * estiver longe no momento da morte.
+   */
+  killEnemy(enemy, killer = null) {
+    if (!enemy) return;
+
+    // A guarda nao pode ser `alive === false`: o DamageSystem ja
+    // marcou o mob como morto ANTES de chamar `onDeath`, entao
+    // aqui o `alive` ja vem false na rota normal e o loot nunca
+    // seria entregue. O marco de "ja processado" e um campo
+    // proprio, que so esta rota escreve.
+    if (enemy.rewardGranted) return;
+
+    enemy.rewardGranted = true;
+
+    enemy.alive = false;
+    enemy.respawnTimer = 5;
+    enemy.aiState = "dead";
+    enemy.wanderTarget = null;
+    enemy.alerted = false;
+    enemy.provoked = false;
+    enemy.stuckTimer = 0;
+    enemy.sidestepTimer = 0;
+
+    this.handleKill(enemy, killer ?? enemy.lastHitBy);
+  }
+
+  handleKill(enemy, killer = null) {
+    // QUEM GANHA e o dono do abate, e nao quem estiver em foco.
+    //
+    // O `updateEnemies` e a parte COMPARTILHADA do tick: ele roda
+    // fora do `withPlayer` de cada jogador, e o abate por DoT chega
+    // aqui sem `killer`. O foco nessa hora e do ultimo jogador que
+    // entrou, entao a missao, o bestiario, o xp e a recompensa iam
+    // para quem nao matou - e a secundaria hunt nunca contava.
+    //
+    // O id da sessao e o id do jogador (`createPlayerSession` cria
+    // o player com o id da sessao), entao o dono se localiza direto
+    const owner = killer ?? enemy.lastHitBy ?? null;
+    const sessao = owner?.id
+      ? this.world.players.get(owner.id)
+      : null;
+
+    // Abate sem dono conhecido nao da NADA a ninguem. Creditar o
+    // jogador em foco seria dar missao, xp e ouro para quem nao
+    // matou -- e o sorteio de loot, que vem antes, colocaria moeda
+    // e item na mochila de quem so estava no mapa.
+    //
+    // Por isso a sessao e resolvida ANTES do `collectFrom`: sem
+    // dono, o loot nem e sorteado.
+    if (!sessao) return;
+
+    /**
+     * O loot vai para a SESSAO do dono, e nao para a entidade do
+     * jogador.
+     *
+     * Sao coisas diferentes: o `inventory` mora na sessao
+     * (`createPlayerSession`), e `owner` aqui e a entidade `player`.
+     * Passar a entidade fazia o `inventoryOf` nao achar `.inventory`
+     * e cair no fallback, que e o inventario do jogador EM FOCO no
+     * fim do tick. Nos testes com a matadora entrando por ultimo as
+     * duas coisas coincidiam e o bug passava escondido; com tres
+     * jogadores, o terceiro da fila recebia as moedas de um abate
+     * alheio.
+     */
+    const collected = this.loot.collectFrom(enemy, sessao);
+
+    this.withPlayer(sessao.id, () => {
+      // dentro do bloco, e nao antes: o "+16 moedas" e um aviso da
+      // SESSAO, e escrito fora daqui ele cairia no jogador que
+      // estivesse em foco no fim do tick
+      this.announceLoot(collected);
+
+      this.concederAbate(enemy, owner);
+    });
+  }
+
+  /**
+   * Missao, bestiario e xp de UM abate, no contexto da sessao do
+   * dono. O loot ja saiu antes, em `handleKill`, porque adrop no
+   * chao e de todo mundo.
+   */
+  concederAbate(enemy, owner) {
     const typeId = enemy.isCreature
       ? enemy.id.replace(/_\d+$/, "")
       : null;
@@ -1795,41 +3576,103 @@ export class GameEngine {
   }
 
   resolveQuestProgress(quests) {
+    /**
+     * Toda vez que a lista de missoes muda, a missao de nivel e
+     * reconferida contra o nivel ATUAL.
+     *
+     * E o que fecha o furo de quem chegou no nivel 5 ANTES de
+     * `nivel_5` virar a missao atual: a missao anterior foi
+     * concluida agora, a de nivel entrou, e o nivel do jogador ja a
+     * cumpria. Sem esta chamada ela ficava mostrando 0 de 5 sem
+     * nunca andar.
+     *
+     * A recursao e segura: depois do primeiro `syncLevel` a missao
+     * de nivel ja nao e a atual, entao a segunda chamada volta
+     * vazia na hora
+     */
+    const novas = this.world.quests.syncLevel(
+      this.world.player?.level ?? 1,
+    );
+
+    if ((novas ?? []).length > 0) {
+      quests = [...(quests ?? []), ...novas];
+    }
+
     if ((quests ?? []).length === 0) return;
 
     for (const quest of quests) {
       this.showMessage(
-        `MissÃ£o concluÃ­da: ${quest.name}`,
+        `Missão concluída: ${quest.name} — rewards esperando.`,
       );
     }
 
-    for (const { reward } of this.world.quests.drainRewards()) {
-      if (!reward) continue;
+    /**
+     * A recompensa NAO e paga aqui.
+     *
+     * Ela fica na fila de resgate do `QuestLog` e o painel mostra
+     * [RECEBER]. Pagar no mesmo instante tirava do jogador a chance
+     * de ver o que ganhou, e deixava o ouro na mochila sem nenhum
+     * cartao na tela explicando de onde veio
+     *
+     * Quem paga e o `claimQuestReward`, pelo pedido do botao
+     */
+    this.sendSnapshot();
+  }
 
-      if (reward.coins > 0) {
-        this.world.inventory.addCoins(reward.coins);
-      }
+  /**
+   * Paga a recompensa de UMA missao concluida.
+   *
+   * E o unico lugar do motor que entrega moedas, xp e itens de
+   * missao. O `questId` chega do cliente e por isso nao vale nada
+   * aqui: o `QuestLog` procura a recompensa pela id e devolve `null`
+   * se ela nao estiver na fila. Como `claim` remove a linha da fila
+   * no mesmo passo que devolve, o segundo clique do mesmo botao
+   * encontra a fila vazia e nao paga de novo
+   *
+   * Devolve `true` quando pagou e `false` quando nao havia nada
+   */
+  claimQuestReward(questId) {
+    const entrada = this.world.quests.claim(questId);
 
-      for (const entry of reward.items ?? []) {
-        this.world.inventory.add(
-          entry.itemId,
-          entry.count,
-        );
-      }
+    if (!entrada) {
+      this.showMessage(
+        "Essa recompensa já foi recebida.",
+        true,
+      );
 
-      if (reward.xp > 0) {
-        const levels = grantXp(
-          this.world.player,
-          reward.xp,
-        );
+      return false;
+    }
 
-        for (const level of levels) {
-          this.announceLevelUp(level);
-        }
+    const { reward } = entrada;
+
+    if (reward.coins > 0) {
+      this.world.inventory.addCoins(reward.coins);
+    }
+
+    for (const item of reward.items ?? []) {
+      this.world.inventory.add(item.itemId, item.count);
+    }
+
+    if (reward.xp > 0) {
+      const levels = grantXp(this.world.player, reward.xp);
+
+      for (const level of levels) {
+        this.announceLevelUp(level);
       }
     }
 
+    // o xp da missao pode ter subido o nivel, e o level-up recalcula
+    // os stats. Sem isto o jogador ficaria com vida maxima antiga ate
+    // o proximo abate
+    this.applyEquipment();
+
+    this.showMessage(
+      `Recompensa recebida: ${descreverRecompensa(reward)}.`,
+    );
+
     this.sendSnapshot();
+
+    return true;
   }
 
   announceLevelUp(level) {
@@ -1867,11 +3710,38 @@ export class GameEngine {
     }
   }
 
+  /**
+   * Envelhece os drops do chao. E a parte COMPARTILHADA: um drop
+   * envelhece uma vez por tick, para todo mundo.
+   */
   updateDrops(deltaTime) {
     this.loot.update(deltaTime);
+  }
 
+  /**
+   * Recolhe o que esta no chao perto do jogador em foco.
+   *
+   * Isto e POR JOGADOR e nao pode ficar na parte compartilhada do
+   * tick. La o `world.player` e a sessao em foco, que no servidor e
+   * o ultimo jogador que entrou: so ele pegaria loot, e no instante
+   * em que ninguem esta no mundo o `world.player` e `null` e o
+   * `collectNear` abria o `player.id` numa excecao. Como a excecao
+   * acontece DENTRO do tick, tres seguidos derrubavam o laco de
+   * 20Hz do servidor inteiro.
+   */
+  coletarDropDoChao() {
+    const player = this.world.player;
+
+    if (!player) return;
+
+    // o inventario vem explicito, da sessao deste jogador. O
+    // `collectNear` receberia a entidade do jogador, e ela nao tem
+    // `.inventory`: sem este argumento a mochila sairia do jogador em
+    // foco, e o loot do chao iria para a pessoa errada
     const collected = this.loot.collectNear(
-      this.world.player,
+      player,
+      undefined,
+      this.world.session?.inventory,
     );
 
     if (collected.coins <= 0 && collected.items.length === 0) {
@@ -1897,7 +3767,7 @@ export class GameEngine {
     }
 
     if (parts.length > 0) {
-      this.showMessage(parts.join(" Â· "));
+      this.showMessage(parts.join(" � "));
     }
 
     if (collected.rejected > 0) {
@@ -1907,6 +3777,16 @@ export class GameEngine {
 
   sendSnapshot() {
     if (!this.onSnapshot) return;
+
+    // Sem sessao em foco nao ha painel de ninguem para montar.
+    //
+    // No servidor isso acontece de verdade: e o instante entre o
+    // ultimo jogador sair e o proximo entrar. Sem esta guarda, o
+    // `world.inventory` seria `null`, a montagem do painel estouraria
+    // dentro do `setInterval`, e uma excecao la MATA o timer: o
+    // servidor inteiro congelava e nao voltava nem com jogador
+    // novo.
+    if (!this.world.session) return;
 
     const player = this.world.player;
     const selectedTarget = this.getLiveTarget();
@@ -1922,9 +3802,86 @@ export class GameEngine {
         this.world.equipment,
       ),
       equipment: this.world.equipment.summary(),
+
+      /**
+       * O PORTAL EM BAIXO DO JOGADOR, ou `null`.
+       *
+       * Vai no PAINEL e nao no estado do mundo porque e uma leitura de
+       * tela — e a box do minimapa so precisa saber que existe, e para
+       * onde. E o mesmo motivo do rank: e dado do jogador, e o painel ja
+       * e por jogador
+       *
+       * Sai reduced para tres campos. O painel vai por JSON no socket, e
+       * mandar o objeto inteiro arrastaria as referencias de mapa e
+       * destino — que o cliente nao tem como usar e nao deve conhecer
+       */
+      portal: this.dadosDoPortalNoPe(),
       lootFilter: this.lootFilterSummary(),
       bestiary: this.world.bestiary.snapshot(),
       quests: this.world.quests.snapshot(),
+      craft: this.craftSnapshot(),
+      collection: this.collectionSnapshot(),
+
+      /**
+       * O MARKET, no formato do painel.
+       *
+       * Vai no PAINEL e nao no snapshot do mundo pelo mesmo motivo do
+       * rank: e dado por jogador, e o painel ja e por jogador
+       *
+       * O `marketStore` e INJETADO pelo servidor no construtor. No
+       * single player ele e `null` e o painel vem vazio: o mercado
+       * entre jogadores nao tem sentido com uma pessoa so
+       */
+market: this.marketStore
+          ? snapshotMarket({
+              store: this.marketStore,
+
+              // a chave do DONO, e nao o id da sessao: e por ela que
+              // o servidor separa "os meus anuncios" da vitrine, e o
+              // id muda a cada entrada
+              viewerKey: this.world.session?.donoKey ?? null,
+              viewerName: player.name,
+              coins: this.world.inventory.coins,
+            })
+          : EMPTY_MARKET,
+
+      /**
+       * O rank de quem esta conectado, nas duas ordens.
+       *
+       * Vai no PAINEL e nao no snapshot do mundo de proposito: o
+       * painel ja e por jogador e vai 4x por segundo, e um rank a
+       * 20Hz seria a mesma lista repetida cinco vezes para todo
+       * mundo. E a ordem vem PRONTA do servidor, porque um cliente
+       * que recebesse a lista cru e ordenasse no navegador
+       * mostraria a posicao que quisesse.
+       */
+      rank: montarRank([...this.world.players.values()]),
+
+      /**
+       * A GUILDA, do jeito que ESTE jogador a ve.
+       *
+       * O store monta a vista, e nao o motor: quem sabe o papel, os
+       * pedidos e os talentos destravados e o `GuildStore`. Aqui so
+       * entra a sincronizacao dos pontos, que depende do relogio e do
+       * saldo que mora na sessao
+       */
+      guilda: {
+        ...this.guildaSnapshot(),
+
+        /**
+         * O RESULTADO da busca, quando o jogador mandou uma.
+         *
+         * A busca e a unica operacao de guilda que nao vem da sessao
+         * dele: e sobre o MUNDO, e o resultado precisa voltar pelo mesmo
+         * caminho do resto. Sem este campo o painel mostraria a lista
+         * do ultimo pedido de outro jogador
+         *
+         * A lista vem do servidor por `searchResults`, e nao de um
+         * `buscar()` local: as guildas sao do servidor, e refazer a
+         * busca no cliente mostraria um mundo que so existe na tela
+         */
+        busca: this.searchResults ?? [],
+      },
 
       player: {
         id: player.id,
@@ -1933,6 +3890,20 @@ export class GameEngine {
         level: player.level,
         xp: Math.floor(player.xp ?? 0),
         xpToNext: xpToNext(player.level ?? 1),
+
+        /**
+         * ONDE O PERSONAGEM ESTA NO MAPA.
+         *
+         * Arredondado, e nao bruto: o mostrador do canto esquerdo da
+         * tela mostra numero inteiro, e um `1283.7291` piscando a cada
+         * quadro e ilegivel
+         *
+         * E do DONO e vai no painel, pelo mesmo motivo do rank: os
+         * outros jogadores nao precisam saber a posicao de quem nao esta
+         * na mesma tela
+         */
+        x: Math.round(player.x),
+        y: Math.round(player.y),
 
         hp: Math.ceil(player.hp),
         maxHp: player.maxHp,
@@ -1946,6 +3917,19 @@ export class GameEngine {
         defense: player.defense,
         speed: player.speed,
 
+        /**
+         * A folha de stats, inteira.
+         *
+         * E o mesmo objeto que o `applyEquipment` montou, e nao uma
+         * segunda conta feita no painel: e o que garante que o ATK
+         * da tela seja o mesmo `attack` que o golpe usou
+         *
+         * A folha e do DONO e vai no painel, nao no snapshot do
+         * mundo: os outros jogadores nao precisam saber os numeros de
+         * quem nao esta na mesma tela
+         */
+        stats: player.stats ?? null,
+
         casting: Boolean(player.cast),
         castingName: player.cast?.action.name ?? null,
 
@@ -1956,7 +3940,12 @@ export class GameEngine {
         ...player.cooldowns,
       },
 
-selectedTarget: selectedTarget
+      // quais skills estao em automatico. o HUD le isto para
+      // acender o `AUTO`; sem o campo, arrastar a skill funcionava
+      // e nao sinalizava nada
+      skillAuto: [...(this.sessaoDeJogador?.skillAuto ?? [])],
+
+      selectedTarget: selectedTarget
         ? {
           id: selectedTarget.id,
           name: selectedTarget.name,
@@ -1972,10 +3961,16 @@ selectedTarget: selectedTarget
         }
         : null,
 
-      message: this.message
+      /**
+       * O aviso e da SESSAO, lido aqui do jogador em foco. Buscar no
+       * motor (`this.message`) colocaria o mesmo texto no painel de
+       * todo mundo conectado, e o "+16 moedas" da Ana piscaria na
+       * tela de todo mundo.
+       */
+      message: this.world.session?.message
         ? {
-            text: this.message.text,
-            bad: this.message.bad,
+            text: this.world.session.message.text,
+            bad: this.world.session.message.bad,
           }
         : null,
     });
@@ -1995,12 +3990,171 @@ selectedTarget: selectedTarget
 
     this.lastTime = timestamp;
 
+    this.tick(deltaTime);
+  }
+
+  /**
+   * Um passo de simulacao, com o desenho incluido.
+   *
+   * O servidor usa `update` direto e nunca chega aqui: ele tem o
+   * proprio laço de tempo e nao tem onde desenhar. Ainda assim o
+   * `render` e protegido, para o `tick` poder ser chamado em teste
+   * sem canvas.
+   */
+  tick(deltaTime) {
     try {
       this.update(deltaTime);
       this.render();
     } catch (error) {
       this.reportFrameError(error);
     }
+  }
+
+  /**
+   * O que ainda roda no cliente quando a simulacao e do servidor.
+   *
+   * Sao apenas contadores de DESENHO. Nada aqui decide onde alguem
+   * esta, se algo morreu ou quanto dano foi dado: isso tudo veio no
+   * snapshot. Se alguma coisa de gameplay entrasse aqui, o cliente
+   * voltaria a ter uma segunda opiniao sobre o mundo.
+   */
+  updatePresentation(deltaTime) {
+    // O SEU jogador tambem precisa de relogio de desenho.
+    //
+    // Antes so os jogadores distantes passavam por aqui, e o
+    // arqueiro local ficava sem animacao de tiro E sem o balanco
+    // do andar: o `resolveAnimation` lia `attackAnimation` e
+    // `walkBlend`, que nobody atualizava. O resultado era o dano
+    // acontecendo no servidor com o personagem parado no idle.
+    this.animarJogador(this.world.player, deltaTime);
+
+    for (const enemy of this.world.enemies) {
+      /**
+       * O flash branco do dano tem duracao contada em segundos e
+       * precisa sumir sozinho, senao o mob ficaria piscando para
+       * sempre apos levar um golpe
+       *
+       * O `!isRemote` importa: o jogador de outro navegador entra
+       * no mesmo laco, e o tempo do flash DELE e contado pelo
+       * `animarJogador` logo abaixo. Contar nos dois lugares gastaria
+       * o tempo do flash do remoto em dobro, e a reacao dele
+       * acabaria pela metade da dos mob
+       */
+      if (!enemy.isRemote && enemy.hitFlash > 0) {
+        enemy.hitFlash = Math.max(
+          0,
+          enemy.hitFlash - deltaTime,
+        );
+      }
+
+      /**
+       * O relogio do golpe do MOB, e nao so do jogador.
+       *
+       * Quem põe o `attackAnimation` do mob e o pacote do servidor,
+       * com o aviso `acting`. Se o valor fosse setado aqui e nunca
+       * contido, ele ficaria em 0.28 para sempre e o mob
+       * seguraria o arco permanentemente, que e o mesmo defeito que
+       * o `REMOTO_ATAQUE` resolveu para o jogador.
+       *
+       * Este metodo so roda no modo rede, entao o offline nao e
+       * afetado: la quem conta o tempo do golpe e a `EnemyAI`.
+       *
+       * O `isRemote` fica de fora de proposito: o jogador de outro
+       * navegador e tratado pelo `animarJogador`, logo abaixo, que
+       * JA conta o tempo dele E limpa o `firingTargetId` quando a
+       * pose acaba. Contar aqui tambem gastaria o tempo em dobro e
+       * a limpeza nunca encontraria o valor positivo.
+       */
+      if (!enemy.isRemote && enemy.attackAnimation > 0) {
+        enemy.attackAnimation = Math.max(
+          0,
+          enemy.attackAnimation - deltaTime,
+        );
+      }
+
+      if (enemy.isRemote) {
+        this.animarJogador(enemy, deltaTime);
+      }
+    }
+
+    for (const drop of this.world.drops) {
+      drop.age = (drop.age ?? 0) + deltaTime;
+    }
+  }
+
+  /**
+   * O relogio de animacao de um jogador, seja ele o seu ou um
+   * jogador distante.
+   *
+   * O servidor manda `isMoving` e um aviso de "esta atirando"; o
+   * TEMPO anda aqui. Sem isto, o sprite ficaria congelado na
+   * primeira pose do pacote, e o balanco do andar nunca
+   * terminaria.
+   *
+   * E a MESMA conta que o jogador local usa no modo offline, para
+   * os dois andarem igual. Por isso o metodo serve para os dois
+   * casos: em modo rede ele roda em `updatePresentation`, e offline
+   * em `updatePlayer`.
+   */
+  animarJogador(remoto, deltaTime) {
+    /**
+     * O flash do dano tem de andar AQUI, e nao so no `updatePlayer`.
+     *
+     * O `updatePlayer` e a simulacao local, e em modo rede ele nunca
+     * roda: o `update` volta antes, no ramo `networked`. O unico
+     * lugar que o cliente conta tempo de desenho e este metodo. Sem
+     * esta conta, o `hitFlash` do seu jogador recebia o tempo que
+     * sobrava do servidor e FICAVA PARADO no ultimo valor: o
+     * personagem ficava branco para sempre e, como `resolveAnimation`
+     * so devolve `hurt` com `hitFlash > 0`, ele nunca voltava para o
+     * idle. Parecia que o golpe tinha grudado nele
+     *
+     * O pacote reescreve o valor a cada 50ms com o tempo que sobra
+     * no servidor, entao o tremor continua suave: entre um pacote e
+     * outro ele corre sozinho, e cada pacote corrige o relogio
+     */
+    if (remoto.hitFlash > 0) {
+      remoto.hitFlash = Math.max(
+        0,
+        remoto.hitFlash - deltaTime,
+      );
+    }
+
+    if (remoto.attackAnimation > 0) {
+      remoto.attackAnimation = Math.max(
+        0,
+        remoto.attackAnimation - deltaTime,
+      );
+
+      // o sinal "atirando" so vale enquanto a arte corre: depois
+      // disso o `firingTargetId` e limpo, senao o Arbalist ficaria
+      // mirando para sempre
+      if (remoto.attackAnimation === 0) {
+        remoto.firingTargetId = null;
+      }
+    }
+
+    const alvo = remoto.isMoving ? 1 : 0;
+
+    remoto.walkPhase += deltaTime;
+
+    remoto.walkBlend += (alvo - remoto.walkBlend) * Math.min(1, deltaTime * 10);
+
+    remoto.animationTime = remoto.isMoving
+      ? remoto.animationTime + deltaTime * 9
+      : remoto.animationTime + deltaTime * 2;
+  }
+  /**
+   * Liga ou desliga o modo desenho-apenas.
+   *
+   * Desligar volta a simulacao local, que e o que o single player
+   * usa. Fica explicito em vez de derivado de "tem socket" porque
+   * uma tela pode ter socket e ainda assim estar desenhando o
+   * ultimo estado conhecido enquanto a conexao volta.
+   */
+  setNetworked(ligado) {
+    this.networked = Boolean(ligado);
+    return this.networked;
   }
 
   reportFrameError(error) {
@@ -2021,9 +4175,30 @@ selectedTarget: selectedTarget
   }
 
   render() {
+    // sem canvas nao ha o que desenhar. no servidor o `update` roda
+    // sozinho e o estado vai por snapshot
+    if (this.headless) return;
+
     const context = this.context;
     const { width, height, dpr } = this.viewport;
     const player = this.world.player;
+
+    /**
+     * A CAMERA.
+     *
+     * Sao tres passos, e a ordem e o que importa: primeiro o centro da
+     * TELA, depois o zoom, e so entao o jogador para a origem do mundo.
+     *
+     * Com zoom 1 os dois primeiros `translate` se cancelam e sobra
+     * exatamente o `translate(width/2 - player.x, ...)` de antes — o
+     * enquadramento do vale nao muda em nada
+     *
+     * O zoom e aplicado ANTES do jogador virar a origem para que o
+     * `scale` gire em torno do ponto que esta no centro da tela. Se o
+     * `scale` viesse antes do `translate`, ele giraria em torno do canto
+     * do canvas e o mundo andaria junto com o zoom
+     */
+    const z = this.cameraZoom;
 
     context.setTransform(dpr, 0, 0, dpr, 0, 0);
 
@@ -2033,10 +4208,13 @@ selectedTarget: selectedTarget
     context.fillRect(0, 0, width, height);
 
     context.save();
-    context.translate(
-      width / 2 - player.x,
-      height / 2 - player.y,
-    );
+    context.translate(width / 2, height / 2);
+
+    if (z !== 1) {
+      context.scale(z, z);
+    }
+
+    context.translate(-player.x, -player.y);
 
     this.drawMap(context);
     this.drawAim(context);
@@ -2112,16 +4290,222 @@ selectedTarget: selectedTarget
     this.drawProjectiles(context);
   }
 
-  getViewBounds() {
+/**
+ * O APROXIMACAO DA CAMERA NESTE MAPA.
+ *
+ * O hub pede `1 / 0.7`: a camera fica 30% mais perto e o que cabe na
+ * tela e 70% do que cabia. O vale pede `1` e fica como sempre
+ *
+ * E o que encolhe a TELA, nao o personagem. O boneco continua com
+ * 128px no mundo; ele so parece maior porque a camera esta mais perto.
+ * A diferenca importa: mexer na arte dele mudaria o COLISOR DE CLIQUE
+ * e o alcance das habilidades, que sao medidas em unidades do mundo
+ *
+ * O `?? 1` e o que faz um mapa novo, sem o campo, nascer no
+ * enquadramento normal
+ */
+get cameraZoom() {
+  return this.world.map?.cameraZoom ?? 1;
+}
+
+/**
+ * QUANTO DO MUNDO CABE NA TELA.
+ *
+ * Com zoom, a tela mostra `viewport / zoom` unidades de mundo. E este
+ * retangulo e o que o culling consome — o mesmo usado por
+ * `getViewBounds`, pelo terreno e pelas props
+ *
+ * Um zoom maior encolhe este retangulo: a camera ve menos mundo, entao
+ * menos coisa precisa ser desenhada. Deixar o retangulo no tamanho da
+ * tela nao quebraria a imagem, so faria o motor percorrer props que
+ * estao fora da vista
+ */
+get visibleWorldSize() {
+  const { width, height } = this.viewport;
+  const z = this.cameraZoom;
+
+  return {
+    width: width / z,
+    height: height / z,
+  };
+}
+
+getViewBounds() {
+  const { width, height } = this.visibleWorldSize;
+  const player = this.world.player;
+
+  return {
+    x: player.x - width / 2,
+    y: player.y - height / 2,
+    width,
+    height,
+  };
+}
+
+
+  /**
+ * O PORTAL EM QUE O JOGADOR ESTA EM CIMA.
+ *
+ * Devolve o portal com `destino`, ou `null`. Sao as tres condicoes que
+ * a box da tela usa para aparecer:
+ *
+ * 1. **o portal tem destino.** Os dois do vale ainda nao tem, e por isso
+ *    nao mostram box nenhuma. Um portal sem destino e um enfeite, e
+ *    oferecer "ir para algum lugar" seria mentir
+ * 2. **o jogador esta em cima.** O teste e um circulo de raio
+ *    `size / 2` em volta do centro do portal. O raio e metade do lado do
+ *    desenho, e nao a diagonal: a arte e redonda, e um quadrado
+ *    incluiria os quatro cantos vazios
+ * 3. **o destino existe no registro.** Um `destino` apontando para um id
+ *    apagado faria a box prometer um mapa que o mundo nao tem
+ */
+portalSobOsPes() {
+    const player = this.world.player;
+
+    if (!player) return null;
+
+    /**
+     * `?? []` e obrigatorio, e nao defensiva a toa.
+     *
+     * O construtor chama o `sendSnapshot` ANTES de qualquer `setMap`, e
+     * e `setMap` que monta `world.portals`. Sem isto, o primeiro painel
+     * de um motor recem-construido estouraria em `not iterable` — e o
+     * servidor engole excecao de painel de proposito, entao o sintoma
+     * seria um painel que nunca chega, sem erro nenhum na tela
+     */
+for (const portal of this.world.portals ?? []) {
+      if (!portal.destino) continue;
+
+      /**
+       * `findMap`, e nao `getMap`.
+       *
+       * O `getMap` cai no hub quando o id nao existe, e isso e o
+       * comportamento certo para ENTRAR no mundo. Num destino de portal
+       * seria um defeito silencioso: um `destino` apagado viraria
+       * "volte para o hub", e a box prometeria uma viagem que ninguem
+       * pediu. Com `findMap` o id errado vira `null` e a box nao aparece
+       */
+      const destino = findMap(portal.destino);
+
+      if (!destino) continue;
+
+    const raio = portal.size / 2;
+
+    const dx = player.x - portal.x;
+    const dy = player.y - portal.y;
+
+    if (dx * dx + dy * dy > raio * raio) continue;
+
     return {
-      x: this.world.player.x - this.viewport.width / 2,
-      y: this.world.player.y - this.viewport.height / 2,
-      width: this.viewport.width,
-      height: this.viewport.height,
+      portal,
+
+      /** o texto da box vem do MAPA, e nao de uma copia no portal */
+      nome: destino.name,
+      destino,
     };
   }
 
-  getLiveTarget() {
+  return null;
+}
+
+/**
+ * ATRAVESSA O PORTAL EM QUE O JOGADOR ESTA.
+ *
+ * Este e o caminho do SINGLE PLAYER. Na rede quem manda e o servidor, e
+ * ele refaz a mesma conferencia — o `portalSobOsPes` dele — antes de
+ * trocar o mapa. Confiar no cliente seria aceitar teletransporte para
+ * qualquer lugar
+ *
+ * Devolve `false` quando nao ha portal ligando o jogador a lugar nenhum
+ */
+/**
+ * O PONTO DE CHEADA de um portal no mapa de destino.
+ *
+ * O portal declara o `id` do portal de chegada, e este procura esse
+ * portal no mapa de destino e devolve o ponto. Devolve `null` quando o
+ * portal nao declara chegada, ou quando o id declarado nao existe la —
+ * e o chamador cai no spawn do mapa
+ *
+ * E o `id` do portal, e nao uma coordenada, para o ponto acompanhar o
+ * portal se ele for movido
+ */
+chegadaDe(portal, destino) {
+  if (!portal.chegada) return null;
+
+  const alvo = (destino.portals ?? []).find(
+    (p) => p.id === portal.chegada,
+  );
+
+  if (!alvo) return null;
+
+  return { x: alvo.x, y: alvo.y };
+}
+
+travessarPortal() {
+  const emCima = this.portalSobOsPes();
+
+  if (!emCima) return false;
+
+  const chegada = this.chegadaDe(
+    emCima.portal,
+    emCima.destino,
+  );
+
+  this.setMap(emCima.destino, { chegada });
+
+  return true;
+}
+
+/**
+ * O PORTAL EM BAIXO DO JOGADOR, no formato do PAINEL.
+ *
+ * Tres campos e nada mais: `id` para o botao pedir a travessia, `nome`
+ * para a box mostrar o texto, e `destino` para o teste e para o log
+ * dizerem aonde o portal leva
+ *
+ * A separacao existe porque o `portalSobOsPes` acima devolve o mapa
+ * inteiro — o motor precisa dele para o `setMap`, e o cliente nao tem
+ * como usar um mapa do servidor. O que cruza o socket e este objeto
+ */
+dadosDoPortalNoPe() {
+  const emCima = this.portalSobOsPes();
+
+  if (!emCima) return null;
+
+  return {
+    id: emCima.portal.id,
+    destino: emCima.portal.destino,
+    nome: emCima.nome,
+  };
+}
+
+/**
+ * A VISTA DE GUILDA do jogador em foco.
+ *
+ * Chamar `sincronizarPontos` AQUI, e no clique do painel, e o que faz o
+ * accrue de uma hora chegar sem ninguem de guarda: o painel vai 4x por
+ * segundo, entao o jogador ve o ponto na primeira linha depois de
+ * voltar, sem precisar clicar em nada
+ *
+ * Sem store — no single player — devolve a arvore bloqueada e nada
+ * mais, que e o que o painel sabe mostrar sem guilda nenhuma
+ */
+guildaSnapshot() {
+  const sessao = this.world.session;
+
+  if (!this.guildStore) {
+    return EMPTY_GUILD_SNAPSHOT;
+  }
+
+  const pontos = this.guildStore.sincronizarPontos(sessao);
+
+  return this.guildStore.snapshotPara(
+    chaveDaSessao(sessao),
+    pontos,
+  );
+}
+
+getLiveTarget() {
     if (this.selectedTargetId === null) {
       return null;
     }
@@ -2179,8 +4563,12 @@ selectedTarget: selectedTarget
 
   /** topo visual do mob, seja sprite seja corpo de fallback */
   enemyHeadTop(enemy) {
-    const definition =
-      this.enemySprites.get(enemy.id)?.definition;
+    // o outro jogador usa a folha da CLASSE dele, que tem outra
+    // ancora e outra escala que a do mob. usar a do mob deixaria a
+    // barra de vida e o nome flutuando no lugar errado
+    const definition = enemy.isRemote
+      ? getClassSprite(enemy.classId)
+      : this.enemySprites.get(enemy.id)?.definition;
 
     if (!definition) return enemy.y - enemy.radius;
 
@@ -2228,13 +4616,27 @@ selectedTarget: selectedTarget
 
     drawMinimap(context, {
       map: this.world.map,
-      zones: MAP_META.zones,
+
+      /**
+       * As zonas do mapa que esta carregado.
+       *
+       * Antes eram as do vale, fixas. O hub tem `zones: []`, entao
+       * o minimap dele fica sem nenhuma area pintada — que e o
+       * correto: nao ha zona de mob no hub
+       */
+      zones: this.world.map.zones ?? [],
       player: this.world.player,
       enemies: this.world.enemies,
-      viewport: {
-        width: this.viewport.width,
-        height: this.viewport.height,
-      },
+      /**
+       * A FAIXA QUE A CAMERA VE, no minimapa.
+       *
+       * Sao as medidas do MUNDO que cabem na tela, e nao as medidas da
+       * tela: com a camera mais perto, a faixa e menor e o retangulo
+       * do minimapa encolhe junto. Passar o `viewport` direto faria o
+       * minimapa mostrar uma area maior do que a tela mostra — o
+       * jogador veria no mapa coisas que nao estao a vista
+       */
+      viewport: this.visibleWorldSize,
       width: panelWidth,
       height: panelHeight,
       originX,
@@ -2246,50 +4648,105 @@ selectedTarget: selectedTarget
     });
   }
 
-  getMinimapTransform(panelWidth, panelHeight) {
-    const cache = this.minimapCache;
+/**
+ * A TRANSFORMACAO do minimapa: mundo -> painel.
+ *
+ * O resultado e memoizado porque `Math.min` e uma divisao por quadro, e
+ * o cache evita as duas. A chave tem TRES partes, e o mapa e a mais
+ * importante das tres
+ *
+ * Antes a chave era so o tamanho do painel. O painel e 240x146 em
+ * qualquer mapa, entao o cache ACERTAVA na travessia e a escala do hub
+ * ia para o vale: 0,124 em vez de 0,035. O resultado era o minimapa
+ * mostrando o vale no tamanho do hub, e o jogador em (5799, 3981) a
+ * 719px do canto — bem fora dos 240px do painel, ou seja, invisivel
+ *
+ * A comparacao e por IDENTIDADE, e nao por `map.id`. Dois mapas com o
+ * mesmo id nao fazem sentido, mas o mesmo mapa em duas referencias
+ * diferentes daria transformacoes iguais e so gastaria uma conta — e a
+ * identidade garante que qualquer troca de mapa invalida, sem o
+ * `setMap` ter que lembrar de limpar isto
+ */
+getMinimapTransform(panelWidth, panelHeight) {
+  const map = this.world.map;
+  const cache = this.minimapCache;
 
-    if (
-      cache &&
-      cache.panelWidth === panelWidth &&
-      cache.panelHeight === panelHeight
-    ) {
-      return cache.transform;
-    }
-
-    const transform = computeMinimapTransform(
-      this.world.map,
-      panelWidth,
-      panelHeight,
-    );
-
-    this.minimapCache = {
-      panelWidth,
-      panelHeight,
-      transform,
-    };
-
-    return transform;
+  if (
+    cache &&
+    cache.map === map &&
+    cache.panelWidth === panelWidth &&
+    cache.panelHeight === panelHeight
+  ) {
+    return cache.transform;
   }
+
+  const transform = computeMinimapTransform(
+    map,
+    panelWidth,
+    panelHeight,
+  );
+
+  this.minimapCache = {
+    map,
+    panelWidth,
+    panelHeight,
+    transform,
+  };
+
+  return transform;
+}
+
 
   drawMap(context) {
     const map = this.world.map;
+
+    /**
+     * A janela visivel, em coordenada de mundo.
+     *
+     * Fica num variavel porque o terreno e o portal usam a MESMA, e as
+     * duas chamadas usam os numeros repetidos. Duas copias da conta
+     * divergiriam na largura ou na altura e o portal sairia meio tile
+     * fora do lugar em uma das telas
+     */
+    const view = {
+      x: this.world.player.x - this.viewport.width / 2,
+      y: this.world.player.y - this.viewport.height / 2,
+      width: this.viewport.width,
+      height: this.viewport.height,
+    };
 
     if (this.terrain.isReady()) {
       this.terrain.draw(
         context,
         map,
-        MAP_META.zones,
-        {
-          x: this.world.player.x - this.viewport.width / 2,
-          y: this.world.player.y - this.viewport.height / 2,
-          width: this.viewport.width,
-          height: this.viewport.height,
-        },
+        map.zones ?? [],
+        view,
       );
     } else {
       context.fillStyle = map.background;
       context.fillRect(0, 0, map.width, map.height);
+    }
+
+    /**
+     * O PORTAL, logo depois do terreno.
+     *
+     * A ordem e o que faz o portal parecer deitado no chao:
+     *
+     * 1. **Depois do terreno** para nao cobrir a grama nem o ladrilho de
+     *    terra das areas de mob — o portal esta no Pantano Profundo, e
+     *    ele precisa ficar SOBRE a terra
+     * 2. **Antes dos rotulos de zona**, porque o texto da zona e
+     *    informacao de interface e nao faz parte do chao
+     * 3. **Antes do `drawWorldSorted`**, que vem depois de `drawMap`:
+     *    e o que faz os monstros passarem POR CIMA do portal em vez de
+     *    sumirem debaixo dele
+     */
+    if (this.portals.isReady()) {
+      this.portals.draw(
+        context,
+        portalsOf(map),
+        view,
+      );
     }
 
     for (const zone of map.zones) {
@@ -2425,6 +4882,14 @@ selectedTarget: selectedTarget
   }
 
   drawEnemy(context, enemy) {
+    // um outro jogador esta na lista de inimigos, mas e desenhado
+    // como JOGADOR: folha da classe dele e animacao de jogador.
+    // sem este desvio, ele sairia com a figura de um mob
+    if (enemy.isRemote) {
+      this.drawJogadorRemoto(context, enemy);
+      return;
+    }
+
     const sheet = this.enemySprites.get(enemy.id);
 
     const drawn = sheet
@@ -2592,6 +5057,14 @@ selectedTarget: selectedTarget
 
     context.save();
 
+    // o mesmo tremor do jogador: o flash abaixo ja existia, e sem o
+    // deslocamento o golpe era so uma cor mudando num corpo parado
+    const tremor = resolveHurtShake(enemy.hitFlash);
+
+    if (tremor.x !== 0 || tremor.y !== 0) {
+      context.translate(tremor.x, tremor.y);
+    }
+
     context.fillStyle =
       enemy.hitFlash > 0 ? "#ffffff" : enemy.color;
 
@@ -2633,6 +5106,148 @@ selectedTarget: selectedTarget
     context.restore();
   }
 
+
+  /**
+   * O tiro do arquero zumbi.
+   *
+   * Ele vai para o MESMO `world.projectiles` do jogador, e nao para
+   * uma lista nova, por um motivo pratico: o `estadoProjetis` do
+   * servidor, o `WorldState` do cliente e o `drawProjectiles` ja
+   * sabem ler dessa lista, mandando `action.projectileStyle` e
+   * `action.color`. Um array separado obrigaria a reescrever as
+   * tres pontas para o mesmo desenho de uma flecha.
+   *
+   * O que muda e o `hostile: true`: o alvo e um JOGADOR, nao um
+   * mob, e quem leva o dano e quem estava em foco no `SkillSystem`
+   * nao serve aqui.
+   */
+  dispararFlechaHostil(enemy, alvo) {
+    if (!enemy?.ranged || !alvo) return false;
+
+    const velocidade = enemy.projectileSpeed ?? 420;
+    const direcao = normalize(alvo.x - enemy.x, alvo.y - enemy.y);
+
+    if (direcao.x === 0 && direcao.y === 0) return false;
+
+    if (this.world.projectiles.length >= MAX_FLECHAS) {
+      return false;
+    }
+
+    this.world.projectiles.push({
+      id: `${enemy.id}_flecha_${this.world.time}`,
+      hostile: true,
+      sourceId: enemy.id,
+      targetId: alvo.id ?? null,
+
+      x: enemy.x,
+      y: enemy.y,
+      radius: enemy.projectileRadius ?? 8,
+
+      velocityX: direcao.x * velocidade,
+      velocityY: direcao.y * velocidade,
+      speed: velocidade,
+      directionX: direcao.x,
+      directionY: direcao.y,
+
+      damage: enemy.damage,
+
+      // o formato e o mesmo que o do jogador. `drawProjectiles` le o
+      // estilo em `action.projectileStyle` e a cor em `action.color`,
+      // e o `estadoProjetis` do servidor so manda esses dois campos
+      action: {
+        projectileStyle: enemy.projectileStyle ?? "arrow",
+        color: enemy.projectileColor ?? enemy.color,
+      },
+
+      remaining: enemy.projectileLife ?? 2.5,
+    });
+
+    return true;
+  }
+
+  /**
+   * Move as flechas do inimigo e resolve o acerto.
+   *
+   * Roda uma vez por tick, na parte compartilhada. O dano entra
+   * dentro do `withPlayer` de quem foi atingido: e o escudo, o
+   * status e o inventario que sao por sessao, e sem trocar o foco a
+   * flecha do Bento abatia o escudo da Ana.
+   */
+  updateFlechasHostis(deltaTime) {
+    const flechas = this.world.projectiles;
+
+    for (
+      let indice = flechas.length - 1;
+      indice >= 0;
+      indice -= 1
+    ) {
+      const flecha = flechas[indice];
+
+      if (!flecha.hostile) continue;
+
+      flecha.remaining -= deltaTime;
+
+      flecha.x += flecha.velocityX * deltaTime;
+      flecha.y += flecha.velocityY * deltaTime;
+
+      const cor = flecha.action.color;
+
+      const bateuNoChao =
+        flecha.remaining <= 0 ||
+        this.world.collision.circleHitsSolid(
+          flecha,
+          flecha.radius,
+        );
+
+      if (bateuNoChao) {
+        flechas.splice(indice, 1);
+        this.world.effects.burst(flecha.x, flecha.y, cor);
+        continue;
+      }
+
+      const alvo = this.jogadorSobFlecha(flecha);
+
+      if (!alvo) continue;
+
+      // a flecha e consumida no acerto: sem este `splice` ela
+      // atravessava o jogador e voltava a bater no tick seguinte
+      flechas.splice(indice, 1);
+
+      const atirante = this.world.enemies.find(
+        (enemy) => enemy.id === flecha.sourceId,
+      );
+
+      this.withPlayer(alvo.sessao.id, () => {
+        this.damage.applyDamage(atirante, alvo.player, {
+          id: `${flecha.sourceId}_flecha`,
+          damage: flecha.damage,
+          damageType: "physical",
+          color: cor,
+        });
+      });
+
+      this.world.effects.burst(flecha.x, flecha.y, cor);
+    }
+  }
+
+  /** o primeiro jogador vivo que a flecha esta tocando */
+  jogadorSobFlecha(flecha) {
+    for (const sessao of this.world.players.values()) {
+      const player = sessao.player;
+
+      if (!player || player.hp <= 0) continue;
+
+      const dx = player.x - flecha.x;
+      const dy = player.y - flecha.y;
+      const alcance = flecha.radius + (player.radius ?? 20);
+
+      if (dx * dx + dy * dy <= alcance * alcance) {
+        return { sessao, player };
+      }
+    }
+
+    return null;
+  }
 
   drawProjectiles(context) {
     for (const projectile of this.world.projectiles) {
@@ -2753,30 +5368,6 @@ selectedTarget: selectedTarget
       context.stroke();
       context.restore();
     }
-
-    if (
-      player.definition.id === "summoner" &&
-      this.statuses.has(player, "elementalAffinity")
-    ) {
-      const colors = AFFINITY_COLORS;
-
-      for (let index = 0; index < colors.length; index += 1) {
-        const angle =
-          (index / colors.length) * Math.PI * 2 +
-          player.animationTime * 0.015;
-
-        context.fillStyle = colors[index];
-        context.beginPath();
-        context.arc(
-          player.x + Math.cos(angle) * 38,
-          player.y + Math.sin(angle) * 38,
-          5,
-          0,
-          Math.PI * 2,
-        );
-        context.fill();
-      }
-    }
   }
 
   drawPlayerBody(context, player) {
@@ -2785,6 +5376,16 @@ selectedTarget: selectedTarget
       : Math.sin(player.animationTime * 0.55) * 0.8;
 
     context.save();
+
+    // O mesmo tremor do sprite. O corpo vetorial e o desenho de
+    // quem nao tem arte, e sem o tremor essa reacao existiria so
+    // para as classes com sprite: o golpe em um boneco de treino
+    // seria invisivel
+    const tremor = resolveHurtShake(player.hitFlash);
+
+    if (tremor.x !== 0 || tremor.y !== 0) {
+      context.translate(tremor.x, tremor.y);
+    }
 
     context.translate(player.x, player.y);
     context.rotate(
@@ -2898,4 +5499,18 @@ selectedTarget: selectedTarget
   getStatusColor(type) {
     return STATUS_COLORS[type] ?? "#ffffff";
   }
+}
+
+/**
+ * A CHAVE do jogador, que e estavel entre conexoes.
+ *
+ * E a `donoKey` — o nome normalizado — e nao o `id` da sessao, que e
+ * `p_<uuid>` e muda a cada entrada. Ler a guilda pelo id da sessao
+ * fazia o bonus do talento sumir ao reconectar, mesmo com a guilda
+ * intacta no servidor
+ *
+ * O `?? sessao.id` cobre o single player, onde nao ha `donoKey`
+ */
+function chaveDaSessao(sessao) {
+  return sessao?.donoKey ?? sessao?.id ?? null;
 }

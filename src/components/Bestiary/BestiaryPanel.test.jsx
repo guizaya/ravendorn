@@ -88,8 +88,22 @@ describe("BestiaryPanel", () => {
     const html = render(snapshotWith({ slime: 5 }));
 
     expect(html).toContain("Bônus permanente");
-    expect(html).toContain("VID");
+
+    /**
+     * O selo agora usa o rotulo do JOGO, e nao o rotulo curto do
+     * bestiario.
+     *
+     * `maxHp` escrevia "VID" aqui e "HP" no painel de status, para o
+     * mesmo numero: o jogador tinha de saber que VID era HP. O
+     * `PermanentBonus` le o rotulo no `StatSheet`, e ai os dois
+     * paineis falam a mesma língua
+     */
+    expect(html).toContain("HP");
     expect(html).toContain("+12");
+
+    // e o selo e o mesmo componente da colecao, entao o bonus se le
+    // igual nas duas telas
+    expect(html).toContain("perm-bonus__chip");
   });
 
   it("convida a cacar quando nao ha bonus", () => {

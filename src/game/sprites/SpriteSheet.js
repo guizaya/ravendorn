@@ -3,6 +3,7 @@ import {
   resolveCreatureAnimation,
   resolveDrawRect,
   resolveFrameRect,
+  resolveHurtShake,
   resolveWalkOffset,
 } from "./animation.js";
 
@@ -129,10 +130,26 @@ export class SpriteSheet {
     const target = resolveDrawRect(definition, entity);
     const offset = resolveWalkOffset(definition, entity);
 
+    /**
+     * O TREMOR de quem levou dano.
+     *
+     * O flash de cima ja existia e e o que avisa "acertaram em mim".
+     * O que faltava era o CORPO se mexer: sem o tremor, o golpe
+     * aparecia como um piscar de cor num personagem parado, e o
+     * jogador nao sentia o impacto. O deslocamento e uma
+     * `translate` do contexto e NAO entra no retangulo de destino:
+     * mudar o retangulo contaminaria a colisao e o alvo
+     */
+    const tremor = resolveHurtShake(entity.hitFlash);
+
     target.x += offset.x;
     target.y += offset.y;
 
     context.save();
+
+    if (tremor.x !== 0 || tremor.y !== 0) {
+      context.translate(tremor.x, tremor.y);
+    }
 
     if (source.flip) {
       context.translate(

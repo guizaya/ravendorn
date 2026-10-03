@@ -83,6 +83,27 @@ const warrior = {
     range: 105,
     resourceRegen: 9,
   },
+  /**
+   * Os CINCO atributos do Guerreiro, e o quanto cada um sobe por
+   * nivel.
+   *
+   * O Guerreiro e o tanque: VIT e STR sao os dois maiores e sao os que
+   * mais sobem. E o que faz a folha dele nao ser a do Lancer com
+   * numeros trocados — os dois comecam perto, mas aos 30 o Guerreiro
+   * aguenta o triplo e o Lancer nao
+   *
+   * E o que a folha de stats le: `game/stats/StatSheet.js`. O
+   * atributo nao entra direto em combate ainda, ele move MATK, MDEF,
+   * PEN, ACC, EVA e as taxas — e por isso que ele aparece na tela
+   */
+  attributes: {
+    str: 18,
+    int: 7,
+    dex: 11,
+    vit: 20,
+    wis: 8,
+  },
+  attributeGrowth: { str: 2, int: 1, dex: 1, vit: 3, wis: 1 },
   resource: {
     name: "Chi",
     color: "#ff6b57",
@@ -145,6 +166,20 @@ const lancer = {
     range: 180,
     resourceRegen: 12,
   },
+  /**
+   * O Lancer e o bruiser movel: DEX e o atributo maior e o que mais
+   * sobe, com VIT logo atras por causa do dash atravessa o grupo.
+   * Menos VIT que o Guerreiro e mais DEX e STR, que e o que faz ele
+   * entrar e sair sem dying
+   */
+  attributes: {
+    str: 16,
+    int: 9,
+    dex: 15,
+    vit: 13,
+    wis: 9,
+  },
+  attributeGrowth: { str: 2, int: 1, dex: 3, vit: 2, wis: 1 },
   resource: {
     name: "Foco",
     color: "#66d8ff",
@@ -157,72 +192,6 @@ const lancer = {
     cooldown: 1 / 1.15,
   }),
   ...SKILL_PACKS.lancer,
-};
-
-const taoist = {
-  id: "taoist",
-  name: "Taoist",
-  icon: "☯️",
-  accent: "#f2d46d",
-  tagline: "Dano, controle e suporte",
-  description:
-    "Classe equilibrada que alterna cura, campos protetores, controle posicional e dano mágico.",
-  role: "Suporte / Healer / Controle / DPS híbrido",
-  combatType: "Mágico, campos e projéteis",
-  rangeLabel: "Médio a longo",
-  damageType: "Mágico / Holy",
-  playstyle:
-    "Alternar entre dano, controle, campos de proteção e cura conforme a situação.",
-  mechanic: {
-    name: "Equilíbrio Yin-Yang",
-    description:
-      "Campos podem ser expandidos futuramente para aliados, inimigos e zonas persistentes.",
-  },
-  characteristics: [
-    "Cura a si mesmo e em grupo",
-    "Buffs e defesas",
-    "Controle por pull",
-    "Dano mágico médio",
-    "Mobilidade moderada",
-  ],
-  strengths: [
-    "Sustain",
-    "Controle de grupo",
-    "Versatilidade",
-    "Proteção de área",
-  ],
-  weaknesses: [
-    "Dano inicial menor",
-    "Precisa gerenciar Qi",
-    "Menos resistente que um tank",
-  ],
-  stats: {
-    hp: 820,
-    resource: 150,
-    attack: 72,
-    defense: 24,
-    speed: 205,
-    attackSpeed: 1,
-    critRate: 0.1,
-    critDamage: 1.5,
-    range: 320,
-    resourceRegen: 11,
-  },
-  resource: {
-    name: "Qi",
-    color: "#f8dc75",
-  },
-  basicAttack: basicAttack({
-    classId: "taoist",
-    damage: 72,
-    type: "projectile",
-    range: 350,
-    projectileSpeed: 430,
-    damageType: "magic",
-    projectileStyle: "orb",
-    cooldown: 1,
-  }),
-  ...SKILL_PACKS.taoist,
 };
 
 const sorcerer = {
@@ -274,6 +243,19 @@ const sorcerer = {
     range: 400,
     resourceRegen: 13,
   },
+  /**
+   * O Sorcerer e o caster: INT e WIS lideram de longe e sao os que
+   * mais sobem. E o unico da lista com INT no topo, e e por isso que
+   * o MATK dele e o maior do jogo enquanto a DEF e a menor
+   */
+  attributes: {
+    str: 8,
+    int: 21,
+    dex: 11,
+    vit: 9,
+    wis: 17,
+  },
+  attributeGrowth: { str: 1, int: 3, dex: 2, vit: 1, wis: 2 },
   resource: {
     name: "Mana",
     color: "#b87aff",
@@ -341,6 +323,20 @@ const arbalist = {
     range: 520,
     resourceRegen: 10,
   },
+  /**
+   * A Arbalist e a critista: DEX e o maior atributo e o que mais sobe,
+   * com WIS em segundo porque veneno e dash dependem de saber a hora.
+   * STR e VIT sao os mais baixos das quatro classes, e e por isso que
+   * ela morre primeiro se alguem chegar perto
+   */
+  attributes: {
+    str: 13,
+    int: 11,
+    dex: 18,
+    vit: 11,
+    wis: 12,
+  },
+  attributeGrowth: { str: 2, int: 1, dex: 3, vit: 2, wis: 2 },
   resource: {
     name: "Foco",
     color: "#95e489",
@@ -357,219 +353,18 @@ const arbalist = {
   ...SKILL_PACKS.arbalist,
 };
 
-const darkist = {
-  id: "darkist",
-  name: "Darkist",
-  icon: "🩸",
-  accent: "#ec4e75",
-  tagline: "Veneno, maldição e pressão contínua",
-  description:
-    "Debuffer que combina DoT, veneno, maldições, controle e roubo de vida para vencer pela pressão progressiva.",
-  role: "Debuffer / DoT / Poison / Controle",
-  combatType: "Projéteis, campos e maldições",
-  rangeLabel: "Médio a longo",
-  damageType: "Sombrio / Venenoso",
-  playstyle:
-    "Aplicar veneno, reduzir resistência, manter o alvo amaldiçoado e recuperar sustain com Chain of Blood.",
-  mechanic: {
-    name: "Pressão progressiva",
-    description:
-      "Poison + Curse + DoT + Debuff causam dano e reduzem a capacidade de resposta do alvo.",
-  },
-  characteristics: [
-    "Poison e DoT",
-    "Aumenta dano recebido",
-    "Roubo de vida",
-    "Controle de grupo",
-    "Transformação Asura",
-  ],
-  strengths: [
-    "Dano ao longo do tempo",
-    "Debuffs empilháveis",
-    "Sustain por Chain of Blood",
-    "Transformação",
-  ],
-  weaknesses: [
-    "Dano instantâneo moderado",
-    "Precisa aplicar efeitos",
-    "Frágil em combate direto",
-  ],
-  stats: {
-    hp: 780,
-    resource: 160,
-    attack: 78,
-    defense: 20,
-    speed: 210,
-    attackSpeed: 1.05,
-    critRate: 0.12,
-    critDamage: 1.6,
-    range: 360,
-    resourceRegen: 9,
-  },
-  resource: {
-    name: "Essência Sombria",
-    color: "#ef5f7f",
-  },
-  basicAttack: basicAttack({
-    classId: "darkist",
-    damage: 78,
-    type: "projectile",
-    range: 390,
-    projectileSpeed: 480,
-    damageType: "magic",
-    projectileStyle: "poison",
-    cooldown: 1 / 1.05,
-    effects: [
-      {
-        type: "poison",
-        duration: 4,
-        value: 6,
-        tickInterval: 1,
-      },
-    ],
-  }),
-  ...SKILL_PACKS.darkist,
-};
-
-const lionheart = {
-  id: "lionheart",
-  name: "Lionheart",
-  icon: "🦁",
-  accent: "#ffb84d",
-  tagline: "Combate próximo com sustain e reflexão",
-  description:
-    "Fighter estável e bruiser que permanece no combate através de cura, escudos, combos e reflexão de dano.",
-  role: "Fighter / Bruiser / Sustain",
-  combatType: "Corpo a corpo e reflexão",
-  rangeLabel: "Curto",
-  damageType: "Físico / Lightning",
-  playstyle:
-    "Entrar com dash, encadear combos, manter pressão e usar barreiras para absorver o contra-ataque.",
-  mechanic: {
-    name: "Coração de predador",
-    description:
-      "Cura, escudo e reflexão permitem sustentação longa durante o combate.",
-  },
-  characteristics: [
-    "Alto sustain",
-    "Bom dano físico",
-    "Defesa média-alta",
-    "Reflexão",
-    "Combos rápidos",
-  ],
-  strengths: [
-    "Curar em combate",
-    "Reflexão",
-    "Combo de quatro golpes",
-    "Pressão alta",
-  ],
-  weaknesses: [
-    "Alcance curto",
-    "Gasto de Vigor",
-    "Menos controle de grupo que Warrior",
-  ],
-  stats: {
-    hp: 1250,
-    resource: 120,
-    attack: 96,
-    defense: 38,
-    speed: 205,
-    attackSpeed: 1.1,
-    critRate: 0.15,
-    critDamage: 1.7,
-    range: 100,
-    resourceRegen: 8,
-  },
-  resource: {
-    name: "Vigor",
-    color: "#ffbb59",
-  },
-  basicAttack: basicAttack({
-    classId: "lionheart",
-    damage: 96,
-    range: 110,
-    cooldown: 1 / 1.1,
-    lifesteal: 0.08,
-  }),
-  ...SKILL_PACKS.lionheart,
-};
-
-const summoner = {
-  id: "summoner",
-  name: "Spirit Summoner",
-  icon: "🐉",
-  accent: "#70e6cf",
-  tagline: "Espíritos elementais e controle",
-  description:
-    "Invocador que utiliza espíritos de Luz, Água, Terra, Vento, Fogo, Floresta e Trevas para atacar e controlar.",
-  role: "Summoner / Mage / Support / Control",
-  combatType: "Espíritos, projéteis e campos",
-  rangeLabel: "Médio a longo",
-  damageType: "Mágico elemental",
-  playstyle:
-    "Alternar espíritos, controlar grupos, proteger-se com deslocamento e usar ataques concentrados.",
-  mechanic: {
-    name: "Vínculo espiritual",
-    description:
-      "A estrutura permite que um único espiritual ativo evolua para gerenciamento de múltiplas invocações.",
-  },
-  characteristics: [
-    "Controle por espíritos",
-    "Dano mágico médio",
-    "Mobilidade",
-    "Suporte",
-    "Recurso de MP",
-  ],
-  strengths: [
-    "Controle",
-    "Dash",
-    "Cura e recuperação",
-    "Projéteis perseguidores",
-    "Futuro gerenciável de invocações",
-  ],
-  weaknesses: [
-    "Dano inicial moderado",
-    "Depende de trocar elementos",
-    "Defesa baixa",
-  ],
-  stats: {
-    hp: 820,
-    resource: 190,
-    attack: 88,
-    defense: 22,
-    speed: 215,
-    attackSpeed: 1,
-    critRate: 0.1,
-    critDamage: 1.55,
-    range: 340,
-    resourceRegen: 12,
-  },
-  resource: {
-    name: "MP",
-    color: "#70e6cf",
-  },
-  basicAttack: basicAttack({
-    classId: "summoner",
-    damage: 88,
-    type: "projectile",
-    range: 380,
-    projectileSpeed: 470,
-    damageType: "magic",
-    projectileStyle: "spirit",
-    cooldown: 1,
-  }),
-  ...SKILL_PACKS.summoner,
-};
-
+/**
+ * As quatro classes do jogo.
+ *
+ * Sao estas, e nao mais: `taoist`, `darkist`, `lionheart` e
+ * `summoner` saíram, e sairam junto com o skill pack, o sprite e a
+ * arte de cada uma. A ordem e a de aparicao na tela de selecao.
+ */
 export const CHARACTER_CLASSES = Object.freeze([
   warrior,
   lancer,
-  taoist,
   sorcerer,
   arbalist,
-  darkist,
-  lionheart,
-  summoner,
 ]);
 
 export function getCharacterDefinition(id) {

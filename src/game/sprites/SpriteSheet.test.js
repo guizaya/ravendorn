@@ -1,7 +1,29 @@
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { SpriteSheet } from "./SpriteSheet.js";
-import { ARBALIST_SPRITE, getClassSprite } from "../../data/sprites/index.js";
+import { ARBALIST_SPRITE } from "../../data/sprites/index.js";
+import { createSpriteDefinition } from "../../data/sprites/layout.js";
 import { ENEMY_SPRITES } from "../../data/sprites/enemies.js";
+import { HURT_FLASH_DURATION } from "./animation.js";
+
+/**
+ * O fixture do formato ANTIGO: 3 linhas e espelhamento.
+ *
+ * Os testes de espelhamento, de "nao balanca" e de "sem imagem cai
+ * no corpo vetorial" precisam de uma definicao no formato de 3 linhas.
+ * Foi o `warrior`, depois o `lancer` — e com o lancer convertido nao
+ * sobra nenhuma classe no formato velho. No formato direcional o oeste
+ * e uma LINHA da folha, e nao um espelho do leste, entao nao ha o que
+ * espelhar
+ *
+ * O fixture e MONTADO, e nao pego de uma classe: o `createSpriteDefinition`
+ * continua exportado e o motor continua tratando o caso, mas um
+ * `getClassSprite(<id>)` seria um teste que so existe enquanto
+ * sobrar alguem no formato velho
+ */
+const GETA_SPRITE_ANTIGO = createSpriteDefinition(
+  "fixture_folha_3_linhas",
+  null,
+);
 
 const created = [];
 const scratchContexts = new Map();
@@ -282,6 +304,94 @@ describe("directional sprite drawing", () => {
     sheet.destroy();
   });
 
+  it("tremes o corpo no golpe, sem mexer no retangulo", () => {
+    const sheet = makeSheet(ARBALIST_SPRITE);
+
+    const tremendo = entity({
+      facing: { x: 0, y: 1 },
+      isMoving: false,
+      hitFlash: HURT_FLASH_DURATION,
+    });
+    const parado = entity({ facing: { x: 0, y: 1 }, isMoving: false });
+
+    const ctxTremendo = makeContext();
+    const ctxParado = makeContext();
+
+    sheet.draw(ctxTremendo, tremendo, 0);
+    sheet.draw(ctxParado, parado, 0);
+
+    // o `translate` de dois numeros e o TREMOR. o de tres numeros e
+    // o espelhamento do sprite, que existe nos dois desenhos
+    const tremorDe = (context) => {
+      const chamada = context.calls.find(
+        ([name, ...rest]) =>
+          name === "translate" && rest.length === 2,
+      );
+
+      return chamada
+        ? Math.hypot(chamada[1], chamada[2])
+        : 0;
+    };
+
+    // o golpe tem de mexer no desenho. Sem o `translate`, o flash
+    // sozinho e um piscar de cor num boneco parado, e o jogador nao
+    // sentia que apanhou
+    expect(tremorDe(ctxTremendo)).toBeGreaterThan(0);
+    expect(tremorDe(ctxParado)).toBe(0);
+
+    // e o mais importante: o retangulo do desenho tem de ser o MESMO
+    // de quem nao treme. Se o tremor entrasse no retangulo, ele
+    // entraria na conta da colisao e do alvo, e o personagem
+    // passaria a ser empurrado de verdade a cada golpe
+    const destinoDe = (context) => {
+      const chamada = context.calls.find(
+        ([name, source]) =>
+          name === "drawImage" && source === sheet.scratch,
+      ) ?? context.calls.find(([name]) => name === "drawImage");
+
+      return chamada?.slice(-4);
+    };
+
+    expect(destinoDe(ctxTremendo)).toEqual(destinoDe(ctxParado));
+
+    sheet.destroy();
+  });
+
+  it("treme mais no comeco do golpe do que no fim", () => {
+    const sheet = makeSheet(ARBALIST_SPRITE);
+
+    const tremorDe = (hitFlash) => {
+      const context = makeContext();
+
+      sheet.draw(
+        context,
+        entity({ facing: { x: 0, y: 1 }, hitFlash }),
+        0,
+      );
+
+      const chamada = context.calls.find(
+        ([name, ...rest]) =>
+          name === "translate" && rest.length === 2,
+      );
+
+      return chamada ? Math.hypot(chamada[1], chamada[2]) : 0;
+    };
+
+    // a onda tem vales, entao um unico instante nao prova nada: o
+    // que importa e que o movimento ENVOLVE o golpe todo, e some
+    // com ele
+    const noComeco = Math.max(
+      tremorDe(0.18),
+      tremorDe(0.15),
+      tremorDe(0.12),
+    );
+
+    expect(noComeco).toBeGreaterThan(tremorDe(0.01));
+    expect(tremorDe(0)).toBe(0);
+
+    sheet.destroy();
+  });
+
   it("advances the column over time instead of freezing", () => {
     const sheet = makeSheet(ARBALIST_SPRITE);
 
@@ -457,7 +567,7 @@ describe("directional sprite drawing", () => {
   });
 
   it("never bobs a sheet sprite", () => {
-    const sheet = makeSheet(getClassSprite("warrior"));
+    const sheet = makeSheet(GETA_SPRITE_ANTIGO);
 
     const ys = new Set();
 
@@ -504,8 +614,21 @@ describe("directional sprite drawing", () => {
     );
 
     expect(scratchDraw).toBeDefined();
+
+    // A linha vem do bloco `idle`, e nao de uma linha por direcao.
+    //
+    // O Arbalist nao tem arte de `hurt`, entao o pedido cai no
+    // reserva, que e o `idle`. Esse bloco tem uma linha só, igual
+    // no descanso: e ele que faz o personagem levar o golpe PARADO.
+    // Antes o reserva era o `walk`, e o boneco entrava no ciclo de
+    // caminhada ao apanhar, andando sem sair do lugar
     expect(scratchDraw[2]).toBe(0);
-    expect(scratchDraw[3]).toBe(5 * 64);
+    expect(scratchDraw[3]).toBe(
+      ARBALIST_SPRITE.animations.idle.row * 64,
+    );
+
+    // e o branco e o que o jogador ve: o preenchimento no rascunho
+    // e a copia do rascunho na tela
     expect(
       context.calls.some(
         ([name, source]) =>
@@ -518,11 +641,35 @@ describe("directional sprite drawing", () => {
 
     sheet.destroy();
   });
+
+  it("andando para o sul, o quadro vem da linha do sul", () => {
+    // o mesmo desenho sem flash: aqui a linha por direcao vale, e
+    // e ela que faz o corpo virar junto com o movimento
+    const sheet = makeSheet(ARBALIST_SPRITE);
+    const context = makeContext();
+
+    sheet.draw(
+      context,
+      entity({ facing: { x: 0, y: 1 }, isMoving: true }),
+      0,
+    );
+
+    const scratchDraw = context.calls.find(
+      ([name, source]) =>
+        name === "drawImage" && source === sheet.image,
+    );
+
+    expect(scratchDraw?.[3]).toBe(
+      ARBALIST_SPRITE.directions.south * 64,
+    );
+
+    sheet.destroy();
+  });
 });
 
 describe("sheet sprite drawing", () => {
   it("still mirrors a left facing sheet", () => {
-    const sheet = makeSheet(getClassSprite("warrior"));
+    const sheet = makeSheet(GETA_SPRITE_ANTIGO);
     const context = makeContext();
 
     const drawn = sheet.draw(
@@ -540,8 +687,23 @@ describe("sheet sprite drawing", () => {
   });
 
   it("keeps the attack animation for creatures", () => {
-    const sheet = makeSheet(ENEMY_SPRITES.slime);
+    /**
+     * O exemplo era o `slime`, que usava a folha antiga de 3 linhas e
+     * tinha `attack: {start: 6}`. Ele foi convertido para a folha
+     * direcional e NAO tem arte de golpe — e PASSIVO, nao golpeia.
+     * O `zumbi_arbalist` e o exemplo certo agora: tem `attack` de
+     * verdade, com `rowOffset: 9` e 9 quadros a 20fps
+     *
+     * O que este teste trava e que o `drawCreature` NAO achata a
+     * animacao: o pedido de golpe tem de chegar na linha do golpe da
+     * direcao, e dentro dela o tempo tem de andar
+     */
+    const zumbi = ENEMY_SPRITES.zumbi_arbalist;
+
+    const sheet = makeSheet(zumbi);
     const context = makeContext();
+
+    const TEMPO = 0.1;
 
     const drawn = sheet.drawCreature(
       context,
@@ -553,22 +715,49 @@ describe("sheet sprite drawing", () => {
         attackAnimation: 0.2,
         hitFlash: 0,
       },
-      0,
+      TEMPO,
     );
 
     expect(drawn).toBe(true);
 
-    const [, , sx] = context.calls.find(
+    const [, , sx, sy] = context.calls.find(
       ([key]) => key === "drawImage",
     );
 
-    expect(sx).toBe(6 * ENEMY_SPRITES.slime.frameWidth);
+    const linhaDoGolpe =
+      zumbi.animations.attack.rowOffset +
+      zumbi.directions.south;
+
+    // a linha do golpe, e nao a de idle nem a da caminhada
+    expect(sy).toBe(linhaDoGolpe * zumbi.frameWidth);
+
+    expect(sy).not.toBe(
+      zumbi.animations.idle.row * zumbi.frameWidth,
+    );
+
+    expect(sy).not.toBe(
+      zumbi.directions.south * zumbi.frameWidth,
+    );
+
+    /**
+     * E a coluna ANDA dentro do golpe.
+     *
+     * 0.1s a 20fps e o quadro 2. Com `sx` em 0 a animacao de golpe
+     * estaria presa no primeiro quadro — o `drawCreature` estaria
+     * desenhando sem deixar o tempo chegar no `resolveFrame`
+     */
+    const coluna = Math.floor(
+      TEMPO * zumbi.animations.attack.fps,
+    );
+
+    expect(coluna).toBeGreaterThan(0);
+    expect(sx).toBe(coluna * zumbi.frameWidth);
 
     sheet.destroy();
   });
 
   it("keeps the fallback body when the sheet never loads", () => {
-    const sheet = new SpriteSheet(getClassSprite("warrior"));
+    const sheet = new SpriteSheet(GETA_SPRITE_ANTIGO);
 
     expect(sheet.draw(makeContext(), IDLE_ENTITY, 0)).toBe(
       false,

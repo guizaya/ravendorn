@@ -1,12 +1,26 @@
 import {
   BASE_TERRAIN,
-  getTransition,
+  GROUND_TILES,
+  GROUND_TILE_SIZE,
+  GROUND_USES_TILE,
+  groundTileFor,
   TILE_SIZE,
   TILE_VARIANTS,
   TERRAIN_ROW,
   TERRAIN_SHEETS,
+  ZONE_TILE,
+  ZONE_TILE_SIZE,
+  ZONES_USE_TILE,
+  zoneUsesTile,
 } from "../../data/terrain/index.js";
-const BAND = TILE_SIZE;
+/**
+ * A margem usada para descartar as zonas fora da tela.
+ *
+ * Chamava-se BAND por causa da faixa de transicao, que ocupava
+ * exatamente uma tile em volta de cada zona. A faixa saiu; o cull
+ * continuou, e o nome agora nao tem mais a quem se referir
+ */
+const CULL_MARGIN = TILE_SIZE;
 const PATCH_TILES = 8;
 const PATCH_SIZE = TILE_SIZE * PATCH_TILES;
 const PATCH_CELL = 96;
@@ -88,10 +102,55 @@ function variantAt(column, row, salt = 0) {
 export class TerrainRenderer {
   constructor() {
     this.terrain = loadImage(TERRAIN_SHEETS.terrain);
-    this.transitions = loadImage(
-      TERRAIN_SHEETS.transitions,
-    );
     this.features = loadImage(TERRAIN_SHEETS.features);
+
+
+    /**
+     * As folhas de chao, uma imagem cada.
+     *
+     * Sao dois chos no projeto: a grama do vale e o calcamento do
+     * hub. O cache e por URL, que e o que identifica a folha — sem
+     * ele, trocar de mapa buscaria a mesma textura a cada quadro
+     *
+     * Nenhuma delas entra no `isReady()`: sao 450KB e 250KB, e um JPG
+     * que demore ou falhe nao pode deixar o mundo inteiro em branco. O
+     * `fillGround` so usa o tile quando ele carregou, e cai no pixel art
+     * de 32px enquanto isso
+     */
+    this.groundImages = new Map();
+
+    if (GROUND_USES_TILE) {
+      for (const folha of Object.values(GROUND_TILES)) {
+        this.groundImages.set(folha, loadImage(folha));
+      }
+    }
+
+    /**
+     * O tile reduzido e o padrao, POR FOLHA.
+     *
+     * Sao dois chos no projeto e cada um tem o seu tile de 128px. Um
+     * `groundTile` unico teria o padrao da grama sendo desenhado no
+     * calcamento do hub
+     *
+     * `groundTentados` marca as folhas ja tentadas: uma folha que nao
+     * deu para reduzir nao pode virar trabalho repetido a cada quadro
+     */
+    this.groundTiles = new Map();
+    this.groundTentados = new Set();
+    this.groundPatterns = new Map();
+
+    /**
+     * O terreno das areas de mob, ladrilhado com o `terra.jpg`
+     *
+     * Fora do `isReady()` pelo mesmo motivo das folhas de chao: uma arte
+     * de 250KB que falha devolve a zona ao pixel art de 32px, e nao um
+     * buraco no meio do mapa
+     */
+    this.zone = ZONES_USE_TILE ? loadImage(ZONE_TILE) : null;
+
+    this.zoneTile = null;
+    this.zoneTentou = false;
+    this.zonePattern = null;
 
     this.patches = new Map();
     this.zoneGrids = new Map();
@@ -99,12 +158,191 @@ export class TerrainRenderer {
     this.ready = false;
   }
 
+  /**
+   * A folha de chao de um mapa, ou null se nao carregou
+   *
+   * `groundTileFor` traduz a chave do mapa para a URL, e o cache
+   * guarda a imagem por URL
+   */
+  groundImageFor(map) {
+    return this.groundImages.get(groundTileFor(map)) ?? null;
+  }
+
+  isGroundReady(map) {
+    const image = this.groundImageFor(map);
+
+    return (
+      image !== null &&
+      image.complete === true &&
+      (image.naturalWidth ?? image.width ?? 0) > 0
+    );
+  }
+
+  isZoneReady() {
+    return (
+      this.zone !== null &&
+      this.zone.complete === true &&
+      (this.zone.naturalWidth ?? this.zone.width ?? 0) > 0
+    );
+  }
+
+  /**
+   * REDUZ UMA ARTE DE 1600px PARA UM TILE DE 128px.
+   *
+   * Vale para as duas artes do mapa — o `grama.jpg` do chao e o
+   * `terra.jpg` das areas de mob — e e a mesma conta nas duas, entao
+   * esta funcao e o unico lugar onde ela existe
+   *
+   * As imagens sao JPEG e o projeto nao tem decodificador de imagem, entao
+   * a reducao acontece no carregamento, no navegador. O arquivo de 1600px
+   * continua sendo o que se baixa
+   *
+   * A REDUCAO E FEITA POR METADES, e nao em um salto so
+   *
+   * Cair de 1600 para 128 em um `drawImage` e um fator de 12,5 de uma
+   * vez: o navegador amostra poucos pontos de cada grupo e o grao vira
+   * um xadrez. Cortando pela metade — 1600, 800, 400, 200 — cada degrau e
+   * um fator de 2, que o navegador resolve bem, e so o ultimo passo cai
+   * de 200 para 128
+   *
+   * Devolve `null` quando nao da: sem `document`, sem contexto 2d, ou a
+   * arte sem largura. Quem chama cai no caminho antigo
+   */
+  static reduceToTile(image, tamanho) {
+    if (typeof document === "undefined") return null;
+
+    const natural = image.naturalWidth ?? image.width;
+
+    if (!natural || natural <= 0) return null;
+
+    // a arte ja veio no tamanho certo: usa ela mesma
+    if (natural === tamanho) return image;
+
+    const canvas = document.createElement("canvas");
+
+    if (!canvas) return null;
+
+    canvas.width = tamanho;
+    canvas.height = tamanho;
+
+    const contexto = canvas.getContext?.("2d");
+
+    if (!contexto) return null;
+
+    let fonte = image;
+    let lado = natural;
+
+    while (lado > tamanho * 2) {
+      const proximo = Math.max(
+        tamanho,
+        Math.round(lado / 2),
+      );
+
+      const degrau = document.createElement("canvas");
+
+      if (!degrau) return null;
+
+      degrau.width = proximo;
+      degrau.height = proximo;
+
+      const ctxDegrau = degrau.getContext?.("2d");
+
+      if (!ctxDegrau) return null;
+
+      ctxDegrau.imageSmoothingEnabled = true;
+      ctxDegrau.imageSmoothingQuality = "high";
+
+      ctxDegrau.drawImage(
+        fonte,
+        0,
+        0,
+        proximo,
+        proximo,
+      );
+
+      fonte = degrau;
+      lado = proximo;
+    }
+
+    contexto.imageSmoothingEnabled = true;
+    contexto.imageSmoothingQuality = "high";
+
+    contexto.drawImage(
+      fonte,
+      0,
+      0,
+      tamanho,
+      tamanho,
+    );
+
+    return canvas;
+  }
+
+  /**
+   * O tile do chao, memorizado.
+   *
+   * `groundTentou` impede que a tentativa fracassada vire trabalho
+   * repetido a cada quadro
+   */
+  buildGroundTile(map) {
+    const folha = groundTileFor(map);
+
+    if (this.groundTiles.has(folha)) {
+      return this.groundTiles.get(folha);
+    }
+
+    // ja tentou e nao deu: nao refaz o trabalho a cada quadro
+    if (this.groundTentados.has(folha)) return null;
+
+    this.groundTentados.add(folha);
+
+    if (!this.isGroundReady(map)) return null;
+
+    const tile = TerrainRenderer.reduceToTile(
+      this.groundImageFor(map),
+      GROUND_TILE_SIZE,
+    );
+
+    this.groundTiles.set(folha, tile);
+
+    return tile;
+  }
+
+  /**
+   * O tile de terra das areas de mob, memorizado.
+   *
+   * Mesma conta do chao, sobre o `terra.jpg`
+   */
+  buildZoneTile() {
+    if (this.zoneTile !== null) {
+      return this.zoneTile;
+    }
+
+    if (this.zoneTentou === true) return null;
+
+    this.zoneTentou = true;
+
+    if (!this.isZoneReady()) return null;
+
+    this.zoneTile = TerrainRenderer.reduceToTile(
+      this.zone,
+      ZONE_TILE_SIZE,
+    );
+
+    return this.zoneTile;
+  }
+
+  /**
+   * O mapa so precisa da folha de terreno agora.
+   *
+   * Antes esta checava a `transitions` tambem, e o mapa ficava esperando
+   * uma imagem de 12,9KB que nao era mais desenhada — o mundo inteiro
+   * dependia de uma arte que ninguem via
+   */
   isReady() {
     return (
       this.terrain !== null &&
-      this.transitions !== null &&
-      this.terrain.complete === true &&
-      this.transitions.complete === true
+      this.terrain.complete === true
     );
   }
 
@@ -303,49 +541,21 @@ export class TerrainRenderer {
     }
   }
 
-  drawTransitionBand(
-    context,
-    from,
-    to,
-    x,
-    y,
-    width,
-    height,
-    rotation,
-  ) {
-    const row = getTransition(from, to);
-
-    if (row === null) return;
-
-    const column = variantAt(
-      Math.floor(x / TILE_SIZE),
-      Math.floor(y / TILE_SIZE),
-      from.length + to.length,
-    );
-
-    context.save();
-
-    context.translate(x, y);
-
-    if (rotation !== 0) {
-      context.rotate(rotation);
-    }
-
-    context.drawImage(
-      this.transitions,
-      column * TILE_SIZE,
-      row * TILE_SIZE,
-      TILE_SIZE,
-      TILE_SIZE,
-      0,
-      0,
-      width,
-      height,
-    );
-
-    context.restore();
-  }
-
+  /**
+ * A FAIXA DE BORDA DA ZONA FOI REMOVIDA.
+ *
+ * Era aqui que vivia o `drawTransitionBand` e o `drawZoneEdges`, que
+ * desenhavam uma faixa de 32px em volta de cada zona misturando o
+ * terreno dela com o de fora
+ *
+ * Saiu porque o chao virou o `grama.jpg`, uma textura pintada de
+ * 128px, e a faixa era pixel art de 32px: as duas se juntavam num
+ * contorno serrilhado em volta das 12 areas de mob
+ *
+ * A BORDA FICOU SECA, e a leitura da area continua por corte. Uma zona
+ * de pixel art dentro de um chao pintado ja se destaca pelo estilo, e
+ * nao precisa de mistura para se mostrar
+ */
   zoneGrid(zone) {
     const cached = this.zoneGrids.get(zone.id);
 
@@ -397,7 +607,55 @@ export class TerrainRenderer {
     return entry;
   }
 
+  /**
+ * * ladrilha a zona com o `terra.jpg`
+ *
+ * E o caminho das 11 areas de mob. A zona toda e um unico
+ * `fillRect` com padrao, e nao uma grade de patches
+ *
+ * O caminho antigo montava uma grade por zona, sorteando com `fbm` se
+ * cada celula era o `terrain` ou o `terrainAlt` — e depois colava as
+ * celulas iguais em retangulos. Com o ladrilho de terra as onze zonas
+ * ficaram com o MESMO terrerno de ponta a ponta, entao a grade inteira
+ * virou um retangulo so, e essa conta sai da tela
+ *
+ * Devolve `false` quando o ladrilho nao deu, e o `fillZone` cai no
+ * pixel art: e melhor um ladrilho de 32px velho do que um buraco
+ */
+  fillZoneWithTile(context, zone) {
+    if (!zoneUsesTile(zone)) return false;
+
+    if (this.zonePattern === null) {
+      const ladrilho = this.buildZoneTile() ?? this.zone;
+
+      try {
+        this.zonePattern =
+          context.createPattern?.(ladrilho, "repeat") ??
+          null;
+      } catch {
+        this.zonePattern = null;
+      }
+    }
+
+    if (this.zonePattern === null) return false;
+
+    context.fillStyle = this.zonePattern;
+
+    context.fillRect(
+      zone.x,
+      zone.y,
+      zone.width,
+      zone.height,
+    );
+
+    return true;
+  }
+
   fillZone(context, zone) {
+    if (this.fillZoneWithTile(context, zone)) {
+      return;
+    }
+
     const grid = this.zoneGrid(zone);
 
     if (!grid) {
@@ -481,70 +739,74 @@ export class TerrainRenderer {
     }
   }
 
-  drawZoneEdges(context, zone) {
-    const terrain = zone.terrain ?? BASE_TERRAIN;
-
-    if (terrain === BASE_TERRAIN) return;
-
-    const { x, y, width, height } = zone;
-
-    const step = TILE_SIZE;
-
-    for (
-      let offset = 0;
-      offset < width;
-      offset += step
-    ) {
-      this.drawTransitionBand(
-        context,
-        BASE_TERRAIN,
-        terrain,
-        x + offset,
-        y - BAND,
-        step,
-        BAND,
-        Math.PI / 2,
-      );
-
-      this.drawTransitionBand(
-        context,
-        terrain,
-        BASE_TERRAIN,
-        x + offset,
-        y + height,
-        step,
-        BAND,
-        -Math.PI / 2,
-      );
+  /**
+   * O chao de fora das zonas: o `grama.jpg` ladrilhado.
+   *
+   * E um `createPattern` com um `fillRect`, e nao um laço de tiles. O
+   * `grama.jpg` tem 1600px, entao o tile e grande demais para caber no
+   * canvas de patch de 256px do `buildPatch` sem virar um borrão — e
+   *ladrilhar a imagem direto mantem o detalhe
+   *
+   * O preenchimento acontece em coordenada de MUNDO: o `GameEngine`
+   * chama o terreno antes de aplicar a camera, entao o ladrilho anda
+   * junto com o mapa e nao gruda na tela
+   *
+   * Se o tile nao carregou, ou o navegador nao souber criar padrao
+   * com imagem, cai no pixel art de 32px. O vale sempre tem chao
+   */
+  fillGround(context, map, rect) {
+    if (!this.isGroundReady(map)) {
+      this.fillTerrain(context, BASE_TERRAIN, rect);
+      return;
     }
 
-    for (let offset = 0; offset < height; offset += step) {
-      this.drawTransitionBand(
-        context,
-        BASE_TERRAIN,
-        terrain,
-        x - BAND,
-        y + offset,
-        step,
-        BAND,
-        Math.PI,
-      );
+    const folha = groundTileFor(map);
 
-      this.drawTransitionBand(
-        context,
-        terrain,
-        BASE_TERRAIN,
-        x + width,
-        y + offset,
-        step,
-        BAND,
-        0,
-      );
+    if (!this.groundPatterns.has(folha)) {
+      /**
+       * Do canvas de 128px quando deu para construir, e da arte crua
+       * quando nao deu
+       *
+       * A arte de 1600px funciona como padrao — e o que havia antes
+       * desta reducao — entao ela continua sendo o segundo caminho, e o
+       * pixel art de 32px continua sendo o terceiro
+       */
+      const ladrilho =
+        this.buildGroundTile(map) ?? this.groundImageFor(map);
+
+      let padrao = null;
+
+      try {
+        padrao =
+          context.createPattern?.(ladrilho, "repeat") ??
+          null;
+      } catch {
+        // alguns ambientes lancam em vez de devolver null
+        padrao = null;
+      }
+
+      this.groundPatterns.set(folha, padrao);
     }
+
+    const padrao = this.groundPatterns.get(folha);
+
+    if (!padrao) {
+      this.fillTerrain(context, BASE_TERRAIN, rect);
+      return;
+    }
+
+    context.fillStyle = padrao;
+
+    context.fillRect(
+      rect.x,
+      rect.y,
+      rect.width,
+      rect.height,
+    );
   }
 
   draw(context, map, zones, view) {
-    this.fillTerrain(context, BASE_TERRAIN, {
+    this.fillGround(context, map, {
       x: view.x - TILE_SIZE,
       y: view.y - TILE_SIZE,
       width: view.width + TILE_SIZE * 2,
@@ -553,16 +815,15 @@ export class TerrainRenderer {
 
     for (const zone of zones) {
       if (
-        zone.x > view.x + view.width + BAND ||
-        zone.y > view.y + view.height + BAND ||
-        zone.x + zone.width < view.x - BAND ||
-        zone.y + zone.height < view.y - BAND
+        zone.x > view.x + view.width + CULL_MARGIN ||
+        zone.y > view.y + view.height + CULL_MARGIN ||
+        zone.x + zone.width < view.x - CULL_MARGIN ||
+        zone.y + zone.height < view.y - CULL_MARGIN
       ) {
         continue;
       }
 
       this.fillZone(context, zone);
-      this.drawZoneEdges(context, zone);
     }
   }
 

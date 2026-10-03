@@ -144,19 +144,106 @@ h1,h2,h3,p {
   color: var(--gold);
   font-size: 34px;
 }
+/* campo do nome do personagem
+ *
+ * Fica entre o cabecalho e a grade de classes: o nome e a primeira
+ * decisao do personagem, e a classe e a segunda. */
+.name-field {
+  display: grid;
+  max-width: 420px;
+  margin: 0 auto 18px;
+  padding: 0 14px;
+  gap: 5px;
+  text-align: center;
+}
+.name-field__label {
+  display: block;
+  cursor: text;
+}
+.name-field__input {
+  width: 100%;
+  padding: 11px 14px;
+  font-family: Montserrat, Inter, sans-serif;
+  font-size: 16px;
+  font-weight: 700;
+  letter-spacing: 0.01em;
+  text-align: center;
+  transition: border-color .12s, box-shadow .12s;
+}
+.name-field__input:focus {
+  box-shadow: 0 0 0 2px rgba(229, 187, 104, 0.18);
+}
+.name-field__help {
+  font-size: 10px;
+  font-weight: 600;
+}
+/**
+ * A grade das classes.
+ *
+ * Era `repeat(8, minmax(140px, 1fr))` com QUATRO classes. Oito
+ * colunas para quatro cartoes deixava metade da linha vazia, e o
+ * `1fr` esticava os quatro primeiros ate 1500px de largura com o
+ * cartao sozinho no canto esquerdo da tela.
+ *
+ * O `auto-fit` com teto de 150px resolve as duas coisas: ele cria
+ * colunas so ate a ultima ocupada e descarta as vazias, entao o
+ * `justify-content: center` recentra os quatro cartoes no espaco
+ * que sobra. O cartao nao cresce mais, e o quadrado da arte fica
+ * com 150px em vez de esticar com a largura da janela
+ */
 .class-grid {
   display: grid;
-  grid-template-columns: repeat(8,
+  grid-template-columns: repeat(auto-fit,
     minmax(140px,
-      1fr));
-      gap: 12px;
-      max-width: 1500px;
-      margin: 0 auto 24px;
+      150px));
+  gap: 12px;
+  justify-content: center;
+  max-width: 1500px;
+  margin: 0 auto 24px;
 }
+/**
+ * A celula da grade: o quadrado e a legenda.
+ *
+ * O quadrado e o BOTAO, e ele e quadrado de verdade (`aspect-ratio: 1`)
+ * com a arte So dentro. O nome e a legenda, abaixo e fora do botao
+ *
+ * O `is-selected` e do botao, e nao da celula: e o botao que o
+ * jogador clica, e quem precisa do contorno e do deslocamento
+ */
+.class-card-cell {
+  display: flex;
+  min-width: 0;
+  flex-direction: column;
+  gap: 6px;
+  align-items: center;
+}
+.class-card__label {
+  max-width: 100%;
+  overflow: hidden;
+  font-family: Montserrat, Inter, sans-serif;
+  font-size: 12px;
+  font-weight: 700;
+  text-align: center;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/**
+ * O botao de escolher a classe: um QUADRADO, so com a arte.
+ *
+ * O `aspect-ratio: 1` e o que faz ele ser quadrado, e o `padding: 0`
+ * e o que impede o texto de empurrar a borda para fora do quadrado —
+ * com `padding` ele ficava maior que a arte dos dois lados
+ *
+ * O `overflow: hidden` mantem o desenho do sprite dentro do quadrado
+ */
 .class-card {
   position: relative;
+  display: block;
+  width: 100%;
+  aspect-ratio: 1;
   min-width: 0;
-  padding: 14px;
+  padding: 0;
   overflow: hidden;
   border: 1px solid var(--border);
   border-radius: 16px;
@@ -189,19 +276,27 @@ h1,h2,h3,p {
   border-radius: 50%;
   background: var(--accent);
   box-shadow: 0 0 14px var(--accent);
-  ""content: "";
+  content: "";
 }
+/*
+ * O retrato e o quadrado INTEIRO do botao.
+ *
+ * `display: grid` com `place-items: center` e o que faz o retrato
+ * ocupar o botao todo e centralizar o que esta dentro dele. Sem o
+ * `display`, o retrato ficaria com a largura do conteudo e o canvas
+ * nao teria o quadrado para centralizar
+ */
 .class-portrait {
   position: relative;
   display: grid;
+  width: 100%;
   aspect-ratio: 1;
   place-items: center;
-  margin-bottom: 12px;
   overflow: hidden;
   border-radius: 12px;
   background:    radial-gradient(      circle,
-    color-mix(in srgb,
-      var(--accent) 24%,
+      color-mix(in srgb,
+        var(--accent) 24%,
       transparent),
     transparent 64%    ),    #101820;
 }
@@ -242,6 +337,44 @@ h1,h2,h3,p {
       0,
       0.5));
 }
+
+/**
+ * A arte animada da classe.
+ *
+ * O canvas e `position: absolute` e ocupa o retrato inteiro, e o
+ * desenho centraliza a celula dentro dele. O retrato tem
+ * `aspect-ratio: 1` no cartao da lista e altura propria no retrato
+ * grande, entao o canvas tem que acompanhar os dois
+ *
+ * A opacidade comeca em 0 e vira 1 no `is-ready`, que o React põe
+ * quando a folha carregou. Sem isso o canvas apareceria vazio — um
+ * retangulo transparente do tamanho do retrato — ate a imagem
+ * chegar, e num retrato escuro isso le como um buraco
+ */
+.class-sprite {
+  position: absolute;
+  inset: 0;
+  z-index: 1;
+  display: block;
+  width: 100%;
+  height: 100%;
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 0.18s ease-out;
+}
+.class-sprite.is-ready {
+  opacity: 1;
+}
+
+/* Com a arte no retrato, o fundo radial da classe vira um halo
+   atras do desenho: o radial existe para dar brilho atras de um
+   glifo, e atras do personagem ele vira uma mancha da cor da classe.
+   O fundo CHATO deste estado esta em `theme-inventory.css`, que e
+   quem tem o `background` do retrato — o `styles.css` nao escreve
+   cor de fundo, e a auditoria de tema cobra isso */
+.class-portrait--art {
+  /* o fundo e do tema */
+}
 .class-portrait__name {
   position: absolute;
   right: 7px;
@@ -258,6 +391,15 @@ h1,h2,h3,p {
   text-transform: uppercase;
   white-space: nowrap;
 }
+/*
+ * O retrato grande e mais ALTO que largo, e nao quadrado.
+ *
+ * A coluna dos detalhes e de 290px com 24px de `padding` de cada
+ * lado, entao o retrato tem 242px de largura. Com o `aspect-ratio: 1`
+ * herdado ele quereria 242px de altura, mas o `min-height: 330px`
+ * estica: o retrato fica 242x330, e o canvas tem que caber NESSE
+ * retangulo, e nao num quadrado
+ */
 .class-portrait--large {
   min-height: 330px;
   margin: 0;
@@ -265,6 +407,48 @@ h1,h2,h3,p {
 .class-portrait--large .class-portrait__icon {
   font-size: 130px;
 }
+/**
+ * A arte do retrato GRANDE, e so dele.
+ *
+ * A arte transbordava o card, e a primeira tentativa de consertar
+ * piorou: `width: auto` com `left`/`right` resolvidos pelos offsets
+ * so vale para elemento NAO substituido. O `<canvas>` e um elemento
+ * SUBSTITUIDO, e nele `width: auto` significa a largura INTRINSECA —
+ * o atributo `width`, que o HTML define como 300px. O canvas virou
+ * 300px de largo comecando 8% a direita, e a arte foi para fora do
+ * card pela direita
+ *
+ * E o `width: 100%` do canvas tambem nao serve aqui: com `left` e
+ * `width` definidos, o `right` e IGNORADO, entao `left: 8%` somado a
+ * `width: 100%` estoura 8% para fora
+ *
+ * A solucao e falar as quatro medidas: `left`/`width` em cima e
+ * `top`/`height` embaixo, com `right`/`bottom` em `auto` para nao
+ * competing. Os pares somam menos de 100%, entao sobra folga
+ *
+ * O botao de escolher a classe NAO e tocado: ele usa `inset: 0`,
+ * com `left` e `right` zero e `width: 100%` — la `right` ser
+ * ignorado nao muda nada, porque e zero
+ */
+.class-portrait--large .class-sprite {
+  top: 5%;
+  right: auto;
+  bottom: auto;
+  left: 8%;
+  width: 84%;
+  height: 88%;
+}
+/**
+ * O cargo, a tagline e os stats que ficavam DENTRO do cartao.
+ *
+ * Eles sairam junto com o cartao quadrado: nao cabem num quadrado sem
+ * quebrar a proporcao, e o que quebrava o quadrado era exatamente
+ * eles. A arte e o nome continuam, e o nome virou `.class-card__label`
+ *
+ * As regras ficaram aqui, mortas, e nao no `<style>`: o `styles.test.js`
+ * nao distingue regra orfa de regra em uso, entao apagar seria o
+ * caminho limpo se algum dia elas voltarem
+ */
 .class-card__role {
   display: block;
   min-height: 31px;
@@ -425,7 +609,7 @@ h1,h2,h3,p {
   height: 6px;
   border-radius: 50%;
   background: #788698;
-  ""content: "";
+  content: "";
 }
 .bullet-list--positive li::before {
   background: #6cc889;
@@ -561,6 +745,86 @@ h1,h2,h3,p {
 .hud button {
   pointer-events: auto;
 }
+
+/* ---------- o pause (ESC) ---------- */
+
+/*
+ * AQUI SO O LAYOUT.
+ *
+ * Cor, borda, raio e sombra do pause vivem em `theme-inventory.css`, e
+ * nao aqui: e a regra do projeto, e o que garante que o pause troque de
+ * aparencia junto com o resto do jogo. Este bloco cuida de onde a
+ * cortina fica, do tamanho da caixa e da tipografia
+ *
+ * A cortina e um elemento SEPARADO do painel. Sao dois porque fazem
+ * coisas diferentes: a cortina cobre a tela e escurece (sem receber
+ * clique, com o jogo aparecendo atras), enquanto o painel e a caixa com
+ * o que o jogador pode fazer. Se fosse um so, o clique fora do painel
+ * fecharia o pause, e um clique perdido no meio de uma luta nao pode
+ * fechar a unica saida da tela
+ */
+.pause {
+  position: absolute;
+  inset: 0;
+
+  /* acima da barra e dos paineis (z-index 30) */
+  z-index: 40;
+
+  display: grid;
+  place-items: center;
+
+  /* o pai `.hud` e `pointer-events: none` para o clique chegar ao
+     jogo; aqui o pause precisa ser clicavel por inteiro */
+  pointer-events: auto;
+}
+
+.pause__veil {
+  position: absolute;
+  inset: 0;
+}
+
+.pause__panel {
+  position: relative;
+  display: flex;
+  width: min(320px, calc(100vw - 24px));
+  flex-direction: column;
+  gap: 8px;
+  padding: 18px 16px 14px;
+}
+
+.pause__title {
+  margin: 0;
+  font-size: 15px;
+  font-weight: 800;
+  letter-spacing: 0.16em;
+  text-align: center;
+  text-transform: uppercase;
+}
+
+.pause__hint {
+  margin: 0 0 4px;
+  font-size: 11px;
+  line-height: 1.45;
+  text-align: center;
+}
+
+.pause__btn {
+  padding: 9px 10px;
+  font: inherit;
+  font-size: 12px;
+  cursor: pointer;
+}
+
+/*
+ * O CONTINUAR e o botao de primeira, e nao o de sair.
+ *
+ * A ordem de leitura e a frequencia: quase sempre quem abre o pause
+ * esta olhando para uma coisa rapida e volta. "Voltar para as classes"
+ * destroi o personagem em andamento e e a ultima coisa na tela
+ */
+.pause__btn--primary {
+  font-weight: 700;
+}
 /* ---------- circular button base ---------- */
 
 .hud-btn {
@@ -610,6 +874,56 @@ h1,h2,h3,p {
   height: 30px;
   font-size: 11px;
 }
+
+/*
+   O icone DENTRO do botao da HUD.
+
+   A arte de `assets/icons/` vem em 1600x1600, e o botao e um circulo de
+   38px: sem um tamanho aqui, o `<img>` entraria com a largura
+   INTRINSECA de 1600px e o botao viraria um bloco de 1600px de lado,
+   empurrando a barra inteira.
+
+   O 24px e o que sobra dentro do circulo com folga: 38 menos a borda de
+   1px dos dois lados, e com o desenho da arte having margem
+   transparente propria, o visivel fica perto de 19px — o mesmo tamanho
+   que o glifo de 15px ocupava, um pouco maior porque a arte tem
+   detalhe que o caractere nao tem
+
+   O `object-fit: contain` e o que garante que a arte nao seja
+   esticada: ela e quadrada e o lugar e quadrado, entao hoje nao ha
+   deformacao, mas o `contain` e o que mantem isso verdade se a arte
+   deixar de ser quadrada
+ */
+.hud-icon {
+  display: grid;
+  width: 24px;
+  height: 24px;
+  place-items: center;
+  pointer-events: none;
+}
+
+.hud-icon img {
+  display: block;
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+  image-rendering: auto;
+}
+
+/*
+   O glifo de reserva, quando a arte nao veio.
+
+   O `line-height: 0` e o mesmo do `.item-icon`: sem ele, a linha de
+   texto do glifo ganha o espacamento de descida da fonte e o icone
+   fica alguns pixels abaixo do centro do circulo. O `font-size`
+   volta ao do botao, porque o `24px` acima e o tamanho da arte
+ */
+.hud-icon--glyph {
+  width: auto;
+  height: auto;
+  font-size: 15px;
+  line-height: 0;
+}
 .hud-btn.is-active {
   border-color: var(--gold);
   color: var(--gold);
@@ -624,6 +938,65 @@ h1,h2,h3,p {
       0.97)  );
 }
 /* ---------- top-left vitals ---------- */
+
+/*
+ * O botao de STATUS, ao lado do bloco de vida.
+ *
+ * `--vitals-w` e a largura do `.hud-vitals`, e o botao se apoia nela em
+ * vez de repetir o numero. A razao: o bloco de vida muda de largura em
+ * duas media queries (238 -> 210 -> 176) e o botao tem de accompanied
+ *-lo nas tres. Se o `left` do botao fosse fixo, ele passaria por cima
+ * do bloco na tela estreita
+ *
+ * E um `.hud-btn` comum, o mesmo do bestiario: o icone, o circulo, o
+ * `is-active` e o `title` vem de la. O que muda aqui e so a cor
+ */
+.hud-btn--status,
+.hud-btn--test,
+.hud-btn--guild {
+  --vitals-w: 238px;
+  --btn-h: 38px;
+  --btn-gap: 8px;
+  position: absolute;
+  left: calc(12px + var(--vitals-w) + 8px);
+  z-index: 2;
+}
+
+.hud-btn--status {
+  top: 12px;
+}
+
+/**
+ * O botao de TESTE, abaixo do status.
+ *
+ * O `top` e `12px` mais a altura do botao mais o vao, com
+ * `--btn-h` e `--btn-gap` no lugar dos numeros. O motivo e concreto:
+ * mexer no tamanho do `.hud-btn` mudaria a altura dos dois, e um
+ * `top` com o 38 fixo faria o teste passar por cima do status — ou
+ * deixaria um buraco. Nenhum teste de marcacao pega sobreposicao
+ */
+.hud-btn--test {
+  top: calc(12px + var(--btn-h) + var(--btn-gap));
+
+  /* a coluna vem da regra agrupada acima, e nao e declarada aqui */
+}
+
+/**
+ * O botao de GUILDA, abaixo do Encantar, na MESMA coluna.
+ *
+ * Sem entrar no seletor agrupado acima ele nao herda o
+ * `position: absolute`, e um botao sem `top` cai na posicao do fluxo:
+ * ele ia parar no fim da pilha do HUD, atras do bloco de vida, foco e
+ * nivel. O DOM ja trazia o botao logo depois do Encantar — a ordem
+ * visual vinha so do CSS, que e onde ela estava errada
+ *
+ * O `top` soma dois Degraus em vez de repetir os numeros: status, um
+ * botao, um vao, o Encantar, um botao, um vao. Assim a coluna continua
+ * correta se `--btn-h` mudar
+ */
+.hud-btn--guild {
+  top: calc(12px + 2 * (var(--btn-h) + var(--btn-gap)));
+}
 
 .hud-vitals {
   position: absolute;
@@ -745,6 +1118,33 @@ h1,h2,h3,p {
   gap: 5px;
   margin-top: 9px;
 }
+
+/**
+ * A POSICAO NO MAPA: X e Y do jogador, na coluna da esquerda.
+ *
+ * Fonte vermelha, como pedido. O vermelho vem da familia que o jogo ja
+ * usa para "perigo" e vida baixa, e nao de uma cor nova: o jogador ve o
+ * mesmo vermelho no bestiario e na barra de vida
+ *
+ * `font-variant-numeric: tabular-nums` e o detalhe que faz a leitura
+ * funcionar: a posicao muda muitas vezes por segundo, e com a fonte de
+ * largura variavel cada digito ocupa um tamanho diferente e o numero
+ * TREME horizontalmente. Com digitos de largura fixa, o `X 3001` vira
+ * `X 3012` no lugar
+ *
+ * `letter-spacing` e o mesmo das outras letras pequenas do HUD, para a
+ * linha nao destoar da linha de ATQ/DEF/VEL que fica logo acima
+ */
+.hud-coords {
+  display: block;
+  margin-top: 7px;
+  color: #e05d62;
+  font-size: 9px;
+  font-weight: 800;
+  letter-spacing: 0.08em;
+  text-align: center;
+  font-variant-numeric: tabular-nums;
+}
 .hud-vitals__stats span {
   flex: 1;
   padding: 4px 0;
@@ -781,6 +1181,325 @@ h1,h2,h3,p {
   width: 238px;
   gap: 8px;
 }
+/*
+ * A BOX DO PORTAL, abaixo do minimapa.
+ *
+ * Aqui mora SO o layout. Toda cor, borda, raio e sombra esta em
+ * `theme-inventory.css`, que e a camada de tema do projeto — o mesmo
+ * caminho do inventario, das missoes e do pause
+ *
+ * O minimapa e desenhado no canvas, entao nao ha elemento DOM para se
+ * grudar: a caixa e posicionada com `position: absolute` e o `top` vem
+ * por atributo, calculado com as MESMAS constantes do `drawMinimap`
+ * (MINIMAP_TOP_IDLE / MINIMAP_TOP_TARGETED). Numeros escritos a mao aqui
+ * deixariam a box embaixo de um lugar e o minimapa desenhando em outro
+ * assim que um alvo fosse selecionado
+ */
+.prt-box {
+  position: absolute;
+  right: 20px;
+  width: 240px;
+  display: grid;
+  gap: 6px;
+  padding: 9px 10px 10px;
+
+  /*
+   * O `top` e mudado por atributo quando o minimapa desce, e sem
+   * `transition` a caixa saltaria de 84 para 190 em um quadro. A duracao
+   * e a mesma do `MINIMAP_SLIDE` do minimapa, para as duas coisas
+   * chegarem ao lugar juntas
+   */
+  transition: top 0.18s ease-out;
+  animation: prt-box-in 0.14s ease-out;
+}
+
+@keyframes prt-box-in {
+  from {
+    opacity: 0;
+    transform: translateY(-4px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.prt-box__label {
+  margin: 0;
+  font-family: Inter, sans-serif;
+  font-size: 9px;
+  font-weight: 700;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+}
+
+.prt-box__name {
+  margin: 0;
+  overflow: hidden;
+  font-family: Montserrat, Inter, sans-serif;
+  font-size: 13px;
+  font-weight: 700;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.prt-box__go {
+  width: 100%;
+  margin-top: 2px;
+  padding: 6px 10px;
+  font-family: Inter, sans-serif;
+  font-size: 11px;
+  font-weight: 700;
+  cursor: pointer;
+  transition: background 0.12s ease, border-color 0.12s ease;
+}
+
+.prt-box__go:active {
+  transform: translateY(1px);
+}
+
+/* ============================================================================
+   GUILDA
+   ============================================================================
+   Layout apenas. Cor, borda, raio e sombra moram em `theme-inventory.css`,
+   que e a camada de tema do projeto — o mesmo caminho do inventario, das
+   missoes e do pause
+   ========================================================================== */
+
+.gld-panel {
+  width: min(560px, calc(100vw - 24px));
+  max-height: min(600px, calc(100vh - 28px));
+}
+
+/**
+ * O CORPO da guilda.
+ *
+ * `flex: 1` e `min-height: 0` vem do `inv-panel`: sao o que deixa o
+ * corpo ocupar o que sobra e rolar por dentro, em vez de esticar a
+ * caixa. Sem o `min-height: 0` o conteudo nao encolhe e a barra de
+ * abas sube junto
+ */
+.gld-panel__body {
+  display: flex;
+  min-height: 0;
+  flex: 1;
+  flex-direction: column;
+  gap: 10px;
+  overflow-y: auto;
+  padding: 10px 12px 12px;
+}
+
+/**
+ * A IDENTIDADE da guilda, dentro do corpo.
+ *
+ * Antes era um `<header>` com o nome e a tag, e foi embora com a casca
+ * antiga: agora quem desenha o cabecalho do painel e o `inv-panel`, e
+ * esta linha e so o nome de quem o jogador esta vendo
+ */
+.gld-panel__tag {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  margin: 0;
+  padding-bottom: 8px;
+  font-family: Inter, sans-serif;
+  font-size: 12px;
+}
+
+.gld-panel__tag-bracket {
+  font-weight: 700;
+}
+
+/**
+ * O PRECO de criar a guilda.
+ *
+ * Fica entre os campos e o botao porque e o que responde a pergunta que
+ * o jogador faz ao ver o botao travado. A moldura e a cor sao do tema;
+ * aqui so o arranjo
+ */
+.gld-custo {
+  display: flex;
+  align-items: baseline;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin: 0;
+  padding: 8px 10px;
+  font-family: Inter, sans-serif;
+  font-size: 11px;
+}
+
+.gld-custo strong {
+  font-size: 13px;
+}
+
+.gld-custo small {
+  flex-basis: 100%;
+  font-size: 10px;
+}
+
+.gld-form {
+  display: grid;
+  gap: 10px;
+  max-width: 420px;
+}
+
+.gld-field {
+  display: grid;
+  gap: 4px;
+}
+
+.gld-field span {
+  font-family: Inter, sans-serif;
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.gld-field input {
+  padding: 7px 9px;
+  border-radius: var(--t-radius-sm);
+  font-family: Inter, sans-serif;
+  font-size: 12px;
+}
+
+.gld-btn {
+  padding: 6px 12px;
+  font-family: Inter, sans-serif;
+  font-size: 11px;
+  font-weight: 700;
+  cursor: pointer;
+  transition: background 0.12s ease, border-color 0.12s ease;
+}
+
+.gld-btn:disabled {
+  cursor: not-allowed;
+}
+
+.gld-btn--sm {
+  padding: 4px 9px;
+  font-size: 10px;
+}
+
+.gld-btn--primary {
+  justify-self: start;
+  padding: 8px 16px;
+}
+
+.gld-btn--negar,
+.gld-btn--sair {
+  justify-self: start;
+  margin-top: 10px;
+}
+
+.gld-busca {
+  display: grid;
+  gap: 10px;
+  max-width: 560px;
+}
+
+.gld-lista {
+  display: grid;
+  gap: 4px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.gld-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 9px;
+  font-family: Inter, sans-serif;
+  font-size: 11px;
+}
+
+.gld-row__nome {
+  flex: 1;
+  overflow: hidden;
+  font-weight: 700;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.gld-row__tag {
+  font-weight: 700;
+}
+
+.gld-row__custo,
+.gld-row__contagem {
+  font-variant-numeric: tabular-nums;
+}
+
+.gld-row__desc {
+  flex-basis: 100%;
+  font-size: 10px;
+}
+
+.gld-sub {
+  margin: 14px 0 6px;
+  font-family: Inter, sans-serif;
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+}
+
+.gld-vazio {
+  margin: 6px 0;
+  font-family: Inter, sans-serif;
+  font-size: 11px;
+}
+
+/* os talentos: o node destravado e o bloqueado precisam se ler
+   de relance, e e a cor que faz isso — o botao desabilitado sozinho
+   nao diferencia "caro" de "nao liberou ainda" */
+.gld-talent {
+  flex-wrap: wrap;
+}
+
+.gld-tier {
+  display: grid;
+  gap: 4px;
+}
+
+.gld-pontos {
+  display: grid;
+  gap: 2px;
+  margin: 0 0 10px;
+  font-family: Inter, sans-serif;
+  font-size: 12px;
+}
+
+.gld-pontos strong {
+  font-size: 16px;
+  font-variant-numeric: tabular-nums;
+}
+
+.gld-pontos small {
+  font-size: 10px;
+}
+
+.gld-cofre {
+  display: grid;
+  gap: 8px;
+  max-width: 560px;
+}
+
+.gld-cofre__moedas {
+  margin: 0;
+  font-family: Inter, sans-serif;
+  font-size: 12px;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+}
+
+.gld-cofre__acoes {
+  display: flex;
+  gap: 6px;
+}
+
 .qst-tracker {
   position: relative;
   padding: 9px 10px;
@@ -1219,31 +1938,42 @@ h1,h2,h3,p {
     104,
     0.7);
 }
+/* abas de missao: principal e secundaria em vez de dois blocos
+   empilhados. o layout fica aqui, a aparencia no tema. */
+.qst-tabs {
+  display: flex;
+  flex: none;
+  align-items: stretch;
+  gap: 2px;
+  padding: 6px 14px 0;
+}
+.qst-tab {
+  display: flex;
+  min-width: 108px;
+  align-items: center;
+  gap: 7px;
+  padding: 8px 13px 9px;
+  cursor: pointer;
+  transition: color .12s, background .12s, border-color .12s;
+}
+.qst-tab__icon {
+  font-size: 12px;
+  line-height: 1;
+}
+.qst-tab small {
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.02em;
+}
+.qst-tab__count {
+  margin-left: auto;
+  font-size: 10px;
+  font-style: normal;
+  font-weight: 800;
+  font-variant-numeric: tabular-nums;
+}
 .qst-group {
   margin-bottom: 18px;
-}
-.qst-group__title {
-  display: flex;
-  align-items: baseline;
-  justify-content: space-between;
-  margin: 0 0 8px;
-  padding-bottom: 5px;
-  border-bottom: 1px solid rgba(255,
-    255,
-    255,
-    0.07);
-    color: #e5bb68;
-    font-size: 9px;
-    font-weight: 800;
-    letter-spacing: 0.1em;
-    text-transform: uppercase;
-}
-.qst-group__title small {
-  color: #7f8b9b;
-  font-size: 8px;
-  font-weight: 600;
-  letter-spacing: 0;
-  text-transform: none;
 }
 .qst-list {
   display: grid;
@@ -1381,6 +2111,227 @@ h1,h2,h3,p {
   font-weight: 700;
 }
 /* =========================================================
+   painel de missoes em lista de MMORPG
+
+   O cartao virou uma linha com tres colunas: o que a missao e a
+   fazer, o que ela paga, e o botao. Antes o botao ficava ABAIXO do
+   texto e empurrava o proximo cartao para baixo, e a lista de
+   secundarias empilhava a principal para fora da vista
+
+   As tres colunas sao `minmax(0, 1fr) auto auto`: a primeira e a
+   unica que encolhe, e encolher por `minmax(0, ...)` e obrigatorio
+   porque o padrao de um item flex e `min-width: auto`, que deixa o
+   texto empurrar os icones para fora do cartao em vez de cortar
+   ========================================================= */
+.qst-panel {
+  width: min(680px,
+    calc(100vw - 28px));
+    max-height: min(620px,
+    calc(100vh - 32px));
+}
+.qst-panel__pending {
+  margin-left: auto;
+  color: #e5bb68;
+  font-size: 9px;
+  font-weight: 800;
+  letter-spacing: 0.02em;
+  white-space: nowrap;
+}
+/* o AUTO do cabecalho encosta na direita depois do contador */
+.qst-panel__head .qst-auto {
+  margin-left: 10px;
+}
+.qst-list {
+  gap: 4px;
+}
+.qst-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto auto;
+  align-items: center;
+  gap: 10px;
+  padding: 7px 10px;
+}
+.qst-row__info {
+  min-width: 0;
+}
+.qst-row__head {
+  gap: 8px;
+}
+.qst-row__head strong {
+  overflow: hidden;
+  font-size: 11px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.qst-row__text {
+  overflow: hidden;
+  margin-top: 2px;
+  font-size: 9px;
+  line-height: 1.35;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.qst-progress {
+  gap: 6px;
+  margin-top: 5px;
+}
+.qst-progress__track {
+  height: 4px;
+}
+/* ---------- coluna de recompensa ---------- */
+/*
+   Os icones ficam pequenos de proposito: a coluna e de leitura, e nao
+   o inventario. A arte do item entra rebaixada em 22px em vez dos 44px
+   do slot, porque 44px aqui transformaria a linha em 56px de altura e
+   a lista voltaria a precisar de rolagem para ver duas missoes
+ */
+.qst-rewards {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 6px;
+}
+.qst-reward {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  color: #e5bb68;
+  font-size: 9px;
+  font-weight: 800;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+.qst-reward i {
+  font-style: normal;
+  line-height: 1;
+}
+.qst-reward--gold i {
+  color: #ffc857;
+  font-size: 10px;
+  text-shadow: 0 0 6px rgba(255, 200, 87, 0.45);
+}
+.qst-reward--xp {
+  color: #b79ae0;
+}
+.qst-reward--xp i {
+  padding: 1px 3px;
+  border: 1px solid rgba(183, 154, 224, 0.5);
+  border-radius: 3px;
+  font-size: 7px;
+  font-weight: 900;
+  letter-spacing: 0.04em;
+}
+.qst-reward--item {
+  color: #d6dde5;
+}
+.qst-reward--item b {
+  color: #d6dde5;
+  font-size: 9px;
+}
+/*
+   A arte do item e a mesma do inventario, so que reduzida. O
+   `line-height: 0` do `.item-icon` ja tira o espaco de baixo da
+   imagem, e sem ele a linha ganhara 4px que nao servem para nada
+ */
+.qst-reward__icon img {
+  width: 22px;
+  height: 22px;
+}
+.qst-reward--item .item-icon--glyph {
+  font-size: 14px;
+  line-height: 1;
+  color: #c3ccd6;
+}
+/*
+   O texto que o leitor de tela precisa e o que o olho nao deve ver.
+   O `title` do bloco ja da o nome no mouse; este e o rotulo para quem
+   nao ve o icone
+ */
+.qst-reward__sr {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
+}
+/* ---------- coluna de acao ---------- */
+.qst-row__action {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 4px;
+}
+.qst-action {
+  padding: 5px 10px;
+  border: 1px solid rgba(229, 187, 104, 0.4);
+  border-radius: 4px;
+  color: #e5bb68;
+  background: rgba(40, 33, 16, 0.7);
+  cursor: pointer;
+  font-size: 9px;
+  font-weight: 800;
+  letter-spacing: 0.04em;
+  white-space: nowrap;
+  transition: border-color 120ms ease, color 120ms ease, background 120ms ease;
+}
+.qst-action:hover {
+  border-color: var(--gold);
+  color: #ffd894;
+}
+/*
+   O [RECEBER] e a unica acao que ENTREGA algo, e por isso que ele e o
+   unico que usa o dourado cheio. O resto da linha e trabalho, e o
+   trabalho nao brilha
+ */
+.qst-action--claim {
+  border-color: var(--gold);
+  color: #1a1208;
+  background: linear-gradient(180deg, #f0d9a8 0%, #d8b45c 100%);
+  box-shadow: 0 0 10px rgba(216, 180, 92, 0.35);
+}
+.qst-action--claim:hover {
+  border-color: #ffeec4;
+  color: #120c04;
+  background: linear-gradient(180deg, #ffeec4 0%, #e5bb68 100%);
+}
+.qst-action--auto.is-on {
+  border-color: rgba(126, 240, 176, 0.6);
+  color: #7ef0b0;
+  background: rgba(20, 48, 38, 0.75);
+}
+.qst-action--abandon {
+  border-color: rgba(235, 99, 99, 0.35);
+  color: #ffb0b0;
+  background: rgba(48, 20, 23, 0.6);
+}
+.qst-action--abandon:hover {
+  border-color: rgba(235, 99, 99, 0.7);
+  color: #ffd4d4;
+}
+/*
+   [CONCLUIDA] nao e um botao e nao tem borda de botao: depois do
+   resgate nao ha mais nada a fazer naquela missao, e um botao
+   desabilitado ainda parece clicavel
+ */
+.qst-action--done {
+  padding: 5px 9px;
+  border: 1px solid rgba(126, 240, 176, 0.35);
+  border-radius: 4px;
+  color: #7ef0b0;
+  background: rgba(18, 40, 32, 0.55);
+  font-size: 8px;
+  font-weight: 900;
+  letter-spacing: 0.06em;
+  white-space: nowrap;
+}
+/* a missao concluida E NAO RESGATADA: a linha inteira avisa */
+.qst-row.is-claimed {
+  border-color: rgba(216, 180, 92, 0.5);
+  border-left-color: var(--gold);
+  background: rgba(48, 38, 16, 0.6);
+}
+/* =========================================================
    Bestiario - cacadas que dao bonus permanente de stat
    ========================================================= */
 
@@ -1403,6 +2354,64 @@ h1,h2,h3,p {
   border-color: var(--gold);
   color: var(--gold);
 }
+/**
+ * O botao da COLECAO, ao lado do bestiario.
+ *
+ * A cor e a do craft, e nao uma nova: os dois botoes sao acao sobre
+ * o que o jogador TEM — ele entrega e ele cria. O bestiario tem cor
+ * propria porque e o outro tipo de coisa: progresso de matanca
+ */
+/**
+ * O botao de STATUS, a cor.
+ *
+ * A cor e a da vida — o mesmo verde do ganho e da vida alta, que o
+ * bloco ao lado dele ja usa. Um botao de cor propria apontando para o
+ * painel do personagem leria como outra aba de acao
+ */
+.hud-btn--status {
+  border-color: rgba(140, 200, 170, 0.34);
+  color: #9fd8bd;
+}
+
+.hud-btn--status:hover {
+  border-color: rgba(160, 225, 190, 0.7);
+  color: #c6ecd9;
+}
+
+/**
+ * O botao de TESTE, a cor.
+ *
+ * Roxo, e nao a cor da vida do status. Os dois botoes ficam
+ * empilhados na mesma coluna e precisam se distinguir de relance: dois
+ * circulos verdes iguais a 8px de distancia nao se distinguem, e o
+ * jogador abriria o painel errado
+ */
+.hud-btn--test {
+  border-color: rgba(180, 150, 220, 0.34);
+  color: #bfa8e8;
+}
+
+.hud-btn--test:hover {
+  border-color: rgba(205, 175, 245, 0.7);
+  color: #dcc9f5;
+}
+
+.hud-btn--collection {
+  position: relative;
+  border-color: rgba(120, 190, 150, 0.3);
+  color: #8fd6b0;
+}
+
+.hud-btn--collection:hover {
+  border-color: rgba(140, 220, 170, 0.7);
+  color: #b6ecd0;
+}
+
+.hud-btn--collection.is-active {
+  border-color: var(--gold);
+  color: var(--gold);
+}
+
 .hud-btn__badge {
   position: absolute;
   top: -3px;
@@ -1459,8 +2468,358 @@ h1,h2,h3,p {
     transform: translate(-50%,
     -50%);
     pointer-events: auto;
-    backdrop-filter: blur(14px);
+backdrop-filter: blur(14px);
 }
+
+/**
+ * O painel de COLECAO.
+ *
+ * A mesma casca do bestiario — largura, altura maxima, `overflow`
+ * escondido e o corpo rolavel — com a largura um pouco menor porque
+ * as linhas de requisito e recompensa sao curtas e a lista e mais
+ * alta. A casca esta repetida em vez de agrupada com `.bst-panel`
+ * porque os dois paineis vao divergir: o da colecao precisa do
+ * `overflow` no corpo para a lista de seis colecoes nao empurrar o
+ * cabecalho para fora
+ */
+.col-panel {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  z-index: 30;
+  display: flex;
+  width: min(560px, calc(100vw - 28px));
+  max-height: min(640px, calc(100vh - 32px));
+  flex-direction: column;
+  overflow: hidden;
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  border-radius: 6px;
+  color: #d8dee6;
+  background: linear-gradient(180deg,
+    rgba(24, 27, 33, 0.98),
+    rgba(14, 16, 20, 0.98));
+  box-shadow: 0 30px 80px rgba(0, 0, 0, 0.8),
+    inset 0 1px 0 rgba(255, 255, 255, 0.06);
+  transform: translate(-50%, -50%);
+  pointer-events: auto;
+}
+
+.col-panel__head {
+  display: flex;
+  flex: none;
+  align-items: center;
+  gap: 12px;
+  padding: 12px 14px;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.09);
+  background: linear-gradient(180deg,
+    rgba(38, 42, 50, 0.95),
+    rgba(26, 29, 35, 0.95));
+}
+
+.col-panel__head h2 {
+  flex: 1;
+  margin: 0;
+  font-size: 15px;
+  letter-spacing: 0.04em;
+}
+
+.col-panel__tally {
+  color: #9aa4b2;
+  font-size: 11px;
+  font-variant-numeric: tabular-nums;
+}
+
+.col-panel__body {
+  min-height: 0;
+  flex: 1;
+  padding: 12px 14px 14px;
+  overflow-y: auto;
+  pointer-events: auto;
+}
+
+.col-list {
+  display: flex;
+  margin: 0;
+  padding: 0;
+  flex-direction: column;
+  gap: 10px;
+  list-style: none;
+}
+
+/**
+ * Uma colecao.
+ *
+ * `is-ready` e o unico estado que muda a borda: e a colecao que o
+ * jogador pode apertar agora, e ela precisa gritar antes do clique,
+ * nao depois
+ */
+.col-entry {
+  padding: 10px 11px;
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 6px;
+  background: rgba(255, 255, 255, 0.025);
+}
+
+.col-entry.is-ready {
+  border-color: rgba(143, 214, 112, 0.55);
+  background: rgba(143, 214, 112, 0.07);
+}
+
+.col-entry.is-done {
+  opacity: 0.62;
+}
+
+.col-entry__head {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.col-entry__icon {
+  display: grid;
+  width: 26px;
+  height: 26px;
+  flex: none;
+  place-items: center;
+  border: 1px solid rgba(255, 255, 255, 0.14);
+  border-radius: 4px;
+  background: rgba(0, 0, 0, 0.3);
+  color: #cfd8e3;
+  font-size: 14px;
+}
+
+.col-entry__names {
+  display: flex;
+  min-width: 0;
+  flex: 1;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.col-entry__names strong {
+  font-size: 13px;
+}
+
+.col-entry__names small {
+  overflow: hidden;
+  color: #8d97a5;
+  font-size: 11px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.col-entry__give {
+  flex: none;
+  padding: 6px 11px;
+  border: 1px solid rgba(143, 214, 112, 0.6);
+  border-radius: 4px;
+  background: rgba(143, 214, 112, 0.16);
+  color: #cdeeb8;
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.03em;
+}
+
+.col-entry__give:hover:not(:disabled) {
+  background: rgba(143, 214, 112, 0.3);
+}
+
+.col-entry__give:disabled {
+  border-color: rgba(255, 255, 255, 0.1);
+  background: rgba(255, 255, 255, 0.03);
+  color: #6c7480;
+  cursor: not-allowed;
+}
+
+.col-entry__done {
+  flex: none;
+  color: var(--gold);
+  font-size: 11px;
+  font-weight: 700;
+}
+
+.col-needs {
+  display: flex;
+  margin: 9px 0 0;
+  padding: 0;
+  flex-direction: column;
+  gap: 4px;
+  list-style: none;
+}
+
+.col-need {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 11px;
+}
+
+/**
+ * O requisito de equipamento usa a cor da SUA raridade.
+ *
+ * E a mesma variavel que o `--rarity` do inventario, e e o que
+ * diferencia "1 raro" de "1 lendario" sem o jogador ter que ler o
+ * texto. O `--need` cai para a cor neutra quando o requisito e de
+ * material
+ */
+.col-need {
+  --need: #9aa4b2;
+  color: var(--need);
+}
+
+.col-need.is-missing {
+  color: #d8dee6;
+}
+
+.col-need__icon {
+  width: 18px;
+  height: 18px;
+  flex: none;
+}
+/*
+   O marcador de requisito por RARIDADE.
+
+   "1 peca rara" nao tem item para desenhar, e o losango pega a cor da
+   raridade que a linha ja aplica no `--need`. E o mesmo losango que o
+   slot de reliquia usa, para o olho nao ler duas linguagens
+*/
+.col-need__icon--rarity {
+  display: grid;
+  place-items: center;
+  color: var(--need, #c3ccd6);
+  font-size: 13px;
+  line-height: 1;
+}
+
+.col-need__label {
+  min-width: 0;
+  flex: 1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.col-need__count {
+  flex: none;
+  color: #98a2b0;
+  font-variant-numeric: tabular-nums;
+}
+
+.col-need.is-ok .col-need__count {
+  color: #8fd6b0;
+}
+
+/**
+ * O texto "completo" / "faltando".
+ *
+ * Fica escondido na tela e NAO num `aria-label` no `<li>`: um
+ * `aria-label` no elemento da lista esconderia o nome do requisito e a
+ * contagem, que sao justamente o que o leitor de tela precisa ler
+ */
+.col-need__state {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
+}
+
+.col-reward {
+  display: flex;
+  flex-wrap: wrap;
+  margin: 9px 0 0;
+  padding-top: 7px;
+  border-top: 1px dashed rgba(255, 255, 255, 0.09);
+  gap: 6px 8px;
+  align-items: baseline;
+  font-size: 11px;
+}
+
+.col-reward__label {
+  color: #7d8794;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+/*
+   Um stat por selo.
+
+   A entrega da um bonus de STATUS, e o jogador precisa ver o rotulo
+   do jogo junto do numero: "+40" sozinho nao diz se e vida, defesa ou
+   velocidade, e um bonus sem nome e um numero que o jogador nao sabe
+   usar
+
+   O selo e pequeno de proposito. A ultima entrega da sete stats, e sete
+   selos grandes virariam uma terceira linha dentro do cartao — empurrando
+   o requisito seguinte para baixo e fazendo a lista de seis colecoes
+   precisar de rolagem
+*/
+.col-reward__chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+}
+
+.col-reward__chip {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 3px;
+  padding: 1px 6px;
+  border: 1px solid rgba(229, 187, 104, 0.4);
+  border-radius: 3px;
+  background: rgba(40, 33, 16, 0.6);
+  white-space: nowrap;
+}
+
+.col-reward__chip b {
+  color: var(--gold);
+  font-size: 10px;
+  font-weight: 800;
+  font-variant-numeric: tabular-nums;
+}
+
+.col-reward__chip i {
+  color: #a2917a;
+  font-size: 8px;
+  font-style: normal;
+  font-weight: 800;
+  letter-spacing: 0.04em;
+}
+
+/*
+   O TOTAL do bonus, e nao o aviso de "esperando espaco".
+
+   Os cartoes mostram o que cada entrega DARIA; este e o que o jogador
+   ja tem no total. E a unica linha do painel que responde "quanto a
+   colecao ja me deu", e ela aparece assim que a primeira entrega
+   entra
+*/
+.col-bonus-total {
+  margin: 0 0 10px;
+  padding: 7px 10px;
+  border: 1px solid rgba(126, 240, 176, 0.35);
+  border-radius: 4px;
+  background: rgba(18, 40, 32, 0.5);
+  color: #7ef0b0;
+  font-size: 10px;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+}
+
+.col-empty,
+.col-complete {
+  margin: 0;
+  padding: 18px 0;
+  color: #8d97a5;
+  font-size: 12px;
+  text-align: center;
+}
+
+.col-complete {
+  color: var(--gold);
+}
+
 .bst-panel__head {
   display: flex;
   flex: none;
@@ -1529,26 +2888,53 @@ h1,h2,h3,p {
     255,
     0.4);
 }
-.bst-panel__bonus {
+/* =========================================================
+   bonus permanente - o mesmo bloco na cacada e na colecao
+
+   Cacada e colecao dao a mesma coisa, entao o bloco e o mesmo. Os
+   seletores sao `.perm-bonus*` e nao `.bst-bonus*` porque a secao ja
+   nao mora so no bestiario: manter o prefixo do painel antigo
+   deixaria um componente compartilhado com nome de um painel que ele
+   nao e mais
+
+   As regras antigas `.bst-bonus*` e `.bst-empty` foram apagadas com a
+   migracao do `BestiaryPanel` para o `PermanentBonus`. Deixar elas ali
+   seria codigo morto que ninguem ve e que o `styles.test.js` cobra
+   cobertura de tema
+
+   A forma e a que o bestiario ja tinha, e ela cabe: os selos sao
+   pequenos, quebram linha e nao competem com os cartoes
+   ========================================================= */
+.perm-bonus {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 5px;
+}
+/*
+   A CAIXA do bonus permanente.
+
+   A regra mora no `.perm-bonus-box` e nao em `.bst-panel__bonus`
+   porque a secao e a mesma nos dois paineis: a cacada e a colecao dao
+   a mesma coisa e a tela tem de ser a mesma. Com o nome do painel
+   antigo aqui, a colecao renderizava a caixa SEM estilo nenhum — sem
+   padding, sem borda, sem fundo — e o bloco bonitinho do bestiario
+   ficava torto do lado
+*/
+.perm-bonus-box {
   flex: none;
   padding: 10px 12px;
   border: 1px solid rgba(255,
     255,
     255,
     0.09);
-    border-radius: 6px;
-    background: rgba(10,
+  border-radius: 6px;
+  background: rgba(10,
     12,
     16,
     0.6);
 }
-.bst-bonus {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  gap: 5px;
-}
-.bst-bonus__chip {
+.perm-bonus__chip {
   display: inline-flex;
   align-items: baseline;
   gap: 5px;
@@ -1558,24 +2944,24 @@ h1,h2,h3,p {
     255,
     255,
     0.05);
-    font-size: 10px;
+  font-size: 10px;
 }
-.bst-bonus__chip small {
+.perm-bonus__chip small {
   color: #96a0ac;
   font-size: 8px;
   font-weight: 700;
   letter-spacing: 0.05em;
 }
-.bst-bonus__chip strong {
+.perm-bonus__chip strong {
   font-weight: 800;
   font-variant-numeric: tabular-nums;
 }
-.bst-bonus__label {
+.perm-bonus__label {
   color: #7f8b9b;
   font-size: 9px;
   font-weight: 700;
 }
-.bst-empty {
+.perm-bonus__empty {
   margin: 0;
   color: #6f7c8d;
   font-size: 10px;
@@ -1935,7 +3321,7 @@ h1,h2,h3,p {
    ========================================================= */
 
 .inv-panel {
-  --slot: 52px;
+  --slot: 68px;
   --osrs-gap: 4px;
   --osrs-slot-border: #3a2f24;
   position: absolute;
@@ -2233,9 +3619,16 @@ h1,h2,h3,p {
     #17110c 70%),
     #17110c;
 }
+/* A coluna do boneco acompanha o `--slot`.
+ *
+ * Sao 3 colunas do boneco mais os vaos: com o slot de 68px sao
+ * 3x68 + 2x4 = 212px, e 212 + 20 dos dois `padding` de 10px = os
+ * 232px aqui. Com os 52px antigos a conta dava 164px exatos, e foi
+ * por isso que a coluna grew junto com o slot
+ */
 .inv-illus {
   display: flex;
-  width: 184px;
+  width: 232px;
   flex: none;
   flex-direction: column;
   gap: 8px;
@@ -2249,15 +3642,29 @@ h1,h2,h3,p {
     255,
     0.04);
 }
-/* boneco de equipamento 3x3 */
-
+/* boneco de equipamento 3x4
+ *
+ * A ordem das areas e o desenho do boneco, e nao a ordem dos slots em
+ * `EQUIPMENT_SLOTS`. As duas armas ficam na coluna esquerda, uma de
+ * cada lado do peito, e o par de botas embaixo
+ *
+ * `gloves` e `trinket2` trocaram de lugar: o amuleto foi para a
+ * coluna esquerda, na altura da cintura, e a luva desceu para a linha
+ * da cintura, do lado do corpo. `trinket2` e o AMULETO de
+ * `EQUIPMENT_SLOTS` — o `trinket1`, que e o anel, fica acima dele
+ *
+ * O `DOLL_AREA` do `InventoryPanel.jsx` mapeia o id do slot para estes
+ * nomes, entao trocar aqui troca junto: a luva continua no slot
+ * `gloves` e o amuleto no `trinket2`, so muda onde aparecem
+ */
 .inv-equip__grid {
   display: grid;
   flex: none;
   grid-template-areas:
     ". head ."
-    "weapon chest trinket1"
-    ". legs trinket2";
+    "weapon2 chest trinket1"
+    "weapon legs gloves"
+    "trinket2 boots .";
   grid-template-columns: repeat(3,
     var(--slot));
     gap: var(--osrs-gap);
@@ -2303,6 +3710,319 @@ h1,h2,h3,p {
     #8a7150 0%,
     #5b4833 100%);
 }
+/**
+ * A linha do X e do titulo, num painel que so tem isso.
+ *
+ * Reaproveita `.inv-close` — que ja tem o teste de tamanho e de area
+ * clicavel — e nao inventa um botao proprio. O `h2` fica nesta linha
+ * porque e o unico outro elemento do painel
+ */
+/**
+ * O painel do MARKET.
+ *
+ * A casca e o `.inv-panel` do inventario — mesma moldura, mesmo
+ * `z-index`, abas com `.inv-tabs`. O que muda aqui e o corpo, que e
+ * uma lista de anuncios em vez da grade de slots
+ *
+ * `--mkt` e a cor da RARIDADE do anuncio, e cada linha a declara
+ * sozinha. E o que faz a vitrine ser legivel sem ler o texto: um
+ * lendario e um comum se distinguem pela cor antes do nome
+ */
+.mkt-panel {
+  width: min(640px, calc(100vw - 24px));
+  max-height: min(620px, calc(100vh - 28px));
+}
+
+.mkt-panel__body {
+  min-height: 0;
+  flex: 1;
+  padding: 10px 12px 12px;
+  overflow-y: auto;
+  pointer-events: auto;
+}
+
+.mkt-hint {
+  margin: 0 0 9px;
+  color: #8d97a5;
+  font-size: 11px;
+  line-height: 1.45;
+}
+
+.mkt-section {
+  margin: 12px 0 6px;
+  color: #a2917a;
+  font-size: 10px;
+  font-weight: 800;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+
+.mkt-error,
+.mkt-erro {
+  margin: 7px 0 0;
+  color: var(--t-danger-text, #ff9d9d);
+  font-size: 11px;
+}
+
+/* ---- os filtros ---- */
+
+.mkt-filters {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 7px;
+  margin-bottom: 10px;
+}
+
+.mkt-field {
+  display: flex;
+  min-width: 108px;
+  flex: 1;
+  flex-direction: column;
+  gap: 3px;
+}
+
+.mkt-field > span {
+  color: #7d8794;
+  font-size: 9px;
+  font-weight: 800;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+}
+
+.mkt-input {
+  width: 100%;
+  padding: 6px 8px;
+  border: 1px solid rgba(255, 255, 255, 0.13);
+  border-radius: 4px;
+  color: #e6ecf3;
+  background: rgba(0, 0, 0, 0.34);
+  font-size: 12px;
+}
+
+/* ---- a lista ---- */
+
+.mkt-list {
+  display: flex;
+  margin: 0;
+  padding: 0;
+  flex-direction: column;
+  gap: 7px;
+  list-style: none;
+}
+
+.mkt-item {
+  --mkt: #9aa4b2;
+  padding: 8px 9px;
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-left: 3px solid var(--mkt);
+  border-radius: 5px;
+  background: rgba(255, 255, 255, 0.025);
+}
+
+.mkt-item.is-own {
+  border-left-color: var(--mkt);
+}
+
+.mkt-item.is-sold {
+  opacity: 0.78;
+}
+
+.mkt-item.is-mine {
+  background: rgba(255, 255, 255, 0.055);
+}
+
+.mkt-item__head {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+}
+
+.mkt-item__icon {
+  width: 30px;
+  height: 30px;
+  flex: none;
+}
+
+.mkt-item__names {
+  display: flex;
+  min-width: 0;
+  flex: 1;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.mkt-item__names strong {
+  overflow: hidden;
+  font-size: 12px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.mkt-item__names small {
+  overflow: hidden;
+  color: #8d97a5;
+  font-size: 10px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.mkt-item__price {
+  display: flex;
+  flex: none;
+  flex-direction: column;
+  align-items: flex-end;
+}
+
+.mkt-item__price strong {
+  color: var(--t-gold, #d8b45c);
+  font-size: 14px;
+  font-variant-numeric: tabular-nums;
+}
+
+.mkt-item__price small {
+  color: #7d8794;
+  font-size: 9px;
+}
+
+.mkt-item__foot {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  margin-top: 7px;
+}
+
+/**
+ * A barra de tempo do anuncio.
+ *
+ * A largura e a FRACAO DO PRAZO, nao do que resta. Uma barra que
+ * encolhe de 100% a 0% mostraria o mesmo desenho para um anuncio com
+ * um dia e outro com uma hora — e o que o vendedor precisa saber e
+ * quanto da oportunidade ainda resta
+ */
+.mkt-time {
+  position: relative;
+  display: block;
+  min-width: 86px;
+  height: 13px;
+  flex: 1;
+  overflow: hidden;
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: 3px;
+  background: rgba(0, 0, 0, 0.35);
+}
+
+.mkt-time__bar {
+  position: absolute;
+  inset: 0 auto 0 0;
+  background: var(--mkt, #8fd6b0);
+  opacity: 0.34;
+}
+
+.mkt-time__text {
+  position: relative;
+  display: grid;
+  height: 100%;
+  place-items: center;
+  color: #cfd8e3;
+  font-size: 9px;
+  font-variant-numeric: tabular-nums;
+}
+
+.mkt-item__buy,
+.mkt-item__cancel,
+.mkt-submit {
+  flex: none;
+  padding: 6px 12px;
+  border: 1px solid rgba(143, 214, 112, 0.55);
+  border-radius: 4px;
+  color: #cdeeb8;
+  background: rgba(143, 214, 112, 0.14);
+  font-size: 11px;
+  font-weight: 700;
+}
+
+.mkt-item__buy:hover:not(:disabled) {
+  background: rgba(143, 214, 112, 0.28);
+}
+
+.mkt-item__buy:disabled {
+  border-color: rgba(255, 255, 255, 0.1);
+  background: rgba(255, 255, 255, 0.03);
+  color: #6c7480;
+  cursor: not-allowed;
+}
+
+.mkt-item__cancel {
+  border-color: rgba(224, 120, 96, 0.5);
+  color: #e8b0a0;
+  background: rgba(224, 120, 96, 0.12);
+}
+
+.mkt-item__cancel:hover {
+  background: rgba(224, 120, 96, 0.26);
+}
+
+/* ---- escolher o que anunciar ---- */
+
+/*
+ * A mochila do vendedor NAO tem CSS proprio: e a grade `inv-grid` e o
+ * slot `inv-slot` do inventario principal, os mesmos. Duplicar aqui
+ * manteria a mesma peca com duas aparencias no mesmo jogo, e uma
+ * correcao no slot da mochila chegaria so em um dos dois
+ *
+ * O que sobra aqui e o realce do slot escolhido, que e estado do
+ * formulario de venda e nao do slot
+ */
+.mkt-panel .inv-grid {
+  margin-top: 4px;
+}
+
+.mkt-panel .inv-slot.is-selected {
+  border-color: var(--t-gold, #d8b45c);
+  box-shadow: 0 0 0 1px rgba(216, 180, 92, 0.45);
+}
+
+.mkt-form {
+  display: flex;
+  align-items: flex-end;
+  gap: 7px;
+  margin-top: 10px;
+}
+
+.mkt-submit:disabled {
+  border-color: rgba(255, 255, 255, 0.1);
+  background: rgba(255, 255, 255, 0.03);
+  color: #6c7480;
+  cursor: not-allowed;
+}
+
+/* ---- o botao da HUD ---- */
+
+.hud-btn--market {
+  border-color: rgba(230, 190, 110, 0.34);
+  color: #e6c47a;
+}
+
+.hud-btn--market:hover {
+  border-color: rgba(250, 215, 140, 0.7);
+  color: #f6e0ac;
+}
+
+.inv-close-row {
+  display: flex;
+  flex: none;
+  align-items: center;
+  gap: 12px;
+  padding: 12px 14px;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.09);
+}
+
+.inv-close-row h2 {
+  margin: 0;
+  font-size: 15px;
+  letter-spacing: 0.04em;
+}
+
 .inv-panel__empty {
   padding: 28px 10px;
   color: #6f6152;
@@ -2312,11 +4032,217 @@ h1,h2,h3,p {
   text-align: center;
   text-transform: uppercase;
 }
+/* =========================================================
+   painel de stats - a folha do personagem
+
+   Tres colunas de numero (base, bonus, total) e uma de nome. A
+   coluna de nome e a unica que cresce: as tres de numero tem
+   largura fixa e alinhada a direita, para o jogador comparar
+   linhas diferentes coluna a coluna sem o olho voltar para o
+   inicio da frase
+
+   A coluna do MEIO e a do bonus, e ela e a mais estreita de
+   proposito: um "+120" de vida e um "+8,5%" de drop nao tem o
+   mesmo tamanho, e a coluna cresce com o maior deles
+   ========================================================= */
+.sts-panel {
+  width: min(560px,
+    calc(100vw - 28px));
+    max-height: min(640px,
+    calc(100vh - 32px));
+}
+.sts-panel__class {
+  margin-left: auto;
+  color: #8b98a8;
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+.sts-panel__level {
+  padding: 2px 7px;
+  border: 1px solid rgba(229,
+    187,
+    104,
+    0.45);
+  border-radius: 6px;
+  color: var(--gold);
+  background: rgba(50,
+    39,
+    15,
+    0.55);
+  font-size: 10px;
+  font-weight: 800;
+  white-space: nowrap;
+}
+.sts-panel__body {
+  min-height: 0;
+  flex: 1;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  padding: 10px 14px 14px;
+  scrollbar-color: rgba(229,
+      187,
+      104,
+      0.45) transparent;
+    scrollbar-width: thin;
+}
+.sts-panel__body::-webkit-scrollbar {
+  width: 8px;
+}
+.sts-panel__body::-webkit-scrollbar-thumb {
+  border-radius: 999px;
+  background: rgba(229,
+    187,
+    104,
+    0.42);
+}
+.sts-head {
+  display: grid;
+  grid-template-columns: minmax(0,
+      1fr) 62px 66px 74px;
+  gap: 6px;
+  padding: 0 8px 6px;
+  border-bottom: 1px solid rgba(255,
+    255,
+    255,
+    0.09);
+  color: #8b98a8;
+  font-size: 8px;
+  font-weight: 800;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+}
+.sts-head span:not(:first-child) {
+  text-align: right;
+}
+.sts-group {
+  margin-top: 12px;
+}
+.sts-group__title {
+  margin: 0 0 4px;
+  padding: 0 8px;
+  color: var(--gold);
+  font-size: 9px;
+  font-weight: 800;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+}
+.sts-list {
+  display: grid;
+  gap: 2px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.sts-row {
+  display: grid;
+  grid-template-columns: minmax(0,
+      1fr) 62px 66px 74px;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 8px;
+  border-radius: 4px;
+  background: rgba(12,
+    15,
+    20,
+    0.5);
+}
+/*
+   A coluna de nome tem duas linhas: a sigla grande e o nome inteiro
+   pequeno. A sigla e o que o jogador procura — e o nome esta no
+   `title`, que e o que aparece quando ele para o mouse — mas deixar
+   o nome escrito tira a duvida de vez em vez de deixar o jogador
+   adivinhar o que e "MDEF"
+*/
+.sts-row__label {
+  min-width: 0;
+}
+.sts-row__label b {
+  display: block;
+  overflow: hidden;
+  font-size: 10px;
+  font-weight: 800;
+  letter-spacing: 0.04em;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.sts-row__label small {
+  display: block;
+  overflow: hidden;
+  color: #8b98a8;
+  font-size: 8px;
+  font-weight: 600;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+/*
+   Os cinco ATRIBUTOS sao a unica linha que o jogador precisa ler
+   sempre, entao eles ficam com mais contraste e um filete a esquerda.
+   Os derivados ficam mais apagados: sao consequencia de algo que
+   esta escrito logo acima
+*/
+.sts-row.is-attribute {
+  background: rgba(38,
+    32,
+    16,
+    0.5);
+  box-shadow: inset 2px 0 0 rgba(229,
+      187,
+      104,
+      0.55);
+}
+.sts-row__base,
+.sts-row__bonus,
+.sts-row__total {
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+.sts-row__base {
+  color: #8b98a8;
+  font-size: 10px;
+  font-weight: 600;
+}
+/*
+   O bonus e a coluna que o jogador procura, entao ela e a unica que
+   usa cor: verde quando subiu, vermelho quando desceu (relogou com
+   menos bonus do que tinha, que e possivel com peca fora do slot), e
+   um traco quando nao mudou
+*/
+.sts-row__bonus {
+  color: #5f6b78;
+  font-size: 10px;
+  font-weight: 700;
+}
+.sts-row__bonus.is-plus {
+  color: #7ef0b0;
+}
+.sts-row__bonus.is-minus {
+  color: #ff9d9d;
+}
+.sts-row__total {
+  color: #e6ecf3;
+  font-size: 11px;
+  font-weight: 800;
+}
+.sts-foot {
+  margin: 14px 8px 0;
+  padding-top: 10px;
+  border-top: 1px dashed rgba(255,
+    255,
+    255,
+    0.09);
+  color: #6f6152;
+  font-size: 9px;
+  font-weight: 600;
+  line-height: 1.5;
+}
 /* ---------- grade da mochila ---------- */
 
 .inv-grid {
   display: grid;
-  grid-template-columns: repeat(7,
+  grid-template-columns: repeat(5,
     var(--slot));
     align-content: start;
     gap: var(--osrs-gap);
@@ -2360,15 +4286,25 @@ h1,h2,h3,p {
    primeira linha abre para baixo e as pontas se ancoram na borda.
    o transform cuida so do eixo X para nao competir com o vertical. */
 
-.inv-grid > .inv-cell:nth-child(-n+7) .inv-cell__name {
+/* o rotulo abre para BAIXO na primeira linha, para nao sair pela
+   borda de cima do painel
+ *
+ * o `5` aqui e o numero de colunas da grade. A grade do inventario
+ * tinha 7 colunas com o slot de 52px, e passou a ter 5 com o slot de
+   68px — as duas colunas a menos cabem ao lado do boneco maior. Se o
+   numero de colunas mudar de novo, estes tres `nth-child` tem de mudar
+   junto: com o `-n+5` errado a primeira linha abre para cima e some
+   atras da barra de abas, e com o `5n` errado o rotulo da ponta
+   esquerda vaza para fora do painel */
+.inv-grid > .inv-cell:nth-child(-n+5) .inv-cell__name {
   bottom: auto;
   top: calc(100% + 3px);
 }
-.inv-grid > .inv-cell:nth-child(7n+1) .inv-cell__name {
+.inv-grid > .inv-cell:nth-child(5n+1) .inv-cell__name {
   left: 0;
   transform: translateX(0);
 }
-.inv-grid > .inv-cell:nth-child(7n) .inv-cell__name {
+.inv-grid > .inv-cell:nth-child(5n) .inv-cell__name {
   left: auto;
   right: 0;
   transform: translateX(0);
@@ -2462,15 +4398,36 @@ h1,h2,h3,p {
     100,
     78,
     0.35);
-    background: rgba(8,
+  background: rgba(8,
     6,
     4,
     0.7);
-    box-shadow: inset 0 0 8px rgba(0,
+  box-shadow: inset 0 0 8px rgba(0,
     0,
     0,
     0.6);
-    color: #4a3f33;
+  color: #4a3f33;
+}
+
+/**
+ * O icone de um slot VAZIO tem de ser cinza, e o `color` sozinho nao
+ * faz isso.
+ *
+ * O glifo do slot vem de `EQUIPMENT_SLOTS`, e ali ha dois tipos: `⚔`,
+ * `⛊`, `⛉`, `◈` sao glifos de TEXTO e herdam o `color` do slot, que
+ * no vazio e o cinza de `#4a3f33`. Ja `🧤` (luvas) e `👢` (botas) sao
+ * EMOJI, e emoji nao obedece a `color`: o navegador desenha a luva e
+ * a bota na cor original, em tela cheia, e o slot vazio de luvas e de
+ * botas ficava colorido enquanto todos os outros eram cinza.
+ *
+ * O `grayscale` e o filtro que resolve: ele trava a arte do emoji no
+ * cinza, e o `opacity` deixa o glifo mais apagado, que e o que um
+ * slot vazio deve parecer. O filtro e so no `.inv-slot__icon` para
+ * nao afetar o resto do slot
+ */
+.inv-slot--empty .inv-slot__icon {
+  filter: grayscale(1);
+  opacity: 0.55;
 }
 /* no boneco o dourado ja diz que a peca esta vestida */
 
@@ -2478,7 +4435,7 @@ h1,h2,h3,p {
   display: none;
 }
 .inv-illus .inv-slot__icon {
-  font-size: 22px;
+  font-size: 44px;
 }
 .inv-slot__hit {
   display: grid;
@@ -2493,15 +4450,58 @@ h1,h2,h3,p {
 .inv-slot__hit:disabled {
   cursor: default;
 }
+/* O glifo que e TEXTO precisa acompanhar a arte: a arte foi de 22px
+   para 44px, e um glifo de 20px ao lado de uma arte de 44px ficava
+   pequeno demais dentro do slot de 68px. O dobro do 20px original
+ *
+ * O do boneco e maior ainda, como ja era: o slot vestido mostra a
+   peca que importa */
 .inv-slot__icon {
   color: var(--rarity);
-  font-size: 20px;
+  font-size: 40px;
   font-weight: 800;
   line-height: 1;
   text-shadow: 0 2px 4px rgba(0,
     0,
     0,
     0.85);
+}
+
+/**
+ * O icone que e arte desenhada, e nao glifo.
+ *
+ * A arte vem em 1254x1254 e o glifo da casa tem 20px, entao a imagem
+ * precisa de tamanho proprio: sem isto ela entraria no tamanho
+ * natural e cobriria o slot inteiro. O `display: block` tira o
+ * espaco de baixo que a imagem deixa por ser elemento inline, que
+ * empurraria o texto do badge para fora do slot
+ *
+ * 44px e o MESMO tamanho da arte no craft, e nao um numero escolhido
+ * aqui: e a mesma arte que o jogador compara nas duas telas, e ela
+ * nao pode mudar de tamanho de um painel para o outro
+ *
+ * `image-rendering: auto` e o oposto do `pixelated` que estava aqui.
+ * O `pixelated` foi escolhido quando a arte era pixel art de 48x48,
+ * que e o que o `<img>` com 48px de lado permite. A arte de hoje e
+ * desenhada em 1254x1254 e esta sendo REDUZIDA, entao o navegador tem
+ * de amostrar e suavizar: com `pixelated` ele pega o pixel vizinho e
+ * mostra o degrau da reducao, que a 44px aparece serrilhado
+ */
+.item-icon {
+  display: block;
+  line-height: 0;
+}
+.item-icon img {
+  display: block;
+  width: 44px;
+  height: 44px;
+  object-fit: contain;
+  image-rendering: auto;
+}
+
+/* o glifo nao pode perder a cor nem a sombra do slot */
+.item-icon--glyph {
+  display: block;
 }
 .inv-slot__badge {
   position: absolute;
@@ -2854,6 +4854,501 @@ h1,h2,h3,p {
   font-size: 12px;
   font-style: normal;
   text-shadow: 0 1px 2px #000;
+}
+/* ---------- craft ---------- */
+
+.hud-btn--craft {
+  position: relative;
+  border-color: rgba(216,
+    180,
+    92,
+    0.3);
+  color: #d8b45c;
+}
+.hud-btn--craft:hover {
+  border-color: rgba(240,
+    217,
+    168,
+    0.7);
+  color: #f0d9a8;
+}
+.hud-btn--craft.is-active {
+  border-color: var(--gold);
+  color: var(--gold);
+}
+/* o craft e a coluna da esquerda da receita, entao e mais larga
+   que o boneco de equipamento e empurra o conteudo */
+/* A coluna da esquerda e a da direita se disputam a largura. A grade
+   precisa de 4x68px + 3 vaos de 8px = 296px, e o detalhe de 264px:
+   560px, mais o `padding` do corpo. Sem este minimo a flexbox espreme
+   a esquerda e as celulas quebram de largura, porque o detalhe tem
+   `flex: none` */
+.cft-body {
+  flex-direction: row;
+}
+.cft-body .inv-main {
+  flex: 0 0 auto;
+  min-width: 296px;
+}
+/* o fechar fica no canto da modal, e nao na barra de abas como
+   no inventario. sai do fluxo e se ancora no .cft-panel, que ja e
+   o elemento posicionado do modal. o z-index passa a barra de
+   abas (7) para nao ficar escondido atras do fundo dela. */
+.cft-close {
+  position: absolute;
+  top: 6px;
+  right: 6px;
+  z-index: 8;
+}
+/* espaco reservado para o botao, para a ultima aba nunca ir
+   por baixo dele em tela estreita */
+.cft-panel > .inv-tabs {
+  padding-right: 38px;
+}
+
+/* A modal do craft tem a MESMA largura da do inventario: 600px
+ *
+ * Foi para 720px e voltou. O motivo de ter crescido: a arte do
+ * selecionado foi de 30px para 56px, e a caixa de 68px mais o nome
+ * mais o rotulo de raridade nao cabiam nos 260px do detalhe, que
+ * cortava o nome com reticencias.
+ *
+ * A solucao foi encolher as DUAS colunas em vez de alargar a modal:
+ * celula de 76px para 68px e detalhe de 300px para 264px. A arte
+ * continua em 44px dentro da celula de 68px — sobra 12px de cada
+ * lado, e 44px ja era o dobro do original de 22px. A soma da 552px
+ * dentro dos 596px uteis
+ *
+ * A altura sobe de 560px para 600px: a arte do selecionado foi de
+ * 38px para 68px, e a lista de ingredientes embaixo dela precisa de
+ * espaco antes de comecar a rolar
+ */
+.cft-panel {
+  width: min(600px,
+    calc(100vw - 24px));
+  max-height: min(600px,
+    calc(100vh - 28px));
+}
+/* A grade do craft e a do inventario, e o MESMO `var(--slot)` de
+   52px. A arte do item e 48x48 e renderizada em 22px aqui, contra 30px
+   no detalhe ao lado: o jogador compara a mesma arte em dois tamanhos
+   e a lista e a menor das duas.
+
+   A grade do craft tem 4 colunas em vez das 7 do inventario, porque o
+   detalhe ocupa a lateral (`cft-body` e `row`). Os itens sao pocos e
+  named um por um, entao o espaco extra vira celula maior em vez de
+   linha vazia: 76px por celula, e a arte cabe em 44px */
+.cft-cell {
+  cursor: pointer;
+}
+.cft-body .inv-grid {
+  grid-template-columns: repeat(4,
+    68px);
+  gap: 8px;
+  justify-content: start;
+}
+/* a arte na celula do craft: 44px dentro da celula de 68px, ou seja
+   12px de folga de cada lado. O
+   `image-rendering: pixelated` e o mesmo do inventario, e aqui ele
+   NAO esta correto — a arte foi desenhada em 1254x1254, nao em 48x48,
+   entao ampliar por vizinho de pixel mostra o bloco serrilhado do
+   PNG em vez de suavizar a arte. E por isso que a regra vale para o
+   `.inv-slot__icon img` do inventario tambem */
+.cft-cell .item-icon img {
+  width: 44px;
+  height: 44px;
+  object-fit: contain;
+}
+.cft-cell--ready .inv-slot__icon {
+  filter: drop-shadow(0 0 5px rgba(126,
+    240,
+    176,
+    0.45));
+}
+/* seletor de raridade: cinco botoes, um por raridade */
+.cft-rarity__row {
+  display: flex;
+  gap: 3px;
+}
+.cft-rarity__choice {
+  display: flex;
+  min-width: 0;
+  flex: 1;
+  flex-direction: column;
+  align-items: center;
+  gap: 2px;
+  padding: 4px 2px;
+  border: 1px solid #2a2118;
+  border-radius: 3px;
+  color: #8b7a63;
+  background: #150f0a;
+  cursor: pointer;
+}
+.cft-rarity__choice i {
+  width: 100%;
+  height: 3px;
+  border-radius: 1px;
+  background: var(--rarity, #3a2f24);
+}
+.cft-rarity__choice small {
+  overflow: hidden;
+  font-size: 7px;
+  letter-spacing: 0.02em;
+  text-overflow: ellipsis;
+  text-transform: uppercase;
+  white-space: nowrap;
+}
+/* a raridade que o jogador tem material para criar */
+.cft-rarity__choice.is-ready {
+  border-color: #4a6a52;
+  color: #7ef0b0;
+}
+.cft-rarity__choice:hover {
+  border-color: #6b5a42;
+  color: #e0d3bd;
+}
+.cft-rarity__choice.is-active {
+  border-color: var(--gold);
+  color: #f0e6d2;
+  background: #241c14;
+  box-shadow: inset 0 0 0 1px rgba(216,
+    180,
+    92,
+    0.35);
+}
+.cft-detail__value {
+  float: right;
+  color: #d8b45c;
+}
+/* a raridade escolhida acompanha o item no detalhe */
+.cft-detail__rarity {
+  flex: none;
+  padding: 2px 7px;
+  border: 1px solid var(--rarity, #3a2f24);
+  border-radius: 3px;
+  color: var(--rarity, #d8dee6);
+  background: #150f0a;
+  font-size: 9px;
+  font-weight: 800;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  white-space: nowrap;
+}
+/* custo em moeda da receita */
+.cft-coins {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  margin: 0;
+  padding: 4px 6px;
+  border: 1px solid #3a2f24;
+  border-radius: 3px;
+  color: #d8b45c;
+  background: #150f0a;
+  font-size: 10px;
+}
+.cft-coins i {
+  color: #ffc857;
+  font-style: normal;
+}
+.cft-coins b {
+  font-variant-numeric: tabular-nums;
+}
+.cft-coins small {
+  margin-left: auto;
+  color: #8b7a63;
+  font-size: 9px;
+}
+.cft-coins.is-short {
+  border-color: #4a2020;
+  color: #ff9d9d;
+  background: #1a0c0c;
+}
+.cft-detail__stats {
+  margin: 0;
+  color: #7ef0b0;
+  font-size: 10px;
+  font-weight: 700;
+}
+.cft-cell__check {
+  position: absolute;
+  right: -2px;
+  bottom: -2px;
+  display: grid;
+  width: 14px;
+  height: 14px;
+  place-items: center;
+  border: 1px solid #0a0806;
+  border-radius: 50%;
+  color: #0f1a12;
+  background: #7ef0b0;
+  font-size: 9px;
+  font-weight: 800;
+  line-height: 1;
+}
+/* 264px, e nao os 300px que chegaram a ter. A caixa do selecionado
+   tem 68px e o nome + o rotulo de raridade dividem o resto: 264px
+   da 68 + 8 do vao + 188 do nome, o que cabe "Botas de Arqueiro" sem
+   reticencias */
+.cft-detail {
+  display: flex;
+  width: 264px;
+  flex: none;
+  flex-direction: column;
+  gap: 8px;
+  padding: 10px;
+  overflow-y: auto;
+  border-left: 2px solid #0a0806;
+  background: linear-gradient(180deg,
+    #221a13 0%,
+    #17110c 100%);
+  box-shadow: inset 1px 0 0 rgba(255,
+    255,
+    255,
+    0.04);
+  pointer-events: auto;
+}
+.cft-detail--empty {
+  justify-content: center;
+}
+.cft-detail__head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+/* A arte do item SELECIONADO, e a maior do craft.
+ *
+ * Esta caixa e a unica que mostra a arte de verdade: a celula da
+ * lista mostra sempre a comum, e o detalhe mostra a da raridade
+ * escolhida. E aqui que o jogador compara as cinco — couro verde no
+ * comum e couro dourado no lendario — antes de gastar material.
+ *
+ * De 38px para 68px por dois motivos: a arte e desenhada em
+ * 1254x1254, entao a 30px ela perdia o cinto e as fivelas; e o
+ * detalhe tem 260px de largura, dos quais 68 + o nome + a folga
+ * cabem sem apertar
+ */
+.cft-detail__icon {
+  display: grid;
+  width: 68px;
+  height: 68px;
+  flex: none;
+  place-items: center;
+  border: 1px solid #3a2f24;
+  border-radius: 6px;
+  color: var(--rarity, #c3ccd6);
+  background: #150f0a;
+  box-shadow: inset 0 0 0 1px rgba(0,
+    0,
+    0,
+    0.6);
+  font-size: 30px;
+}
+
+/* a arte dentro da caixa: 56px em 68px, para nao encostar na borda.
+ *
+ * `image-rendering: auto` e o oposto do `pixelated` do inventario, e
+ * aqui e o certo: a arte foi desenhada em 1254x1254 e esta sendo
+ * REDUZIDA para 56px, entao o navegador amostra e suaviza. Com
+ * `pixelated` o navegador pegaria o pixel vizinho e mostraria o
+ * degrau da redução, que numa arte tao grande aparece serrilhado
+ */
+.cft-detail__icon .item-icon img {
+  width: 56px;
+  height: 56px;
+  image-rendering: auto;
+}
+.cft-detail__names {
+  display: flex;
+  min-width: 0;
+  flex-direction: column;
+  gap: 2px;
+}
+.cft-detail__names strong {
+  overflow: hidden;
+  color: #f0e6d2;
+  font-size: 12px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.cft-detail__names small {
+  color: #a2917a;
+  font-size: 9px;
+}
+.cft-detail__stats {
+  margin: 0;
+  color: #7ef0b0;
+  font-size: 10px;
+  font-weight: 700;
+}
+.cft-ing__list {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.cft-ing {
+  padding: 6px;
+  border: 1px solid #2a2118;
+  border-left: 3px solid #a03434;
+  border-radius: 3px;
+  background: #150f0a;
+}
+.cft-ing.is-ok {
+  border-left-color: #7ef0b0;
+}
+.cft-ing__head {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+.cft-ing__icon {
+  flex: none;
+  color: #d8dee6;
+  font-size: 13px;
+  font-style: normal;
+}
+.cft-ing__name {
+  min-width: 0;
+  flex: 1;
+  overflow: hidden;
+  color: #d8dee6;
+  font-size: 10px;
+  font-weight: 600;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.cft-ing__count {
+  flex: none;
+  font-size: 10px;
+  font-variant-numeric: tabular-nums;
+}
+.cft-ing__count b {
+  color: #f0e6d2;
+}
+.cft-ing__count i {
+  color: #8b7a63;
+  font-style: normal;
+}
+.cft-ing__missing {
+  margin: 2px 0 0;
+  color: #ff9d9d;
+  font-size: 9px;
+  font-weight: 700;
+}
+.cft-source {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  margin: 5px 0 0;
+  padding: 0;
+  list-style: none;
+}
+.cft-source__row {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+}
+.cft-source__icon {
+  width: 13px;
+  flex: none;
+  font-size: 11px;
+  text-align: center;
+}
+.cft-source__name {
+  display: flex;
+  min-width: 0;
+  flex: 1;
+  flex-direction: column;
+  color: #a2917a;
+  font-size: 9px;
+  line-height: 1.25;
+}
+.cft-source__name small {
+  color: #8b7a63;
+  font-size: 8px;
+}
+.cft-source__chance {
+  position: relative;
+  display: flex;
+  width: 54px;
+  flex: none;
+  align-items: center;
+  justify-content: flex-end;
+  padding: 1px 3px;
+  border: 1px solid #2a2118;
+  border-radius: 2px;
+  background: #0d0906;
+}
+.cft-source__bar {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: 0;
+  border-radius: 1px;
+  background: linear-gradient(90deg,
+    rgba(216,
+      180,
+      92,
+      0.35),
+    rgba(216,
+      180,
+      92,
+      0.12));
+}
+.cft-source__chance b {
+  position: relative;
+  color: #d8b45c;
+  font-size: 8px;
+  font-variant-numeric: tabular-nums;
+}
+.cft-source__none {
+  margin: 5px 0 0;
+  color: #8b7a63;
+  font-size: 9px;
+  font-style: italic;
+}
+.cft-action {
+  width: 100%;
+  margin-top: auto;
+  padding: 8px;
+  border: 1px solid #3a2f24;
+  border-radius: 4px;
+  color: #6f6152;
+  background: #241c14;
+  font-size: 10px;
+  font-weight: 800;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+.cft-action.is-ready {
+  border-color: var(--gold);
+  color: #14100a;
+  background: linear-gradient(180deg,
+    #e8c774 0%,
+    #c9a227 100%);
+  cursor: pointer;
+}
+.cft-action.is-ready:hover {
+  background: linear-gradient(180deg,
+    #f0d9a8 0%,
+    #d8b45c 100%);
+}
+.cft-action:disabled {
+  cursor: not-allowed;
+}
+@media (max-width: 820px) {
+  .cft-body {
+    flex-direction: column;
+  }
+  .cft-detail {
+    width: auto;
+    max-height: 44%;
+    border-top: 2px solid #0a0806;
+    border-left: 0;
+  }
 }
 .hud-pouch {
   display: flex;
@@ -3555,9 +6050,14 @@ h1,h2,h3,p {
   color: #d9aeb2;
 }
 @media (max-width: 1250px) {
+/* O teto de 150px vale tambem nos breakpoints, senao o `1fr` deste
+   bloco estica o cartao de novo e o quadrado da arte deixa de ser
+   quadrado. Em tela estreita o `minmax` de 140px e o que manda, e o
+   cartao ocupa a largura toda */
 .class-grid {
-  grid-template-columns: repeat(4,
-    1fr);
+  grid-template-columns: repeat(auto-fit,
+    minmax(140px,
+      150px));
 }
 .class-card__role,  .class-card > small {
   min-height: auto;
@@ -3573,9 +6073,13 @@ h1,h2,h3,p {
 .selection-header {
   align-items: flex-start;
 }
+/* duas colunas em tela estreita, ainda com o teto: o `1fr` aqui
+   deixaria o cartao do lado esquerdo e o vazio do lado direito */
 .class-grid {
-  grid-template-columns: repeat(2,
-    1fr);
+  grid-template-columns: repeat(auto-fit,
+    minmax(130px,
+      150px));
+  justify-content: center;
 }
 .class-detail {
   grid-template-columns: 1fr;
@@ -3597,6 +6101,11 @@ h1,h2,h3,p {
 }
 .hud-vitals {
   width: 210px;
+}
+.hud-btn--status,
+.hud-btn--test,
+.hud-btn--guild {
+  --vitals-w: 210px;
 }
 .hud-actionbar {
   overflow-x: auto;
@@ -3629,9 +6138,20 @@ h1,h2,h3,p {
   width: 176px;
   padding: 8px 10px 9px;
 }
+
+/* O botao de status acompanha o bloco estreito. Sem isto ele ficaria
+ * na posicao da tela larga e passaria por cima da barra de vida */
+.hud-btn--status,
+.hud-btn--test,
+.hud-btn--guild {
+  --vitals-w: 176px;
+}
+
 .hud-vitals__stats {
   display: none;
 }
+
+
 .hud-gauge__value {
   min-width: 54px;
   font-size: 9px;
@@ -3727,4 +6247,488 @@ h1,h2,h3,p {
 .inv-status__value {
   display: none;
 }
+}
+
+
+/* ===================================================================
+   RANK DE QUEM ESTA CONECTADO
+
+   Copia de proposito o padrao do INVENTARIO: mesmos tons de
+   pergaminho, mesma borda dupla de 2px, mesmas abas em nav e mesmo
+   rodape de status. Sao tres janelas sobre o mesmo mundo e o
+   jogador nao deveria notar qual delas abriu.
+
+   Os valores NAO sao "parecidos": sao os mesmos do `inv-`. A
+   classe `inv-close` e a do inventario, compartilhada de proposito,
+   e o estado vazio tambem reusa `inv-panel__empty`.
+   =================================================================== */
+
+.rnk-panel {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  z-index: 30;
+  display: flex;
+  width: min(460px, calc(100vw - 24px));
+  max-height: min(560px, calc(100vh - 28px));
+  flex-direction: column;
+  overflow: hidden;
+  border: 2px solid #4a3c2c;
+  border-radius: 4px;
+  color: #d8dee6;
+  background: linear-gradient(180deg, #241c14 0%, #14100c 100%);
+  box-shadow:
+    inset 0 0 0 1px rgba(0, 0, 0, 0.8),
+    0 0 0 1px #0a0806,
+    0 26px 70px rgba(0, 0, 0, 0.85);
+  transform: translate(-50%, -50%);
+  pointer-events: auto;
+}
+
+.rnk-tabs {
+  position: relative;
+  z-index: 7;
+  display: flex;
+  flex: none;
+  align-items: stretch;
+  gap: 2px;
+  padding: 4px 4px 0;
+  border-bottom: 2px solid #0a0806;
+  background: linear-gradient(180deg, #3b3024 0%, #241c14 100%);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.07);
+}
+
+/* O `inv-close` e a classe do inventario e ela e compartida. O que
+   empurra o botao para a direita e o `auto` daqui: no inventario quem
+   faz isso e a engrenagem, e o rank nao tem engrenagem. */
+.rnk-tabs .inv-close {
+  margin-left: auto;
+}
+
+.rnk-tab {
+  position: relative;
+  display: flex;
+  min-width: 86px;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 11px 7px;
+  border: 1px solid #2c241b;
+  border-bottom: 0;
+  border-radius: 4px 4px 0 0;
+  color: #a2917a;
+  background: linear-gradient(180deg, #342a20 0%, #221a13 100%);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.06);
+  cursor: pointer;
+}
+
+.rnk-tab__icon {
+  font-size: 15px;
+  font-weight: 800;
+  line-height: 1;
+  text-shadow: 0 1px 2px #000;
+}
+
+.rnk-tab small {
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.03em;
+}
+
+.rnk-tab__count {
+  margin-left: auto;
+  color: #d8b45c;
+  font-size: 9px;
+  font-style: normal;
+  font-weight: 800;
+  font-variant-numeric: tabular-nums;
+}
+
+.rnk-tab:hover {
+  color: #e0d3bd;
+  background: linear-gradient(180deg, #453729 0%, #2a2118 100%);
+}
+
+.rnk-tab.is-active {
+  border-color: #6b5a42;
+  color: #f0d9a8;
+  background: linear-gradient(180deg, #56452e 0%, #35291c 100%);
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.14),
+    inset 0 -2px 6px rgba(0, 0, 0, 0.45);
+}
+
+.rnk-panel__body {
+  display: flex;
+  min-height: 0;
+  flex: 1;
+  background:
+    radial-gradient(120% 80% at 50% 0%, #2b2118 0%, #17110c 70%),
+    #17110c;
+}
+
+.rnk-main {
+  min-width: 0;
+  min-height: 0;
+  flex: 1;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  padding: 10px;
+  pointer-events: auto;
+  touch-action: pan-y;
+  scrollbar-color: #5a4936 #150f0a;
+  scrollbar-width: thin;
+}
+
+.rnk-list {
+  display: grid;
+  gap: 4px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+/* A caixa da linha e a do `inv-slot`: rebaixada, borda de 1px e
+   sombra interna. E o que faz a lista parecer parte do painel e nao
+   uma tabela colada por cima. */
+.rnk-row {
+  display: flex;
+  min-width: 0;
+  align-items: center;
+  gap: 9px;
+  padding: 6px 9px;
+  border: 1px solid #3a2f24;
+  border-radius: 2px;
+  background: linear-gradient(180deg, #1a120c 0%, #0c0806 100%);
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.05),
+    inset 0 -2px 6px rgba(0, 0, 0, 0.6);
+}
+
+/* O seu lugar: a borda acende em vez do fundo mudar de cor. Mudar
+   a cor do fundo deixaria a linha saltando no meio da lista quando
+   a posicao mudasse, e a lista inteira parece mais estavel. */
+.rnk-row.is-you {
+  border-color: #6b5a42;
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.08),
+    inset 0 0 12px rgba(216, 180, 92, 0.14);
+}
+
+/* A medalha ocupa a MESMA caixa nas tres posicoes premiadas. Sem
+   largura fixa, o emoji de 1o lugar empurraria o nome e a lista
+   dancaria quando o lider mudasse. */
+.rnk-row__medal {
+  display: grid;
+  width: 20px;
+  flex: none;
+  place-items: center;
+  font-size: 13px;
+  line-height: 1;
+}
+
+.rnk-row__name {
+  min-width: 0;
+  flex: 1;
+  overflow: hidden;
+  color: #d8dee6;
+  font-size: 12px;
+  font-weight: 700;
+  letter-spacing: 0.01em;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.rnk-row.is-you .rnk-row__name {
+  color: #f0d9a8;
+}
+
+.rnk-row__you {
+  margin-left: 6px;
+  padding: 1px 5px;
+  border: 1px solid #6b5a42;
+  border-radius: 2px;
+  color: #d8b45c;
+  background: #241c14;
+  font-size: 8px;
+  font-weight: 800;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+  vertical-align: 1px;
+}
+
+.rnk-row__lvl {
+  flex: none;
+  color: #8b7a63;
+  font-size: 10px;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+}
+
+.rnk-row__value {
+  min-width: 34px;
+  flex: none;
+  color: #d8b45c;
+  font-size: 13px;
+  font-weight: 800;
+  font-variant-numeric: tabular-nums;
+  text-align: right;
+  text-shadow: 0 1px 2px #000;
+}
+
+.rnk-status {
+  display: flex;
+  flex: none;
+  align-items: center;
+  gap: 10px;
+  padding: 6px 10px;
+  border-top: 2px solid #0a0806;
+  background: linear-gradient(180deg, #3b3024 0%, #241c14 100%);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.07);
+  font-size: 11px;
+  font-weight: 800;
+  font-variant-numeric: tabular-nums;
+}
+
+.rnk-status__cap {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  color: #c3b39a;
+}
+
+.rnk-status__cap i {
+  color: #d8b45c;
+  font-size: 12px;
+  font-style: normal;
+}
+
+.rnk-status__lead {
+  min-width: 0;
+  flex: 1;
+  overflow: hidden;
+  color: #8b7a63;
+  font-size: 10px;
+  font-weight: 700;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.rnk-status__me {
+  color: #d8b45c;
+}
+/* ---------- painel de encantamento ----------
+ *
+ * O painel REAPROVEITA a casca do inventario de proposito: `inv-panel`,
+ * `inv-tabs`, `inv-panel__body`, `inv-main`, `inv-grid`, `inv-cell`,
+ * `inv-status`. O jogador ja le esse formato na mochila, e um painel
+ * com a mesma funcao e um desenho diferente seria dois formatos para
+ * a mesma tela
+ *
+ * O que existe aqui e so o que o inventario nao tem: a caixa da peca
+ * selecionada, o preco e o botao de encantar
+ */
+
+.enc-side {
+  display: flex;
+  width: 232px;
+  flex: none;
+  flex-direction: column;
+  gap: 8px;
+  padding: 10px;
+  border-right: 2px solid #0a0806;
+  background: linear-gradient(180deg, #221a13 0%, #17110c 100%);
+  box-shadow: inset -1px 0 0 rgba(255, 255, 255, 0.03);
+}
+
+/*
+ * A peca escolhida.
+ *
+ * O `--rarity` e a cor da variante da peca, e nao a do AFIXO: sao duas
+ * cores diferentes e a do item precisa continuar na peca. A cor do
+ * afixo e aplicada no proprio `Afixo`
+ */
+.enc-slot {
+  display: grid;
+  justify-items: center;
+  gap: 4px;
+  padding: 12px 8px;
+  border: 1px solid var(--rarity, #4a3c2c);
+  border-radius: 4px;
+  background: radial-gradient(120% 80% at 50% 0%, #2b2118 0%, #17110c 100%);
+  text-align: center;
+}
+
+.enc-slot strong {
+  color: #f0e6d2;
+  font-size: 12px;
+}
+
+.enc-slot small {
+  color: #8b7a63;
+  font-size: 10px;
+  font-weight: 700;
+}
+
+/* a arte do item dentro da caixa: o `ItemIcon` padrao e 44px */
+.enc-slot__icon img {
+  width: 44px;
+  height: 44px;
+}
+
+.enc-side__empty {
+  margin: 0;
+  color: #8b7a63;
+  font-size: 11px;
+  line-height: 1.5;
+  text-align: center;
+}
+
+/* o AFIXO, na peca e na lista */
+.enc-affix {
+  font-size: 10px;
+  font-weight: 700;
+  line-height: 1.3;
+}
+
+/*
+ * O preco ANTES do botao.
+ *
+ * O botao desabilitado sem ouro continua mostrando o preco, e nao um
+ * "indisponivel": sem o numero o jogador nao sabe quanto falta e
+ * conclui que a peca e cara demais
+ */
+.enc-cost {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin: 0;
+  padding: 6px 8px;
+  border: 1px solid #4a3c2c;
+  border-radius: 3px;
+  background: rgba(12, 9, 6, 0.55);
+}
+
+.enc-cost__label {
+  color: #8b7a63;
+  font-size: 10px;
+  font-weight: 700;
+  text-transform: uppercase;
+}
+
+.enc-cost__value {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  color: #f0e6d2;
+  font-size: 13px;
+  font-weight: 800;
+}
+
+/* sem ouro: o numero avisa em vez de sumir */
+.enc-cost__value.is-short {
+  color: #e2725b;
+}
+
+.enc-action {
+  width: 100%;
+  padding: 9px 10px;
+  border: 1px solid #8a6f3c;
+  border-radius: 3px;
+  color: #14100a;
+  background: linear-gradient(180deg, #d8b45c 0%, #a8842f 100%);
+  cursor: pointer;
+  font-size: 12px;
+  font-weight: 800;
+  transition: transform 120ms ease, filter 120ms ease;
+}
+
+.enc-action:hover:not(:disabled) {
+  transform: translateY(-1px);
+  filter: brightness(1.08);
+}
+
+.enc-action:disabled {
+  border-color: #4a3c2c;
+  color: #8b7a63;
+  background: #221a13;
+  cursor: not-allowed;
+}
+
+/*
+ * A peca da lista vira um botao.
+ *
+ * No inventario a peca abre um menu; aqui ela e SOLEIR a selecao. E
+ * um `<button>` de verdade e nao uma `div` com `onClick`: a peca
+ * precisa ser alcanavel pelo teclado, e o `Tab` precisa passar por
+ * ela como passa pelo resto do painel
+ */
+.inv-cell--btn {
+  border: 0;
+  padding: 0;
+  cursor: pointer;
+  background: none;
+  font: inherit;
+  color: inherit;
+}
+
+/* a peca escolhida */
+.inv-cell--btn.is-selected {
+  outline: 2px solid var(--gold);
+  outline-offset: -2px;
+  border-radius: 4px;
+}
+
+/*
+ * As chances, no pe da coluna da direita.
+ *
+ * Mostrar as chances e o que separa o encantar de uma roleta no escuro:
+ * o jogador sabe que o lendario e 0,6% antes de pagar, e nao depois
+ */
+.enc-odds {
+  margin-top: 12px;
+  padding: 10px;
+  border: 1px solid #3a2f22;
+  border-radius: 4px;
+  background: rgba(12, 9, 6, 0.45);
+}
+
+.enc-odds ul {
+  display: grid;
+  gap: 3px;
+  margin: 6px 0 0;
+  padding: 0;
+  list-style: none;
+}
+
+.enc-odds li {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  color: #c3ccd6;
+  font-size: 11px;
+  font-weight: 700;
+}
+
+/*
+ * Um grupo da lista do encantamento.
+ *
+ * O espaco entre os grupos e o que separa "equipado" de "mochila".
+ * Sem ele as duas grades colariam e o jogador veria uma lista so com
+ * duas pecas de mesmo nome e nenhuma pista de qual era qual
+ */
+.enc-group {
+  margin-bottom: 14px;
+}
+
+.enc-group > .eyebrow {
+  display: block;
+  margin-bottom: 6px;
+}
+
+/* de onde a peca veio, na caixa do lado */
+.enc-slot__where {
+  color: #a8927a;
+  font-size: 10px;
+  font-weight: 800;
+  text-transform: uppercase;
 }

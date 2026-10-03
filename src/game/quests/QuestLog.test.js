@@ -1,8 +1,10 @@
 import { describe, expect, it } from "vitest";
 import { QuestLog } from "./QuestLog.js";
 import {
+  ALL_QUESTS,
   isAutoCompletable,
   MAIN_QUESTS,
+  QUEST_SCOPE,
   QUEST_TYPE,
   SIDE_QUESTS,
   meetsRarity,
@@ -55,7 +57,7 @@ describe("main chain", () => {
     expect(done).toHaveLength(1);
     expect(log.mainIndex).toBe(1);
     expect(log.currentMain.id).toBe(MAIN_QUESTS[1].id);
-    expect(log.drainRewards()).toHaveLength(1);
+    expect(log.isClaimable(first.id)).toBe(true);
   });
 
   it("never exceeds the quest count", () => {
@@ -229,19 +231,165 @@ describe("side quests", () => {
 });
 
 describe("rewards", () => {
-  it("queues rewards and drains them once", () => {
+  it("waits for the claim instead of paying on completion", () => {
     const log = new QuestLog();
     const quest = log.currentMain;
 
     kill(log, quest.target, quest.count);
 
-    const rewards = log.drainRewards();
-
-    expect(rewards).toHaveLength(1);
-    expect(rewards[0].reward.coins).toBe(
+    // a fila tem a recompensa, mas ela nao saiu: quem paga e o
+    // `claim`, chamado pelo botao [RECEBER]
+    expect(log.claimableCount).toBe(1);
+    expect(log.isClaimable(quest.id)).toBe(true);
+    expect(log.pendingOf(quest.id).reward.coins).toBe(
       quest.rewards.coins,
     );
-    expect(log.drainRewards()).toHaveLength(0);
+  });
+
+  it("claims the reward once", () => {
+    const log = new QuestLog();
+    const quest = log.currentMain;
+
+    kill(log, quest.target, quest.count);
+
+    const entrada = log.claim(quest.id);
+
+    expect(entrada.questId).toBe(quest.id);
+    expect(entrada.reward.coins).toBe(quest.rewards.coins);
+    expect(entrada.reward.xp).toBe(quest.rewards.xp);
+    expect(entrada.reward.items).toEqual(
+      quest.rewards.items,
+    );
+
+    expect(log.claimableCount).toBe(0);
+    expect(log.isClaimable(quest.id)).toBe(false);
+  });
+
+  it("the second claim pays nothing", () => {
+    // e o clique duplo do botao [RECEBER]. A fila perde a linha no
+    // primeiro resgate, entao o segundo nao acha o que pagar
+    const log = new QuestLog();
+    const quest = log.currentMain;
+
+    kill(log, quest.target, quest.count);
+
+    expect(log.claim(quest.id)).not.toBe(null);
+    expect(log.claim(quest.id)).toBe(null);
+    expect(log.claim(quest.id)).toBe(null);
+  });
+
+  it("claims a side quest by its own id", () => {
+    const log = new QuestLog();
+    const quest = SIDE_QUESTS[0];
+
+    log.acceptSide(quest.id);
+    kill(log, quest.target, quest.count);
+
+    // as duas cacam limo, entao a principal tambem fecha junto. O
+    // que importa aqui e que a SECUNDARIA tem a linha dela, com o
+    // `scope` dela: as duas nao podem se confundir no resgate
+    expect(log.isClaimable(quest.id)).toBe(true);
+    expect(
+      log.pendingOf(quest.id).scope,
+    ).toBe(QUEST_SCOPE.SIDE);
+
+    const entrada = log.claim(quest.id);
+
+    expect(entrada.scope).toBe(QUEST_SCOPE.SIDE);
+    expect(entrada.reward.items).toEqual(
+      quest.rewards.items,
+    );
+    expect(log.isClaimable(quest.id)).toBe(false);
+  });
+
+  it("claims nothing for a quest that is not waiting", () => {
+    const log = new QuestLog();
+
+    expect(log.claim("side_brejo")).toBe(null);
+    expect(log.claim("missao_que_nao_existe")).toBe(null);
+  });
+
+  it("keeps the queue with one line per quest", () => {
+    // a mesma missao entrando duas vezes nao pode criar duas linhas
+    // resgataveis: o resgate e por `questId`, e duas linhas fariam o
+    // painel oferecer [RECEBER] duas vezes para a mesma missao
+    const log = new QuestLog();
+    const quest = log.currentMain;
+
+    log.complete(quest.rewards, QUEST_SCOPE.MAIN, quest.id);
+    log.complete(quest.rewards, QUEST_SCOPE.MAIN, quest.id);
+
+    expect(log.claimableCount).toBe(1);
+  });
+
+  it("reports the claimable list in the snapshot", () => {
+    const log = new QuestLog();
+    const quest = log.currentMain;
+
+    kill(log, quest.target, quest.count);
+
+    const snapshot = log.snapshot();
+
+    expect(snapshot.claimable).toHaveLength(1);
+    expect(snapshot.claimable[0]).toMatchObject({
+      id: quest.id,
+      scope: QUEST_SCOPE.MAIN,
+      name: quest.name,
+    });
+    expect(
+      snapshot.claimable[0].rewards.coins,
+    ).toBe(quest.rewards.coins);
+
+    // o passo da campanha entra como resgatavel, e nao como um
+    // `done` sem botao: e nele que o [RECEBER] aparece
+    expect(snapshot.main.steps[0].state).toBe("done");
+    expect(snapshot.main.steps[0].claimable).toBe(true);
+
+    // depois do resgate a lista esvazia e o passo segue `done`, sem
+    // botao
+    log.claim(quest.id);
+
+    const depois = log.snapshot();
+
+    expect(depois.claimable).toHaveLength(0);
+    expect(depois.main.steps[0].claimable).toBe(false);
+    expect(depois.main.steps[0].state).toBe("done");
+  });
+
+  it("carries the rewards of every quest in the snapshot", () => {
+    const log = new QuestLog();
+    const snapshot = log.snapshot();
+
+    // o painel desenha a coluna de recompensa a partir daqui. Uma
+    // missao sem `rewards` no snapshot apareceria sem moeda, sem xp e
+    // sem item, que e o jeito de o [RECEBER] parecer nao valer nada
+    for (const step of snapshot.main.steps) {
+      expect(step.rewards, step.id).toBeTruthy();
+      expect(
+        step.rewards.coins,
+        step.id,
+      ).toBeGreaterThan(0);
+    }
+
+    for (const quest of snapshot.side.available) {
+      expect(quest.rewards, quest.id).toBeTruthy();
+      expect(
+        quest.rewards.coins,
+        quest.id,
+      ).toBeGreaterThan(0);
+    }
+  });
+
+  it("every quest in the catalog pays something", () => {
+    // a coluna de recompensa nao pode ficar vazia em nenhum cartao
+    for (const quest of ALL_QUESTS) {
+      const { coins, xp, items } = quest.rewards;
+
+      expect(
+        coins > 0 || xp > 0 || items.length > 0,
+        quest.id,
+      ).toBe(true);
+    }
   });
 });
 

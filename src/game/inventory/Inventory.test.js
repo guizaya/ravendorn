@@ -124,10 +124,10 @@ describe("stacking", () => {
   it("keeps non-stackable items in separate slots", () => {
     const inventory = new Inventory();
 
-    inventory.add("skeleton_blade", 3);
+    inventory.add("willow_bow", 3);
 
     expect(inventory.usedSlots).toBe(3);
-    expect(inventory.count("skeleton_blade")).toBe(3);
+    expect(inventory.count("willow_bow")).toBe(3);
   });
 });
 
@@ -200,7 +200,7 @@ describe("summary", () => {
     const inventory = new Inventory(5);
 
     inventory.addCoins(120);
-    inventory.add("ogre_hammer", 1);
+    inventory.add("willow_bow", 1);
     inventory.add("dummy_wood", 3);
 
     const summary = inventory.summary();
@@ -213,7 +213,7 @@ describe("summary", () => {
 
     expect(
       summary.items.map((entry) => entry.itemId),
-    ).toEqual(["ogre_hammer", "dummy_wood"]);
+    ).toEqual(["willow_bow", "dummy_wood"]);
 
     expect(summary.items[1].count).toBe(3);
   });
@@ -235,12 +235,12 @@ describe("summary", () => {
   it("marks equipped items through the equipment reference", () => {
     const inventory = new Inventory();
 
-    inventory.add("skeleton_blade", 1);
+    inventory.add("willow_bow", 1);
     inventory.add("ghoul_claw", 1);
 
     const summary = inventory.summary({
       isEquipped: (itemId) =>
-        itemId === "skeleton_blade",
+        itemId === "willow_bow",
     });
 
     const byItem = Object.fromEntries(
@@ -250,7 +250,7 @@ describe("summary", () => {
       ]),
     );
 
-    expect(byItem.skeleton_blade).toBe(true);
+    expect(byItem.willow_bow).toBe(true);
     expect(byItem.ghoul_claw).toBe(false);
   });
 
@@ -264,5 +264,142 @@ describe("summary", () => {
 
     expect(inventory.coins).toBe(0);
     expect(inventory.stacks).toHaveLength(0);
+  });
+});
+
+describe("variantes de raridade", () => {
+  const BOW = "willow_bow";
+  const WOOD = "dummy_wood";
+
+  it("sem raridade usa a do catalogo", () => {
+    const inventory = new Inventory();
+
+    inventory.add(BOW, 1);
+
+    // willow_bow e incomum no catalogo
+    expect(inventory.stacks[0].rarity).toBe("uncommon");
+    expect(inventory.countAt(BOW, "uncommon")).toBe(1);
+  });
+
+  it("guarda a raridade pedida", () => {
+    const inventory = new Inventory();
+
+    inventory.add(BOW, 1, "legendary");
+
+    expect(inventory.countAt(BOW, "legendary")).toBe(1);
+    expect(inventory.countAt(BOW, "uncommon")).toBe(0);
+  });
+
+  it("o mesmo item em duas raridades sao dois slots", () => {
+    const inventory = new Inventory();
+
+    inventory.add(BOW, 1, "common");
+    inventory.add(BOW, 1, "legendary");
+
+    expect(inventory.stacks).toHaveLength(2);
+    expect(inventory.count(BOW)).toBe(2);
+  });
+
+  it("count soma todas as raridades", () => {
+    // e o que a receita olha: "tenho o material", e nao
+    // "tenho o material naquela cor"
+    const inventory = new Inventory();
+
+    inventory.add(WOOD, 5, "common");
+    inventory.add(WOOD, 7, "legendary");
+
+    expect(inventory.count(WOOD)).toBe(12);
+    expect(inventory.countAt(WOOD, "common")).toBe(5);
+    expect(inventory.countAt(WOOD, "legendary")).toBe(7);
+  });
+
+  it("empilha material dentro da mesma raridade", () => {
+    const inventory = new Inventory();
+
+    inventory.add(WOOD, 10, "rare");
+    inventory.add(WOOD, 10, "rare");
+
+    expect(inventory.stacks).toHaveLength(1);
+    expect(inventory.countAt(WOOD, "rare")).toBe(20);
+  });
+
+  it("nao mistura pilhas de raridades diferentes", () => {
+    const inventory = new Inventory();
+
+    inventory.add(WOOD, 10, "rare");
+    inventory.add(WOOD, 10, "epic");
+
+    expect(inventory.stacks).toHaveLength(2);
+  });
+
+  it("findStack acha a variante pedida", () => {
+    const inventory = new Inventory();
+
+    inventory.add(BOW, 1, "epic");
+
+    expect(
+      inventory.findStack(BOW, "epic")?.rarity,
+    ).toBe("epic");
+    expect(inventory.findStack(BOW, "common")).toBe(null);
+  });
+
+  it("remove sem raridade varre qualquer variante", () => {
+    const inventory = new Inventory();
+
+    inventory.add(WOOD, 5, "common");
+    inventory.add(WOOD, 5, "legendary");
+
+    expect(inventory.remove(WOOD, 7)).toBe(7);
+    expect(inventory.count(WOOD)).toBe(3);
+  });
+
+  it("remove com raridade gasta so aquela pilha", () => {
+    const inventory = new Inventory();
+
+    inventory.add(WOOD, 5, "common");
+    inventory.add(WOOD, 5, "legendary");
+
+    inventory.remove(WOOD, 5, "legendary");
+
+    expect(inventory.countAt(WOOD, "legendary")).toBe(0);
+    expect(inventory.countAt(WOOD, "common")).toBe(5);
+  });
+
+  it("takeUid devolve a raridade da pilha", () => {
+    const inventory = new Inventory();
+
+    inventory.add(BOW, 1, "legendary");
+
+    const taken = inventory.take(
+      BOW,
+      1,
+      "legendary",
+    );
+
+    expect(taken.rarity).toBe("legendary");
+    expect(inventory.count(BOW)).toBe(0);
+  });
+
+  it("summary expoe a raridade de cada pilha", () => {
+    const inventory = new Inventory();
+
+    inventory.add(BOW, 1, "epic");
+    inventory.add(WOOD, 3, "common");
+
+    const items = inventory.summary().items;
+
+    expect(items[0].rarity).toBe("epic");
+    expect(items[1].rarity).toBe("common");
+  });
+
+  it("os uids de variantes diferentes nao colidem", () => {
+    const inventory = new Inventory();
+
+    inventory.add(BOW, 1, "common");
+    inventory.add(BOW, 1, "legendary");
+
+    const uids = inventory.stacks.map((stack) => stack.uid);
+
+    expect(new Set(uids).size).toBe(2);
   });
 });

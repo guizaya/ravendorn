@@ -4,6 +4,8 @@ import HUD from "./HUD.jsx";
 import { CHARACTER_CLASSES } from "../../data/characters/index.js";
 import { getCharacterDefinition } from "../../data/characters/index.js";
 import { Bestiary } from "../../game/bestiary/Bestiary.js";
+import { Craft } from "../../game/craft/Craft.js";
+import { Inventory } from "../../game/inventory/Inventory.js";
 
 const CLASS = CHARACTER_CLASSES[0];
 
@@ -44,10 +46,43 @@ function render(props = {}) {
     <HUD
       classDefinition={CLASS}
       engineRef={ENGINE_REF}
-      onBack={() => {}}
       {...props}
     />,
   );
+}
+
+/**
+ * O markup do MENU de botoes, do `<nav>` ate o `</nav>`.
+ *
+ * Estes testes usavam uma janela FIXA de `hud-menu` + 900 caracteres,
+ * e ela media o tamanho do HTML vizinho e nao o do menu: cada botao com
+ * icone desenhado traz uma `img` com uma URL de ~60 caracteres dentro
+ * de si, e com seis icones a janela parou de alcancar o craft — o
+ * teste falhou sem o craft ter mudado
+ *
+ * O `</nav>` e o fim REAL do menu, entao a recorte cresce com ele
+ */
+function menu(html) {
+  const inicio = html.indexOf('class="hud-menu"');
+
+  return html.slice(inicio, html.indexOf("</nav>", inicio));
+}
+
+/**
+ * O markup de UM botao, do class dele ate o `</button>`.
+ *
+ * O mesmo problema da janela, em menor: as checagens de badge eram
+ * feitas sobre o menu INTEIRO, entao um badge no bestiario ou na
+ * colecao faria a checagem do craft passar sem o craft ter badge
+ * nenhum. Recortar pelo `</button>` amarra a verificacao ao botao que
+ * o teste nomeia
+ */
+function botao(html, seletor) {
+  const inicio = html.indexOf(`class="hud-btn ${seletor}`);
+
+  if (inicio < 0) return "";
+
+  return html.slice(inicio, html.indexOf("</button>", inicio));
 }
 
 describe("HUD render", () => {
@@ -92,6 +127,38 @@ describe("HUD render", () => {
     expect(markup).toContain("Warrior");
     expect(markup).toContain("Chi");
     expect(markup).toContain("980");
+  });
+
+  /**
+   * O mercado e a vitrine COLADA no bestiario.
+   *
+   * bestiary > market > collection, sem nada entre o par. A ordem
+   * importa na mao do jogador: o par que se consulta e o que ele caçou
+   * e o que ele tem a venda, e um botao no meio deles custaria um
+   * clique extra toda vez que o jogador fosse vender
+   */
+  it("o mercado fica colado no bestiario", () => {
+    const markup = render({ snapshot: snapshot() });
+
+    const ordem = [...markup.matchAll(/hud-btn--([a-z-]+)/g)].map(
+      (m) => m[1],
+    );
+
+    const bestiary = ordem.indexOf("bestiary");
+    const market = ordem.indexOf("market");
+    const collection = ordem.indexOf("collection");
+
+    expect(bestiary, "o botao do bestiario sumiu").toBeGreaterThanOrEqual(0);
+
+    expect(
+      market,
+      "o mercado precisa ser o botao DEPOIS do bestiario, sem nada entre",
+    ).toBe(bestiary + 1);
+
+    expect(
+      collection,
+      "a colecao vem depois do par bestiario + market",
+    ).toBeGreaterThan(market);
   });
 
   it("clamp-free: renders zero hp without NaN", () => {
@@ -305,16 +372,94 @@ describe("bestiary menu", () => {
     expect(html).toContain("1");
   });
 
-  it("keeps the bestiary in the hud-menu with the back button", () => {
+  /**
+ * O menu da barra, e o que NAO esta mais nele.
+ *
+ * O botao de voltar para as classes e o de restaurar alvos sairam: o
+ * primeiro levava para fora do jogo em um clique, e o segundo era um
+ * atalho para um estado que o auto play desfaz sozinho. Este teste
+ * trava a ausencia, porque um botao que volta a aparecer por um
+ * `git merge` nao quebraria nada nos outros testes — eles so conferem
+ * o que ainda existe
+ */
+it("keeps the bestiary in the hud-menu, sem os botoes que sairam", () => {
+  const html = render({ snapshot: snapshot() });
+
+  const botoes = menu(html);
+
+  expect(botoes).toContain("hud-btn--bestiary");
+
+  expect(botoes).not.toContain("Voltar para as classes");
+  expect(botoes).not.toContain("Restaurar alvos");
+  expect(botoes).not.toContain("hud-btn--reset");
+});
+});
+
+describe("craft menu", () => {
+  function craftSnapshot(stock = {}) {
+    const craft = new Craft();
+    const inventory = new Inventory();
+
+    for (const [itemId, count] of Object.entries(stock)) {
+      inventory.add(itemId, count);
+    }
+
+    return craft.snapshot(inventory);
+  }
+
+  it("tem um botao de craft ao lado do bestiario", () => {
     const html = render({ snapshot: snapshot() });
 
-    const menu = html.slice(
-      html.indexOf("hud-menu"),
-      html.indexOf("hud-menu") + 900,
-    );
+    const botoes = menu(html);
 
-    expect(menu).toContain("Voltar para as classes");
-    expect(menu).toContain("hud-btn--bestiary");
+    expect(botoes).toContain("hud-btn--craft");
+    expect(botoes).toContain("hud-btn--bestiary");
+    expect(botoes).toContain("Craft (C)");
+
+    // o craft tem de vir logo depois do bestiario
+    expect(botoes.indexOf("hud-btn--craft")).toBeGreaterThan(
+      botoes.indexOf("hud-btn--bestiary"),
+    );
+  });
+
+  it("nao mostra badge quando nada esta pronto", () => {
+    const html = render({
+      snapshot: snapshot({ craft: craftSnapshot() }),
+    });
+
+    expect(craftSnapshot().ready).toBe(0);
+
+    // o recorte e o BOTAO do craft, e nao o menu: um badge no bestiario
+    // ou na colecao faria esta checagem passar sem o craft ter badge
+    expect(botao(html, "hud-btn--craft")).not.toContain(
+      "hud-btn__badge",
+    );
+  });
+
+  it("mostra quantas receitas estao prontas", () => {
+    // os ingredientes de `craft_ghoul_rot`, que e gratuita. O
+    // par antigo (pele + gele) era de `craft_tracker_boots`, recipe
+    // que saiu do catalogo, e nenhuma receita fechava
+    const data = craftSnapshot({
+      slime_gel: 3,
+      goblin_cloth: 1,
+    });
+
+    expect(data.ready).toBeGreaterThan(0);
+
+    const html = render({
+      snapshot: snapshot({ craft: data }),
+    });
+
+    expect(botao(html, "hud-btn--craft")).toContain(
+      "hud-btn__badge",
+    );
+  });
+
+  it("aguenta o HUD sem craft no snapshot", () => {
+    const html = render({ snapshot: snapshot() });
+
+    expect(html).toContain("hud-btn--craft");
   });
 });
 

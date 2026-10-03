@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { GameEngine } from "./GameEngine.js";
 import { CHARACTER_CLASSES } from "../../data/characters/index.js";
-import { TEST_MAP } from "../../data/maps/index.js";
+import { MAP_1 } from "../../data/maps/index.js";
 import {
   createTestCanvas,
   installDomStubs,
@@ -63,7 +63,7 @@ function createEngine() {
     () => {},
   );
 
-  engine.setMap(TEST_MAP);
+  engine.setMap(MAP_1);
 
   return engine;
 }
@@ -107,7 +107,7 @@ describe("render smoke", () => {
   it("renders every zone biome without throwing", () => {
     installRenderStubs();
 
-    for (const zone of TEST_MAP.zones) {
+    for (const zone of MAP_1.zones) {
       const engine = createEngine();
 
       engine.world.player.x = zone.x + zone.width / 2;

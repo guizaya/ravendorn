@@ -1,70 +1,159 @@
-import slimeUrl from "../../assets/sprites/enemies/slime.png";
-import ratUrl from "../../assets/sprites/enemies/rat.png";
-import goblinUrl from "../../assets/sprites/enemies/goblin.png";
-import ghoulUrl from "../../assets/sprites/enemies/ghoul.png";
-import skeletonUrl from "../../assets/sprites/enemies/skeleton.png";
-import ogreUrl from "../../assets/sprites/enemies/ogre.png";
-import { SPRITE_FORMAT } from "./index.js";
+/**
+ * Os sprites de inimigo: layout + imagem.
+ *
+ * Mesma razao de `./index.js`: `new URL(..., import.meta.url)`
+ * em vez de `import url from "slime.png"`, para o modulo poder ser
+ * importado pelo motor tambem no servidor.
+ */
+import {
+  BONECO_MADEIRA_SPRITE,
+  GHOUL_FAMINTO_SPRITE,
+  GOBLIN_SAQUEADOR_SPRITE,
+  OGRE_PREDEIRA_SPRITE,
+  RATO_DA_TOCA_SPRITE,
+  SENTINELA_ESQUELETICA_SPRITE,
+  LIMO_PREGUICOSO_SPRITE,
+  ZUMBI_SPRITE,
+} from "./enemyLayout.js";
 
-const FRAME_WIDTH = 32;
-const FRAME_HEIGHT = 32;
-const ANCHOR_X = 16;
-const ANCHOR_Y = 26;
-const FOOT_OFFSET = 10;
-
-export function createEnemySpriteDefinition(
-  id,
-  src,
-  scale,
-) {
-  return {
-    id,
-    format: SPRITE_FORMAT.SHEET,
-    src,
-
-    frameWidth: FRAME_WIDTH,
-    frameHeight: FRAME_HEIGHT,
-
-    anchorX: ANCHOR_X,
-    anchorY: ANCHOR_Y,
-
-    scale,
-    footOffset: FOOT_OFFSET,
-
-    directions: {
-      down: 0,
-      up: 1,
-      side: 2,
-    },
-
-    animations: {
-      idle: { start: 0, length: 2, fps: 2.5 },
-      walk: { start: 2, length: 4, fps: 9 },
-      attack: { start: 6, length: 3, fps: 14 },
-      hurt: { start: 9, length: 2, fps: 10 },
-    },
-  };
-}
-
+/**
+ * O `folha()` que abria `assets/sprites/enemies/<nome>.png` foi removido.
+ *
+ * Ele existia para as criaturas que ainda usavam a arte antiga, uma
+ * folha de 32px de tres linhas. NAO sobrou nenhuma: as onze criaturas do
+ * registro tem folha direcional de 68px. Deixar o helper aqui seria uma
+ * porta de volta para a arte antiga, e ele nao daria erro nenhum ao ser
+ * chamado — o arquivo existiria e o bicho voltaria a andar de frente
+ *
+ * Pelo mesmo motivo o `createEnemySpriteDefinition` saiu do import
+ * daqui. Ele continua vivo dentro de `./enemyLayout.js`, onde as
+ * criaturas SEM arte ainda caem nele
+ */
 export const ENEMY_SPRITES = {
-  slime: createEnemySpriteDefinition(
-    "slime",
-    slimeUrl,
-    1.5,
-  ),
-  rat: createEnemySpriteDefinition("rat", ratUrl, 1.2),
-  goblin: createEnemySpriteDefinition(
-    "goblin",
-    goblinUrl,
-    1.3,
-  ),
-  ghoul: createEnemySpriteDefinition("ghoul", ghoulUrl, 1.4),
-  skeleton: createEnemySpriteDefinition(
-    "skeleton",
-    skeletonUrl,
-    1.35,
-  ),
-  ogre: createEnemySpriteDefinition("ogre", ogreUrl, 1.9),
+  // O LIMO NAO USA MAIS `enemies/slime.png`. A arte antiga era uma
+  // folha de 32px de tres linhas, e o limo andava sempre de frente
+  // para o jogador. Agora sao oito direcoes de 68px (linhas 0 a 7) e uma
+  // de idle de verdade (linha 8), sem golpe — ele e PASSIVO.
+  //
+  // A pasta de origem da arte nova se chama `guerreiro_2`, e
+  // `folha("slime")` foi deixado de fora de proposito.
+  //
+  // Este e o bicho mais comum do jogo e a origem do `slime_gel` e do
+  // `slime_core`, que o craft e as missoes pedem. A chave do registro
+  // continua `slime` por causa disso
+  slime: {
+    ...LIMO_PREGUICOSO_SPRITE,
+    src: new URL(
+      "../../assets/sprites/limo_preguicoso-sheet.png",
+      import.meta.url,
+    ).href,
+  },
+
+  // O GOBLIN SAQUEADOR NAO USA MAIS `enemies/goblin.png`. A arte
+  // antiga era uma folha de 32px de tres linhas, e o goblin andava
+  // sempre de frente para o jogador. Agora sao oito direcoes de 68px
+  // (linhas 0 a 7) e uma de idle de verdade (linha 8), sem golpe
+  //
+  // A chave e o `id` da CRIATURA, que e `goblin`. A pasta de arte se
+  // chama `hulk`, que e o nome da arte e nao da criatura, e o arquivo
+  // gerado usa o nome de exibicao "Goblin Saqueador", como o ghoul usa
+  // "ghoul_faminto-sheet.png"
+  goblin: {
+    ...GOBLIN_SAQUEADOR_SPRITE,
+    src: new URL(
+      "../../assets/sprites/goblin_saqueador-sheet.png",
+      import.meta.url,
+    ).href,
+  },
+
+  // A SENTINELA ESQUELETICA NAO USA MAIS `enemies/skeleton.png`. A
+  // arte antiga era uma folha de 32px de tres linhas, e o esqueleto
+  // andava sempre de frente para o jogador. Agora sao oito direcoes de
+  // 68px (linhas 0 a 7) e uma de idle de verdade (linha 8).
+  //
+  // O `id` da criatura continua `skeleton` — e ele que esta no save,
+  // no bestiario e nas missoes de cacada. `folha("skeleton")` foi
+  // deixado de fora de proposito
+  skeleton: {
+    ...SENTINELA_ESQUELETICA_SPRITE,
+    src: new URL(
+      "../../assets/sprites/sentinela_esqueletica-sheet.png",
+      import.meta.url,
+    ).href,
+  },
+
+  // O RATO DA TOCA NAO USA MAIS `enemies/rat.png`. A arte antiga era
+  // uma folha de 32px de tres linhas, e o bicho andava sempre de frente
+  // para o jogador. Agora sao oito direcoes de 68px (linhas 0 a 7) e uma
+  // de idle de verdade (linha 8), sem golpe — ele e PASSIVO e nao
+  // ataca.
+  //
+  // A pasta de origem da arte nova se chama `urso`, e `folha("rat")`
+  // foi entao deixado de fora de proposito. A chave do registro e o
+  // `id` da CRIATURA, que e `rat`
+  rat: {
+    ...RATO_DA_TOCA_SPRITE,
+    src: new URL(
+      "../../assets/sprites/rato_da_toca-sheet.png",
+      import.meta.url,
+    ).href,
+  },
+
+  // O ghoul NAO usa mais `enemies/ghoul.png`. A arte antiga era uma
+  // folha de 32px de tres linhas, e o ghoul andava sempre de frente
+  // para o jogador. Agora sao oito direcoes de 68px (linhas 0 a 7) e
+  // uma de idle de verdade (linha 8), sem golpe.
+  //
+  // A chave e o `id` da CRIATURA, que e `ghoul`. "Ghoul Faminto" e o
+  // nome de exibicao, e nao uma segunda criatura: existe um ghoul so
+  ghoul: {
+    ...GHOUL_FAMINTO_SPRITE,
+    src: new URL(
+      "../../assets/sprites/ghoul_faminto-sheet.png",
+      import.meta.url,
+    ).href,
+  },
+
+  // O `ogre` NAO usa mais `enemies/ogre.png`. Ele e o `ogre` da
+  // pedreira, e aparecia no jogo com a arte antiga ao lado do ogre
+  // da predeira; os dois passam a usar a folha direcional de 68px.
+  // `folha("ogre")` foi entao deixado de fora de proposito
+  ogre: {
+    ...OGRE_PREDEIRA_SPRITE,
+    src: new URL(
+      "../../assets/sprites/ogre_da_predeira-sheet.png",
+      import.meta.url,
+    ).href,
+  },
+
+  // os direcionais nao usam a pasta `enemies/`: a folha deles e de
+  // oito direcoes, montada pelos gifs da pasta de cada um
+  zumbi_arbalist: {
+    ...ZUMBI_SPRITE,
+    src: new URL(
+      "../../assets/sprites/zumbi_arbalist-sheet.png",
+      import.meta.url,
+    ).href,
+  },
+
+  // 16 linhas: 8 de caminhada e 8 de golpe, sem linha de idle
+  ogre_da_predeira: {
+    ...OGRE_PREDEIRA_SPRITE,
+    src: new URL(
+      "../../assets/sprites/ogre_da_predeira-sheet.png",
+      import.meta.url,
+    ).href,
+  },
+
+  // 8 linhas so: o boneco de madeira tem as oito direcoes e mais
+  // nada. Sem golpe, sem idle
+  dummy_warrior: {
+    ...BONECO_MADEIRA_SPRITE,
+    src: new URL(
+      "../../assets/sprites/boneco_de_madeira-sheet.png",
+      import.meta.url,
+    ).href,
+  },
 };
 
 export function getEnemySprite(creatureId) {

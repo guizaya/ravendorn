@@ -1,14 +1,65 @@
+import { HURT_FLASH_DURATION } from "../sprites/animation.js";
+import { errouOGolpe } from "./Chance.js";
+
+/**
+ * AS CORES do numero que sobe.
+ *
+ * Quatro estados e quatro cores, e cada uma responde a uma pergunta
+ * diferente que o jogador faz ao ver o numero:
+ *
+ * - **branco** — "errou?" (o golpe nao encostou)
+ * - **vermelho** — "critico!" (o dobro, e o unico numero que vale a
+ *   pena receber bonus de afinidade)
+ * - **roxo** — "magico" (o golpe ignorou parte da defesa do alvo)
+ * - **amarelo** — o resto, o golpe normal de fisico
+ *
+ * A ordem importa: um critico magico e VERMELHO, e nao roxo. O critico
+ * e a informacao mais importante da tela e nao pode ser diluida por
+ * "de que tipo foi o golpe"
+ */
+export const COR_DANO = Object.freeze({
+  normal: "#ffe66d",
+  critico: "#ff5f56",
+  magico: "#bba0ff",
+  miss: "#ffffff",
+});
+
 export class DamageSystem {
   constructor({
     statuses,
     effects,
     onDamaged = null,
     onDeath = null,
+    onResolved = null,
+    random = Math.random,
   }) {
     this.statuses = statuses;
     this.effects = effects;
     this.onDamaged = onDamaged;
     this.onDeath = onDeath;
+
+    /**
+     * Cada golpe RESOLVIDO, com o resultado inteiro.
+     *
+     * E o que alimenta o numero flutuante no multiplayer: o motor roda
+     * no servidor, que nao desenha, entao o texto criado aqui morre
+     * sem nunca chegar na tela. Com este hook, quem tem o canvas
+     * transforma o resultado em numero na posicao certa
+     *
+     * Diferente do `onDamaged`, que so dispara no acerto que TIRA VIDA,
+     * este dispara tambem no miss e na imunidade — um golpe que errou
+     * nao tirou vida, e mesmo assim o jogador precisa ver que errou
+     */
+    this.onResolved = onResolved;
+
+    /**
+     * O sorteio, injetavel.
+     *
+     * E o que permite testar "o golpe errou" sem rezar para o
+     * `Math.random`. Vale para o critico e para o miss, que sao as duas
+     * rolagens deste metodo
+     */
+    this.random = random;
   }
 
   applyDamage(attacker, target, action, options = {}) {
@@ -23,6 +74,45 @@ export class DamageSystem {
         "IMUNE",
         "#8ed081",
       );
+
+      this.onResolved?.(attacker, target, {
+        amount: 0,
+        critical: false,
+        missed: false,
+        immune: true,
+        damageType: action.damageType,
+      });
+
+      return 0;
+    }
+
+    /**
+     * O golpe pode PASSAR BATIDO, e e a primeira coisa resolvida.
+     *
+     * Antes de qualquer conta. Se o golpe errou, nao ha defense a
+     * aplicar, nao ha HP a tirar, nao ha lifesteal, nao ha reflexo e
+     * nao ha `onDamaged` — e tratar o erro como "dano zero" daria ao
+     * alvo um golpe de zero que ainda dispara tudo, e o jogador veria
+     * um numero em vez de "MISS"
+     */
+    const missed = errouOGolpe(attacker, target, this.random);
+
+    if (missed) {
+      this.effects.addText(
+        target.x,
+        target.y - target.radius - 8,
+        "MISS",
+        COR_DANO.miss,
+      );
+
+      this.onResolved?.(attacker, target, {
+        amount: 0,
+        critical: false,
+        missed: true,
+        immune: false,
+        damageType: action.damageType,
+      });
+
       return 0;
     }
 
@@ -51,8 +141,7 @@ export class DamageSystem {
     const defenseFactor =
       100 / (100 + defense * (action.damageType === "physical" ? 1 : 0.65));
 
-    const critical =
-      Math.random() < (attacker.critRate ?? 0);
+    const critical = this.random() < (attacker.critRate ?? 0);
 
     const criticalMultiplier = critical
       ? attacker.critDamage ?? 1.5
@@ -76,17 +165,54 @@ export class DamageSystem {
     const healthDamage = amount - absorbed;
 
     target.hp = Math.max(0, target.hp - healthDamage);
-    target.hitFlash = 0.18;
+
+    // quanto tempo o alvo fica reagindo ao golpe. E o mesmo numero
+    // para mob e para jogador, e o desenho usa ele tanto para o flash
+    // quanto para o tremor
+    target.hitFlash = HURT_FLASH_DURATION;
+
+    // Quem deu o golpe que zerou o HP fica com o loot. Isto e
+    // gravado a CADA dano, nao so na morte: com dois jogadores no
+    // mesmo mob, o ultimo a acertar e o dono, mesmo que ele ja
+    // esteja longe quando o mob cai. O lifesteal e o reflexo
+    // abaixo usam o `attacker` local, entao a copia em
+    // `lastHitBy` nao interfere neles.
+    if (attacker && attacker !== target) {
+      target.lastHitBy = attacker;
+    }
 
     this.onDamaged?.(attacker, target, amount, action);
+
+    /**
+     * A cor do numero, nesta ordem de prioridade: critico, depois
+     * magico, depois o normal.
+     *
+     * O critico nao cede para o magico porque e a informacao mais cara
+     * da tela: e o numero que o jogador procura para decidir de meter
+     * ponto em afinidade. Um critico magico pintado de roxo seria lido
+     * como "golpe de fogo normal"
+     */
+    const cor = critical
+      ? COR_DANO.critico
+      : action.damageType === "magic"
+        ? COR_DANO.magico
+        : COR_DANO.normal;
 
     this.effects.addText(
       target.x,
       target.y - target.radius - 8,
       String(amount),
-      critical ? "#ffe66d" : action.damageType === "magic" ? "#bba0ff" : "#ffffff",
+      cor,
       critical,
     );
+
+    this.onResolved?.(attacker, target, {
+      amount,
+      critical,
+      missed: false,
+      immune: false,
+      damageType: action.damageType,
+    });
 
     if (attacker !== target) {
       const lifesteal =

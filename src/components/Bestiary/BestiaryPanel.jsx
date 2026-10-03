@@ -1,3 +1,4 @@
+import PermanentBonus from "../UI/PermanentBonus.jsx";
 import { BESTIARY_STAT } from "../../data/bestiary/index.js";
 
 const BEHAVIOR_LABEL = {
@@ -108,57 +109,6 @@ function EntryCard({ entry, hunting, onHunt }) {
   );
 }
 
-function BonusSummary({ bonuses, label }) {
-  const entries = Object.entries(bonuses ?? {});
-
-  if (entries.length === 0) {
-    return (
-      <p className="bst-empty">
-        Nenhuma cacada concluida ainda. Abata criaturas para
-        desbloquear bonus permanentes.
-      </p>
-    );
-  }
-
-  return (
-    <div className="bst-bonus">
-      {entries.map(([stat, value]) => {
-        const info = BESTIARY_STAT[stat];
-        const percent = info?.percent === true;
-
-        return (
-          <span
-            key={stat}
-            className="bst-bonus__chip"
-            title={info?.label ?? stat}
-          >
-            <small>
-              {info?.short ?? stat}
-            </small>
-
-            <strong
-              style={{
-                color: value >= 0 ? "#7ef0b0" : "#ff9d9d",
-              }}
-            >
-              {value >= 0 ? "+" : ""}
-              {percent
-                ? `${Math.round(value * 100)}%`
-                : Math.round(value)}
-            </strong>
-          </span>
-        );
-      })}
-
-      {label && (
-        <span className="bst-bonus__label">
-          {label}
-        </span>
-      )}
-    </div>
-  );
-}
-
 export default function BestiaryPanel({
   bestiary,
   hunting = null,
@@ -194,10 +144,21 @@ export default function BestiaryPanel({
       </header>
 
       <div className="bst-panel__body">
-        <section className="bst-panel__bonus">
+        <section className="perm-bonus-box">
           <span className="eyebrow">Bônus permanente</span>
-          <BonusSummary
+
+          {/*
+            O MESMO componente que a colecao usa.
+
+            Cacada e colecao dao a mesma coisa — stat permanente — e o
+            jogador que le um le o outro sem traduzir. Antes os dois
+            paineis faziam o selo com listas proprias, e o bestiario
+            escrevia `VID` onde o painel de status escrevia `HP` para o
+            mesmo numero
+          */}
+          <PermanentBonus
             bonuses={data.bonuses}
+            empty="Nenhuma cacada concluida ainda. Abata criaturas para desbloquear bonus permanentes."
             label={data.bonusesLabel}
           />
         </section>

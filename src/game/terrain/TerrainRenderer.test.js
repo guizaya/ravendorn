@@ -1,16 +1,24 @@
 import { describe, expect, it } from "vitest";
+import * as terrainData from "../../data/terrain/index.js";
 import { TerrainRenderer } from "./TerrainRenderer.js";
 import {
   BASE_TERRAIN,
-  getTransition,
   minimapColorFor,
   TERRAIN_ROW,
+  TERRAIN_SHEETS,
   TERRAIN_TYPES,
   TILE_SIZE,
   TILE_VARIANTS,
-  TRANSITION_LIST,
 } from "../../data/terrain/index.js";
-import { MAP_META, TEST_MAP } from "../../data/maps/index.js";
+import { MAP_1_META, MAP_1 } from "../../data/maps/index.js";
+
+/**
+ * `getTransition` e `TRANSITION_LIST` nao existem mais: as faixas de
+ * mistura saíram do mapa. Eles sao lidos do namespace do modulo para o
+ * teste poder afirmar a AUSENCIA, sem importar um nome que nao existe
+ */
+const getTransition = terrainData.getTransition;
+const TRANSITION_LIST = terrainData.TRANSITION_LIST;
 
 function fakeImage(width = 256) {
   return { width, height: width, complete: true };
@@ -71,7 +79,15 @@ function createRenderer() {
   const renderer = new TerrainRenderer();
 
   renderer.terrain = fakeImage();
-  renderer.transitions = fakeImage();
+
+  /**
+   * O chaoladrilhado e o `grama.jpg`.
+   *
+   * Sem esta linha, `this.ground` fica `null` em Node — nao existe
+   * `Image` — e TODOS os testes deste arquivo passariam a medir a
+   * queda para o pixel art, sem nunca tocar no caminho novo
+   */
+  renderer.ground = fakeImage(1600);
 
   return renderer;
 }
@@ -98,30 +114,34 @@ describe("terrain manifest", () => {
     expect(new Set(rows).size).toBe(rows.length);
   });
 
-  it("resolves transitions between every base pair", () => {
-    for (const type of TERRAIN_TYPES) {
-      if (type === BASE_TERRAIN) continue;
+  it("nao tem mais folha de transicao", () => {
+    /**
+     * As faixas de mistura sairam do mapa: o chao virou o
+     * `grama.jpg`, pintado, e a faixa era pixel art de 32px. Este teste
+     * trava que a folha nao volta a ser exigida — nem pelo catalogo,
+     * nem pelo `isReady`, que antes dependia dela para desenhar o mundo
+     */
+    expect(TERRAIN_SHEETS.transitions).toBeUndefined();
 
-      expect(
-        getTransition(BASE_TERRAIN, type),
-        `${BASE_TERRAIN} -> ${type}`,
-      ).not.toBe(null);
-    }
+    const renderer = createRenderer();
+
+    // pronta so com a folha de terreno
+    expect(renderer.isReady()).toBe(true);
+
+    // e ninguem carrega mais a imagem
+    expect(renderer.transitions).toBeUndefined();
   });
 
-  it("returns null for identical terrain and unknown pairs", () => {
-    expect(getTransition("grass", "grass")).toBe(null);
-    expect(getTransition("swamp", "sand")).toBe(null);
+  it("nao resta nenhum par de transicao no catalogo", () => {
+    /**
+     * `getTransition` e `TRANSITION_LIST` sairam junto com a folha
+     */
+    expect(getTransition).toBeUndefined();
+    expect(TRANSITION_LIST).toBeUndefined();
   });
 
-  it("keeps transition ids unique", () => {
-    expect(new Set(TRANSITION_LIST).size).toBe(
-      TRANSITION_LIST.length,
-    );
-  });
-
-  it("gives every zone a terrain", () => {
-    for (const zone of MAP_META.zones) {
+  it("da um terreno a cada zona", () => {
+    for (const zone of MAP_1_META.zones) {
       expect(
         TERRAIN_TYPES.includes(zone.terrain),
         zone.id,
@@ -131,7 +151,7 @@ describe("terrain manifest", () => {
 
   it("uses more than one terrain across zones", () => {
     const used = new Set(
-      MAP_META.zones.map((zone) => zone.terrain),
+      MAP_1_META.zones.map((zone) => zone.terrain),
     );
 
     expect(used.size).toBeGreaterThanOrEqual(4);
@@ -155,7 +175,7 @@ describe("terrain rendering cost", () => {
     const renderer = createRenderer();
     const context = countingContext();
 
-    renderer.draw(context, TEST_MAP, [], VIEW);
+    renderer.draw(context, MAP_1, [], VIEW);
 
     expect(context.calls.fillRect).toBe(1);
 
@@ -170,7 +190,7 @@ describe("terrain rendering cost", () => {
       withPattern: false,
     });
 
-    renderer.draw(context, TEST_MAP, [], VIEW);
+    renderer.draw(context, MAP_1, [], VIEW);
 
     // 1344x784 com patch de 256px => 6x4 = 24 blits
     expect(context.calls.drawImage).toBeLessThanOrEqual(30);
@@ -187,8 +207,8 @@ describe("terrain rendering cost", () => {
 
     renderer.draw(
       context,
-      TEST_MAP,
-      MAP_META.zones,
+      MAP_1,
+      MAP_1_META.zones,
       VIEW,
     );
 
@@ -202,7 +222,7 @@ describe("terrain rendering cost", () => {
     removeDocumentStub();
   });
 
-  it("reuses the patch across frames", () => {
+it("reuses the patch across frames", () => {
     installDocumentStub();
 
     const renderer = createRenderer();
@@ -210,11 +230,43 @@ describe("terrain rendering cost", () => {
     const first = countingContext();
     const second = countingContext();
 
-    renderer.draw(first, TEST_MAP, [], VIEW);
-    renderer.draw(second, TEST_MAP, [], VIEW);
+    /**
+     * O CAMPO DE PROVAS, e nao uma zona qualquer.
+     *
+     * As onze areas de mob sairam do pixel art e foram para o
+     * `terra.jpg`. O unico lugar que ainda monta patch e a grade de
+     * tiles de 32px e o campo de treino, que tem `kind: "training"` e
+     * ficou de fora de proposito — e o caminho de reserva do
+     * `fillZone` continua ele
+     *
+     * Medir o patch numa zona de mob nao mediria nada: ela nem chega a
+     * montar grade
+     */
+    const treino = MAP_1_META.zones.find(
+      (zone) => zone.kind === "training",
+    );
 
-    expect(renderer.patches.size).toBe(1);
-    expect(second.calls.fillRect).toBe(1);
+    expect(treino, "o campo de provas sumiu").toBeTruthy();
+
+    renderer.draw(first, MAP_1, [treino], VIEW);
+
+    const depoisDoPrimeiro = renderer.patches.size;
+
+    /**
+     * O segundo quadro nao cria patch novo.
+     *
+     * A quantidade em si depende da zona: o Campo de Provas tem
+     * `terrain: "grass"` e `terrainAlt: "dirt"`, entao a grade dele tem
+     * os dois e sao dois patches. O que este teste trava e o cache — o
+     * `buildPatch` refaz o canvas na hora, e refazer por quadro custaria
+     * um canvas de 256px por area de mob por quadro
+     */
+    expect(depoisDoPrimeiro).toBeGreaterThan(0);
+
+    renderer.draw(second, MAP_1, [treino], VIEW);
+
+    expect(renderer.patches.size).toBe(depoisDoPrimeiro);
+    expect(second.calls.fillRect).toBeGreaterThan(0);
 
     removeDocumentStub();
   });
@@ -234,7 +286,7 @@ describe("terrain rendering cost", () => {
 
     const context = countingContext();
 
-    renderer.draw(context, TEST_MAP, [far], VIEW);
+    renderer.draw(context, MAP_1, [far], VIEW);
 
     expect(context.calls.drawImage).toBe(0);
     expect(context.calls.fillRect).toBe(1);
@@ -242,7 +294,7 @@ describe("terrain rendering cost", () => {
     removeDocumentStub();
   });
 
-  it("draws bands only for a visible zone", () => {
+  it("desenha a zona visivel, sem faixa de borda", () => {
     installDocumentStub();
 
     const renderer = createRenderer();
@@ -257,28 +309,65 @@ describe("terrain rendering cost", () => {
 
     const context = countingContext();
 
-    renderer.draw(context, TEST_MAP, [near], VIEW);
+    renderer.draw(context, MAP_1, [near], VIEW);
 
-    expect(context.calls.drawImage).toBeGreaterThan(0);
+    /**
+     * A zona entra com um PADRAO, e nao com blits
+     *
+     * Com `document` instalado o `buildPatch` monta o canvas de 256px e
+     * o `fillTerrain` preenche por `createPattern`. Este teste antes
+     * media `drawImage > 0`, e o unico `drawImage` que existia era o da
+     * FAIXA DE BORDA — ele media a coisa que foi removida, nao a zona
+     */
+    expect(context.calls.fillRect).toBeGreaterThan(1);
+
+    // e nenhum blit: sobroupixels de faixa?
+    expect(context.calls.drawImage).toBe(0);
+
+    expect(renderer.drawZoneEdges).toBeUndefined();
+
+    expect(renderer.drawTransitionBand).toBeUndefined();
 
     removeDocumentStub();
   });
 
-  it("skips edges for base-terrain zones", () => {
+  it("a zona nao escreve fora de si", () => {
+    /**
+     * A borda seca: uma zona de pixel art dentro de um chao pintado se
+     * mostra pelo corte de estilo, sem precisar de mistura
+     */
     installDocumentStub();
 
     const renderer = createRenderer();
-    const context = countingContext();
 
-    renderer.drawZoneEdges(context, {
-      x: 100,
-      y: 100,
-      width: 200,
-      height: 200,
-      terrain: BASE_TERRAIN,
-    });
+    // so o chao: o unico preenchimento e o tile de grama
+    const soChao = countingContext();
 
-    expect(context.calls.drawImage).toBe(0);
+    renderer.draw(soChao, MAP_1, [], VIEW);
+
+    expect(soChao.calls.fillRect).toBe(1);
+
+    // com a zona visivel, um preenchimento a mais
+    const comZona = countingContext();
+
+    renderer.draw(
+      comZona,
+      MAP_1,
+      [
+        {
+          x: 1620,
+          y: 1040,
+          width: 300,
+          height: 300,
+          terrain: "swamp",
+        },
+      ],
+      VIEW,
+    );
+
+    expect(comZona.calls.fillRect).toBeGreaterThan(
+      soChao.calls.fillRect,
+    );
 
     removeDocumentStub();
   });
@@ -289,8 +378,22 @@ describe("terrain rendering cost", () => {
     const renderer = createRenderer();
     const context = countingContext();
 
+    /**
+     * Do lado do pixel art o que sobrou: o campo de provas.
+     *
+     * Sem `document` o `buildPatch` devolve null e o terreno cai no
+     * `drawTerrain` quadro a quadro. O chao e as onze areas de mob nao
+     * entram mais nessa conta: os dois vao por `createPattern`, um
+     * `fillRect` sem nenhum `drawImage`
+     */
+    const treino = MAP_1_META.zones.find(
+      (zone) => zone.kind === "training",
+    );
+
+    expect(treino).toBeTruthy();
+
     expect(() =>
-      renderer.draw(context, TEST_MAP, [], VIEW),
+      renderer.draw(context, MAP_1, [treino], VIEW),
     ).not.toThrow();
 
     expect(context.calls.drawImage).toBeGreaterThan(0);
@@ -315,7 +418,7 @@ describe("terrain fallback", () => {
     const context = countingContext();
 
     expect(() =>
-      renderer.draw(context, TEST_MAP, [], VIEW),
+      renderer.draw(context, MAP_1, [], VIEW),
     ).not.toThrow();
   });
 });

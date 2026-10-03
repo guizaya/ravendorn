@@ -1,6 +1,7 @@
 import { Component, useState } from "react";
 import CharacterSelectScene from "./scenes/CharacterSelectScene/CharacterSelectScene.jsx";
 import TestMapScene from "./scenes/TestMapScene/TestMapScene.jsx";
+import { fallbackName } from "./data/characterName.js";
 
 class AppErrorBoundary extends Component {
   constructor(props) {
@@ -44,10 +45,19 @@ class AppErrorBoundary extends Component {
 export default function App() {
   const [scene, setScene] = useState("character-select");
   const [selectedClass, setSelectedClass] = useState(null);
+  const [characterName, setCharacterName] = useState("");
 
-  function startGame() {
+  // o nome vem da tela ja validado e limpo. se um dia algo
+  // chamar startGame sem passar nome, o fallback evita um
+  // personagem sem identidade em vez de propagar undefined
+  function startGame(character = {}) {
     if (!selectedClass) return;
+
     setScene("test-map");
+    setCharacterName(
+      character.name ??
+        fallbackName(selectedClass.id),
+    );
   }
 
   function returnToSelection() {
@@ -61,11 +71,14 @@ export default function App() {
           selectedClass={selectedClass}
           onSelectClass={setSelectedClass}
           onPlay={startGame}
+          characterName={characterName}
+          onNameChange={setCharacterName}
         />
       ) : (
         <TestMapScene
-          key={selectedClass.id}
+          key={`${selectedClass.id}:${characterName}`}
           classDefinition={selectedClass}
+          characterName={characterName}
           onBack={returnToSelection}
         />
       )}

@@ -1,5 +1,41 @@
 import { RARITY_ORDER } from "../items/index.js";
 
+/**
+ * A RECOMPENSA de uma missao, no formato que o painel desenha e que
+ * o `QuestLog` entrega ao resgate.
+ *
+ * Sao tres coisas e nada mais: `coins`, `xp` e `items`. As tres sao
+ * opcionais porque uma missao de nivel, por exemplo, paga ouro e nao
+ * paga xp (o nivel ja e o premio), e uma caçada antiga pode pagar so
+ * moedas.
+ *
+ * `items` e a lista de `{ itemId, count }`, e o `count` e a
+ * quantidade NAO opcional: um item com `count` zero nao apareceria na
+ * mochila e so ocuparia um espaco na lista
+ */
+export function normalizeRewards(rewards) {
+  const bruto = rewards ?? {};
+
+  const coins = Math.max(0, Math.floor(Number(bruto.coins) || 0));
+  const xp = Math.max(0, Math.floor(Number(bruto.xp) || 0));
+
+  const items = (Array.isArray(bruto.items) ? bruto.items : [])
+    .map((entry) => ({
+      itemId: entry?.itemId ?? null,
+      count: Math.max(0, Math.floor(Number(entry?.count) || 0)),
+    }))
+    .filter((entry) => entry.itemId && entry.count > 0);
+
+  return { coins, xp, items };
+}
+
+/** A recompensa tem alguma coisa a entregar? */
+export function hasRewards(rewards) {
+  const { coins, xp, items } = normalizeRewards(rewards);
+
+  return coins > 0 || xp > 0 || items.length > 0;
+}
+
 export const QUEST_TYPE = {
   HUNT: "hunt",
   KILL: "kill",
@@ -30,7 +66,11 @@ export const MAIN_QUESTS = [
     target: "slime",
     count: 4,
     summary: "Vá ao Brejo Lento e mate 4 limos",
-    rewards: { coins: 40, xp: 30, items: [] },
+    rewards: {
+      coins: 40,
+      xp: 30,
+      items: [{ itemId: "slime_core", count: 1 }],
+    },
   },
   {
     id: "main_toca",
@@ -39,7 +79,11 @@ export const MAIN_QUESTS = [
     target: "rat",
     count: 6,
     summary: "Elimine 6 ratos",
-    rewards: { coins: 80, xp: 70, items: [] },
+    rewards: {
+      coins: 80,
+      xp: 70,
+      items: [{ itemId: "rat_pelt", count: 2 }],
+    },
   },
   {
     id: "main_equip_raro",
@@ -50,7 +94,7 @@ export const MAIN_QUESTS = [
     rewards: {
       coins: 120,
       xp: 110,
-      items: [{ itemId: "ashen_band", count: 1 }],
+      items: [{ itemId: "slime_core", count: 3 }],
     },
   },
   {
@@ -59,7 +103,11 @@ export const MAIN_QUESTS = [
     type: QUEST_TYPE.LEVEL,
     count: 5,
     summary: "Alcance o nível 5",
-    rewards: { coins: 150, xp: 0, items: [] },
+    rewards: {
+      coins: 150,
+      xp: 0,
+      items: [{ itemId: "rat_pelt", count: 3 }],
+    },
   },
   {
     id: "main_goblins",
@@ -72,7 +120,7 @@ export const MAIN_QUESTS = [
     rewards: {
       coins: 260,
       xp: 240,
-      items: [{ itemId: "goblin_dagger", count: 1 }],
+      items: [{ itemId: "goblin_cloth", count: 4 }],
     },
   },
   {
@@ -81,7 +129,11 @@ export const MAIN_QUESTS = [
     type: QUEST_TYPE.EQUIP,
     rarity: "epic",
     summary: "Equipe um item épico ou melhor",
-    rewards: { coins: 420, xp: 0, items: [] },
+    rewards: {
+      coins: 420,
+      xp: 0,
+      items: [{ itemId: "goblin_cloth", count: 6 }],
+    },
   },
   {
     id: "main_nivel_10",
@@ -89,7 +141,11 @@ export const MAIN_QUESTS = [
     type: QUEST_TYPE.LEVEL,
     count: 10,
     summary: "Alcance o nível 10",
-    rewards: { coins: 600, xp: 0, items: [] },
+    rewards: {
+      coins: 600,
+      xp: 0,
+      items: [{ itemId: "ogre_hide", count: 2 }],
+    },
   },
   {
     id: "main_cripta",
@@ -102,7 +158,10 @@ export const MAIN_QUESTS = [
     rewards: {
       coins: 900,
       xp: 800,
-      items: [{ itemId: "skeleton_blade", count: 1 }],
+      items: [
+        { itemId: "skeleton_bone", count: 6 },
+        { itemId: "ghoul_claw", count: 3 },
+      ],
     },
   },
 ];
@@ -214,6 +273,27 @@ export function getSideQuest(id) {
     SIDE_QUESTS.find((quest) => quest.id === id) ??
     null
   );
+}
+
+/**
+ * De onde veio a missao: `main` ou `side`.
+ *
+ * O `scope` decide o que a tela mostra depois do resgate (a campanha
+ * continua ou a caixa de secundarias volta a aceitar uma) e por isso
+ * ele NUNCA vem do cliente nem do arquivo de save: sai daqui, do
+ * catalogo. Um `scope` forjado colocaria a recompensa de uma
+ * principal na coluna das secundarias
+ */
+export function questScopeOf(questId) {
+  if (MAIN_QUESTS.some((quest) => quest.id === questId)) {
+    return QUEST_SCOPE.MAIN;
+  }
+
+  if (SIDE_QUESTS.some((quest) => quest.id === questId)) {
+    return QUEST_SCOPE.SIDE;
+  }
+
+  return null;
 }
 
 export function rarityRank(rarity) {

@@ -32,7 +32,7 @@ describe("categories", () => {
       LOOT_CATEGORY.MATERIAL,
     );
 
-    expect(categoryOf(getItem("ember_blade"))).toBe(
+    expect(categoryOf(getItem("willow_bow"))).toBe(
       LOOT_CATEGORY.EQUIPMENT,
     );
 
@@ -49,7 +49,7 @@ describe("categories", () => {
 
 describe("isCollected", () => {
   it("keeps everything without a filter", () => {
-    for (const id of ["slime_gel", "ember_blade"]) {
+    for (const id of ["slime_gel", "willow_bow"]) {
       expect(isCollectedId(id, null)).toBe(true);
       expect(isCollectedId(id, undefined)).toBe(true);
       expect(
@@ -69,15 +69,43 @@ describe("isCollected", () => {
   });
 
   it("keeps items at or above the chosen rarity", () => {
+    // O arco e a unica peca de equipamento que sobrou, e ele e
+    // `uncommon` no catalogo. Antes o teste comparava um item de
+    // equipamento em varias raridades (epic, legendary), o que nao e
+    // mais possivel: a raridade do filtro e comparada com a
+    // raridade de CATALOGO do item, e o arco e sempre o mesmo
     const filter = {
       ...DEFAULT_LOOT_FILTER,
       [LOOT_CATEGORY.EQUIPMENT]: RARITY.EPIC,
     };
 
-    expect(isCollectedId("ember_blade", filter)).toBe(true);
-    expect(isCollectedId("ghoul_relic", filter)).toBe(true);
-    expect(isCollectedId("ogre_hammer", filter)).toBe(false);
-    expect(isCollectedId("frost_ward", filter)).toBe(false);
+    // arco uncommon, filtro epic: barrado
+    expect(isCollectedId("willow_bow", filter)).toBe(false);
+
+    // e a mesma peca passa com o filtro abaixo da raridade dela
+    expect(
+      isCollectedId("willow_bow", {
+        ...DEFAULT_LOOT_FILTER,
+        [LOOT_CATEGORY.EQUIPMENT]: RARITY.COMMON,
+      }),
+    ).toBe(true);
+  });
+
+  it("filtra material pela raridade de catalogo", () => {
+    // a parte que antes ficava coberta pelo teste de equipamento:
+    // a comparacao de raridade propriamente dita, em itens que
+    // realmente tem raridades diferentes
+    const raro = {
+      ...DEFAULT_LOOT_FILTER,
+      [LOOT_CATEGORY.MATERIAL]: RARITY.RARE,
+    };
+
+    // `skeleton_skull` e `rare`: fica
+    expect(isCollectedId("skeleton_skull", raro)).toBe(
+      true,
+    );
+    // `slime_gel` e `common`: sai
+    expect(isCollectedId("slime_gel", raro)).toBe(false);
   });
 
   it("filters each category on its own", () => {
@@ -87,7 +115,7 @@ describe("isCollected", () => {
     };
 
     // equipamento liberado, material barrado
-    expect(isCollectedId("goblin_dagger", filter)).toBe(true);
+    expect(isCollectedId("willow_bow", filter)).toBe(true);
     expect(isCollectedId("skeleton_bone", filter)).toBe(false);
     expect(isCollectedId("ogre_hide", filter)).toBe(false);
     expect(isCollectedId("skeleton_skull", filter)).toBe(true);

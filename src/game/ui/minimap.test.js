@@ -8,7 +8,7 @@ import {
   MINIMAP_WIDTH,
   worldToMinimap,
 } from "./minimap.js";
-import { MAP_META, TEST_MAP } from "../../data/maps/index.js";
+import { MAP_1_META, MAP_1 } from "../../data/maps/index.js";
 
 const HUD_TOPBAR_HEIGHT = 68;
 const HUD_RIGHT_GAP = 20;
@@ -80,7 +80,7 @@ describe("minimap layout", () => {
 
 describe("minimap transform", () => {
   it("fits the whole map inside the panel", () => {
-    const transform = computeMinimapTransform(TEST_MAP);
+    const transform = computeMinimapTransform(MAP_1);
 
     expect(transform.width).toBeLessThanOrEqual(
       MINIMAP_WIDTH + 0.01,
@@ -91,7 +91,7 @@ describe("minimap transform", () => {
   });
 
   it("centers the map inside the panel", () => {
-    const transform = computeMinimapTransform(TEST_MAP);
+    const transform = computeMinimapTransform(MAP_1);
 
     expect(transform.offsetX).toBeCloseTo(
       (MINIMAP_WIDTH - transform.width) / 2,
@@ -105,7 +105,7 @@ describe("minimap transform", () => {
   });
 
   it("maps the map origin to inside the panel", () => {
-    const transform = computeMinimapTransform(TEST_MAP);
+    const transform = computeMinimapTransform(MAP_1);
     const point = worldToMinimap(transform, 0, 0);
 
     expect(point.x).toBeCloseTo(transform.offsetX, 5);
@@ -113,12 +113,12 @@ describe("minimap transform", () => {
   });
 
   it("maps the far corner to inside the panel", () => {
-    const transform = computeMinimapTransform(TEST_MAP);
+    const transform = computeMinimapTransform(MAP_1);
 
     const point = worldToMinimap(
       transform,
-      TEST_MAP.width,
-      TEST_MAP.height,
+      MAP_1.width,
+      MAP_1.height,
     );
 
     expect(
@@ -130,12 +130,12 @@ describe("minimap transform", () => {
   });
 
   it("preserves the aspect ratio of the map", () => {
-    const transform = computeMinimapTransform(TEST_MAP);
+    const transform = computeMinimapTransform(MAP_1);
 
     expect(
       transform.width / transform.height,
     ).toBeCloseTo(
-      TEST_MAP.width / TEST_MAP.height,
+      MAP_1.width / MAP_1.height,
       2,
     );
   });
@@ -143,27 +143,27 @@ describe("minimap transform", () => {
 
 describe("minimap zones", () => {
   it("exposes a color for every zone", () => {
-    for (const zone of MAP_META.zones) {
+    for (const zone of MAP_1_META.zones) {
       expect(typeof zone.mapColor).toBe("string");
       expect(zone.mapColor.length).toBeGreaterThan(0);
     }
   });
 
   it("places every zone inside the map", () => {
-    for (const zone of MAP_META.zones) {
+    for (const zone of MAP_1_META.zones) {
       expect(zone.x).toBeGreaterThanOrEqual(0);
       expect(zone.y).toBeGreaterThanOrEqual(0);
       expect(zone.x + zone.width).toBeLessThanOrEqual(
-        TEST_MAP.width,
+        MAP_1.width,
       );
       expect(zone.y + zone.height).toBeLessThanOrEqual(
-        TEST_MAP.height,
+        MAP_1.height,
       );
     }
   });
 
   it("does not overlap zones", () => {
-    const zones = MAP_META.zones;
+    const zones = MAP_1_META.zones;
 
     for (let i = 0; i < zones.length; i += 1) {
       for (let j = i + 1; j < zones.length; j += 1) {

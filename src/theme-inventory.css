@@ -1,0 +1,2055 @@
+/* ============================================================================
+   TEMA INVENTARIO - camada de override
+   ----------------------------------------------------------------------------
+   Este arquivo NAO edita styles.css. Ele entra DEPOIS dele e sobrescreve
+   so cores, bordas, raio, sombra e blur. Layout, tamanho de fonte, grade e
+   posicao ficam intocados.
+
+   PARA REVERTER: comente a unica linha de import em src/main.jsx
+       import "./theme-inventory.css";
+   e apague este arquivo. styles.css volta ao estado original, exato.
+
+   O que mudou, por superficie:
+     1. tokens       - as variaveis do :root passam a ser do inventario
+     2. fundacoes    - fundo do app e da tela de selecao
+     3. chrome       - todo painel/box vira moldura dura com raio 4px
+     4. botoes       - mesmos botoes do inventario (gradiente + inset)
+     5. texto        - a escala de texto do inventario
+     6. selection    - tela de escolha de classe
+     7. hud          - vitals, barras, buffs, alvo, skill slots, mensagens
+     8. quests       - tracker, painel de missoes e as abas principal/secundaria
+     9. bestiary     - painel, entradas e a box de auto
+   ============================================================================ */
+
+:root {
+  color-scheme: dark;
+
+  /* superficies, do mais profundo ao mais alto */
+  --t-abyss: #0a0806;
+  --t-sunken: #14100c;
+  --t-panel: #241c14;
+  --t-raised: #2a2118;
+  --t-button: #33291f;
+  --t-bar: #3b3024;
+  --t-active: #56452e;
+  --t-active-deep: #35291c;
+
+  /* tracos */
+  --t-edge: #0a0806;
+  --t-line: #2c241b;
+  --t-line-2: #4a3c2c;
+  --t-line-3: #6b5a42;
+  --t-slot: #3a2f24;
+
+  /* texto */
+  --t-text: #d8dee6;
+  --t-text-bright: #f0e6d2;
+  --t-text-dim: #a2917a;
+  --t-text-faint: #9c8b74;
+  --t-text-faintest: #8b7a63;
+
+  /* acentos */
+  --t-gold: #d8b45c;
+  --t-gold-deep: #c9a227;
+  --t-gold-bright: #f0d9a8;
+  --t-gold-line: #8a7250;
+  --t-positive: #7ef0b0;
+  --t-danger: #a03434;
+  --t-danger-text: #ff9d9d;
+
+  /* as variaveis que styles.css ja usava, agora com a paleta do inventario */
+  --panel: var(--t-panel);
+  --panel-strong: var(--t-sunken);
+  --border: var(--t-line-2);
+  --muted: var(--t-text-dim);
+  --gold: var(--t-gold);
+
+  /* forma: o inventario e retangular, sem blur */
+  --t-radius: 4px;
+  --t-radius-sm: 3px;
+  --t-bevel: inset 0 1px 0 rgba(255, 255, 255, 0.07);
+  --t-bevel-strong: inset 0 1px 0 rgba(255, 255, 255, 0.14);
+  --t-drop: 0 26px 70px rgba(0, 0, 0, 0.85);
+  --t-drop-sm: 0 10px 26px rgba(0, 0, 0, 0.6);
+}
+
+body {
+  color: var(--t-text);
+  background: var(--t-abyss);
+}
+
+button:focus-visible {
+  outline-color: var(--t-gold-bright);
+}
+
+/* ============================================================================
+   2. fundacoes
+   ============================================================================ */
+
+.game-screen {
+  background: var(--t-abyss);
+}
+
+.selection-screen {
+  background:
+    radial-gradient(circle at 50% 0, rgba(122, 92, 45, 0.2), transparent 45%),
+    linear-gradient(180deg, #1a140e, #0a0806 70%);
+}
+
+.selection-screen__background {
+  opacity: 0.12;
+  background-image:
+    linear-gradient(rgba(216, 180, 92, 0.07) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(216, 180, 92, 0.07) 1px, transparent 1px);
+}
+
+/* ============================================================================
+   3. chrome - todo painel vira a mesma moldura dura do inventario
+   ============================================================================ */
+
+.selection-header__badge,
+.class-card,
+.class-detail,
+.class-portrait,
+.detail-pills span,
+.mechanic-card,
+.skills-preview,
+.skill-summary,
+.class-detail__columns,
+.hud-btn,
+.hud-vitals,
+.hud-vitals__stats span,
+.hud-buff,
+.hud-gauge__track,
+.target-panel,
+.game-message,
+.skill-slot,
+.hud-actionbar,
+.hud-ability,
+.qst-tracker,
+.qst-tracker__row,
+.qst-panel,
+.qst-group,
+.qst-row,
+.qst-progress__track,
+.bst-panel,
+.col-panel,
+.col-entry,
+.col-entry__give,
+.perm-bonus__chip,
+.bst-entry,
+.bst-hunt,
+.bst-complete,
+.bst-auto,
+.bst-entry__go,
+.rnk-panel,
+.rnk-tab,
+.rnk-row,
+.rnk-row__you {
+  border-radius: var(--t-radius);
+  backdrop-filter: none;
+}
+
+/**
+ * A COLECAO inteira, em um bloco so.
+ *
+ * Os outros paineis nao tem bloco dedicado: cada seletor aparece na
+ * lista do `border-radius`, do fundo e da borda, espalhado por tres
+ * regras. Funciona para o bestiario, que tem poucos seletores e foi
+ * escrito antes da regra de tema fechar. A colecao tem mais de trinta,
+ * e espalhar seria a mesma lista repetida em tres lugares, com o risco
+ * de uma cor nova entrar na regra errada
+ *
+ * Aqui as dimensoes ficam juntas por painel, que e como o jogador le:
+ * uma moldura, um cartao de entrada, e o texto dentro deles
+ */
+.col-panel {
+  border: 2px solid var(--t-line-2);
+  border-radius: var(--t-radius);
+}
+
+.col-panel__head {
+  border-bottom: 1px solid var(--t-line-2);
+  background: linear-gradient(180deg,
+    var(--t-panel) 0%, var(--t-sunken) 100%);
+}
+
+.col-panel,
+.col-panel__tally,
+.col-need.is-missing,
+.col-need__count,
+.col-reward__label,
+.col-empty {
+  color: var(--t-text-dim);
+}
+
+.col-entry {
+  border: 1px solid var(--t-line-2);
+  background: var(--t-sunken);
+}
+
+.col-entry.is-ready {
+  border-color: var(--t-positive);
+  background: color-mix(in srgb,
+    var(--t-positive) 10%, var(--t-sunken));
+}
+
+.col-entry__icon {
+  border: 1px solid var(--t-line-2);
+  border-radius: var(--t-radius);
+  background: var(--t-panel);
+  color: var(--t-text);
+}
+
+.col-entry__give {
+  border: 1px solid var(--t-positive);
+  border-radius: var(--t-radius);
+  background: color-mix(in srgb,
+    var(--t-positive) 16%, var(--t-sunken));
+  color: var(--t-positive);
+}
+
+.col-entry__give:disabled {
+  border-color: var(--t-line-2);
+  background: var(--t-sunken);
+  color: var(--t-text-faintest);
+}
+
+.col-entry__done,
+.col-reward__value,
+.col-reward__chip b,
+.col-complete,
+.col-need.is-ok .col-need__count {
+  color: var(--t-gold);
+}
+
+/**
+   Os selos de BONUS DE STATUS de uma entrega.
+
+   O selo tem a moldura do botao do inventario e o dourado do texto de
+   recompensa. Sem a moldura ele vira um numero solto na linha, e o
+   jogador nao descobre que aquilo e um stat e nao uma quantidade de
+   item
+*/
+.col-reward__chip {
+  border: 1px solid var(--t-line-3);
+  border-radius: var(--t-radius-sm);
+  background: var(--t-sunken);
+}
+
+.col-reward__chip i {
+  color: var(--t-text-dim);
+}
+
+.col-reward {
+  border-top: 1px dashed var(--t-line-2);
+}
+
+/**
+   O TOTAL do bonus que as colecoes ja deram.
+
+   A cor e a do `Bonus` do painel de status — o verde de "subiu" — e
+   nao o dourado do cartao. O cartao mostra o que a entrega DARIA; a
+   linha do topo mostra o que o jogador JA TEM, e verde e a cor que o
+   jogo usa para bonus conquistado
+
+   Esta regra substitui a antiga `.col-pending`, que era o aviso de
+   "recompensa esperando espaco na mochila". Ele foi embora com o item
+   da recompensa: um bonus de stat nao ocupa lugar nenhum
+*/
+.col-bonus-total {
+  border: 1px solid color-mix(in srgb, var(--t-positive) 45%, var(--t-line-2));
+  border-radius: var(--t-radius);
+  background: color-mix(in srgb, var(--t-positive) 12%, var(--t-sunken));
+  color: var(--t-positive);
+}
+
+.hud-vitals,
+.target-panel,
+.game-message,
+.skill-slot,
+.hud-actionbar,
+.qst-tracker,
+.qst-panel,
+.bst-panel,
+.col-panel,
+.bst-auto,
+.rnk-panel,
+.class-card,
+.class-detail,
+.class-portrait,
+.mechanic-card,
+.skills-preview {
+  background: linear-gradient(180deg, var(--t-panel) 0%, var(--t-sunken) 100%);
+  box-shadow: var(--t-bevel), var(--t-drop-sm);
+}
+
+/**
+ * O retrato COM arte animada, que e o retrato grande.
+ *
+ * O fundo do retrato normal tem um radial da cor da classe por baixo,
+ * que existe para dar brilho atras do glifo. Atras do personagem
+ * desenhado esse radial vira uma mancha em volta dele — e no arquiro,
+ * que tem o acento verde, virava o circulo verde que atrapalhava a
+ * arte. Aqui o fundo e o painel fundo, sem halo
+ */
+.class-portrait--art {
+  background: var(--t-sunken);
+}
+
+.hud-vitals,
+.target-panel,
+.qst-tracker,
+.qst-panel,
+.bst-panel,
+.col-panel,
+.bst-auto,
+.rnk-panel {
+  border: 2px solid var(--t-line-2);
+}
+
+.game-message {
+  border: 1px solid var(--t-line-2);
+}
+
+.game-message.is-error {
+  border-color: var(--t-danger);
+}
+
+.game-message.is-error strong,
+.game-message.is-error {
+  color: var(--t-danger-text);
+}
+
+/* ============================================================================
+   4. botoes - o mesmo botao do inventario em toda parte
+   ============================================================================ */
+
+.hud-btn,
+.inv-gear,
+.bst-entry__go,
+.qst-row__accept,
+.qst-row__abandon,
+.qst-action,
+.play-button,
+.primary-button,
+.hud-ability {
+  border: 1px solid var(--t-line);
+  color: var(--t-text-faint);
+  background: linear-gradient(180deg, var(--t-button) 0%, #201912 100%);
+  box-shadow: var(--t-bevel);
+  transition: background 0.15s ease, border-color 0.15s ease;
+}
+
+.hud-btn:hover,
+.inv-gear:hover,
+.qst-row__accept:hover,
+.qst-action:hover,
+.play-button:hover,
+.primary-button:hover {
+  border-color: var(--t-gold-line);
+  color: var(--t-gold-bright);
+  background: linear-gradient(180deg, #453729 0%, #2a2118 100%);
+}
+
+.hud-btn.is-active,
+.inv-gear.is-active,
+.hud-ability.is-on {
+  border-color: var(--t-line-3);
+  color: var(--t-gold-bright);
+  background: linear-gradient(180deg, var(--t-active) 0%, var(--t-active-deep) 100%);
+  box-shadow: var(--t-bevel-strong), inset 0 -2px 6px rgba(0, 0, 0, 0.45);
+}
+
+/**
+ * O botao da COLECAO.
+ *
+ * A cor e a do acao sobre o que o jogador tem — ele entrega, como o
+ * craft cria. O do bestiario usa o dourado porque e progresso de
+ * matanca, que e outra coisa
+ */
+/**
+ * O botao de STATUS.
+ *
+ * A mesma cor de vida que o bloco ao lado dele, e nao uma cor de aba:
+ * o painel e o do personagem, nao acao sobre o mundo
+ */
+.hud-btn--status {
+  border-color: var(--t-line-3);
+  color: var(--t-positive);
+}
+
+.hud-btn--status:hover {
+  border-color: var(--t-positive);
+  color: var(--t-positive);
+}
+
+.hud-btn--status.is-active {
+  border-color: var(--t-gold);
+  color: var(--t-gold-bright);
+  background: linear-gradient(180deg, var(--t-active) 0%, var(--t-active-deep) 100%);
+}
+
+/**
+ * O botao de TESTE.
+ *
+ * Roxo no CSS base, porque ele se distingue do status por cor: dois
+ * circulos da mesma cor a 8px de distancia nao se distinguem de relance
+ */
+/**
+ * O MARKET.
+ *
+ * A casca e o `.inv-panel` e as abas sao as `.inv-tabs` do inventario,
+ * entao so o corpo e as pecas do market entram aqui
+ */
+.mkt-panel {
+  border: 2px solid var(--t-line-2);
+  border-radius: var(--t-radius);
+}
+
+.mkt-input {
+  border: 1px solid var(--t-line-2);
+  border-radius: var(--t-radius-sm);
+  background: var(--t-abyss);
+  color: var(--t-text-bright);
+}
+
+.mkt-item {
+  border: 1px solid var(--t-line);
+  background: var(--t-sunken);
+}
+
+.mkt-item.is-mine {
+  background: var(--t-raised);
+}
+
+.mkt-item__buy,
+.mkt-submit {
+  border: 1px solid var(--t-positive);
+  border-radius: var(--t-radius-sm);
+  background: color-mix(in srgb, var(--t-positive) 14%, var(--t-sunken));
+  color: var(--t-positive);
+}
+
+.mkt-item__buy:disabled,
+.mkt-submit:disabled {
+  border-color: var(--t-line-2);
+  background: var(--t-sunken);
+  color: var(--t-text-faintest);
+}
+
+.mkt-item__cancel {
+  border: 1px solid var(--t-danger);
+  border-radius: var(--t-radius-sm);
+  background: color-mix(in srgb, var(--t-danger) 16%, var(--t-sunken));
+  color: var(--t-danger-text);
+}
+
+/*
+ * A grade do vendedor e a do inventario: o mercado reusa o
+ * `inv-grid`/`inv-slot`. Aqui so o realce do slot escolhido, que e
+ * estado do formulario de venda
+ */
+.mkt-panel .inv-slot.is-selected {
+  border-color: var(--t-gold);
+  background: color-mix(in srgb, var(--t-gold) 16%, var(--t-sunken));
+}
+
+.mkt-time {
+  border: 1px solid var(--t-line-2);
+  border-radius: var(--t-radius-sm);
+  background: var(--t-abyss);
+}
+
+.mkt-item__names small,
+.mkt-hint,
+.mkt-time__text {
+  color: var(--t-text-faint);
+}
+
+.mkt-item__price strong {
+  color: var(--t-gold);
+}
+
+.mkt-section,
+.mkt-field > span {
+  color: var(--t-text-dim);
+}
+
+/**
+ * O botao do MARKET.
+ *
+ * Dourado: e o botao que move o dinheiro do jogo, e o ouro e a moeda.
+ * O do craft e verde e o do status tambem
+ */
+.hud-btn--market {
+  border-color: var(--t-line-3);
+  color: var(--t-gold);
+}
+
+.hud-btn--market:hover {
+  border-color: var(--t-gold);
+  color: var(--t-gold-bright);
+}
+
+.hud-btn--market.is-active {
+  border-color: var(--t-gold);
+  color: var(--t-gold-bright);
+  background: linear-gradient(180deg, var(--t-active) 0%, var(--t-active-deep) 100%);
+}
+
+.hud-btn--test {
+  border-color: var(--t-line-3);
+  color: var(--t-text-dim);
+}
+
+.hud-btn--test:hover {
+  border-color: var(--t-line-2);
+  color: var(--t-text);
+}
+
+.hud-btn--test.is-active {
+  border-color: var(--t-gold);
+  color: var(--t-gold-bright);
+  background: linear-gradient(180deg, var(--t-active) 0%, var(--t-active-deep) 100%);
+}
+
+.hud-btn--collection {
+  border-color: var(--t-line-3);
+  color: var(--t-positive);
+}
+
+.hud-btn--collection:hover {
+  border-color: var(--t-positive);
+  color: var(--t-positive);
+}
+
+.hud-btn--collection.is-active {
+  border-color: var(--t-gold);
+  color: var(--t-gold-bright);
+  background: linear-gradient(180deg, var(--t-active) 0%, var(--t-active-deep) 100%);
+}
+
+.hud-btn--bestiary {
+  border-color: var(--t-line-3);
+  color: var(--t-gold-bright);
+}
+
+.hud-btn--bestiary:hover {
+  border-color: var(--t-gold);
+  color: var(--t-gold-bright);
+}
+
+.hud-btn--bestiary.is-active {
+  border-color: var(--t-gold);
+  color: var(--t-gold-bright);
+  background: linear-gradient(180deg, var(--t-active) 0%, var(--t-active-deep) 100%);
+}
+
+.hud-ability.is-engaged {
+  border-color: var(--t-danger);
+  color: var(--t-danger-text);
+}
+
+/* ============================================================================
+   5. texto
+   ============================================================================ */
+
+.eyebrow,
+.section-heading span,
+.class-card__role,
+.mechanic-card .eyebrow {
+  color: var(--t-gold);
+}
+
+.hud-vitals__name,
+.class-card > strong,
+.class-detail__heading h2,
+.qst-row__head strong,
+.bst-entry__names strong,
+.skills-preview h3,
+.class-detail__columns h3 {
+  color: var(--t-text-bright);
+}
+
+.hud-vitals__stats span,
+.hud-gauge__label,
+.class-card > small,
+.skill-summary small,
+.mechanic-card small,
+.qst-row__text,
+.qst-row.is-locked,
+.bst-entry__names small,
+.bst-hunt__count,
+.detail-pills span,
+.hud-buff {
+  color: var(--t-text-faint);
+}
+
+.hud-btn__badge {
+  border: 1px solid var(--t-line-3);
+  color: var(--t-abyss);
+  background: var(--t-gold);
+  font-variant-numeric: tabular-nums;
+}
+
+/* ============================================================================
+   6. selecao de classe
+   ============================================================================ */
+
+.selection-header h1 em,
+.class-portrait__name,
+.hud-lv,
+.qst-tracker__lvl {
+  color: var(--t-gold);
+}
+
+.hud-lv,
+.qst-tracker__lvl {
+  border: 1px solid var(--t-gold-line);
+  background: rgba(50, 39, 15, 0.55);
+}
+
+.selection-header__badge {
+  border: 1px solid var(--t-line-2);
+}
+
+.selection-header__badge strong {
+  color: var(--t-gold-bright);
+}
+
+.selection-header__badge span,
+.selection-header__badge small {
+  color: var(--t-text-faint);
+}
+
+.class-card {
+  border: 1px solid var(--t-line-2);
+}
+
+.class-card:hover,
+.class-card.is-selected {
+  border-color: var(--t-line-3);
+  background: linear-gradient(180deg, var(--t-active) 0%, var(--t-active-deep) 100%);
+}
+
+.class-card.is-selected::after {
+  border-color: var(--t-gold);
+}
+
+.class-portrait {
+  border: 1px solid var(--t-line);
+}
+
+.class-portrait__grid {
+  background-image:
+    linear-gradient(rgba(216, 180, 92, 0.06) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(216, 180, 92, 0.06) 1px, transparent 1px);
+}
+
+.class-portrait__aura {
+  background: radial-gradient(circle, rgba(122, 92, 45, 0.4), transparent 70%);
+}
+
+.detail-pills span,
+.mechanic-card {
+  border: 1px solid var(--t-line);
+}
+
+.mechanic-card {
+  border-color: var(--t-line-2);
+}
+
+.mechanic-card strong {
+  color: var(--t-gold-bright);
+}
+
+.bullet-list li::before {
+  color: var(--t-text-faint);
+}
+
+.bullet-list--positive li::before {
+  color: var(--t-positive);
+}
+
+.bullet-list--negative li::before {
+  color: var(--t-danger-text);
+}
+
+.skill-summary {
+  border: 1px solid var(--t-line);
+}
+
+.skill-summary strong {
+  color: var(--t-text-bright);
+}
+
+.skill-summary__icon {
+  border: 1px solid var(--t-line);
+  border-radius: var(--t-radius-sm);
+  background: rgba(0, 0, 0, 0.35);
+}
+
+.selection-prompt,
+.bst-empty {
+  color: var(--t-text-dim);
+}
+
+.play-button span,
+.primary-button {
+  color: var(--t-abyss);
+  background: linear-gradient(180deg, var(--t-gold) 0%, var(--t-gold-deep) 100%);
+  border: 1px solid var(--t-gold-line);
+  box-shadow: var(--t-bevel-strong), var(--t-drop-sm);
+}
+
+.play-button,
+.primary-button,
+.play-button span {
+  border-radius: var(--t-radius);
+}
+
+.play-button small {
+  color: rgba(10, 8, 6, 0.75);
+}
+
+/* lacunas da tela de selecao: bordas, fundos e raios que o
+   styles.css ainda deixava no visual antigo */
+.selection-header__badge {
+  border: 1px solid var(--t-line-2);
+  border-radius: var(--t-radius);
+  background: linear-gradient(180deg, var(--t-raised) 0%, var(--t-sunken) 100%);
+  box-shadow: var(--t-bevel);
+}
+
+.class-detail {
+  border: 1px solid var(--t-line-2);
+  border-radius: var(--t-radius);
+  background: linear-gradient(180deg, var(--t-panel) 0%, var(--t-sunken) 100%);
+  box-shadow: var(--t-bevel), var(--t-drop);
+}
+
+.class-detail__visual {
+  border-right: 1px solid var(--t-line);
+  background: radial-gradient(
+    circle at 50% 40%,
+    rgba(122, 92, 45, 0.18),
+    transparent 65%
+  );
+}
+
+.class-card__stats {
+  border-top: 1px solid var(--t-line);
+  color: var(--t-text-dim);
+}
+
+.class-portrait__aura {
+  border: 1px solid var(--accent);
+  border-radius: 50%;
+  box-shadow:
+    0 0 18px color-mix(in srgb, var(--accent) 30%, transparent),
+    inset 0 0 14px color-mix(in srgb, var(--accent) 14%, transparent);
+}
+
+.skill-summary {
+  border: 1px solid var(--t-line);
+  border-radius: var(--t-radius);
+  background: linear-gradient(180deg, var(--t-raised) 0%, var(--t-sunken) 100%);
+}
+
+.skill-summary__icon {
+  border: 1px solid var(--t-line-2);
+  border-radius: var(--t-radius-sm);
+  color: var(--t-gold-bright);
+  background: rgba(0, 0, 0, 0.4);
+}
+
+.selection-prompt {
+  border: 1px solid var(--t-line-2);
+  border-radius: var(--t-radius);
+  color: var(--t-text-dim);
+  background: linear-gradient(180deg, var(--t-raised) 0%, var(--t-sunken) 100%);
+}
+
+/* ============================================================================
+   7. hud
+   ============================================================================ */
+
+/* o inventario nao usa nada circular: slots e botoes sao caixa */
+.hud-btn,
+.hud-buff,
+.skill-slot,
+.hud-ability,
+.skill-slot__frame,
+.hud-ability__ring,
+.skill-slot__cooldown,
+.skill-slot__auto-badge,
+.skill-slot__drag-hint,
+.hud-gauge__track,
+.hud-gauge__fill,
+.target-panel__bar,
+.hud-vitals__stats span,
+.hud-lv,
+.qst-tracker__lvl,
+.target-panel__level,
+.skill-summary__icon,
+.hud-btn__badge,
+.hud-buff__time {
+  border-radius: var(--t-radius-sm);
+}
+
+.hud-btn,
+.hud-buff,
+.skill-slot,
+.hud-ability {
+  background: linear-gradient(180deg, var(--t-button) 0%, #201912 100%);
+  box-shadow: var(--t-bevel), var(--t-drop-sm);
+  color: var(--t-text);
+}
+
+.hud-btn:hover {
+  border-color: var(--t-gold-line);
+  color: var(--t-gold-bright);
+}
+
+.hud-btn.is-active {
+  border-color: var(--t-line-3);
+  color: var(--t-gold-bright);
+  background: linear-gradient(180deg, var(--t-active) 0%, var(--t-active-deep) 100%);
+}
+
+.hud-ability {
+  border: 2px solid var(--t-line-2);
+}
+
+.hud-ability:hover {
+  border-color: var(--t-line-3);
+}
+
+.hud-ability.is-engaged {
+  border-color: var(--t-gold);
+  color: var(--t-gold-bright);
+}
+
+.hud-ability.is-on {
+  border-color: var(--t-positive);
+  color: var(--t-positive);
+  background: linear-gradient(180deg, #1f3a2c 0%, #14261d 100%);
+}
+
+.hud-ability__ring,
+.skill-slot__frame {
+  border-color: rgba(255, 255, 255, 0.09);
+}
+
+.skill-slot {
+  border: 1px solid var(--t-slot);
+}
+
+.skill-slot.is-ready {
+  border-color: color-mix(in srgb, var(--skill-color) 65%, transparent);
+  box-shadow: var(--t-bevel), var(--t-drop-sm);
+}
+
+.skill-slot--ultimate {
+  border-color: color-mix(in srgb, var(--skill-color) 70%, transparent);
+  background: linear-gradient(180deg, #3a3220 0%, #1d1811 100%);
+}
+
+.skill-slot__cooldown {
+  background: rgba(6, 5, 4, 0.72);
+}
+
+.skill-slot__key {
+  color: var(--skill-color);
+}
+
+.skill-slot__timer {
+  color: var(--t-text-bright);
+}
+
+.skill-slot__auto-badge,
+.bst-auto__tag,
+.qst-autoinfo__tag {
+  color: var(--t-abyss);
+  background: var(--t-positive);
+}
+
+/* abas de missao: mesma moldura das abas do inventario, para o
+   jogador ler principal e secundaria do mesmo jeito */
+.qst-tabs,
+.rnk-tabs {
+  border-bottom: 2px solid var(--t-edge);
+  background: linear-gradient(180deg, var(--t-bar) 0%, var(--t-panel) 100%);
+  box-shadow: var(--t-bevel);
+}
+
+.qst-tab,
+.rnk-tab {
+  border: 1px solid var(--t-line);
+  border-bottom: 0;
+  border-radius: 4px 4px 0 0;
+  color: var(--t-text-faint);
+  background: linear-gradient(180deg, var(--t-raised) 0%, var(--t-panel) 100%);
+  box-shadow: var(--t-bevel);
+}
+
+.qst-tab:hover,
+.rnk-tab:hover {
+  color: var(--t-text);
+  background: linear-gradient(180deg, var(--t-button) 0%, var(--t-raised) 100%);
+}
+
+.qst-tab.is-active,
+.rnk-tab.is-active {
+  border-color: var(--t-line-3);
+  color: var(--t-gold-bright);
+  background: linear-gradient(180deg, var(--t-active) 0%, var(--t-active-deep) 100%);
+  box-shadow: var(--t-bevel), inset 0 -2px 6px rgba(0, 0, 0, 0.45);
+}
+
+.qst-tab__icon,
+.rnk-tab__icon {
+  text-shadow: 0 1px 2px #000;
+}
+
+.qst-tab__count,
+.rnk-tab__count {
+  color: var(--t-gold);
+}
+
+.qst-tab.is-active .qst-tab__count,
+.rnk-tab.is-active .qst-tab__count {
+  color: var(--t-gold-bright);
+}
+
+/**
+   A LINHA de missao e os BOTOES dela, na paleta do inventario.
+
+   A linha continua com a borda de rebaixo de antes; o que muda aqui e
+   a coluna de recompensa e o botao da acao, que nao existiam antes do
+   layout compacto
+
+   O [RECEBER] fica com o dourado do inventario em vez do dourado do
+   `styles.css`: o painel e um moldedura do mesmo material que o
+   inventario, e o dourado dele e `--t-gold`
+ */
+.qst-reward {
+  color: var(--t-gold-bright);
+}
+
+.qst-reward--gold {
+  color: var(--t-gold-bright);
+}
+
+.qst-reward--xp {
+  color: var(--t-text-dim);
+}
+
+.qst-reward--xp i {
+  border-color: var(--t-line-2);
+  color: var(--t-text-dim);
+}
+
+.qst-reward--item,
+.qst-reward--item b {
+  color: var(--t-text);
+}
+
+.qst-reward--item .item-icon--glyph {
+  color: var(--t-text-dim);
+}
+
+.qst-row.is-claimed {
+  border-color: var(--t-gold-line);
+  border-left-color: var(--t-gold);
+  background: color-mix(in srgb, var(--t-gold) 8%, var(--t-sunken));
+}
+
+.qst-action {
+  border-radius: var(--t-radius);
+}
+
+.qst-action--claim {
+  border-color: var(--t-gold);
+  color: var(--t-abyss);
+  background: linear-gradient(180deg, var(--t-gold-bright) 0%, var(--t-gold-deep) 100%);
+  box-shadow: var(--t-bevel-strong);
+}
+
+.qst-action--claim:hover {
+  border-color: var(--t-gold-bright);
+  color: var(--t-abyss);
+  background: linear-gradient(180deg, #fff3d4 0%, var(--t-gold-bright) 100%);
+}
+
+.qst-action--abandon {
+  border-color: var(--t-danger);
+  color: var(--t-danger-text);
+  background: color-mix(in srgb, var(--t-danger) 22%, var(--t-sunken));
+}
+
+.qst-action--abandon:hover {
+  border-color: var(--t-danger-text);
+  color: var(--t-danger-text);
+}
+
+.qst-action--done {
+  border: 1px solid color-mix(in srgb, var(--t-positive) 45%, var(--t-line-2));
+  border-radius: var(--t-radius);
+  color: var(--t-positive);
+  background: color-mix(in srgb, var(--t-positive) 12%, var(--t-sunken));
+}
+
+.qst-panel__pending {
+  color: var(--t-gold);
+}
+
+/* nome do personagem: campo da tela de selecao */
+.name-field__input {
+  border: 1px solid var(--t-line-2);
+  border-radius: 5px;
+  color: var(--t-text-bright);
+  background: var(--t-sunken);
+}
+
+.name-field__input::placeholder {
+  color: var(--t-text-faintest);
+  font-weight: 500;
+  letter-spacing: 0;
+}
+
+.name-field__input:focus {
+  outline: none;
+  border-color: var(--t-line-3);
+}
+
+.name-field__help {
+  color: var(--t-text-faintest);
+}
+
+.hud-vitals__name small {
+  color: var(--t-text-faintest);
+  font-size: 9px;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+
+.name-field__input.is-invalid {
+  border-color: var(--t-danger, #d4574a);
+  box-shadow: var(--t-bevel), 0 0 0 2px rgba(212, 87, 74, 0.22);
+}
+
+.name-field__help.is-invalid {
+  color: var(--t-danger, #d4574a);
+}
+
+/* JOGAR bloqueado: o botao continua clicavel para o erro
+   aparecer, entao o bloqueio e visual e nao `disabled` */
+.play-button.is-blocked {
+  filter: grayscale(0.7);
+  opacity: 0.6;
+  box-shadow: none;
+  cursor: not-allowed;
+}
+
+.skill-slot__drag-hint {
+  background: rgba(10, 8, 6, 0.9);
+}
+
+.skill-slot.is-drag-off {
+  border-color: var(--t-text-faintest);
+}
+
+/* vitals */
+.hud-gauge__label {
+  color: var(--t-text-faint);
+}
+
+.hud-gauge__track {
+  border: 1px solid var(--t-edge);
+  background: rgba(0, 0, 0, 0.55);
+  box-shadow: inset 0 1px 2px rgba(0, 0, 0, 0.75);
+}
+
+.hud-gauge__fill--hp {
+  background: linear-gradient(90deg, #8c2328, #c8403a);
+  box-shadow: none;
+}
+
+.hud-gauge__fill:not(.hud-gauge__fill--hp) {
+  background: linear-gradient(90deg, #7a5a1c, var(--t-gold));
+}
+
+.hud-gauge__value {
+  color: var(--t-text);
+}
+
+.hud-gauge__value small {
+  color: var(--t-text-faintest);
+}
+
+.hud-vitals__stats span {
+  border: 1px solid var(--t-line);
+  color: var(--t-text-dim);
+  background: rgba(0, 0, 0, 0.35);
+}
+
+.hud-vitals__shield {
+  color: var(--t-gold-bright);
+}
+
+/**
+ * A POSICAO NO MAPA: X e Y do jogador.
+ *
+ * `hud-coords` fica dentro do cartao de vida, entao a cor e uma
+ * propriedade de tema como qualquer outro numero do HUD. O vermelho vem
+ * de `--t-danger-text`, e nao de um hex solto: e o mesmo token que o
+ * resto da tela usa para "isto e um alerta", e o jogador ve a mesma
+ * vermelhidude na vida baixa, no bestiario e aqui
+ */
+.hud-coords {
+  color: var(--t-danger-text);
+}
+
+.hud-lv,
+.qst-tracker__lvl {
+  border-radius: var(--t-radius-sm);
+}
+
+.hud-buff {
+  border: 1px solid var(--t-line-2);
+}
+
+.hud-buff__time {
+  color: var(--t-text);
+  background: rgba(10, 8, 6, 0.92);
+}
+
+/* alvo */
+.target-panel__level {
+  border: 1px solid var(--t-gold-line);
+  color: var(--t-gold);
+  background: rgba(50, 39, 15, 0.7);
+}
+
+.target-panel strong {
+  color: var(--t-text-bright);
+}
+
+.target-panel__bar {
+  border: 1px solid var(--t-edge);
+  background: #2b1113;
+}
+
+.target-panel__bar div {
+  background: linear-gradient(90deg, #8c2328, #c8403a);
+}
+
+.target-panel small {
+  color: var(--t-text-dim);
+}
+
+/* mensagem */
+.game-message {
+  border: 1px solid rgba(126, 240, 176, 0.35);
+  color: var(--t-positive);
+  background: linear-gradient(180deg, #16281e 0%, #0f1c15 100%);
+  box-shadow: var(--t-bevel), var(--t-drop-sm);
+}
+
+.game-message.is-error {
+  border-color: var(--t-danger);
+  color: var(--t-danger-text);
+  background: linear-gradient(180deg, #2a1414 0%, #1a0d0d 100%);
+}
+
+/* barra de acao */
+.hud-actionbar {
+  background: linear-gradient(0deg, rgba(10, 8, 6, 0.94), transparent);
+}
+
+.hud-actionbar__divider {
+  background: linear-gradient(
+    rgba(255, 255, 255, 0),
+    rgba(216, 180, 92, 0.4),
+    rgba(255, 255, 255, 0)
+  );
+}
+
+.hud-actionbar__hint {
+  color: var(--t-text-faintest);
+}
+
+/* buffs: cada tipo continua com o seu matiz, so menos neon.
+   agrupar por familia fundiria tipos que o jogador distingue. */
+.hud-buff--burning {
+  border-color: rgba(214, 106, 66, 0.7);
+}
+
+.hud-buff--poison {
+  border-color: rgba(124, 178, 78, 0.7);
+}
+
+.hud-buff--stun,
+.hud-buff--attackSpeed {
+  border-color: rgba(214, 186, 74, 0.7);
+}
+
+.hud-buff--freeze {
+  border-color: rgba(96, 168, 196, 0.7);
+}
+
+.hud-buff--invulnerability {
+  border-color: rgba(232, 216, 140, 0.75);
+}
+
+.hud-buff--damageReduction,
+.hud-buff--resistance,
+.hud-buff--controlResistance {
+  border-color: rgba(128, 152, 188, 0.65);
+}
+
+.hud-buff--power,
+.hud-buff--asura,
+.hud-buff--curse {
+  border-color: rgba(198, 82, 66, 0.7);
+}
+
+.hud-buff--regeneration,
+.hud-buff--lifesteal {
+  border-color: rgba(110, 196, 132, 0.7);
+}
+
+.hud-buff--cloak,
+.hud-buff--slow {
+  border-color: rgba(168, 156, 138, 0.6);
+}
+
+.hud-buff--elementalAffinity {
+  border-color: rgba(96, 190, 172, 0.75);
+}
+
+/* ============================================================================
+   8. missoes
+   ============================================================================ */
+
+.qst-tracker__head {
+  border: 0;
+  border-bottom: 1px solid var(--t-line);
+  border-radius: 0;
+  color: var(--t-text-dim);
+  background: transparent;
+}
+
+.qst-tracker__lvl,
+.qst-tracker__tag,
+.qst-tracker__auto,
+.qst-tracker__xp {
+  border-radius: var(--t-radius-sm);
+}
+
+.qst-tracker__tag {
+  border: 1px solid var(--t-line-2);
+  border-color: var(--t-line-2);
+  color: var(--t-text-faint);
+  background: rgba(0, 0, 0, 0.35);
+}
+
+.qst-tracker__xp {
+  border: 1px solid var(--t-edge);
+  background: rgba(0, 0, 0, 0.6);
+  box-shadow: inset 0 1px 2px rgba(0, 0, 0, 0.75);
+}
+
+.qst-tracker__xp i {
+  background: linear-gradient(90deg, #7a5a1c, var(--t-gold));
+}
+
+.qst-tracker__head small {
+  color: var(--t-text-faint);
+}
+
+.qst-tracker__row {
+  border: 1px solid var(--t-line);
+  background: linear-gradient(180deg, var(--t-raised) 0%, var(--t-sunken) 100%);
+  color: var(--t-text-dim);
+}
+
+.qst-tracker__row strong {
+  color: var(--t-text-bright);
+}
+
+.qst-tracker__row small {
+  color: var(--t-text-faint);
+}
+
+.qst-tracker__tag {
+  border: 1px solid var(--t-line-2);
+  color: var(--t-text-faint);
+  background: rgba(0, 0, 0, 0.35);
+}
+
+.qst-tracker__row.is-clickable {
+  border-color: var(--t-gold-line);
+  color: var(--t-text);
+}
+
+.qst-tracker__row.is-clickable:hover {
+  border-color: var(--t-gold);
+  background: linear-gradient(180deg, var(--t-active) 0%, var(--t-active-deep) 100%);
+}
+
+.qst-tracker__row.is-manual {
+  border-style: dashed;
+  color: var(--t-text-faintest);
+}
+
+.qst-tracker__row.is-auto {
+  border-color: rgba(126, 240, 176, 0.6);
+  background: linear-gradient(180deg, #16281e 0%, #0f1c15 100%);
+}
+
+.qst-tracker__auto {
+  color: var(--t-abyss);
+  background: var(--t-positive);
+}
+
+.qst-panel,
+.bst-panel {
+  border: 2px solid var(--t-line-2);
+  background: linear-gradient(180deg, var(--t-panel) 0%, var(--t-sunken) 100%);
+  box-shadow: inset 0 0 0 1px rgba(0, 0, 0, 0.8), var(--t-drop);
+}
+
+.qst-panel__head,
+.bst-panel__head {
+  border-bottom: 2px solid var(--t-edge);
+  background: linear-gradient(180deg, var(--t-bar) 0%, var(--t-panel) 100%);
+  box-shadow: var(--t-bevel);
+}
+
+.qst-panel__head h2,
+.bst-panel__head h2 {
+  color: var(--t-gold-bright);
+  text-shadow: 0 1px 2px #000;
+}
+
+.qst-panel__count,
+.bst-panel__tally {
+  color: var(--t-text-faint);
+  font-variant-numeric: tabular-nums;
+}
+
+.qst-panel__body::-webkit-scrollbar-track,
+.bst-panel__body::-webkit-scrollbar-track,
+.qst-panel__body::-webkit-scrollbar-thumb,
+.bst-panel__body::-webkit-scrollbar-thumb {
+  border-radius: 0;
+  background: #201912;
+}
+
+.qst-panel__body::-webkit-scrollbar-thumb,
+.bst-panel__body::-webkit-scrollbar-thumb {
+  background: var(--t-bar);
+}
+
+.qst-group__title {
+  color: var(--t-gold);
+}
+
+.qst-group__title small {
+  color: var(--t-text-faintest);
+}
+
+.qst-row {
+  border: 1px solid var(--t-line);
+  background: linear-gradient(180deg, var(--t-raised) 0%, var(--t-sunken) 100%);
+}
+
+/* A linha do rank reusa a linha da missao, e a linha do proprio
+   jogador reusa a linha ativa. Sao as mesmas duas situacoes na tela:
+   uma caixa rebaixada na lista, e uma caixa acesa para marcar onde
+   voce esta. */
+.rnk-row {
+  border: 1px solid var(--t-line);
+  background: linear-gradient(180deg, var(--t-raised) 0%, var(--t-sunken) 100%);
+}
+
+.rnk-row.is-you {
+  border-color: var(--t-gold-line);
+  background: linear-gradient(180deg, var(--t-active) 0%, var(--t-active-deep) 100%);
+}
+
+.qst-row.is-active {
+  border-color: var(--t-gold-line);
+  background: linear-gradient(180deg, var(--t-active) 0%, var(--t-active-deep) 100%);
+}
+
+.qst-row.is-done {
+  border-color: rgba(126, 240, 176, 0.35);
+  color: var(--t-text-faint);
+}
+
+.qst-row.is-locked {
+  border-style: dashed;
+  color: var(--t-text-faintest);
+}
+
+.qst-row__head strong {
+  color: var(--t-text-bright);
+}
+
+.qst-row__type {
+  border: 1px solid var(--t-line-2);
+  color: var(--t-text-faint);
+  background: rgba(0, 0, 0, 0.35);
+}
+
+.qst-progress__track {
+  border: 1px solid var(--t-edge);
+  background: rgba(0, 0, 0, 0.6);
+}
+
+.qst-progress__track i {
+  background: linear-gradient(90deg, #7a5a1c, var(--t-gold));
+}
+
+.qst-progress span {
+  color: var(--t-text-faint);
+  font-variant-numeric: tabular-nums;
+}
+
+.qst-row__done {
+  border: 1px solid rgba(126, 240, 176, 0.35);
+  color: var(--t-positive);
+  background: rgba(0, 0, 0, 0.3);
+  cursor: default;
+}
+
+.qst-row__abandon {
+  border-color: var(--t-danger);
+  color: var(--t-danger-text);
+  background: linear-gradient(180deg, #3a1a1a 0%, #221010 100%);
+}
+
+.qst-row__abandon:hover {
+  border-color: var(--t-danger-text);
+  color: #fff;
+}
+
+.qst-panel,
+.bst-panel {
+  color: var(--t-text);
+}
+
+.qst-row {
+  border-left: 3px solid var(--t-line-2);
+  border-radius: var(--t-radius);
+}
+
+.qst-row.is-waiting {
+  border-left-color: var(--t-text-faintest);
+}
+
+.qst-row__waiting {
+  color: var(--t-text-faintest);
+}
+
+.qst-group__title {
+  border-bottom: 1px solid var(--t-line);
+}
+
+.qst-row__accept,
+.qst-row__abandon {
+  border-radius: var(--t-radius-sm);
+}
+
+.qst-auto,
+.qst-autoinfo,
+.qst-autoinfo__tag {
+  border-radius: var(--t-radius-sm);
+}
+
+.qst-auto {
+  color: var(--t-text);
+  border: 1px solid var(--t-line-2);
+  background: linear-gradient(180deg, var(--t-raised) 0%, var(--t-sunken) 100%);
+}
+
+.qst-auto.is-on {
+  border-color: rgba(126, 240, 176, 0.6);
+  background: linear-gradient(180deg, #16281e 0%, #0f1c15 100%);
+}
+
+.qst-autoinfo {
+  border: 1px solid var(--t-line);
+  background: rgba(0, 0, 0, 0.3);
+}
+
+.qst-autoinfo strong {
+  color: var(--t-text-bright);
+}
+
+.qst-autoinfo small {
+  color: var(--t-text-faint);
+}
+
+/* ============================================================================
+   9. bestiario
+   ============================================================================ */
+
+/**
+   A caixa do bonus permanente, compartilhada por cacada e colecao.
+
+   Antes esta regra vivia em `.bst-panel__bonus` e a colecao nao tinha
+   nenhuma: o bloco do bestiario saia com moldura e o da colecao saia
+   cru. O nome e do QUE a caixa e, nao de qual painel ela esta
+*/
+.perm-bonus-box {
+  border: 1px solid var(--t-line);
+  border-radius: var(--t-radius-sm);
+  background: rgba(0, 0, 0, 0.3);
+}
+
+.perm-bonus__chip {
+  border: 1px solid var(--t-line-2);
+  border-radius: var(--t-radius);
+  background: linear-gradient(180deg, var(--t-raised) 0%, var(--t-sunken) 100%);
+}
+
+.perm-bonus__chip small {
+  color: var(--t-text-faint);
+}
+
+.perm-bonus__chip strong {
+  color: var(--t-gold-bright);
+}
+
+.perm-bonus__label {
+  color: var(--t-text-faint);
+}
+
+/**
+   O texto de "nada bonus ainda".
+
+   E o convite a acao, entao e a cor mais apagada do texto: um bloco
+   de bonus vazio nao pode parecer um erro
+*/
+.perm-bonus__empty {
+  color: var(--t-text-faintest);
+}
+
+/**
+   O losango do requisito por RARIDADE.
+
+   Nao ha item para desenhar em "1 peca rara", entao a raridade e
+   mostrada pela cor — a mesma que a borda da linha ja usa no
+   `--need`. Sem esta regra ele ficaria com a cor do texto do tema e
+   perderia a unica pista de QUAL raridade o pedido e
+*/
+.col-need__icon--rarity {
+  color: var(--need, var(--t-text-dim));
+}
+
+.bst-entry {
+  border: 1px solid var(--t-line);
+  background: linear-gradient(180deg, var(--t-raised) 0%, var(--t-sunken) 100%);
+}
+
+.bst-entry.is-done {
+  border-color: rgba(126, 240, 176, 0.35);
+}
+
+.bst-entry.is-hunting {
+  border-color: rgba(126, 240, 176, 0.6);
+  box-shadow: 0 0 0 1px rgba(126, 240, 176, 0.25);
+}
+
+.bst-entry__head {
+  border-bottom: 1px solid var(--t-line);
+}
+
+.bst-entry__icon {
+  border: 1px solid var(--t-line-2);
+  border-radius: var(--t-radius-sm);
+  background: rgba(0, 0, 0, 0.4);
+}
+
+.bst-entry__names strong {
+  color: var(--t-text-bright);
+}
+
+.bst-entry__names small {
+  color: var(--t-text-faint);
+}
+
+.bst-entry__tally {
+  color: var(--t-text-faint);
+  font-variant-numeric: tabular-nums;
+}
+
+.bst-entry__go {
+  border: 1px solid var(--t-line-2);
+  color: var(--t-text-dim);
+  background: linear-gradient(180deg, var(--t-button) 0%, #201912 100%);
+}
+
+.bst-entry__go:hover:not(:disabled) {
+  border-color: var(--t-gold-line);
+  color: var(--t-gold-bright);
+  background: linear-gradient(180deg, #453729 0%, #2a2118 100%);
+}
+
+.bst-entry__go:disabled {
+  border-color: rgba(255, 255, 255, 0.08);
+  color: #6f6459;
+  background: rgba(30, 26, 21, 0.6);
+}
+
+.bst-entry.is-hunting .bst-entry__go {
+  border-color: var(--t-positive);
+  color: var(--t-abyss);
+  background: var(--t-positive);
+}
+
+.bst-hunt {
+  border: 1px solid var(--t-line);
+  background: rgba(0, 0, 0, 0.28);
+}
+
+.bst-hunt.is-done {
+  border-color: rgba(126, 240, 176, 0.3);
+}
+
+.bst-hunt__title {
+  color: var(--t-text-dim);
+}
+
+.bst-hunt__bar {
+  border: 1px solid var(--t-edge);
+  border-radius: var(--t-radius-sm);
+  background: #1b1d22;
+}
+
+.bst-auto__tag {
+  border-radius: var(--t-radius-sm);
+}
+
+.bst-hunt__fill {
+  background: linear-gradient(180deg, var(--t-gold) 0%, var(--t-gold-deep) 100%);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.3);
+}
+
+.bst-hunt.is-done .bst-hunt__fill {
+  background: linear-gradient(180deg, var(--t-positive) 0%, #3f9a6c 100%);
+}
+
+.bst-hunt__count {
+  color: var(--t-text-faint);
+}
+
+.bst-hunt__reward {
+  color: var(--t-positive);
+}
+
+.bst-complete {
+  border: 1px solid var(--t-gold-line);
+  color: var(--t-gold-bright);
+  background: rgba(50, 39, 15, 0.6);
+}
+
+.bst-empty {
+  color: var(--t-text-dim);
+}
+
+/* box do auto do bestiario */
+.bst-auto {
+  border: 2px solid rgba(126, 240, 176, 0.55);
+  background: linear-gradient(180deg, #16281e 0%, #0f1c15 100%);
+  color: var(--t-text);
+}
+
+.bst-auto:hover {
+  border-color: var(--t-positive);
+}
+
+.bst-auto__text strong {
+  color: var(--t-text-bright);
+}
+
+.bst-auto__zone {
+  color: var(--t-text-faint);
+}
+
+.bst-auto__stop {
+  border: 1px solid rgba(126, 240, 176, 0.5);
+  border-radius: var(--t-radius-sm);
+  color: var(--t-positive);
+}
+
+@keyframes bst-auto-pulse {
+  0%,
+  100% {
+    box-shadow: 0 10px 26px rgba(0, 0, 0, 0.6), 0 0 0 0 rgba(126, 240, 176, 0.45);
+  }
+  50% {
+    box-shadow: 0 10px 26px rgba(0, 0, 0, 0.6), 0 0 0 4px rgba(126, 240, 176, 0);
+  }
+}
+
+/* ---------------- o pause (ESC) ---------------- */
+
+/*
+ * A aparencia do pause mora AQUI, como a de todo painel deste
+ * arquivo. O `styles.css` deixou so o layout, entao trocar este bloco
+ * reestiliza o pause sem tocar na tela de jogo — e e o mesmo caminho
+ * que o inventario usa para reverter o tema
+ *
+ * A cortina e a unica parte do jogo que escurece TUDO: o jogador ve
+ * que o mundo continua la, e nao consegue clicar atraves dela ate ele
+ */
+.pause__veil {
+  background: color-mix(in srgb, var(--t-abyss) 74%, transparent);
+  backdrop-filter: blur(4px);
+}
+
+.pause__panel {
+  border: 2px solid var(--t-line-2);
+  border-radius: var(--t-radius);
+  color: var(--t-text);
+  background: linear-gradient(
+    180deg,
+    var(--t-panel) 0%,
+    var(--t-sunken) 100%
+  );
+  box-shadow: var(--t-bevel), var(--t-drop);
+}
+
+.pause__title {
+  color: var(--t-gold-bright);
+}
+
+.pause__hint {
+  color: var(--t-text-dim);
+}
+
+.pause__btn {
+  border: 1px solid var(--t-line-2);
+  border-radius: var(--t-radius-sm);
+  color: var(--t-text);
+  background: var(--t-raised);
+}
+
+.pause__btn:hover {
+  border-color: var(--t-gold-line);
+  color: var(--t-gold-bright);
+}
+
+/*
+ * O CONTINUAR aparece antes de "voltar para as classes" porque e o que
+ * se usa quase sempre: o destaque dourado diz "esta e a saida comum"
+ * sem precisar escrever nada
+ */
+.pause__btn--primary {
+  border-color: var(--t-gold-line);
+  color: var(--t-gold-bright);
+  background: var(--t-panel);
+}
+
+.pause__btn--primary:hover {
+  background: var(--t-raised);
+}
+/* ============================================================================
+   A BOX DO PORTAL, abaixo do minimapa
+   ============================================================================ */
+
+/**
+   A moldura e a de todo painel do HUD.
+ *
+   A caixa fica embaixo do minimapa e por isso precisa da mesma borda
+   dura das outras: duas molduras diferentes na mesma canto da tela
+   denunciariam que ela foi colada depois
+ */
+.prt-box {
+  border: 2px solid var(--t-line-2);
+  border-radius: var(--t-radius);
+  background: linear-gradient(180deg, var(--t-panel) 0%, var(--t-sunken) 100%);
+  box-shadow: var(--t-bevel), var(--t-drop);
+}
+
+/**
+   O rotulo "Portal".
+ *
+   A cor e a do `bst-auto__zone` — o verde apagado que o projeto usa
+   para "onde voce esta". Nao e dourado porque o botao abaixo ja e
+   dourado, e dois dourados na mesma caixa competem
+ */
+.prt-box__label {
+  color: var(--t-positive);
+}
+
+/**
+   O NOME do mapa de destino.
+ *
+   E a unica linha da caixa que o jogador le para decidir, entao e a
+   mais clara das tres
+ */
+.prt-box__name {
+  color: var(--t-text-bright);
+}
+
+/**
+   O botao de atravessar.
+ *
+   Dourado: e uma acao que muda o mundo, do mesmo jeito que o
+   `qst-action--claim`. Um botao neutro aqui pareceria um link, e nao
+   uma travessia
+ */
+.prt-box__go {
+  border: 1px solid var(--t-gold-line);
+  border-radius: var(--t-radius-sm);
+  color: var(--t-gold-bright);
+  background: linear-gradient(180deg, var(--t-raised) 0%, var(--t-sunken) 100%);
+}
+
+.prt-box__go:hover {
+  border-color: var(--t-gold);
+  color: var(--t-abyss);
+  background: linear-gradient(180deg, var(--t-gold) 0%, var(--t-gold-deep) 100%);
+}
+
+.prt-box__go:active {
+  background: var(--t-gold-deep);
+}
+
+.prt-box__go:focus-visible {
+  outline: 2px solid var(--t-gold-bright);
+  outline-offset: 2px;
+}
+/* ============================================================================
+   GUILDA
+   ============================================================================
+   O painel e as abas tem a mesma moldura de todo painel do HUD. O que
+   muda e a cor dos ESTADOS: o talento destravado e o verde da
+   progressao, o bloqueado e a linha rebaixada, e o cofre e o dourado
+   do inventario porque e onde o dinheiro entra
+   ========================================================================== */
+
+.gld-panel {
+  background: rgba(6, 9, 13, 0.92);
+  backdrop-filter: blur(14px);
+}
+
+/*
+ * A cor da tag e do preco ficam aqui. O resto do painel — moldura,
+ * abas e o X — nao tem cor propria: e o `inv-panel` e o `inv-tab`
+ * compartilhados com o mercado e o encantamento, e o jogador tem de ver
+ * a guilda como mais um painel do jogo, e nao como um painel diferente
+ */
+.gld-panel__tag {
+  color: var(--t-text-dim);
+  border-bottom: 1px solid var(--t-line-2);
+}
+
+/**
+ * O custo de criar a guilda.
+ *
+ * `is-falta` e o estado que o jogador mais ve: um jogador novo tem zero
+ * moedas e a fila de dez milhoes e o que ele tem pela frente. O tom e
+ * o mesmo do "voce precisa de X" do resto do jogo, e nao vermelho de
+ * erro — falta de dinheiro nao e erro do jogador
+ */
+.gld-custo {
+  border: 1px solid var(--t-line-2);
+  border-radius: var(--t-radius-sm);
+}
+
+.gld-custo span {
+  color: var(--t-text-dim);
+}
+
+.gld-custo strong {
+  color: var(--t-gold-bright);
+}
+
+.gld-custo small {
+  color: var(--t-text-faint);
+}
+
+.gld-custo.is-ok strong {
+  color: var(--t-positive);
+}
+
+.gld-custo.is-falta {
+  border-color: rgba(200, 120, 100, 0.45);
+}
+
+.gld-field span {
+  color: var(--t-text-faint);
+}
+
+.gld-field input {
+  border: 1px solid var(--t-line-2);
+  border-radius: var(--t-radius-sm);
+  color: var(--t-text-bright);
+  background: var(--t-abyss);
+}
+
+.gld-field input:focus {
+  outline: none;
+  border-color: var(--t-line-3);
+}
+
+.gld-btn {
+  border: 1px solid var(--t-line-2);
+  border-radius: var(--t-radius-sm);
+  color: var(--t-text);
+  background: linear-gradient(180deg, var(--t-button) 0%, #201912 100%);
+}
+
+.gld-btn:hover:not(:disabled) {
+  border-color: var(--t-gold-line);
+  color: var(--t-gold-bright);
+  background: linear-gradient(180deg, #453729 0%, #2a2118 100%);
+}
+
+.gld-btn:disabled {
+  border-color: var(--t-line);
+  color: var(--t-text-faintest);
+  background: rgba(30, 26, 21, 0.6);
+}
+
+.gld-btn--primary {
+  border-color: var(--t-gold);
+  color: var(--t-abyss);
+  background: linear-gradient(180deg, var(--t-gold-bright) 0%, var(--t-gold-deep) 100%);
+  box-shadow: var(--t-bevel-strong);
+}
+
+.gld-btn--negar,
+.gld-btn--sair {
+  border-color: var(--t-danger);
+  color: var(--t-danger-text);
+  background: color-mix(in srgb, var(--t-danger) 16%, var(--t-sunken));
+}
+
+.gld-btn--negar:hover,
+.gld-btn--sair:hover {
+  border-color: var(--t-danger-text);
+  color: var(--t-abyss);
+  background: var(--t-danger);
+}
+
+.gld-row {
+  border: 1px solid var(--t-line);
+  border-radius: var(--t-radius-sm);
+  color: var(--t-text-dim);
+  background: linear-gradient(180deg, var(--t-raised) 0%, var(--t-sunken) 100%);
+}
+
+.gld-row__nome {
+  color: var(--t-text-bright);
+}
+
+.gld-row__tag {
+  color: var(--t-gold);
+}
+
+.gld-row__custo,
+.gld-row__contagem {
+  color: var(--t-text-faint);
+}
+
+.gld-row__desc {
+  color: var(--t-text-faintest);
+}
+
+.gld-row__voce {
+  border: 1px solid var(--t-positive);
+  border-radius: var(--t-radius-sm);
+  color: var(--t-positive);
+  background: color-mix(in srgb, var(--t-positive) 12%, var(--t-sunken));
+  padding: 1px 6px;
+  font-size: 9px;
+  font-weight: 700;
+}
+
+.gld-row__papel {
+  color: var(--t-text-faint);
+  font-size: 10px;
+}
+
+.gld-sub {
+  color: var(--t-gold);
+}
+
+.gld-vazio {
+  color: var(--t-text-faintest);
+}
+
+/**
+ * Os TALENTOS, e os tres estados que precisam se ler de relance.
+ *
+ * A cor faz o trabalho, porque o botao sozinho nao diferencia: um botao
+ * desabilitado pode ser "voce nao tem pontos" ou "o de cima ainda nao foi
+ * destravado", e sao coisas bem diferentes para o jogador
+ */
+.gld-talent.is-done {
+  border-color: var(--t-positive);
+  background: color-mix(in srgb, var(--t-positive) 12%, var(--t-sunken));
+}
+
+.gld-talent.is-done .gld-row__nome {
+  color: var(--t-positive);
+}
+
+.gld-talent.is-locked {
+  border-style: dashed;
+  border-color: var(--t-line);
+  background: rgba(0, 0, 0, 0.28);
+}
+
+.gld-talent.is-locked .gld-row__nome {
+  color: var(--t-text-faintest);
+}
+
+.gld-pontos {
+  color: var(--t-text);
+}
+
+.gld-pontos strong {
+  color: var(--t-gold-bright);
+}
+
+.gld-pontos small {
+  color: var(--t-text-faintest);
+}
+
+.gld-cofre__moedas {
+  color: var(--t-gold);
+}
+
+.gld-cofre {
+  border: 1px solid var(--t-line-2);
+  border-radius: var(--t-radius);
+  padding: 9px 10px 10px;
+  background: var(--t-sunken);
+}
+
+.hud-btn--guild {
+  border-color: var(--t-line-3);
+  color: var(--t-positive);
+}
+
+.hud-btn--guild:hover {
+  border-color: var(--t-positive);
+  color: var(--t-positive);
+}
+
+.hud-btn--guild.is-active {
+  border-color: var(--t-gold);
+  color: var(--t-gold-bright);
+  background: linear-gradient(180deg, var(--t-active) 0%, var(--t-active-deep) 100%);
+}

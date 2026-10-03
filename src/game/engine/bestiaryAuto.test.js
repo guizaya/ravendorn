@@ -1,8 +1,8 @@
 import { describe, expect, it } from "vitest";
 import { GameEngine } from "./GameEngine.js";
 import { CHARACTER_CLASSES } from "../../data/characters/index.js";
-import { TEST_MAP } from "../../data/maps/index.js";
-import { ZONES } from "../../data/maps/index.js";
+import { MAP_1 } from "../../data/maps/index.js";
+import { MAP_1_ZONES } from "../../data/maps/index.js";
 import { BESTIARY } from "../../data/bestiary/index.js";
 import {
   createTestCanvas,
@@ -24,13 +24,13 @@ function createEngine() {
     () => {},
   );
 
-  engine.setMap(TEST_MAP);
+  engine.setMap(MAP_1);
 
   return engine;
 }
 
 function zoneOf(id) {
-  return ZONES.find((zone) => zone.id === id) ?? null;
+  return MAP_1_ZONES.find((zone) => zone.id === id) ?? null;
 }
 
 function creatureTypeOf(enemy) {
@@ -49,9 +49,14 @@ describe("bestiary auto", () => {
 
     expect(engine.setBestiaryAuto("slime")).toBe(true);
     expect(engine.bestiaryTargetType).toBe("slime");
-    expect(engine.autoPlay).toBe(true);
     expect(engine.isBestiaryAutoOn).toBe(true);
+
+    // o piloto esta no comando. o `autoPlay` NAO acende: ele e o
+    // botao de cacar perto, que e um pedido diferente do bestiario.
+    // os dois dividiam um flag so, e o botao acabava obedecendo a
+    // criatura escolhida em vez do que o jogador pediu
     expect(engine.isAutoActive()).toBe(true);
+    expect(engine.autoPlay).toBe(false);
 
     engine.destroy();
   });
@@ -140,22 +145,27 @@ describe("bestiary auto", () => {
 
     expect(engine.toggleBestiaryAuto("ghoul")).toBe(true);
     expect(engine.bestiaryTargetType).toBe("ghoul");
-    expect(engine.autoPlay).toBe(true);
+
+    // a cacada continua no comando depois da troca
+    expect(engine.isAutoActive()).toBe(true);
+    expect(engine.autoPlay).toBe(false);
 
     engine.destroy();
   });
 
-  it("turns the general auto back off only if the hunt turned it on", () => {
+  it("the hunt does not touch the auto button, and vice versa", () => {
     const engine = createEngine();
 
+    // o botao ligado, e a cacada assume o comando
     engine.setAutoPlay(true);
+    expect(engine.autoPlay).toBe(true);
+
     engine.setBestiaryAuto("slime");
 
-    expect(engine.bestiaryOwnsAutoPlay).toBe(false);
-
-    engine.clearBestiaryAuto();
-
-    expect(engine.autoPlay).toBe(true);
+    // a cacada e um pedido dedicado a UMA criatura: com o botao
+    // ligado junto, o piloto teria dois alvos
+    expect(engine.isBestiaryAutoOn).toBe(true);
+    expect(engine.autoPlay).toBe(false);
 
     engine.destroy();
   });
@@ -165,8 +175,11 @@ describe("bestiary auto", () => {
 
     engine.setBestiaryAuto("slime");
 
-    expect(engine.autoPlay).toBe(true);
+    // o botao estava desligado: o auto e a parada-mestre e para
+    // tudo o que o piloto estava fazendo
+    expect(engine.isAutoActive()).toBe(true);
 
+    engine.setAutoPlay(true);
     engine.setAutoPlay(false);
 
     expect(engine.bestiaryTargetType).toBe(null);

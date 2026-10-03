@@ -75,14 +75,25 @@ describe("loot tables", () => {
   });
 
   it("raises item chance with creature tier", () => {
-    const chances = Object.values(CREATURE_TYPES).map(
+    // pelo NIVEL, e nao pela ordem em que as criaturas foram
+    // declaradas no arquivo. "tier" e poder, e poder e nivel: um
+    // bicho de nivel 12 nao pode dropar pior que um de nivel 11 so
+    // porque foi escrito depois
+    const criaturas = Object.values(CREATURE_TYPES).sort(
+      (a, b) => a.level - b.level,
+    );
+
+    const chances = criaturas.map(
       (type) => type.loot.itemChance,
     );
 
     for (let i = 1; i < chances.length; i += 1) {
-      expect(chances[i]).toBeGreaterThanOrEqual(
-        chances[i - 1],
-      );
+      expect(
+        chances[i],
+        `${criaturas[i].id} (nivel ${criaturas[i].level}) ` +
+          `drota menos que ${criaturas[i - 1].id} ` +
+          `(nivel ${criaturas[i - 1].level})`,
+      ).toBeGreaterThanOrEqual(chances[i - 1]);
     }
   });
 
@@ -303,7 +314,7 @@ describe("loot filter", () => {
 
     loot.spawnGroundDrop({
       kind: "item",
-      itemId: "skeleton_crown",
+      itemId: "willow_bow",
       count: 1,
       x: 0,
       y: 0,
@@ -340,8 +351,17 @@ describe("loot filter", () => {
   it("favours what the player asked to keep", () => {
     const { loot } = createHarness();
 
+    /**
+     * A contagem por raridade do que o ogre solta.
+     *
+     * O teste media `rare` e `epic` de EQUIPAMENTO, e o ogre soltava
+     * marreta (rara) e coracao (epico). Nenhum dos dois existe mais:
+     * o drop do ogre hoje e so `ogre_pebble` (comum) e `ogre_hide`
+     * (incomum). A tabela virou outra, entao a contagem precisa
+     * acompanhar a tabela real em vez de raridades que sairam
+     */
     const sample = () => {
-      const tally = { rare: 0, epic: 0, total: 0 };
+      const tally = { comum: 0, incomum: 0, total: 0 };
 
       for (let roll = 0; roll < 6000; roll += 1) {
         for (const entry of loot.rollItems(
@@ -351,34 +371,44 @@ describe("loot filter", () => {
 
           const rarity = getItem(entry.itemId).rarity;
 
-          if (rarity === RARITY.RARE) tally.rare += 1;
-          if (rarity === RARITY.EPIC) tally.epic += 1;
+          if (rarity === RARITY.COMMON) tally.comum += 1;
+          if (rarity === RARITY.UNCOMMON) {
+            tally.incomum += 1;
+          }
         }
       }
 
       return tally;
     };
 
-    // sem filtro o ogre costuma soltar marreta de pedra, que e rara
+    // sem filtro o ogre solta seixo (comum) e couro (incomum)
     const before = sample();
 
     expect(before.total).toBeGreaterThan(0);
-    expect(before.rare / before.total).toBeGreaterThan(0.01);
+    expect(before.comum / before.total).toBeGreaterThan(
+      0.01,
+    );
+    expect(before.incomum / before.total).toBeGreaterThan(
+      0.01,
+    );
 
     loot.setFilter({
       equipment: RARITY.EPIC,
-      material: RARITY.COMMON,
+      // o drop do ogre tem so `common` e `uncommon`. Um filtro em
+      // `uncommon` remove o seixo e mantem o couro: e a prova de
+      // que o filtro age de verdade numa tabela tao curta
+      material: RARITY.UNCOMMON,
     });
 
     const after = sample();
 
     expect(after.total).toBeGreaterThan(0);
 
-    // barrando o raro, ele some de vez
-    expect(after.rare).toBe(0);
+    // barrando o comum, ele some de vez
+    expect(after.comum).toBe(0);
 
     // e o que foi pedido realmente passa a sair
-    expect(after.epic).toBeGreaterThan(0);
+    expect(after.incomum).toBeGreaterThan(0);
   });
 });
 
@@ -460,7 +490,7 @@ describe("pickup", () => {
       {
         uid: "b",
         kind: "item",
-        itemId: "ogre_hammer",
+        itemId: "willow_bow",
         count: 1,
         x: 0,
         y: 20,
@@ -474,7 +504,7 @@ describe("pickup", () => {
     expect(collected.items).toHaveLength(1);
     expect(world.drops).toHaveLength(0);
     expect(world.inventory.coins).toBe(25);
-    expect(world.inventory.count("ogre_hammer")).toBe(1);
+    expect(world.inventory.count("willow_bow")).toBe(1);
   });
 
   it("ignores drops outside the radius", () => {
@@ -505,7 +535,7 @@ describe("pickup", () => {
       {
         uid: "a",
         kind: "item",
-        itemId: "ogre_hammer",
+        itemId: "willow_bow",
         count: 1,
         x: 0,
         y: 0,
@@ -535,7 +565,7 @@ describe("pickup", () => {
     );
 
     expect(remaining).toHaveLength(1);
-    expect(remaining[0].itemId).toBe("ogre_hammer");
+    expect(remaining[0].itemId).toBe("willow_bow");
   });
 
   it("partially collects into a full stack", () => {

@@ -16,9 +16,14 @@ const SHEET = fileURLToPath(
 );
 
 const CELL = 64;
-const COLUMNS = 8;
 const IDLE_ROW = ARBALIST_SPRITE.animations.idle.row;
-const ROWS = IDLE_ROW + 1;
+const SHOOT_ROW = ARBALIST_SPRITE.animations.attack.rowOffset;
+const COLUMNS = Math.max(
+  ...Object.values(ARBALIST_SPRITE.animations).map(
+    (animation) => animation.length,
+  ),
+);
+const ROWS = SHOOT_ROW + DIRECTION_KEYS.length;
 
 function decodePng(file) {
   const buffer = readFileSync(file);
@@ -150,18 +155,31 @@ function boxOf(pixels) {
 const rowOf = (key) => ARBALIST_DIRECTIONS[key];
 
 function lanes() {
-  return [
-    ...DIRECTION_KEYS.map((key) => ({
-      name: key,
-      row: ARBALIST_DIRECTIONS[key],
+  const list = [];
+
+  for (const key of DIRECTION_KEYS) {
+    const row = ARBALIST_DIRECTIONS[key];
+
+    list.push({
+      name: `walk ${key}`,
+      row,
       length: ARBALIST_SPRITE.animations.walk.length,
-    })),
-    {
-      name: "idle",
-      row: IDLE_ROW,
-      length: ARBALIST_SPRITE.animations.idle.length,
-    },
-  ];
+    });
+
+    list.push({
+      name: `shoot ${key}`,
+      row: SHOOT_ROW + row,
+      length: ARBALIST_SPRITE.animations.attack.length,
+    });
+  }
+
+  list.push({
+    name: "idle",
+    row: IDLE_ROW,
+    length: ARBALIST_SPRITE.animations.idle.length,
+  });
+
+  return list;
 }
 
 const cells = lanes().flatMap((lane) =>
@@ -173,13 +191,16 @@ const cells = lanes().flatMap((lane) =>
 );
 
 describe("arbalist sheet asset", () => {
-  it("is a 512x576 grid with a row per direction plus idle", () => {
+  it("tem uma linha por direcao de andar, mais idle e tiro", () => {
     expect(sheet.width).toBe(CELL * COLUMNS);
     expect(sheet.height).toBe(CELL * ROWS);
-    expect(ROWS).toBe(9);
+    expect(COLUMNS).toBe(9);
+    expect(IDLE_ROW).toBe(8);
+    expect(SHOOT_ROW).toBe(9);
+    expect(ROWS).toBe(17);
   });
 
-  it("has a row for every compass direction", () => {
+  it("tem uma linha para cada direcao", () => {
     expect(Object.keys(ARBALIST_DIRECTIONS).sort()).toEqual(
       DIRECTION_KEYS.slice().sort(),
     );
@@ -190,11 +211,19 @@ describe("arbalist sheet asset", () => {
     }
   });
 
-  it("keeps the idle on a row of its own", () => {
-    expect(IDLE_ROW).toBe(8);
-    expect(
-      Object.values(ARBALIST_DIRECTIONS),
-    ).not.toContain(IDLE_ROW);
+  it("separa walk, idle e shoot em blocos de linha proprios", () => {
+    const walkRows = DIRECTION_KEYS.map(rowOf);
+    const shootRows = DIRECTION_KEYS.map(
+      (key) => SHOOT_ROW + ARBALIST_DIRECTIONS[key],
+    );
+
+    expect(new Set(walkRows).size).toBe(8);
+    expect(new Set(shootRows).size).toBe(8);
+
+    for (const row of shootRows) {
+      expect(walkRows, `tiro ${row}`).not.toContain(row);
+      expect(row, `tiro ${row}`).not.toBe(IDLE_ROW);
+    }
   });
 
   it("draws a whole character in every used cell", () => {
@@ -218,7 +247,7 @@ describe("arbalist sheet asset", () => {
     }
   });
 
-  it("has no frame smaller than half of its row", () => {
+  it("nao tem frame corrompido em nenhuma linha", () => {
     for (const lane of lanes()) {
       const laneBoxes = [];
 
@@ -228,17 +257,22 @@ describe("arbalist sheet asset", () => {
 
       const unionWidth = Math.max(...laneBoxes.map((b) => b.width));
       const unionHeight = Math.max(...laneBoxes.map((b) => b.height));
+      const unionArea = unionWidth * unionHeight;
 
       laneBoxes.forEach((box, index) => {
-        expect(
-          box.width,
-          `${lane.name} frame ${index} estreito`,
-        ).toBeGreaterThanOrEqual(unionWidth * 0.5);
-
+        // a assinatura de frame truncado e perder ALTURA: o
+        // stream LZW para nas primeiras linhas da celula. a
+        // largura varia de legitimamente no tiro, com o arco
+        // sendo puxado e depois estendido.
         expect(
           box.height,
           `${lane.name} frame ${index} baixo`,
         ).toBeGreaterThanOrEqual(unionHeight * 0.5);
+
+        expect(
+          box.width * box.height,
+          `${lane.name} frame ${index} ralo`,
+        ).toBeGreaterThanOrEqual(unionArea * 0.3);
       });
     }
   });
@@ -314,6 +348,10 @@ describe("arbalist sheet asset", () => {
       expect(animation.length).toBeLessThanOrEqual(COLUMNS);
     }
 
-    expect(ARBALIST_SPRITE.animations.walk.length).toBe(COLUMNS);
+    // o tiro e o unico que usa todas as colunas
+    expect(ARBALIST_SPRITE.animations.attack.length).toBe(COLUMNS);
+    expect(
+      ARBALIST_SPRITE.animations.walk.length,
+    ).toBeLessThan(COLUMNS);
   });
 });

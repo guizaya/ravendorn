@@ -5,3 +5,9 @@ dist
 npm-debug.log*
 coverage
 .preview
+
+# Os personagens salvos. Ficam DENTRO do projeto por padrao, e nao
+# vao para o git: e o progresso de quem joga, nao codigo, e um
+# `git clean` sem cuidado nao pode levar o nivel de ninguem junto
+server/data/personagens
+*.json.tmp

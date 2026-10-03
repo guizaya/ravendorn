@@ -1,4 +1,5 @@
 import {
+  baseRarityOf,
   getItem,
   isStackable,
 } from "../../data/items/index.js";
@@ -7,10 +8,10 @@ export const INVENTORY_CAPACITY = 20;
 
 let instanceSequence = 0;
 
-function nextInstanceId(itemId) {
+function nextInstanceId(itemId, rarity) {
   instanceSequence += 1;
 
-  return `${itemId}#${instanceSequence}`;
+  return `${itemId}#${rarity}#${instanceSequence}`;
 }
 
 export class Inventory {
@@ -50,6 +51,11 @@ export class Inventory {
     return true;
   }
 
+  /**
+   * Total do item em TODAS as raridades. E o que a receita olha:
+   * o jogador tem os materiais, e a raridade deles nao entra na
+   * conta.
+   */
   count(itemId) {
     let total = 0;
 
@@ -62,11 +68,47 @@ export class Inventory {
     return total;
   }
 
+  /** total do item naquela raridade exata */
+  countAt(itemId, rarity) {
+    const target =
+      rarity ?? baseRarityOf(itemId);
+
+    let total = 0;
+
+    for (const stack of this.stacks) {
+      if (stack.itemId !== itemId) continue;
+      if ((stack.rarity ?? baseRarityOf(itemId)) !== target) {
+        continue;
+      }
+
+      total += stack.count;
+    }
+
+    return total;
+  }
+
   has(itemId, count = 1) {
     return this.count(itemId) >= count;
   }
 
-  findStack(itemId) {
+  hasAt(itemId, count, rarity) {
+    return this.countAt(itemId, rarity) >= count;
+  }
+
+  findStack(itemId, rarity = null) {
+    if (rarity !== null) {
+      const target =
+        rarity ?? baseRarityOf(itemId);
+
+      return (
+        this.stacks.find(
+          (stack) =>
+            stack.itemId === itemId &&
+            (stack.rarity ?? baseRarityOf(itemId)) === target,
+        ) ?? null
+      );
+    }
+
     return (
       this.stacks.find(
         (stack) => stack.itemId === itemId,
@@ -93,8 +135,20 @@ export class Inventory {
     const result = {
       uid: stack.uid,
       itemId: stack.itemId,
+      rarity: stack.rarity ?? baseRarityOf(stack.itemId),
       count: taken,
       equipped: stack.equipped,
+
+      /**
+       * O afixo viaja com a peca que saiu.
+       *
+       * O `equipItem` do motor tira a peca da mochila, veste no slot e
+       * devolve a que estava vestida com `inventory.add`. Se o
+       * enchantamento nao estivesse aqui, ele morreria nessa ida: a
+       * peca voltaria da mochila sem afixo, e o jogador veria um arco
+       * encantado perder o afixo so por trocar de lugar
+       */
+      enchant: stack.enchant ?? null,
     };
 
     if (stack.count <= 0) {
@@ -107,20 +161,26 @@ export class Inventory {
     return result;
   }
 
-  take(itemId, count = 1) {
+  take(itemId, count = 1, rarity = null) {
     return this.takeUid(
-      this.findStack(itemId)?.uid,
+      this.findStack(itemId, rarity)?.uid,
       count,
     );
   }
 
-  add(itemId, count = 1) {
+  /**
+   * `rarity` nulo significa a raridade de catalogo do item, entao
+   * loot, missao e os testes antigos continuam produzindo o item
+   * cru. O craft e o unico que passa raridade explicita.
+   */
+  add(itemId, count = 1, rarity = null) {
     const item = getItem(itemId);
 
     if (!item || count <= 0) {
       return { added: 0, dropped: count };
     }
 
+    const target = rarity ?? baseRarityOf(itemId);
     const stackable = isStackable(item);
     const maxStack = item.maxStack ?? 1;
 
@@ -130,6 +190,9 @@ export class Inventory {
     if (stackable) {
       for (const stack of this.stacks) {
         if (stack.itemId !== itemId) continue;
+        if ((stack.rarity ?? baseRarityOf(itemId)) !== target) {
+          continue;
+        }
 
         const room = maxStack - stack.count;
 
@@ -153,10 +216,25 @@ export class Inventory {
         : 1;
 
       this.stacks.push({
-        uid: nextInstanceId(itemId),
+        uid: nextInstanceId(itemId, target),
         itemId,
+        rarity: target,
         count: moved,
         equipped: false,
+
+        /**
+         * O ENCANTAMENTO, ou `null`.
+         *
+         * E `null` no nascimento, e nao `undefined`: o painel e o save
+         * leem este campo, e a diferenca entre "sem afixo" e "afixo
+         * desconhecido" precisa ser uma so coisa
+         *
+         * Material nunca recebe um, porque material e empilhavel e uma
+         * pilha de 99 nao tem um afixo por peca. Nao e por Luck: e que
+         * `add` funde duas pilhas do MESMO item e MESMA raridade, e as
+         * duas nao poderiam ter afixos diferentes
+         */
+        enchant: null,
       });
 
       remaining -= moved;
@@ -168,7 +246,12 @@ export class Inventory {
     return { added, dropped: remaining };
   }
 
-  remove(itemId, count = 1) {
+  /**
+   * Sem `rarity`, varre qualquer variante do item. A receita usa
+   * esta forma: o ingrediente e "o item", nao "aquele item
+   * naquela raridade".
+   */
+  remove(itemId, count = 1, rarity = null) {
     const target = Math.floor(count);
 
     if (target <= 0) return 0;
@@ -183,6 +266,14 @@ export class Inventory {
       const stack = this.stacks[index];
 
       if (stack.itemId !== itemId) continue;
+
+      if (rarity !== null) {
+        const wanted = rarity ?? baseRarityOf(itemId);
+
+        if ((stack.rarity ?? baseRarityOf(itemId)) !== wanted) {
+          continue;
+        }
+      }
 
       const taken = Math.min(stack.count, remaining);
 
@@ -214,10 +305,23 @@ export class Inventory {
       items: this.stacks.map((stack) => ({
         uid: stack.uid,
         itemId: stack.itemId,
+        rarity:
+          stack.rarity ?? baseRarityOf(stack.itemId),
         count: stack.count,
         equipped: equipment
           ? equipment.isEquipped(stack.itemId)
           : false,
+
+        /**
+         * O afixo, para o painel de encantar e para o inventario
+         * mostrar a peca ja encantada
+         *
+         * Vai no `summary` e nao no `stack` cru porque o `summary` e
+         * o que o painel consome, e e ele que e serializado no
+         * snapshot de rede. O objeto vai como `null` quando a peca nao
+         * tem afixo, e o painel trata os dois do mesmo jeito
+         */
+        enchant: stack.enchant ?? null,
       })),
     };
   }

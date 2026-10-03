@@ -13,16 +13,28 @@
     "build": "vite build",
     "preview": "vite preview",
     "test": "vitest run",
-    "sprites:arbalist": "node tools/gif-to-sheet.mjs"
+    "sprites:arbalist": "node tools/gif-to-sheet.mjs",
+    "sprites:warrior": "node tools/gif-to-sheet.mjs warrior",
+    "sprites:sorcerer": "node tools/gif-to-sheet.mjs sorcerer",
+    "sprites:lancer": "node tools/gif-to-sheet.mjs lancer",
+    "sprites:rato": "node tools/gif-to-sheet.mjs rato_da_toca",
+    "sprites:sentinela": "node tools/gif-to-sheet.mjs sentinela_esqueletica",
+    "sprites:limo": "node tools/gif-to-sheet.mjs limo_preguicoso",
+    "sprites:goblin": "node tools/gif-to-sheet.mjs goblin_saqueador",
+    "props:arvore": "node tools/gerar-arvore-prop.mjs"
   },
   "dependencies": {
     "express": "^4.21.2",
     "react": "^18.3.1",
-    "react-dom": "^18.3.1"
+    "react-dom": "^18.3.1",
+    "ws": "^8.22.0"
   },
   "devDependencies": {
+    "@testing-library/dom": "^10.4.2",
+    "@testing-library/react": "^16.3.3",
     "@vitejs/plugin-react": "^4.3.4",
     "concurrently": "^9.1.2",
+    "jsdom": "^25.0.1",
     "vite": "^6.0.5",
     "vitest": "^2.1.8"
   }

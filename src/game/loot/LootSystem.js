@@ -17,27 +17,43 @@ export class LootSystem {
     this.filter = null;
   }
 
+  /**
+   * O filtro PADRAO deste sistema de loot.
+   *
+   * Ele nao e mais o filtro do mundo: online cada jogador tem o seu,
+   * e o sorteio recebe o filtro de quem vai receber o drop. Este
+   * campo sobra para o single player e para os testes, que chamam
+   * `roll` e `setFilter` sem sessao no meio.
+   *
+   * Deixar um filtro so no motor era o jeito de um jogador mudar o
+   * loot de todo mundo no mesmo mapa.
+   */
   setFilter(filter) {
     this.filter = filter;
 
-    return this.pruneDrops();
+    return this.pruneDrops(filter);
   }
 
   /**
    * itens barrados pelo filtro saem do pool antes do sorteio: assim
    * nunca viram drop, nunca vao para o chao e nunca entram na mochila.
    */
-  allowedPool(pool) {
-    if (!this.filter) return pool;
+  allowedPool(pool, filter = this.filter) {
+    if (!filter) return pool;
 
     return pool.filter((entry) =>
-      isCollected(getItem(entry.id), this.filter),
+      isCollected(getItem(entry.id), filter),
     );
   }
 
-  /** limpa do chao o loot que parou de passar no filtro */
-  pruneDrops() {
-    if (!this.filter) return 0;
+  /**
+   * limpa do chao o loot que parou de passar no filtro.
+   *
+   * Com `ownerId`, limpa SO o drop daquele dono. Sem ele, limpa
+   * tudo, que e o comportamento do single player e dos testes.
+   */
+  pruneDrops(filter = this.filter, ownerId = null) {
+    if (!filter) return 0;
 
     const drops = this.world.drops;
     let removed = 0;
@@ -51,7 +67,19 @@ export class LootSystem {
 
       if (drop.kind !== "item") continue;
 
-      if (isCollectedId(drop.itemId, this.filter)) {
+      // So o drop do dono conta. Um drop SEM dono tambem conta: e o
+      // do single player e o drop antigo de antes desta regra, e no
+      // servidor ele pertence a ninguem, entao ninguem o recolhe e
+      // ele ficaria no chao para sempre
+      if (
+        ownerId !== null &&
+        drop.ownerId &&
+        drop.ownerId !== ownerId
+      ) {
+        continue;
+      }
+
+      if (isCollectedId(drop.itemId, filter)) {
         continue;
       }
 
@@ -88,7 +116,16 @@ export class LootSystem {
     };
   }
 
-  roll(creature) {
+  /**
+   * Sorteia o loot de uma criatura.
+   *
+   * O `filter` e o de QUEM vai receber. Sem ele, usa o filtro padrao
+   * do sistema, que e o caso do single player e dos testes. Online
+   * o filtro chega pela sessao do matador, e e por isso que dois
+   * jogadores no mesmo mapa podem ter filtros opostos: o drop e
+   * sorteado para o dono, nao para o mundo
+   */
+  roll(creature, filter = this.filter) {
     const table = creature.loot;
 
     if (!table) {
@@ -96,7 +133,7 @@ export class LootSystem {
     }
 
     const coins = this.rollCoins(table.coins);
-    const items = this.rollItems(table);
+    const items = this.rollItems(table, filter);
 
     return { coins, items };
   }
@@ -110,8 +147,8 @@ export class LootSystem {
     return Math.floor(randomBetween(min, max + 1));
   }
 
-  rollItems(table) {
-    const pool = this.allowedPool(table.items ?? []);
+  rollItems(table, filter = this.filter) {
+    const pool = this.allowedPool(table.items ?? [], filter);
 
     if (pool.length === 0) return [];
 
@@ -202,11 +239,46 @@ export class LootSystem {
     return getItem(pool[pool.length - 1]?.id);
   }
 
-  collectFrom(creature) {
-    const inventory = this.world.inventory;
-    const { coins, items } = this.roll(creature);
+  /**
+   * O inventario que recebe o loot.
+   *
+   * `owner` e a SESSAO de quem matou, e nao a entidade do jogador: o
+   * `inventory` mora na sessao. Passar a entidade do jogador aqui
+   * fazia o `owner?.inventory` dar `undefined` e cair no do mundo,
+   * que no servidor e o do jogador em foco no fim do tick. O
+   * fallback existe para o single player e para os testes, que
+   * chamam sem dono.
+   */
+  inventoryOf(owner) {
+    return owner?.inventory ?? this.world.inventory;
+  }
 
-    const collected = { coins: 0, items: [], dropped: 0 };
+  /**
+   * Sorteia o loot e entrega no inventario de quem matou.
+   *
+   * `owner` e a SESSAO de quem deu o ultimo golpe (ver
+   * `inventoryOf`). No single player ela e sempre a do jogador local
+   * e nada muda. Online, o drop transbordado leva o id do dono para
+   * que ninguem mais encaixe a mao.
+   */
+  collectFrom(creature, owner = null) {
+    const inventory = this.inventoryOf(owner);
+
+    // o filtro e o do DONO. `owner` e a sessao de quem matou, e e
+    // ela que tem o `lootFilter`; sem este argumento o sorteio usaria
+    // o filtro padrao do sistema e o filtro de um jogador mudaria o
+    // loot de todo mundo
+    const { coins, items } = this.roll(
+      creature,
+      owner?.lootFilter ?? this.filter,
+    );
+
+    const collected = {
+      coins: 0,
+      items: [],
+      dropped: 0,
+      ownerId: owner?.id ?? null,
+    };
 
     if (coins > 0) {
       inventory.addCoins(coins);
@@ -239,6 +311,10 @@ export class LootSystem {
           count: result.dropped,
           x: position.x,
           y: position.y,
+          // o transbordo pertence a quem matou. sem isso, o
+          // primeiro jogador que passar pelo chao pegaria o item
+          // de outro
+          ownerId: owner?.id ?? null,
         });
 
         collected.dropped += result.dropped;
@@ -248,8 +324,12 @@ export class LootSystem {
     return collected;
   }
 
-  dropFrom(creature) {
-    const { coins, items } = this.roll(creature);
+  dropFrom(creature, owner = null) {
+    const { coins, items } = this.roll(
+      creature,
+      owner?.lootFilter ?? this.filter,
+    );
+    const ownerId = owner?.id ?? null;
 
     for (const entry of items) {
       const position = this.scatter(
@@ -264,6 +344,7 @@ export class LootSystem {
         count: entry.count,
         x: position.x,
         y: position.y,
+        ownerId,
       });
     }
 
@@ -280,6 +361,7 @@ export class LootSystem {
         coins,
         x: position.x,
         y: position.y,
+        ownerId,
       });
     }
 
@@ -298,8 +380,24 @@ export class LootSystem {
     }
   }
 
-  collectNear(player, radius = PICKUP_RADIUS) {
+  /**
+   * Recolhe o que esta no chao perto do jogador.
+   *
+   * `player` e a ENTIDADE (precisa de `x`, `y` e `id` para a
+   * distancia e para a checagem de dono), mas o `inventory` mora na
+   * SESSAO. Por isso o inventario pode ser passado explicitamente:
+   * sem isso ele sairia do `inventoryOf`, que cai no do jogador em
+   * foco. Passando, a recolha nao depende de quem o motor tem em foco
+   * no momento, que e a mesma armadilha que fazia o loot do abate
+   * ir para a pessoa errada.
+   */
+  collectNear(
+    player,
+    radius = PICKUP_RADIUS,
+    inventory = null,
+  ) {
     const drops = this.world.drops;
+    const destino = inventory ?? this.inventoryOf(player);
     const collected = { coins: 0, items: [], rejected: 0 };
 
     for (
@@ -309,6 +407,19 @@ export class LootSystem {
     ) {
       const drop = drops[index];
 
+      // Loot de mob tem dono. Sem esta checagem, um jogador que
+      // passasse em cima do chao de um abate alheio pegaria o
+      // item, e o "last hit" nao valeria nada. `ownerId` nulo e
+      // loot sem dono (o do proprio jogador no single player, ou
+      // o drop antigo de antes desta regra): sempre recolhivel.
+      if (
+        drop.ownerId !== undefined &&
+        drop.ownerId !== null &&
+        drop.ownerId !== player.id
+      ) {
+        continue;
+      }
+
       const dx = drop.x - player.x;
       const dy = drop.y - player.y;
 
@@ -317,7 +428,7 @@ export class LootSystem {
       }
 
       if (drop.kind === "coins") {
-        this.world.inventory.addCoins(drop.coins);
+        destino.addCoins(drop.coins);
 
         collected.coins += drop.coins;
         drops.splice(index, 1);
@@ -325,7 +436,7 @@ export class LootSystem {
       }
 
       if (drop.kind === "item") {
-        const result = this.world.inventory.add(
+        const result = destino.add(
           drop.itemId,
           drop.count,
         );

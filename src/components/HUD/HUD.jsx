@@ -1,14 +1,113 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import SkillSlot from "../Skills/SkillSlot.jsx";
+import HudIcon from "../UI/HudIcon.jsx";
 import InventoryPanel from "../Inventory/InventoryPanel.jsx";
 import QuestPanel from "../Quests/QuestPanel.jsx";
 import BestiaryPanel from "../Bestiary/BestiaryPanel.jsx";
-import { getItem } from "../../data/items/index.js";
-import { DEFAULT_LOOT_FILTER } from "../../game/loot/lootFilter.js";
+import RankPanel from "../Rank/RankPanel.jsx";
+import CraftPanel from "../Craft/CraftPanel.jsx";
+import CollectionPanel, {
+  StatusPanel,
+} from "../Collection/CollectionPanel.jsx";
+import EnchantPanel from "../Enchant/EnchantPanel.jsx";
+import MarketPanel from "../Market/MarketPanel.jsx";
+import GuildPanel from "../Guild/GuildPanel.jsx";
+import PortalBox from "./PortalBox.jsx";
 import {
-  isSkillAuto,
-  setSkillAuto,
-} from "../../game/engine/autoSkills.js";
+  MINIMAP_HEIGHT,
+  MINIMAP_TOP_IDLE,
+  MINIMAP_TOP_TARGETED,
+} from "../../game/ui/minimap.js";
+import { DEFAULT_LOOT_FILTER } from "../../game/loot/lootFilter.js";
+import { RANK_CRITERIO } from "../../game/ranking/rank.js";
+import { digitandoEm } from "../../game/ui/typing.js";
+
+/**
+ * Os paineis da HUD, e UM so por vez.
+ *
+ * Antes cada painel tinha o seu `boolean` e cada botao fechava na mao
+ * dois ou tres dos outros: o do bestiario fechava o rank, o da colecao
+ * fechava o rank e o bestiario, o do craft fechava o market. Duas
+ * consequencias: a lista de fechamentos estava sempre incompleta —
+ * bestiario + colecao abertos pelo TECLADO ficavam empilhados, porque
+ * os atalhos nao fechavam nada — e cada painel novo exigia lembrar de
+ * fechar os outros em todo lugar.
+ *
+ * Com UM estado so, a exclusivity vem da propria forma: abrir e
+ * atribuir, e nao ligar um `true` ao lado de outro. Nao existe
+ * combinacao de dois paineis abertos para representer, entao nao existe
+ * lista de fechamentos para esquecer
+ *
+ * O `null` e "nenhum aberto", e `alternarPainel` continua sendo o
+ * botao e a tecla: clicar no botao do painel que ja esta aberto
+ * fecha
+ */
+const PAINEL = {
+  INVENTARIO: "inventario",
+  MISSOES: "missoes",
+  BESTIARIO: "bestiary",
+  RANK: "rank",
+  CRAFT: "craft",
+  COLECAO: "collection",
+  STATUS: "status",
+  ENCHANT: "enchant",
+  MARKET: "market",
+  GUILD: "guild",
+};
+
+/**
+ * A tecla de cada painel.
+ *
+ * O mapa e declarado aqui, e nao espalhado em `if` dentro do
+ * `keydown`, porque e ele que garante que a tecla e o botao cheguem ao
+ * MESMO lugar: um `if (event.code === "KeyB")` ao lado de um `onClick`
+ * do botao sao dois lugares para lembrar quando um painel entra
+ */
+const ATALHO_PAINEL = {
+  KeyI: PAINEL.INVENTARIO,
+  KeyQ: PAINEL.MISSOES,
+  KeyB: PAINEL.BESTIARIO,
+  KeyR: PAINEL.RANK,
+  KeyC: PAINEL.CRAFT,
+
+  // A colecao ficou em K. As teclas livres antes eram I, Q, B, R, C e
+  // T, e K nao e usada por nenhuma outra acao nem pelo `GameCanvas`
+  KeyK: PAINEL.COLECAO,
+
+  /**
+   * O status e a `P`.
+   *
+   * Era a `S`, e a `S` e uma das quatro de MOVIMENTO: o `GameEngine`
+   * le `keys.has("KeyS")` para andar para baixo, e o `intent.js` do
+   * online le a mesma tecla. O `keydown` desta HUD esta no `window` e
+   * nao chama `preventDefault`, entao as duas coisas aconteciam no
+   * mesmo aperto: o painel abria E o personagem andava para baixo, e
+   * o jogador achava que o painel tinha comido o movimento
+   *
+   * E por isso que o painel nao pode ficar em W, A, S ou D: sao as
+   * quatro de andar, e as setas tem o mesmo papel. A `P` nao e usada
+   * por nenhuma outra acao do jogo
+   */
+  KeyP: PAINEL.STATUS,
+
+  // O encantamento. `KeyT` ja era do AUTO PLAY, entao ficou em `KeyX`:
+  // o auto e o T do "turn on" e mover a tecla dele seria trocar um
+  // atalho que o jogador ja usa por um painel vazio
+  KeyX: PAINEL.ENCHANT,
+
+  /**
+   * A GUILDA, no `G` logo depois do `X` do Encantar.
+   *
+   * A tecla e ao lado do botao de proposito: sao os dois paineis que
+   * mudam o STAT do personagem, entao ficam vizinhos na barra e
+   * vizinhos no teclado. `KeyG` nao e usada por nenhuma outra acao
+   */
+  KeyG: PAINEL.GUILD,
+
+  // O market. `KeyM` nao e usada por nenhuma outra acao, e `KeyB`,
+  // `KeyC` e `KeyR` ja sao de painel
+  KeyM: PAINEL.MARKET,
+};
 
 function chunk(items, size) {
   return Array.from(
@@ -284,9 +383,11 @@ function QuestTracker({
 
 export default function HUD({
   classDefinition,
+  characterName,
   snapshot,
   engineRef,
-  onBack,
+  onBack = null,
+  intencao = null,
 }) {
   const skillPages = useMemo(
     () => chunk(classDefinition.skills, 8),
@@ -294,24 +395,168 @@ export default function HUD({
   );
 
   const [page, setPage] = useState(0);
-  const [inventoryOpen, setInventoryOpen] = useState(false);
-  const [questsOpen, setQuestsOpen] = useState(false);
-  const [bestiaryOpen, setBestiaryOpen] = useState(false);
+
+  /**
+   * O painel aberto, ou `null`. Ver `PAINEL` acima: um so por vez, e
+   * o `null` e "nenhum"
+   */
+  const [painelAberto, setPainelAberto] = useState(null);
+
+  /**
+   * Abre, ou fecha se ja era esse.
+   *
+   * A atribuicao e o que fecha os outros: nao existe um "os outros"
+   * para listar, o estado anterior e substituido
+   */
+  const alternarPainel = useCallback((id) => {
+    setPainelAberto((atual) => (atual === id ? null : id));
+  }, []);
+
+  /**
+   * Abre sem alternar.
+   *
+   * Para o clique no cabecalho do rastreador de missoes: clicar ali
+   * nao e um botao de fechar, e um "va para as missoes". Com
+   * `alternarPainel`, clicar duas vezes abriria e fecharia em vez de
+   * manter aberto
+   */
+  const abrirPainel = useCallback((id) => {
+    setPainelAberto(id);
+  }, []);
+
+  /**
+   * O PAUSE.
+   *
+   * A tecla ESC abre uma cortina sobre o jogo com o botao de sair. O
+   * botao de voltar para as classes saiu da barra justamente por isso:
+   * ficar na beirada da tela e um convite a sair sem querer, e e uma
+   * acao que nao se desfaz. No pause ela fica onde o jogador a procura
+   * quando realmente quer — parado, com a tela escurecida
+   *
+   * O `pauseOpen` fecha ao pressionar ESC de novo, e nao ao clicar
+   * fora: um clique perdido no meio de uma fight nao pode custar o
+   * alvo, e o jogador precisa de um caminho de volta sem mouse
+   */
+  const [pauseOpen, setPauseOpen] = useState(false);
+
+  /**
+   * Abrir o PAUSE, e o que ele faz com os paineis.
+   *
+   * Fechar o painel aberto nao e detalhe: sao duas camadas na mesma
+   * tela, e o jogador que abriu o menu para sair nao deveria encontrar
+   * a colecao por cima dele
+   *
+   * A tecla ESC e o botao de configuracao chamam ESTE metodo, e nao
+   * duas copias da mesma regra. A tecla precisa ainda poder FECHAR o
+   * pause — e o unico caminho de volta sem mouse quando o painel cobre
+   * a tela —, e por isso a tecla usa `alternarPause` e o botao usa
+   * `abrirPause`
+   */
+  const abrirPause = useCallback(() => {
+    setPainelAberto(null);
+    setPauseOpen(true);
+  }, []);
+
+  const alternarPause = useCallback(() => {
+    setPauseOpen((current) => {
+      if (!current) {
+        setPainelAberto(null);
+      }
+
+      return !current;
+    });
+  }, []);
 
   const bestiary = snapshot?.bestiary ?? null;
+  const craft = snapshot?.craft ?? null;
+  const collection = snapshot?.collection ?? null;
+  const market = snapshot?.market ?? null;
+  const guilda = snapshot?.guilda ?? null;
+
+  /**
+   * Abre o inventario, e antes tira do corpo o que esta no slot errado.
+   *
+   * Quem tem peca vestida na posicao errada vem de um save antigo:
+   * antes de a peca declarar posicao, `head`, `chest` e `legs`
+   * aceitavam qualquer `ARMOR`, e o arquivo guardava o que o jogador
+   * vestiu. Sem esta correcao o painel mostraria um capuz no peito
+   * para sempre, e nenhuma regra de `equip` corrigiria sozinha: ela
+   * so roda quando o jogador veste alguma coisa
+   *
+   * A peca volta para a mochila na MESMA raridade, e nao e vestida no
+   * slot certo: o pedido foi "desequipar o que esta errado", e mudar
+   * o equipamento do jogador sem ele pedir seria decisao demais
+   */
+  const openInventory = useCallback(() => {
+    if (intencao) {
+      intencao.consertarEquipamento();
+    } else {
+      engineRef.current?.fixMisplacedEquipment();
+    }
+
+    alternarPainel(PAINEL.INVENTARIO);
+  }, [engineRef, intencao, alternarPainel]);
+
+  /**
+   * O rank de quem esta conectado.
+   *
+   * A lista vem ordenada do servidor; a tela nao reordena nada.
+   */
+  const rank = snapshot?.rank ?? null;
 
   useEffect(() => {
     const onKey = (event) => {
-      if (event.code === "KeyI") {
-        setInventoryOpen((current) => !current);
+      /**
+       * COM O FOCO NUM CAMPO, o atalho nao existe.
+       *
+       * O `keydown` esta no `window` e nao.preventDefault, entao sem
+       * esta guarda o jogador digitava `b` no nome da guilda e o
+       * bestiario abria por cima do campo — e `x` e `g`, que sao as
+       * teclas da guilda, abriam e fechavam o painel que o jogador
+       * estava preenchendo
+       *
+       * E o que segura o painel aberto enquanto o jogador escreve,
+       * sem fechar o que ele nao pediu para fechar
+       */
+      if (digitandoEm(event)) return;
+
+      const alvo = ATALHO_PAINEL[event.code];
+
+      /**
+       * A cortina e MODAL.
+       *
+       * Com o pause na tela, nenhum atalho de painel pode abrir painel
+       * por baixo. Sem esta guarda o `S` abria o status atras do veu:
+       * o jogador apertava Continuar e dava de cara com um painel que
+       * nao tinha pedido, e nao tinha como saber que a tecla fora a
+       * culpada
+       *
+       * A ESC continua valendo por aqui, e e o unico caminho de volta
+       * sem mouse: com o painel sobre a tela, o cursor nem sempre
+       * alcanca o "Continuar"
+       */
+      if (pauseOpen) {
+        if (event.code === "Escape") {
+          alternarPause();
+        }
+
+        return;
       }
 
-      if (event.code === "KeyQ") {
-        setQuestsOpen((current) => !current);
+      if (alvo) {
+        // o inventario e o unico com trabalho alem de abrir: ele
+        // conserta a peca no slot errado antes de mostrar a mochila
+        if (alvo === PAINEL.INVENTARIO) {
+          openInventory();
+        } else {
+          alternarPainel(alvo);
+        }
+
+        return;
       }
 
-      if (event.code === "KeyB") {
-        setBestiaryOpen((current) => !current);
+      if (event.code === "Escape") {
+        alternarPause();
       }
     };
 
@@ -319,13 +564,25 @@ export default function HUD({
 
     return () =>
       window.removeEventListener("keydown", onKey);
-  }, []);
 
-  const [autoSkills, setAutoSkills] = useState(() => {
+    // `openInventory` no lugar do `painelAberto` cru: o atalho tem
+    // que passar pela mesma correcao do botao, senao abrir pelo `I`
+    // mostraria a peca no slot errado e abrir pelo clique ja teria
+    // tirado.
+    //
+    // `pauseOpen` e dependencia de PROP: sem ele a guarda do modal
+    // leria o `false` do primeiro render e nunca entraria
+  }, [openInventory, alternarPainel, alternarPause, pauseOpen]);
+
+  // OFFLINE o estado mora no motor. ONLINE ele volta no painel, e
+  // e o painel que manda: o arrasto vira pedido, o servidor decide e
+  // o proximo pacote traz a lista. Ler o store local online era o
+  // que deixava a skill sem sinalizar.
+  const [autoSkillsLocais, setAutoSkillsLocais] = useState(() => {
     const initial = {};
 
     for (const skill of classDefinition.skills) {
-      initial[skill.id] = isSkillAuto(skill.id);
+      initial[skill.id] = Boolean(engineRef.current?.getSkillAuto?.(skill.id));
     }
 
     return initial;
@@ -336,143 +593,515 @@ export default function HUD({
   }, [classDefinition.id]);
 
   useEffect(() => {
-    setAutoSkills(() => {
+    if (intencao) return;
+
+    setAutoSkillsLocais(() => {
       const next = {};
 
       for (const skill of classDefinition.skills) {
-        next[skill.id] = isSkillAuto(skill.id);
+        next[skill.id] = Boolean(engineRef.current?.getSkillAuto?.(skill.id));
       }
 
       return next;
     });
-  }, [classDefinition]);
+  }, [classDefinition, engineRef, intencao]);
+
+  const autoSkillsDoPainel = useMemo(() => {
+    if (!intencao) return null;
+
+    const lista = snapshot?.skillAuto;
+
+    return new Set(Array.isArray(lista) ? lista : []);
+  }, [intencao, snapshot]);
+
+  const autoSkills = useMemo(() => {
+    if (!autoSkillsDoPainel) return autoSkillsLocais;
+
+    const next = {};
+
+    for (const skill of classDefinition.skills) {
+      next[skill.id] = autoSkillsDoPainel.has(skill.id);
+    }
+
+    return next;
+  }, [autoSkillsDoPainel, autoSkillsLocais, classDefinition]);
 
   const handleToggleAuto = useCallback(
     (skillId, enabled) => {
-      const next = setSkillAuto(skillId, enabled);
+      // online, quem guarda o "esta em automatico" e o servidor.
+      // o botao vira um pedido e o estado volta no painel
+      if (intencao) {
+        intencao.marcarAuto(skillId, enabled);
+        return;
+      }
 
-      engineRef.current?.setSkillAuto?.(skillId, next);
+      const next = Boolean(engineRef.current?.setSkillAuto?.(skillId, enabled));
 
-      setAutoSkills((current) => ({
+      setAutoSkillsLocais((current) => ({
         ...current,
         [skillId]: next,
       }));
     },
-    [engineRef],
+    [engineRef, intencao],
   );
 
   const handleToggleAutoPlay = useCallback(() => {
-    engineRef.current?.toggleAutoPlay();
-  }, [engineRef]);
+    if (intencao) {
+      intencao.alternarAutoPlay();
+      return;
+    }
 
-  const handleReset = useCallback(() => {
-    engineRef.current?.resetTargets();
-  }, [engineRef]);
+    engineRef.current?.toggleAutoPlay();
+  }, [engineRef, intencao]);
+
+  /**
+   * ATRAVESSAR O PORTAL.
+   *
+   * O mesmo desenho dos outros botoes do HUD: com rede, o pedido vai
+   * para o servidor, que e quem decide; sem rede, o motor local troca o
+   * mapa. Nos dois casos quem decide e quem tem o estado do mundo
+   */
+  /**
+ * A GUILDA: os oito handlers do painel.
+ *
+ * Todos com o mesmo desenho dos outros botoes: com rede, o pedido vai
+ * para o servidor; sem rede, o motor local responde. E o servidor quem
+ * decide papel, saldo e limite — o `guildStore` do motor so existe no
+ * single player, e la o resultado nunca sai pela tela mesmo
+ *
+ * Os nomes batem com os do `useGameClient`: um nome divergente aqui
+ * levanta `TypeError` DENTRO do handler do React, e o clique nao faz
+ * nada sem erro na tela. O `useGameClient.test.jsx` mede esse contrato
+ */
+const handleGuildCreate = useCallback(
+  (nome, tag) => {
+    if (intencao) {
+      intencao.criarGuilda(nome, tag);
+    }
+  },
+  [intencao],
+);
+
+const handleGuildSearch = useCallback(
+  (termo) => {
+    if (intencao) {
+      intencao.buscarGuilda(termo);
+    }
+  },
+  [intencao],
+);
+
+const handleGuildRequest = useCallback(
+  (guildaId) => {
+    if (intencao) {
+      intencao.pedirGuilda(guildaId);
+    }
+  },
+  [intencao],
+);
+
+const handleGuildAccept = useCallback(
+  (guildaId, alvoId) => {
+    if (intencao) {
+      intencao.aceitarGuilda(guildaId, alvoId);
+    }
+  },
+  [intencao],
+);
+
+const handleGuildDeny = useCallback(
+  (guildaId, alvoId) => {
+    if (intencao) {
+      intencao.negarGuilda(guildaId, alvoId);
+    }
+  },
+  [intencao],
+);
+
+const handleGuildLeave = useCallback(() => {
+  if (intencao) {
+    intencao.sairDaGuilda();
+  }
+}, [intencao]);
+
+const handleGuildTalent = useCallback(
+  (talentId) => {
+    if (intencao) {
+      intencao.destravarTalent(talentId);
+    }
+  },
+  [intencao],
+);
+
+const handleGuildCofre = useCallback(
+  (guildaId, acao) => {
+    if (intencao) {
+      intencao.mexerNoCofre(guildaId, acao);
+    }
+  },
+  [intencao],
+);
+
+const handleTravelPortal = useCallback(
+
+    (portalId) => {
+      if (intencao) {
+        /**
+         * `atravessarPortal`, com o A.
+         *
+         * O nome do metodo do objeto de intencao e o do `GameClient`, e
+         * nao o deste callback. Escrever `travessarPortal` aqui levanta
+         * um `TypeError` DENTRO do handler do React: o erro aparece no
+         * console e o clique nao faz nada, sem nenhuma falha na tela
+         */
+        intencao.atravessarPortal(portalId);
+        return;
+      }
+
+      engineRef.current?.travessarPortal();
+    },
+    [engineRef, intencao],
+  );
 
   const handleEquip = useCallback(
     (entry, slotId) => {
+      if (intencao) {
+        intencao.equipar(entry.uid, slotId);
+        return;
+      }
+
       engineRef.current?.equipItem(entry.uid, slotId);
     },
-    [engineRef],
+    [engineRef, intencao],
   );
 
   const handleUnequip = useCallback(
     (slotId) => {
+      if (intencao) {
+        intencao.desequipar(slotId);
+        return;
+      }
+
       engineRef.current?.unequipItem(slotId);
     },
-    [engineRef],
+    [engineRef, intencao],
   );
 
   const handleAutoEquip = useCallback(() => {
+    if (intencao) {
+      intencao.equiparMelhor();
+      return;
+    }
+
     engineRef.current?.autoEquipBest();
-  }, [engineRef]);
+  }, [engineRef, intencao]);
 
   const handleDiscardItem = useCallback(
     (uid) => {
+      if (intencao) {
+        intencao.descartar(uid);
+        return;
+      }
+
       engineRef.current?.discardItem(uid);
     },
-    [engineRef],
+    [engineRef, intencao],
   );
 
   const handleDiscardEquipped = useCallback(
     (slotId) => {
+      if (intencao) {
+        intencao.descartar(slotId);
+        return;
+      }
+
       engineRef.current?.discardEquipped(slotId);
     },
-    [engineRef],
+    [engineRef, intencao],
   );
 
   const handleFilterChange = useCallback(
     (key, value) => {
-      engineRef.current?.setLootFilter({
+      const proximo = {
         ...(snapshot?.lootFilter ?? {}),
         [key]: value,
-      });
+      };
+
+      // Online o filtro e do SERVIDOR: o loot e sorteado la, e o
+      // painel volta com o valor do dono. Chamar o motor da tela
+      // ajustava um filtro que ninguem lia, e a tela voltava ao
+      // normal no proximo pacote
+      if (intencao) {
+        intencao.filtroDeLoot(proximo);
+        return;
+      }
+
+      engineRef.current?.setLootFilter(proximo);
     },
-    [engineRef, snapshot],
+    [engineRef, intencao, snapshot],
   );
 
   const handleFilterReset = useCallback(() => {
+    if (intencao) {
+      intencao.filtroDeLoot(DEFAULT_LOOT_FILTER);
+      return;
+    }
+
     engineRef.current?.setLootFilter(DEFAULT_LOOT_FILTER);
-  }, [engineRef]);
+  }, [engineRef, intencao]);
 
   const handleFilterPrune = useCallback(() => {
+    if (intencao) {
+      intencao.podarMochila();
+      return;
+    }
+
     engineRef.current?.pruneInventory();
-  }, [engineRef]);
+  }, [engineRef, intencao]);
 
   const handleAcceptQuest = useCallback(
     (questId) => {
+      // online, o `QuestLog` esta no servidor. aceitar pelo motor da
+      // tela nao valeria: o cliente nao tem sessao nem simula, o
+      // clique morria aqui e a caixa continuava vazia
+      if (intencao) {
+        intencao.aceitarMissaoSecundaria(questId);
+        return;
+      }
+
       engineRef.current?.acceptSideQuest(questId);
     },
-    [engineRef],
+    [engineRef, intencao],
   );
 
   const handleAbandonQuest = useCallback(() => {
+    // mesma razao do aceite
+    if (intencao) {
+      intencao.abandonarMissaoSecundaria();
+      return;
+    }
+
     engineRef.current?.abandonSideQuest();
-  }, [engineRef]);
+  }, [engineRef, intencao]);
 
   const handleFocusQuest = useCallback(
     (questId) => {
+      // online, quem guarda o objetivo do piloto e o servidor.
+      // chamar o motor da tela nao faria nada: o cliente nao tem
+      // sessao nem simula, e o clique morria aqui
+      if (intencao) {
+        intencao.focarMissao(questId);
+        return;
+      }
+
       engineRef.current?.focusQuest(questId);
     },
-    [engineRef],
+    [engineRef, intencao],
   );
 
   const handleToggleQuestAuto = useCallback(() => {
+    if (intencao) {
+      intencao.alternarAutoMissao();
+      return;
+    }
+
     engineRef.current?.toggleQuestAuto();
-  }, [engineRef]);
+  }, [engineRef, intencao]);
+
+  /**
+   * O [RECEBER] do painel de missoes.
+   *
+   * Mesmo caminho do aceite e do abandono: online quem paga e o
+   * servidor. E o `questId` vai sozinho, porque e ele que localiza a
+   * recompensa na fila — o painel nao sabe quanto tem de gold, xp ou
+   * item a entregar, e nao deveria saber
+   */
+  const handleClaimQuestReward = useCallback(
+    (questId) => {
+      if (intencao) {
+        intencao.resgatarRecompensaMissao(questId);
+        return;
+      }
+
+      engineRef.current?.claimQuestReward(questId);
+    },
+    [engineRef, intencao],
+  );
 
   const handleHuntCreature = useCallback(
     (creatureId) => {
+      // online, a cacada mora na SESSAO do servidor. chamar o motor
+      // da tela nao valeria: o cliente nao tem sessao nem simula, o
+      // clique morria aqui e o piloto nunca ia atras da criatura
+      if (intencao) {
+        intencao.cacarCriatura(creatureId);
+        return;
+      }
+
       engineRef.current?.toggleBestiaryAuto(creatureId);
+    },
+    [engineRef, intencao],
+  );
+
+  const handleStopBestiaryAuto = useCallback(() => {
+    // mesma razao do pedido de cacada
+    if (intencao) {
+      intencao.pararCacada();
+      return;
+    }
+
+    engineRef.current?.clearBestiaryAuto();
+  }, [engineRef, intencao]);
+
+  const handleCraftItem = useCallback(
+    (recipeId, rarity) => {
+      if (intencao) {
+        // A raridade vai junto. Ela e o PEDIDO do jogador, e o
+        // servidor decide: confere se a receita tem variante
+        // naquela raridade e cobra o ingredients e as moedas que
+        // ela custa. Antes ela era descartada aqui, e o servidor
+        // criava na raridade natural da receita: escolher "rara" na
+        // tela produzia um item comum
+        intencao.criar(recipeId, rarity);
+        return;
+      }
+
+      engineRef.current?.craftItem(recipeId, rarity);
+    },
+    [engineRef, intencao],
+  );
+
+  /**
+   * Entrega uma colecao.
+   *
+   * Online vira PEDIDO e nao acao: o motor da tela nao tem sessao
+   * para este jogador, entao chamar `deliverCollection` aqui
+   * consumiria material de um motor vazio e o servidor nunca receberia
+   * a entrega. E o mesmo furo que a missao secundaria e a cacada do
+   * bestiario tinham
+   */
+  const handleDeliverCollection = useCallback(
+    (collectionId) => {
+      if (intencao) {
+        intencao.entregarColecao(collectionId);
+        return;
+      }
+
+      engineRef.current?.deliverCollection(collectionId);
+    },
+    [engineRef, intencao],
+  );
+
+/**
+   * Encanta a peca escolhida.
+   *
+   * Online vira PEDIDO e nao acao, pelo mesmo motivo da missao
+   * secundaria e da cacada do bestiario: o motor da tela nao tem sessao
+   * deste jogador, entao chamar `enchantItem` aqui consumiria o ouro de
+   * um motor vazio e o servidor nunca receberia o pedido
+   *
+   * O `alvo` chega `{uid}` para a peca da mochila e `{slotId}` para a
+   * que esta vestida. O painel monta o objeto porque ele sabe de onde
+   * veio a peca, e o motor escolhe o metodo certo a partir dele
+   */
+  const handleEnchantItem = useCallback(
+    (alvo) => {
+      if (intencao) {
+        intencao.encantar(alvo);
+        return;
+      }
+
+      const engine = engineRef.current;
+
+      if (alvo?.slotId) {
+        engine?.enchantSlot(alvo.slotId);
+        return;
+      }
+
+      engine?.enchantItem(alvo?.uid);
+    },
+    [engineRef, intencao],
+  );
+
+  /**
+   * As tres acoes do MARKET.
+   *
+   * Online todas vao por pedido, e SEMPRE: o mercado e o unico lugar
+   * onde o dinheiro de um jogador muda de mao, e isso tem de passar pelo
+   * servidor. No single player nao ha `marketStore` no motor, entao o
+   * caminho offline nao existe — e o painel vem vazio, o que o jogador
+   * ve na aba de comprar
+   */
+  /**
+   * Anunciar um item da mochila.
+   *
+   * O `MarketPanel` chama o `onList` com UM OBJETO (`{ uid, price,
+   * count }`), e nao com argumentos soltos. Os tres campos agora viajam
+   * juntos, e um pedido com tres posicoais quebraria no primeiro campo
+   * novo — que e exatamente o que aconteceu: o `uid` chegava como
+   * objeto, o `parsePanel` o descartava, e o servidor respondia "Voce nao
+   * tem esse item" para um item que o jogador estava vendo na mochila
+   *
+   * A quebra de linha e a traducao para os argumentos posicionais do
+   * `GameClient`, que e quem escreve no socket
+   */
+  const handleListItem = useCallback(
+    (pedido) => {
+      if (intencao) {
+        intencao.listarNoMarket(
+          pedido?.uid,
+          pedido?.price,
+          pedido?.count,
+        );
+      }
+    },
+    [intencao],
+  );
+
+  const handleBuyItem = useCallback(
+    (listingId) => {
+      if (intencao) {
+        intencao.comprarNoMarket(listingId);
+      }
+    },
+    [intencao],
+  );
+
+  const handleCancelListing = useCallback(
+    (listingId) => {
+      if (intencao) {
+        intencao.cancelarNoMarket(listingId);
+      }
+    },
+    [intencao],
+  );
+
+  /**
+   * Equipa o item no slot onde ele tem que ficar.
+   *
+   * Antes isto escolhia "o primeiro slot que aceita o tipo". Com
+   * `head`, `chest` e `legs` aceitando todos `ARMOR`, isso vestia
+   * uma bota na cabeca e um gibao num slot de cabeca, conforme a
+   * ordem do boneco. E o destino passou a ser o slot que o proprio
+   * item declara
+   */
+  const equipInItsSlot = useCallback(
+    (entry) => {
+      const engine = engineRef.current;
+
+      if (!engine) return;
+
+      const destino = engine.slotFor(entry.itemId);
+
+      if (!destino) return;
+
+      engine.equipItem(entry.uid, destino);
     },
     [engineRef],
   );
 
-  const handleStopBestiaryAuto = useCallback(() => {
-    engineRef.current?.clearBestiaryAuto();
-  }, [engineRef]);
-
-  const openFirstFreeSlot = useCallback(
-    (entry) => {
-      const equipment = snapshot?.equipment;
-
-      if (!equipment) return;
-
-      const slot = equipment.slots.find((candidate) =>
-        candidate.accepts.includes(
-          getItem(entry.itemId)?.type,
-        ),
-      );
-
-      if (!slot) return;
-
-      engineRef.current?.equipItem(entry.uid, slot.id);
-    },
-    [engineRef, snapshot],
-  );
-
   const player = snapshot?.player ?? {
-    name: classDefinition.name,
+    name: characterName ?? classDefinition.name,
     className: classDefinition.name,
     level: 1,
     hp: classDefinition.stats.hp,
@@ -491,6 +1120,27 @@ export default function HUD({
 
   const cooldowns = snapshot?.cooldowns ?? {};
   const visibleSkills = skillPages[page] ?? [];
+
+  /**
+   * A posicao do jogador no rank, para o medalão do botão.
+   *
+   * E a posicao COMPLETA, "2/5", e nao o numero solto: com cinco
+   * pessoas conectadas um "2" no botão nao diz nada, e o numero
+   * solto ainda pareceria uma contagem de caçadas, que e o que o
+   * medalão do bestiário mostra. So aparece com mais de uma pessoa,
+   * porque "1/1" é ruido.
+   */
+  const minhaPosicao = (() => {
+    const lista = rank?.[RANK_CRITERIO.NIVEL] ?? [];
+
+    if (lista.length < 2) return null;
+
+    const eu = lista.find(
+      (jogador) => jogador.id === player.id,
+    );
+
+    return eu ? `${eu.posicao}/${lista.length}` : null;
+  })();
 
   const summary = snapshot?.inventory ?? {
     coins: 0,
@@ -511,8 +1161,15 @@ export default function HUD({
             Lv.{player.level}
           </span>
 
-          <span className="hud-vitals__name">
-            {player.className}
+          <span
+            className="hud-vitals__name"
+            title={`${player.name} · ${player.className}`}
+          >
+            {player.name}
+            {/* a classe fica ao lado do nome, nao no lugar dele:
+                sao coisas diferentes e so a classe aparecia
+                antes */}
+            <small>{player.className}</small>
           </span>
         </header>
 
@@ -532,13 +1189,11 @@ export default function HUD({
           className={[
             "hud-pouch",
             summary.isFull ? "is-full" : "",
-            inventoryOpen ? "is-open" : "",
+            painelAberto === PAINEL.INVENTARIO ? "is-open" : "",
           ]
             .filter(Boolean)
             .join(" ")}
-          onClick={() =>
-            setInventoryOpen((current) => !current)
-          }
+          onClick={() => openInventory()}
           title="Inventário (I)"
         >
           <span className="hud-pouch__coins">
@@ -556,35 +1211,151 @@ export default function HUD({
             ESCUDO {player.shield}
           </span>
         )}
-      </section>
 
-      <BuffStrip effects={player.statusEffects} />
+        {/*
+          A POSICAO NO MAPA, na coluna da esquerda.
 
-      <nav className="hud-menu">
+          Fica DENTRO do bloco de vida, e nao como irmao dele, por uma
+          razao pratica: o bloco e `position: absolute` com `top: 12px` e
+          a altura dele muda conforme o que tem dentro — nome, barras, a
+          linha de ATQ/DEF/VEL, a bolsa e o escudo. Como irmao, este
+          mostrador precisaria de um `top` com numero magico para passar
+          por baixo do card, e esse numero estari errado na hora que
+          alguem adicionasse uma linha la dentro
+
+          Dentro, ele acompanha o reflow sozinho e some nunca. E a linha
+          do ATQ/DEF/VEL ja e um bloco de numeros do personagem entao,
+          entao a posicao fica no mesmo lugar sem parecer adesivo
+          * colado por cima
+
+          E um `<output>`, e nao um `<div>` com texto: e um valor, e um
+          leitor de tela anuncia a mudanca sem interromper o jogador
+
+          Some quando nao ha coordenada: o painel pode chegar antes do
+          primeiro `snapshot` com posicao, e "X undefined" e pior do que
+          nada
+        */}
+        {Number.isFinite(player.x) &&
+          Number.isFinite(player.y) && (
+            <output className="hud-coords">
+              X {player.x} · Y {player.y}
+            </output>
+          )}
+</section>
+
+        {/*
+          O STATUS, ao lado do bloco de vida.
+
+          Different de qualquer outro botao da HUD: ele NAO esta dentro
+          do `<section className="hud-vitals">`, e sim logo depois dele,
+          como irmao. Duas razoes:
+
+          1. dentro do bloco, o botao empurraria o conteudo dele e
+             mudaria a altura da barra de vida — e o bloco e `position:
+             absolute` com largura fixa, entao o estrago seria so de
+             layout
+          2. o botao precisa de `top`/`left` proprios para se alinhar ao
+             lado do bloco. Dentro do `.hud-vitals` ele herdaria o
+             contexto de posicionamento do bloco e a posicao seria
+             relativa a ele, e nao a tela
+
+          O visual e o de um `hud-btn` comum — o mesmo circulo do
+          bestiario — e a cor e a da vida, porque o painel e o do
+          personagem e nao acao sobre o mundo
+        */}
         <button
           type="button"
-          className="hud-btn"
-          onClick={onBack}
-          title="Voltar para as classes"
+          className={[
+            "hud-btn",
+            "hud-btn--status",
+            painelAberto === PAINEL.STATUS ? "is-active" : "",
+          ]
+            .filter(Boolean)
+            .join(" ")}
+          onClick={() => alternarPainel(PAINEL.STATUS)}
+          title="Status (P)"
+          aria-label="Abrir o painel de status"
         >
-          ←
+          <HudIcon iconId="stats" />
         </button>
 
+        {/*
+          O ENCANTAMENTO, onde era o painel de teste.
+
+          Era um painel vazio que dizia "Nada para mostrar ainda", e o
+          espaco na barra era de primeira classe demais para isso. O
+          `X` e o botao continuam, porque a tecla e o `X` ja eram do
+          jogador antes de o painel existir
+        */}
+        <button
+          type="button"
+          className={[
+            "hud-btn",
+            "hud-btn--test",
+            painelAberto === PAINEL.ENCHANT ? "is-active" : "",
+          ]
+            .filter(Boolean)
+            .join(" ")}
+          onClick={() => alternarPainel(PAINEL.ENCHANT)}
+          title="Encantar (X)"
+          aria-label="Abrir o painel de encantamento"
+        >
+          ✧
+        </button>
+
+        {/*
+          A GUILDA, logo abaixo do Encantar.
+
+          A posicao nao e estetica: a guilda e o unico painel que muda
+          o personagem de verdade — o talento dela entra no
+          `applyEquipment` como stat. Ficar perto do Encantar, que
+          tambem mexe no personagem, e o que faz os dois botoes de
+          "mudar meus numeros" ficarem juntos
+        */}
+        <button
+          type="button"
+          className={[
+            "hud-btn",
+            "hud-btn--guild",
+            painelAberto === PAINEL.GUILD ? "is-active" : "",
+          ]
+            .filter(Boolean)
+            .join(" ")}
+          onClick={() => alternarPainel(PAINEL.GUILD)}
+          title="Guilda (G)"
+          aria-label="Abrir o painel de guilda"
+        >
+          <HudIcon iconId="guild" />
+
+          {/*
+            O numero de pontos, quando ha mais de zero.
+
+            E o que faz o jogador LEMBRAR que a guilda existe: um
+            botao sem numero some na barra, e um ponto por hora so
+            faz sentido se ele percebe que o ponto chegou
+          */}
+          {guilda?.pontos > 0 && (
+            <span className="hud-btn__badge">{guilda.pontos}</span>
+          )}
+        </button>
+
+        <BuffStrip effects={player.statusEffects} />
+
+      <nav className="hud-menu">
         <button
           type="button"
           className={[
             "hud-btn",
             "hud-btn--bestiary",
-            bestiaryOpen ? "is-active" : "",
+            painelAberto === PAINEL.BESTIARIO ? "is-active" : "",
           ]
             .filter(Boolean)
             .join(" ")}
-          onClick={() =>
-            setBestiaryOpen((current) => !current)
-          }
+          onClick={() => alternarPainel(PAINEL.BESTIARIO)}
           title="Bestiario (B)"
+          aria-label="Abrir o bestiario"
         >
-          ☠
+          <HudIcon iconId="bestiario" />
           {bestiary &&
             bestiary.completed > 0 && (
               <i className="hud-btn__badge">
@@ -593,13 +1364,138 @@ export default function HUD({
             )}
         </button>
 
+        {/*
+          O MARKET, COLADO no bestiario.
+
+          O pedido foi "ao lado do bestiario", e ele e a vitrine entre
+          os dois: o que o jogador caçou e o que ele pode vender. A
+          colecao entra DEPOIS dos dois, e nao entre eles — os tres
+          botoes sao progresso acumulado, com numero no badge, mas o
+          par que se consulta sempre e bestiario + market
+        */}
         <button
           type="button"
-          className="hud-btn hud-btn--reset"
-          onClick={handleReset}
-          title="Restaurar alvos"
+          className={[
+            "hud-btn",
+            "hud-btn--market",
+            painelAberto === PAINEL.MARKET ? "is-active" : "",
+          ]
+            .filter(Boolean)
+            .join(" ")}
+          onClick={() => alternarPainel(PAINEL.MARKET)}
+          title="Market (M)"
+          aria-label="Abrir o mercado"
         >
-          ↺
+          <HudIcon iconId="market" />
+          {market && market.listings.length > 0 && (
+            <i className="hud-btn__badge">
+              {market.listings.length}
+            </i>
+          )}
+        </button>
+
+        {/*
+          A COLECAO, depois do par bestiario + market.
+
+          E progresso acumulado do jogador, com um numero no badge, e
+          fica aqui em vez de depois do craft — que e acao, e nao
+          progresso
+        */}
+        <button
+          type="button"
+          className={[
+            "hud-btn",
+            "hud-btn--collection",
+            painelAberto === PAINEL.COLECAO ? "is-active" : "",
+          ]
+            .filter(Boolean)
+            .join(" ")}
+          onClick={() => alternarPainel(PAINEL.COLECAO)}
+          title="Colecao (K)"
+          aria-label="Abrir a colecao"
+        >
+          <HudIcon iconId="collection" />
+          {collection &&
+            collection.total > collection.completed && (
+              <i className="hud-btn__badge">
+                {collection.completed}/{collection.total}
+              </i>
+            )}
+        </button>
+
+        <button
+          type="button"
+          className={[
+            "hud-btn",
+            "hud-btn--craft",
+            painelAberto === PAINEL.CRAFT ? "is-active" : "",
+          ]
+            .filter(Boolean)
+            .join(" ")}
+          onClick={() => alternarPainel(PAINEL.CRAFT)}
+          title="Craft (C)"
+          aria-label="Abrir o craft"
+        >
+          <HudIcon iconId="craft" />
+          {craft && craft.ready > 0 && (
+            <i className="hud-btn__badge">
+              {craft.ready}
+            </i>
+          )}
+        </button>
+
+        <button
+          type="button"
+          className={[
+            "hud-btn",
+            "hud-btn--rank",
+            painelAberto === PAINEL.RANK ? "is-active" : "",
+          ]
+            .filter(Boolean)
+            .join(" ")}
+          onClick={() => alternarPainel(PAINEL.RANK)}
+          title="Rank (R)"
+          aria-label="Abrir o rank"
+        >
+          <HudIcon iconId="rank" />
+          {minhaPosicao && (
+            <i className="hud-btn__badge">{minhaPosicao}</i>
+          )}
+        </button>
+
+        {/*
+          A CONFIGURACAO, no fim da fila.
+
+          E o botao da engrenagem, e ele ABRE o pause — a mesma cortina
+          que a ESC abre. Nao ha um painel de configuracao proprio:
+          quem sai do personagem e quem continua esta no pause, e fazer
+          um segundo menu com as mesmas duas opcoes seria uma escolha
+          sem motivo
+
+          E o ULTIMO da fila de proposito. Os botoes da frente sao
+          consulta de progresso — o que eu cacei, o que eu tenho, o que
+          eu virei — e a engrenagem e acao sobre o jogo. Um botao de
+          acao no meio da fila de consulta faria o jogador abrir um
+          menu para sair no meio de um numero de badge
+
+          Nao alterna: ele ABRE. Fechar e o "Continuar" dentro do
+          pause, e a ESC. Um botao que fechasse e abrisse o pause
+          pareceria travado, ja que o veu cobre a tela e o jogador
+          quase nunca chega nele com o cursor
+        */}
+        <button
+          type="button"
+          className={[
+            "hud-btn",
+            "hud-btn--settings",
+          ]
+            .filter(Boolean)
+            .join(" ")}
+          onClick={abrirPause}
+          title="Configuracao (ESC)"
+          aria-label="Abrir o menu de configuracao"
+        >
+          <HudIcon iconId="settings" />
         </button>
       </nav>
 
@@ -706,11 +1602,22 @@ export default function HUD({
         </p>
       </footer>
 
+      <PortalBox
+        portal={snapshot?.portal ?? null}
+        minimapTop={
+          snapshot?.selectedTarget
+            ? MINIMAP_TOP_TARGETED
+            : MINIMAP_TOP_IDLE
+        }
+        minimapHeight={MINIMAP_HEIGHT}
+        onTravel={handleTravelPortal}
+      />
+
       <div className="hud-stack">
         <QuestTracker
           quests={snapshot?.quests}
           player={player}
-          onOpen={() => setQuestsOpen(true)}
+          onOpen={() => abrirPainel(PAINEL.MISSOES)}
           onFocus={handleFocusQuest}
         />
 
@@ -720,34 +1627,111 @@ export default function HUD({
         />
       </div>
 
-      {questsOpen && (
+      {painelAberto === PAINEL.MISSOES && (
         <QuestPanel
           quests={snapshot?.quests}
-          onClose={() => setQuestsOpen(false)}
+          onClose={() => alternarPainel(PAINEL.MISSOES)}
           onAccept={handleAcceptQuest}
           onAbandon={handleAbandonQuest}
           onFocus={handleFocusQuest}
           onToggleAuto={handleToggleQuestAuto}
+          onClaim={handleClaimQuestReward}
         />
       )}
 
-      {bestiaryOpen && (
+      {painelAberto === PAINEL.BESTIARIO && (
         <BestiaryPanel
           bestiary={bestiary}
           hunting={snapshot?.bestiaryAuto?.creatureId ?? null}
           onHunt={handleHuntCreature}
-          onClose={() => setBestiaryOpen(false)}
+          onClose={() => alternarPainel(PAINEL.BESTIARIO)}
         />
       )}
 
-      {inventoryOpen && (
+      {painelAberto === PAINEL.RANK && (
+        <RankPanel
+          rank={rank}
+          meuId={player.id}
+          onClose={() => alternarPainel(PAINEL.RANK)}
+        />
+      )}
+
+      {painelAberto === PAINEL.CRAFT && (
+        <CraftPanel
+          craft={craft}
+          onCraft={handleCraftItem}
+          onClose={() => alternarPainel(PAINEL.CRAFT)}
+        />
+      )}
+
+      {painelAberto === PAINEL.COLECAO && (
+        <CollectionPanel
+          collection={collection}
+          onDeliver={handleDeliverCollection}
+          onClose={() => alternarPainel(PAINEL.COLECAO)}
+        />
+      )}
+
+      {painelAberto === PAINEL.STATUS && (
+        <StatusPanel
+          stats={player?.stats ?? null}
+          className={player?.className ?? null}
+          level={player?.level ?? null}
+          onClose={() => alternarPainel(PAINEL.STATUS)}
+        />
+      )}
+
+      {painelAberto === PAINEL.ENCHANT && (
+        <EnchantPanel
+          inventory={snapshot?.inventory}
+          equipment={snapshot?.equipment}
+          onEnchant={handleEnchantItem}
+          onClose={() => alternarPainel(PAINEL.ENCHANT)}
+        />
+      )}
+
+      {/*
+        A GUILDA.
+
+        O `guilda` vem inteiro do painel: nome, membros, pedidos, arvore
+        e saldo de pontos. A tela nao deduce papel nem calcula custo —
+        quem sabe disso e o servidor, e a tela so mostra e pede
+      */}
+      {painelAberto === PAINEL.GUILD && (
+        <GuildPanel
+          guilda={guilda}
+          moedas={summary.coins}
+          onCriar={handleGuildCreate}
+          onBuscar={handleGuildSearch}
+          onPedir={handleGuildRequest}
+          onAceitar={handleGuildAccept}
+          onNegar={handleGuildDeny}
+          onSair={handleGuildLeave}
+          onTalent={handleGuildTalent}
+          onCofre={handleGuildCofre}
+          onClose={() => alternarPainel(PAINEL.GUILD)}
+        />
+      )}
+
+      {painelAberto === PAINEL.MARKET && (
+        <MarketPanel
+          market={market}
+          inventory={snapshot?.inventory}
+          onBuy={handleBuyItem}
+          onCancel={handleCancelListing}
+          onList={handleListItem}
+          onClose={() => alternarPainel(PAINEL.MARKET)}
+        />
+      )}
+
+      {painelAberto === PAINEL.INVENTARIO && (
         <InventoryPanel
           inventory={summary}
           equipment={snapshot?.equipment}
           player={player}
           lootFilter={snapshot?.lootFilter}
-          onClose={() => setInventoryOpen(false)}
-          onEquip={(entry) => openFirstFreeSlot(entry)}
+          onClose={() => alternarPainel(PAINEL.INVENTARIO)}
+          onEquip={(entry) => equipInItsSlot(entry)}
           onUnequip={handleUnequip}
           onDiscardItem={handleDiscardItem}
           onDiscardEquipped={handleDiscardEquipped}
@@ -776,6 +1760,48 @@ export default function HUD({
         </span>
         <span className="hud-ability__key">T</span>
       </button>
+
+      {/*
+        O PAUSE.
+        A cortina cobre a tela inteira e escurece o jogo: e o que separa
+        "estou olhando um painel" de "parei". O botao de sair fica AQUI,
+        e nao na barra — sair nao e um atalho, e uma decisao
+      */}
+      {pauseOpen && (
+        <div className="pause" role="dialog" aria-modal="true">
+          <div className="pause__veil" />
+
+          <div className="pause__panel">
+            <h2 className="pause__title">Pausado</h2>
+
+            <p className="pause__hint">
+              O jogo continua rodando: quem estiver jogando online
+              ve voce normalmente.
+            </p>
+
+            <button
+              type="button"
+              className="pause__btn pause__btn--primary"
+              onClick={() => setPauseOpen(false)}
+            >
+              Continuar
+            </button>
+
+            {onBack && (
+              <button
+                type="button"
+                className="pause__btn"
+                onClick={() => {
+                  setPauseOpen(false);
+                  onBack();
+                }}
+              >
+                Voltar para as classes
+              </button>
+            )}
+          </div>
+        </div>
+      )}
     </div>
   );
 }

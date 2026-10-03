@@ -1,4 +1,4 @@
-﻿import { useMemo, useState } from "react";
+import { useMemo, useState } from "react";
 import {
   getItem,
   ITEM_TYPE,
@@ -8,13 +8,26 @@ import {
   RARITY_STYLE,
 } from "../../data/items/index.js";
 import {
+  isEquippable,
+  slotNameFor,
+} from "../../game/equipment/Equipment.js";
+import ItemIcon from "../UI/ItemIcon.jsx";
+import InvSlotView from "../UI/InvSlotView.jsx";
+import {
   DEFAULT_LOOT_FILTER,
   LOOT_CATEGORIES,
   LOOT_CATEGORY_LABEL,
   normalizeLootFilter,
 } from "../../game/loot/lootFilter.js";
 
-const TABS = [
+/**
+ * As abas da mochila.
+ *
+ * `types` e o filtro da aba, e o `[]` e um filtro que nao casa com
+ * nada: e assim que a aba de runas existe sem mostrar item. Um
+ * `null` devolveria TUDO, e a aba seria um duplicado da "Tudo"
+ */
+export const TABS = [
   { id: "all", label: "Tudo", icon: "▤", types: null },
   {
     id: "equip",
@@ -32,14 +45,31 @@ const TABS = [
     icon: "◈",
     types: [ITEM_TYPE.MATERIAL],
   },
+  {
+    id: "rune",
+    label: "Runas",
+    // `ᚱ` e uma letra runica, e nao um emoji: nao ha variation
+    // selector depois dela, entao o navegador desenha como glifo de
+    // TEXTO e ela herda a cor da aba. Um emoji aqui sairia colorido
+    // ao lado das outras tres, que sao todas glifos
+    icon: "ᚱ",
+    // `types` vazio, e nao `null`: e a aba que ainda nao mostra nada.
+    // Com `null` o filtro devolve TUDO, e a aba de runas viraria uma
+    // copia da aba "Tudo". Com `[]` o `includes` nunca casa e a grade
+    // fica vazia, mostrando o "Nenhum item nesta categoria"
+    types: [],
+  },
 ];
 
 // área de cada peça no boneco de equipamento (grid 3x3 do OSRS)
 const DOLL_AREA = {
   head: "head",
+  gloves: "gloves",
   weapon: "weapon",
+  weapon2: "weapon2",
   chest: "chest",
   legs: "legs",
+  boots: "boots",
   trinket1: "trinket1",
   trinket2: "trinket2",
 };
@@ -111,12 +141,31 @@ export function ItemSlot({
 
   if (!item) return null;
 
-  const rarity = rarityOf(item);
+  /**
+   * A raridade do SLOT e a da variante na mochila, e nao a do
+   * catalogo.
+   *
+   * O catalogo tem uma raridade so, e ela e a "natural" do item. O
+   * craft entrega o mesmo arco nas cinco, entao um `willow_bow`
+   * guardado pode ser lendario. Ler `item.rarity` pintava o slot com
+   * a cor da raridade base enquanto o nome no `title` dizia outra
+   * coisa, e a arte da raridade que se ajuste a cor
+   */
+  const raridadeId = entry.rarity ?? item.rarity;
+
+  const rarity = RARITY_STYLE[raridadeId] ?? rarityOf(item);
 
   const unique = !item.stackable;
 
+  // so oferece "Equipar" quando o item tem ALGUM slot de destino
+  // valido. A regra antiga so olhava o tipo, e toda armadura tinha
+  // os tres slots de armadura como destino; agora a posicao conta, e
+  // um item cuja posicao nao existe no boneco fica sem a opcao em vez
+  // de falhar ao clicar
   const equippable =
-    item.type !== ITEM_TYPE.MATERIAL && item.tier > 0;
+    item.type !== ITEM_TYPE.MATERIAL &&
+    item.tier > 0 &&
+    isEquippable(item);
 
   const actions = [];
 
@@ -139,9 +188,15 @@ export function ItemSlot({
     }
   } else {
     if (equippable && onEquip) {
+      // O rotulo diz ONDE a peca vai. Com a regra da posicao, isso
+      // deixou de ser obvio: "Equipar" num slot livre qualquer era
+      // uma promessa vaga, e o jogador so descobria o destino depois
+      // de vestir
+      const destino = slotNameFor(item);
+
       actions.push({
         id: "equip",
-        label: "Equipar",
+        label: destino ? `Equipar · ${destino}` : "Equipar",
         run: () => onEquip(entry),
       });
     }
@@ -157,25 +212,11 @@ export function ItemSlot({
   }
 
   return (
-    <div
-      className={[
-        "inv-slot",
-        `inv-slot--${item.rarity}`,
-        entry.equipped ? "is-equipped" : "",
-        compact ? "is-compact" : "",
-        menuOpen ? "is-menu" : "",
-      ]
-        .filter(Boolean)
-        .join(" ")}
-      style={{
-        "--rarity": rarity.color,
-        ...(area ? { gridArea: area } : null),
-      }}
-      title={`${item.name}\n${rarity.label} · ${
-        ITEM_TYPE_LABEL[item.type]
-      }\nValor: ${item.value} moedas${
-        statLine(item.stats) ? `\n${statLine(item.stats)}` : ""
-      }`}
+    <InvSlotView
+      entry={entry}
+      compact={compact}
+      area={area}
+      className={menuOpen ? "is-menu" : ""}
     >
       <button
         type="button"
@@ -183,33 +224,7 @@ export function ItemSlot({
         onClick={() => onToggleMenu?.(entry)}
         aria-label={item.name}
         aria-expanded={menuOpen}
-      >
-        <span className="inv-slot__icon">
-          {item.icon}
-        </span>
-      </button>
-
-      {entry.equipped && (
-        <span className="inv-slot__badge inv-slot__badge--equipped">
-          E
-        </span>
-      )}
-
-      {item.tier > 0 && (
-        <span className="inv-slot__badge inv-slot__badge--tier">
-          T{item.tier}
-        </span>
-      )}
-
-      {unique && (
-        <span className="inv-slot__mark" title="Item único" />
-      )}
-
-      {entry.count > 1 && (
-        <span className="inv-slot__count">
-          {entry.count}
-        </span>
-      )}
+      />
 
       {menuOpen && (
         <SlotMenu
@@ -217,7 +232,7 @@ export function ItemSlot({
           align={area ? "left" : "center"}
         />
       )}
-    </div>
+    </InvSlotView>
   );
 }
 
@@ -239,6 +254,12 @@ function DollSlot({
         onToggleMenu={onToggleMenu}
         entry={{
           itemId: slot.itemId,
+          // A raridade da variante vestida. Sem esta linha a entrada
+          // nao trazia raridade nenhuma, e o slot caia na do
+          // catalogo: vestir um arco lendario mostrava a arte da
+          // raridade base dele, que e o mesmo arco em outra
+          // imagem
+          rarity: slot.rarity ?? null,
           count: 1,
           slotId: slot.id,
           equipped: true,
@@ -510,7 +531,17 @@ export default function InventoryPanel({
       .map((entry) => {
         const item = getItem(entry.itemId);
 
-        return item ? { entry, item } : null;
+        if (!item) return null;
+
+        // ordena pela raridade que o slot vai MOSTRAR, e nao pela do
+        // catalogo. Um arco base e um arco lendario sao o mesmo item,
+        // entao ordenar so pelo catalogo punha os dois juntos e o
+        // lendario nao chegava ao topo que ele deveria ter
+        return {
+          entry,
+          item,
+          raridadeId: entry.rarity ?? item.rarity,
+        };
       })
       .filter(Boolean);
 
@@ -525,7 +556,7 @@ export default function InventoryPanel({
 
     return list.sort(
       (a, b) =>
-        (rank[a.item.rarity] ?? 9) - (rank[b.item.rarity] ?? 9),
+        (rank[a.raridadeId] ?? 9) - (rank[b.raridadeId] ?? 9),
     );
   }, [visible]);
 

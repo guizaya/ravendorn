@@ -1,22 +1,382 @@
 import {
+  existsSync,
   readFileSync,
-  readdirSync,
   writeFileSync,
 } from "node:fs";
 import { inflateSync } from "node:zlib";
-import { dirname, resolve } from "node:path";
-import { fileURLToPath } from "node:url";
+import {
+  dirname,
+  relative,
+  resolve,
+} from "node:path";
+import { fileURLToPath, pathToFileURL } from "node:url";
 import { encodePng } from "./png.mjs";
 
 const HERE = dirname(fileURLToPath(import.meta.url));
-const SOURCE_DIR = resolve(
-  HERE,
-  "../src/assets/sprites/arbalist",
-);
-const OUTPUT = resolve(
-  HERE,
-  "../src/assets/sprites/arbalist-sheet.png",
-);
+
+/**
+ * As folhas que a ferramenta monta.
+ *
+ * Cada uma tem o seu tamanho de celula: o arqueiro e o arqueiro
+ * zumbi usam artes de origem com dimensoes diferentes, e um frame
+ * quadrado de 64x64 nao cabe numa celula de 68x68 sem cortar o
+ * personagem. Encolher as duas para o menor seria perder pixels da
+ * arte nova, entao cada sheet declara o proprio tamanho.
+ *
+ * `idle` e `shootFallback` existem por causa do ogre da predeira, que
+ * veio com uma arte menos completa que as outras duas: nao tem
+ * `idle.gif`, e o golpe (o nome da pasta no origem e `shoot`, mas nao
+ * ha arco nenhum) so veio em 5 das 8 direcoes. Ver `buildSheet`.
+ */
+export const SHEETS = {
+  arbalist: {
+    sourceDir: "src/assets/sprites/arbalist",
+    output: "src/assets/sprites/arbalist-sheet.png",
+    frameSize: 64,
+    prefix: "ARBALIST",
+  },
+  zumbi: {
+    sourceDir: "src/assets/sprites/zumbi_arbalist",
+    output: "src/assets/sprites/zumbi_arbalist-sheet.png",
+    frameSize: 68,
+    prefix: "ZUMBI",
+  },
+  ogre: {
+    sourceDir: "src/assets/sprites/ogre_da_predeira",
+    output:
+      "src/assets/sprites/ogre_da_predeira-sheet.png",
+    frameSize: 68,
+    prefix: "OGRE_PREDEIRA",
+
+    // Sem `idle.gif`. A folha sai com 8 linhas de caminhada e 8 de
+    // golpe, sem a linha de idle no meio, e o layout do inimigo
+    // aponta o idle para o primeiro frame da propria linha de
+    // caminhada da direcao: um pose parado, mas virado para o
+    // lugar certo, que e o melhor que existe sem arte de idle.
+    idle: false,
+
+    /**
+     * Direcao que substitui cada lane de golpe ausente.
+     *
+     * A escolha e a vizinha mais proxima na ROSA DOS VENTOS, e nao a
+     * primeira que apareceu na pasta. A ordem de `ROWS` e
+     * circular, entao a distancia e circular tambem: `north` esta a
+     * 2 passos de `east` e de `west`, e a 3 de `south-east`.
+     *
+     * `south` (o oposto) esta descartado de proposito: colar o lado
+     * de frente no lugar do lado de costas faria o jogador ver a
+     * CARA do ogre quando o ogre esta virado para away, que e o
+     * caso mais comum num golpe.
+     *
+     * Declarar o mapa aqui, em vez de a ferramenta escolher, deixa a
+     * troca visivel no codigo e no log: e uma decisao sobre a arte,
+     * nao um detalhe de implementacao.
+     */
+    shootFallback: {
+      north: "east",
+      "north-east": "east",
+      "north-west": "west",
+    },
+  },
+  boneco: {
+    sourceDir: "src/assets/sprites/boneco_de_madeira",
+    output: "src/assets/sprites/boneco_de_madeira-sheet.png",
+    frameSize: 68,
+    prefix: "BONECO",
+
+    // O boneco de treino so tem as OITO DIRECOES de caminhada.
+    // Nem idle, nem golpe: e um boneco, ele nao ataca. A folha sai
+    // com 8 linhas e nada mais, e o layout do inimigo declara
+    // apenas `walk` e um `idle` de 1 frame congelado na linha da
+    // direcao
+    idle: false,
+    shoot: false,
+  },
+
+  ghoul: {
+    // A pasta de origem chama o ghoul de "guerreiro", e a saida
+    // mantem o nome do INIMIGO (`ghoul_faminto`), que e quem o jogo
+    // conhece. Um asset com o nome em portugues e o que ja acontece
+    // com `ogre_da_predeira`
+    sourceDir: "src/assets/sprites/guerreiro",
+    output: "src/assets/sprites/ghoul_faminto-sheet.png",
+    frameSize: 68,
+    prefix: "GHOUL_FAMINTO",
+
+    // Tem `idle.gif` e as oito direcoes, mas nao tem golpe. O
+    // ghoul e corpo a corpo, entao o golpe dele esta no MESMO
+    // arquivo da caminhada: nao existe arte de ataque separada
+    idle: true,
+    shoot: false,
+  },
+
+  warrior: {
+    sourceDir: "src/assets/sprites/warrior",
+    output: "src/assets/sprites/warrior-sheet.png",
+    frameSize: 68,
+    prefix: "WARRIOR",
+
+    /**
+     * O golpe do guerreiro esta em `attack/`, e nao em `shoot/`.
+     *
+     * O nome do ciclo e dado pela arte de origem, e o padrao da
+     * ferramenta (`shoot`) so vale para quem o respeita. Um corpo a
+     * corpo como o guerreiro nao atira: o golpe dele e um `./target`,
+     * e chamar a pasta de tiro faria o log mentir sobre o que a
+     * folha contem
+     */
+    shootDir: "attack",
+
+    /**
+     * O idle do guerreiro se chama `indle.gif`, com o `d` trocado
+     * pelo `i`.
+     *
+     * Declarar o nome real aqui em vez de renomear o arquivo: a arte
+     * de origem e do usuario, e um nome equivalente nao muda o que a
+     * folha le. O padrao `idle` continua valendo para as outras
+     * folhas
+     */
+    idleFile: "indle",
+  },
+
+  sorcerer: {
+    sourceDir: "src/assets/sprites/sorcerer",
+    output: "src/assets/sprites/sorcerer-sheet.png",
+    frameSize: 68,
+    prefix: "SORCERER",
+
+    /**
+     * O `idle.gif` do sorcerer e uma arte de verdade, com oito
+     * quadros, e nao um frame congelado: a folha ganha a linha 8 de
+     * idle como o guerreiro, o arquiro e o ghoul
+     */
+    idle: true,
+
+    /**
+     * Sem golpe, como o ghoul.
+     *
+     * O sorcerer e um caster de projetil e a pasta de origem nao tem
+     * arte de ataque: nem em `shoot/`, nem em pasta propria, nem
+     * misturado na caminhada. E o mesmo caso do ghoul, e a folha sai
+     * com oito linhas de direcao mais a de idle
+     *
+     * O desenho enquanto o golpe corre fica por conta do
+     * `src/data/sprites/layout.js`: enquanto nao houver arte de
+     * ataque, o `attack` do sorcerer aponta para a linha de idle
+     */
+    shoot: false,
+  },
+
+  lancer: {
+    sourceDir: "src/assets/sprites/lancer",
+    output: "src/assets/sprites/lancer-sheet.png",
+    frameSize: 68,
+    prefix: "LANCER",
+
+    /**
+     * O idle do lancer tem o mesmo nome trocado do guerreiro,
+     * `indle.gif`. A pasta declara o nome real em vez de a arte ser
+     * renomeada: os dois archivos sao do usuario, e o que a folha le
+     * nao muda por causa do `d`
+     */
+    idleFile: "indle",
+
+    /**
+     * Sem golpe, como o sorcerer e o ghoul.
+     *
+     * O lancer e um bruiser de alcance e o golpe basico dele e um
+     * `./target` em linha, mas a pasta de origem nao trouxe a arte
+     * disso: nem em `shoot/`, nem em pasta propria. Sao oito direcoes
+     * de caminhada e um idle, e nada mais
+     *
+     * Nao e preciso declarar `shootDir: "attack"` como no guerreiro:
+     * ali a pasta existe e se chama `attack`, e o nome declara o que a
+     * folha contem. Aqui nao ha pasta nenhuma, e `shoot: false` e o
+     * que impede a ferramenta de procurar arquivos que nunca existiram
+     */
+    shoot: false,
+  },
+
+  /**
+   * O RATO DA TOCA.
+   *
+   * A pasta de origem se chama `urso`, e o nome e da arte: e um urso
+   * que o jogador mandou para o bicho da toca. O nome do jogo continua
+   * sendo "Rato da Toca" e o `id` continua sendo `rat` — renomear a
+   * criatura para o nome da arte mudaria o save de todo mundo que ja
+   * matou um rato
+   *
+   * A mesma separacao do ghoul, que usa a pasta `guerreiro` e sai como
+   * `ghoul_faminto-sheet.png`: a pasta guarda o nome da arte, e a
+   * saida e o nome da CRIATURA, que e o que o `GameEngine` procura
+   */
+  rato_da_toca: {
+    sourceDir: "src/assets/sprites/urso",
+    output: "src/assets/sprites/rato_da_toca-sheet.png",
+    frameSize: 68,
+    prefix: "RATO_DA_TOCA",
+
+    /**
+     * Tem `idle` de verdade: as oito direcoes de caminhada mais um
+     * `idle.gif` desenhado
+     */
+    idle: true,
+
+    /**
+     * Sem golpe, como o ghoul.
+     *
+     * O rato e PASSIVO, com `aggroRange: 0`: ele foge do jogador e
+     * nao ataca. O `attackRange` e `damage` do catalogo existem para
+     * a criatura ter os mesmos campos dos outros, e nao porque ele
+     * golpeie — entao nao ha arte de ataque para montar
+     *
+     * Com o `shoot: false` o pedido de "attack" cai no reserva do
+     * `resolveFrameRect`, que procura o `idle` antes do `walk`: um
+     * pedido de golpe mostraria o parado, e nao o bicho andando no
+     * meio de um golpe que ele nunca deu
+     */
+    shoot: false,
+
+    /**
+     * A CAMINHADA do `south` vem do `idle.gif`.
+     *
+     * A arte nao tem `south.gif`: sao sete direcoes de caminhada e o
+     * `idle`, que e a arte de PARADO de frente. Copiar a vizinha mais
+     * proxima em grau — o que o mapa faz por padrao, e o que o ogre
+     * usa para as direcoes de golpe que faltam — poria o rato andando
+     * na diagonal toda vez que ele andasse na direcao do jogador, e essa
+     * e a direcao mais vista do jogo
+     *
+     * A arte parada mantem o RATO DE FRENTE, que e o sinal mais forte
+     * de para onde ele esta indo. O que se perde e a pata mexendo: andando
+     * para baixo o rato desliza em vez de caminhar. E um defeito
+     * visivel, e a troca foi consciente — a diagonal seria visivel
+     * tambem, e errada de um jeito pior
+     *
+     * Quando o `south.gif` chegar na pasta, e apagar esta linha: a
+     * ferramenta passa a usar a arte de verdade e o log volta a dizer
+     * que as oito direcoes vieram da arte
+     */
+    walkFallback: {
+      south: "idle",
+    },
+  },
+
+  /**
+   * A SENTINELA ESQUELETICA.
+   *
+   * A pasta se chama `sentinela` e a criatura e `skeleton` — o nome de
+   * exibicao e "Sentinela Esquelética". O `id` continua `skeleton`
+   * porque e ele que esta no save, no bestiario e nas missoes que
+   * pedem a caca
+   *
+   * A arte e a mais limpa do jogo: as oito direcoes de caminhada e o
+   * `idle`, todas em 68x68, com oito quadros e nenhum truncado. Nada
+   * precisou de `walkFallback` nem de centralizacao, e a folha sai
+   * direto
+   */
+  sentinela_esqueletica: {
+    sourceDir: "src/assets/sprites/sentinela",
+    output: "src/assets/sprites/sentinela_esqueletica-sheet.png",
+    frameSize: 68,
+    prefix: "SENTINELA_ESQUELETICA",
+
+    // tem `idle` desenhado, com oito quadros
+    idle: true,
+
+    /**
+     * Sem golpe, como o ghoul e o rato.
+     *
+     * A sentinela e `ACTIVE` e GOLPE de verdade — `attackRange: 58`,
+     * `damage: 42`, `aggroRange: 330` — e mesmo assim nao ha arte de
+     * ataque na pasta. E o mesmo caso do ghoul: sem bloco `attack`, o
+     * pedido de golpe cai no reserva do `resolveFrameRect`, que
+     * prefere o `idle` a caminhada, e o esqueleto fica parado em vez
+     * de sair andando no meio da pancada
+     *
+     * A diferenca em relacao ao ghoul e ao rato e que aqui o salto de
+     * direcao durante o golpe e visivel: os dois sao passivos e quase
+     * nao batem, e a sentinela ataca o tempo todo. Ver o comentario
+     * do `SENTINELA_ESQUELETICA_SPRITE` em
+     * `src/data/sprites/enemyLayout.js`
+     */
+    shoot: false,
+  },
+
+  /**
+   * O LIMO PREGUICOSO.
+   *
+   * A pasta se chama `guerreiro_2`, e o nome e da arte. A criatura e o
+   * `slime` — o primeiro bicho do jogo, o de nivel 1, e o `slime` que
+   * todo mundo ja matou mil vezes. O `id` nao muda por causa de uma
+   * troca de arte: ele esta no save, no bestiario, nas missoes e, o que
+   * pesa mais aqui, no `slime_gel` e no `slime_core` que o craft e as
+   * missoes pedem
+   *
+   * A segunda pasta `guerreiro` do jogo — a primeira e o ghoul faminto.
+   * As duasvem do mesmo lugar e as duas precisam do nome proprio na
+   * saida, porque um `guerreiro-sheet.png` sobrescreveria o do outro
+   *
+   * A arte e limpa como a da sentinela: oito direcoes, `idle`, todas
+   * em 68x68, oito quadros, nenhum truncado
+   */
+  limo_preguicoso: {
+    sourceDir: "src/assets/sprites/guerreiro_2",
+    output: "src/assets/sprites/limo_preguicoso-sheet.png",
+    frameSize: 68,
+    prefix: "LIMO_PREGUICOSO",
+
+    // tem `idle` desenhado, com oito quadros
+    idle: true,
+
+    /**
+     * Sem golpe, e aqui isso e questionavel de verdade.
+     *
+     * O limo e PASSIVO com `aggroRange: 0`: ele foge do jogador e
+     * praticamente nunca ataca. O `attackRange: 44` e o `damage: 7` do
+     * catalogo existem para a criatura ter os mesmos campos dos
+     * outros. Sem `attack`, um pedido de golpe cai no reserva do
+     * `resolveFrameRect`, que prefere o `idle`
+     */
+    shoot: false,
+  },
+
+  /**
+   * O GOBLIN SAQUEADOR.
+   *
+   * A pasta se chama `hulk`, e o nome e da arte. A criatura e o
+   * `goblin`, que e o `id` do save e do bestiario; a saida usa o nome
+   * de exibicao, "Goblin Saqueador", como o ghoul usa "Ghoul Faminto"
+   *
+   * A arte e limpa como a da sentinela e a do limo: oito direcoes,
+   * `idle`, todas em 68x68, oito quadros, nenhum truncado
+   */
+  goblin_saqueador: {
+    sourceDir: "src/assets/sprites/hulk",
+    output: "src/assets/sprites/goblin_saqueador-sheet.png",
+    frameSize: 68,
+    prefix: "GOBLIN_SAQUEADOR",
+
+    // tem `idle` desenhado, com oito quadros
+    idle: true,
+
+    /**
+     * Sem golpe, e aqui a ausencia e DOVADA pelo catalogo.
+     *
+     * O goblin e `SEMI_PASSIVE` com `aggroRange: 0`: ele passeia e nao
+     * persegue. O `attackRange: 52` e o `damage: 22` existem para a
+     * criatura ter os mesmos campos dos outros, e nao porque ele
+     * persiga o jogador — e o mesmo caso do ghoul faminto, que tambem
+     * e semi-passivo e tambem nao tem arte de golpe
+     *
+     * Sem `attack` na definicao, um pedido de golpe cai no reserva do
+     * `resolveFrameRect`, que prefere o `idle` a caminhada. E aqui o
+     * salto de direcao e imperceptivel, ao contrario da sentinela: um
+     * bicho que nao persegue quase nao entra na janela de golpe
+     */
+    shoot: false,
+  },
+};
 
 export const ROWS = [
   "east",
@@ -29,11 +389,28 @@ export const ROWS = [
   "north-east",
 ];
 
-export const IDLE_FILE = "idle.gif";
-export const IDLE_ROW = ROWS.length;
+/**
+ * A pasta e a linha do ciclo de tiro/golpe, quando a folha nao
+ * declara outra.
+ *
+ * O nome e `shoot` porque foi o primeiro asset a ter essa arte (o
+ * arqueiro zumbi atira). O ogre da predeira e corpo a corpo e o
+ * golpe dele esta na MESMA pasta: o nome do arquivo de origem nao
+ * descreve o que a arte faz. E o guerreiro tem golpe em pasta
+ * propria, chamada `attack` — por isso `shootDir` na folha
+ */
+export const SHOOT_DIR = "shoot";
 
-const FRAMES = 8;
-const FRAME_SIZE = 64;
+/**
+ * O arquivo de idle, quando a folha nao declara outro.
+ *
+ * `idle` e o nome de toda arte de origem ate aqui. O guerreiro
+ * entrega o dele com o `d` trocado (`indle.gif`), e o nome real
+ * fica declarado na folha em vez de ser adivinhado
+ */
+export const IDLE_FILE = "idle";
+
+
 
 function lzwDecode(minCodeSize, data, pixelCount) {
   const clear = 1 << minCodeSize;
@@ -327,7 +704,32 @@ function shiftFrame(frame, width, height, dx, dy) {
   return out;
 }
 
-function inflatePng(buffer) {
+/**
+ * Decodifica um PNG RGBA de 8 bits.
+ *
+ * Exportado porque e o unico jeito de conferir a folha DEPOIS de
+ * gerada, sem depender do que o navegador faz com a imagem: um
+ * teste pode abrir o png e comparar celula a celula com os gifs de
+ * origem, e provar que o que esta no arquivo e a arte de quem
+ * mandou, e nao outra coisa.
+ */
+/**
+ * Decodifica um PNG para RGBA.
+ *
+ * Sao aceitos os dois formatos de 8 bits que aparecem no projeto:
+ *
+ * - **color 6, RGBA**: o que o `portal_1.png` e o `portal_2.png` tem.
+ *   A transparencia ja vem no arquivo
+ * - **color 2, RGB**: o que o `base.png` tem. Sem canal alpha nenhum,
+ *   entao o recorte da moldura e do fundo depende de quem chama
+ *
+ * O caso RGB entra devolvendo alpha 255 em tudo. Isso NAO inventa
+ * transparencia: so faz o resto do pipeline — o `caixaOpaca` do
+ * `gerar-portal.mjs`, por exemplo — poder tratar os dois formatos com o
+ * mesmo codigo. Quem precisa cortar um fundo pintado faz isso a parte,
+ * porque so quem conhece a arte sabe qual pixel e fundo
+ */
+export function inflatePng(buffer) {
   const signature = [0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a];
 
   for (let i = 0; i < signature.length; i += 1) {
@@ -364,15 +766,25 @@ function inflatePng(buffer) {
     i += 12 + length;
   }
 
-  if (bitDepth !== 8 || colorType !== 6) {
+  if (bitDepth !== 8 || (colorType !== 6 && colorType !== 2)) {
     throw new Error(
       `png inesperado: depth ${bitDepth}, color ${colorType}`,
     );
   }
 
+  /**
+   * Os bytes por pixel do ARQUIVO, que e o que o filtro da linha usa.
+   *
+   * E 3 no RGB e 4 no RGBA. Confundir os dois faz a linha inteira
+   * correr e a imagem sai com listras diagonais
+   */
+  const bpp = colorType === 6 ? 4 : 3;
+
   const raw = inflateSync(Buffer.concat(idat));
-  const stride = width * 4;
-  const out = new Uint8Array(stride * height);
+  const stride = width * bpp;
+
+  // o filtro acontece em RGB puro; a expansao para RGBA vem depois
+  const cru = new Uint8Array(stride * height);
 
   for (let y = 0; y < height; y += 1) {
     const filter = raw[y * (stride + 1)];
@@ -382,10 +794,10 @@ function inflatePng(buffer) {
     );
 
     for (let x = 0; x < stride; x += 1) {
-      const left = x >= 4 ? out[y * stride + x - 4] : 0;
-      const up = y > 0 ? out[(y - 1) * stride + x] : 0;
+      const left = x >= bpp ? cru[y * stride + x - bpp] : 0;
+      const up = y > 0 ? cru[(y - 1) * stride + x] : 0;
       const upLeft =
-        x >= 4 && y > 0 ? out[(y - 1) * stride + x - 4] : 0;
+        x >= bpp && y > 0 ? cru[(y - 1) * stride + x - bpp] : 0;
 
       let value = line[x];
 
@@ -402,8 +814,22 @@ function inflatePng(buffer) {
           dl <= du && dl <= dul ? left : du <= dul ? up : upLeft;
       }
 
-      out[y * stride + x] = value & 0xff;
+      cru[y * stride + x] = value & 0xff;
     }
+  }
+
+  // RGB ja veio: devolve como esta
+  if (colorType === 6) {
+    return { width, height, data: cru };
+  }
+
+  const out = new Uint8Array(width * height * 4);
+
+  for (let p = 0; p < width * height; p += 1) {
+    out[p * 4] = cru[p * 3];
+    out[p * 4 + 1] = cru[p * 3 + 1];
+    out[p * 4 + 2] = cru[p * 3 + 2];
+    out[p * 4 + 3] = 255;
   }
 
   return { width, height, data: out };
@@ -447,6 +873,7 @@ function repairTruncatedFrames(directions) {
 
       repairs.push({
         name: direction.name,
+        dir: direction.dir === "." ? null : direction.dir,
         index,
         from: best,
         written: frame.written,
@@ -490,10 +917,10 @@ function dropTruncatedFrames(source) {
   return dropped;
 }
 
-function alignAnchors(lanes, target) {
+function alignAnchors(lanes, target, frameSize) {
   const anchors = lanes.map((lane) => {
     const measured = lane.frames.map((frame) =>
-      measure(frame, FRAME_SIZE, FRAME_SIZE),
+      measure(frame, frameSize, frameSize),
     );
 
     return {
@@ -521,14 +948,14 @@ function alignAnchors(lanes, target) {
     if (dx === 0 && dy === 0) return;
 
     lane.frames = lane.frames.map((frame) =>
-      shiftFrame(frame, FRAME_SIZE, FRAME_SIZE, dx, dy),
+      shiftFrame(frame, frameSize, frameSize, dx, dy),
     );
   });
 
   return { offsets, targetFoot, targetCenter };
 }
 
-function audit(directions) {
+function audit(directions, frameSize) {
   const perRow = [];
   const squashed = [];
   let touching = 0;
@@ -536,7 +963,7 @@ function audit(directions) {
 
   for (const [row, direction] of directions.entries()) {
     const boxes = direction.frames.map((frame) =>
-      measure(frame, FRAME_SIZE, FRAME_SIZE),
+      measure(frame, frameSize, frameSize),
     );
 
     const unionWidth =
@@ -549,9 +976,11 @@ function audit(directions) {
       Math.min(...boxes.map((box) => box.minY)) +
       1;
 
-    let minX = FRAME_SIZE;
+    const unionArea = unionWidth * unionHeight;
+
+    let minX = frameSize;
     let maxX = -1;
-    let minY = FRAME_SIZE;
+    let minY = frameSize;
     let maxY = -1;
     let opaque = 0;
 
@@ -564,10 +993,14 @@ function audit(directions) {
       const width = box.maxX - box.minX + 1;
       const height = box.maxY - box.minY + 1;
 
-      if (
-        width < unionWidth * 0.5 ||
-        height < unionHeight * 0.5
-      ) {
+      // a assinatura de frame corrompido e perder ALTURA: o
+      // stream LZW truncado escreve as primeiras linhas da celula
+      // e o resto fica vazio. largura varia de legitimamente na
+      // animacao de tiro, com o arco sendo puxado e estendido.
+      const flat = height < unionHeight * 0.5;
+      const sparse = width * height < unionArea * 0.3;
+
+      if (flat || sparse) {
         squashed.push(
           `${direction.name} frame ${index} ` +
             `(${width}x${height} contra ${unionWidth}x${unionHeight})`,
@@ -576,9 +1009,9 @@ function audit(directions) {
 
       if (
         box.minX === 0 ||
-        box.maxX === FRAME_SIZE - 1 ||
+        box.maxX === frameSize - 1 ||
         box.minY === 0 ||
-        box.maxY === FRAME_SIZE - 1
+        box.maxY === frameSize - 1
       ) {
         touching += 1;
       }
@@ -609,12 +1042,12 @@ function audit(directions) {
   };
 }
 
-function verifySheet(png, data, sheetWidth, lanes) {
+function verifySheet(png, data, sheetWidth, lanes, frameSize) {
   const decoded = inflatePng(png);
 
   if (
     decoded.width !== sheetWidth ||
-    decoded.height !== FRAME_SIZE * lanes.length
+    decoded.height !== frameSize * lanes.length
   ) {
     throw new Error("png gerado com dimensao errada");
   }
@@ -624,11 +1057,11 @@ function verifySheet(png, data, sheetWidth, lanes) {
 
   for (const [row, lane] of lanes.entries()) {
     for (const [column, frame] of lane.frames.entries()) {
-      for (let y = 0; y < FRAME_SIZE; y += 1) {
-        for (let x = 0; x < FRAME_SIZE; x += 1) {
-          const source = (y * FRAME_SIZE + x) * 4;
-          const targetX = column * FRAME_SIZE + x;
-          const targetY = row * FRAME_SIZE + y;
+      for (let y = 0; y < frameSize; y += 1) {
+        for (let x = 0; x < frameSize; x += 1) {
+          const source = (y * frameSize + x) * 4;
+          const targetX = column * frameSize + x;
+          const targetY = row * frameSize + y;
           const target = (targetY * sheetWidth + targetX) * 4;
 
           if (frame[source + 3] > 0) opaquePixels += 1;
@@ -661,84 +1094,337 @@ function verifySheet(png, data, sheetWidth, lanes) {
   };
 }
 
-function run() {
-  const available = new Set(readdirSync(SOURCE_DIR));
+/**
+ * Carrega um lane (uma direcao de um ciclo), aplicando a substituicao
+ * declarada quando o gif nao existe.
+ *
+ * `substituicoes` e o mapa `direcao -> direcao vizinha` da folha. Ele
+ * existe porque o ogre da predeira so tem 5 direcoes de golpe: sem
+ * isso a ferramenta pararia num arquivo faltando, e a folha do
+ * inimigo nao existiria.
+ */
+function loadLane(
+  sourceDir,
+  frameSize,
+  dir,
+  name,
+  expectedFrames,
+  substituicoes = null,
+) {
+  const file = resolve(sourceDir, dir, `${name}.gif`);
 
-  const problems = ROWS.filter(
-    (row) => !available.has(`${row}.gif`),
-  );
+  let lane = null;
+  let usado = null;
 
-  if (problems.length > 0) {
-    console.error("\ngifs ausentes:\n");
+  if (existsSync(file)) {
+    lane = loadGif(file, `${dir}/${name}.gif`, frameSize);
+    usado = name;
+  } else {
+    const vizinho = substituicoes?.[name] ?? null;
 
-    for (const problem of problems) {
-      console.error(`  - ${problem}.gif`);
+    if (!vizinho) {
+      throw new Error(
+        `falta ${dir}/${name}.gif e a folha nao declara ` +
+          `nenhum substituto para essa direcao`,
+      );
     }
 
-    process.exit(1);
-  }
-
-  const directions = ROWS.map((name) => {
-    const gif = decodeGif(
-      readFileSync(resolve(SOURCE_DIR, `${name}.gif`)),
+    const arquivoVizinho = resolve(
+      sourceDir,
+      dir,
+      `${vizinho}.gif`,
     );
 
-    if (gif.width !== FRAME_SIZE || gif.height !== FRAME_SIZE) {
+    if (!existsSync(arquivoVizinho)) {
       throw new Error(
-        `${name}.gif tem ${gif.width}x${gif.height}, esperado ${FRAME_SIZE}x${FRAME_SIZE}`,
+        `${dir}/${name}.gif nao existe e o substituto ` +
+          `declarado (${vizinho}.gif) tambem nao`,
       );
     }
 
-    if (gif.frames.length !== FRAMES) {
-      throw new Error(
-        `${name}.gif tem ${gif.frames.length} frames, esperado ${FRAMES}`,
-      );
-    }
+    lane = loadGif(
+      arquivoVizinho,
+      `${dir}/${name}.gif`,
+      frameSize,
+    );
 
-    return { name, gif };
-  });
-
-  const idle = {
-    name: "idle",
-    gif: decodeGif(
-      readFileSync(resolve(SOURCE_DIR, IDLE_FILE)),
-    ),
-  };
+    usado = vizinho;
+  }
 
   if (
-    idle.gif.width !== FRAME_SIZE ||
-    idle.gif.height !== FRAME_SIZE
+    expectedFrames !== null &&
+    lane.gif.frames.length !== expectedFrames
   ) {
     throw new Error(
-      `${IDLE_FILE} tem ${idle.gif.width}x${idle.gif.height}, ` +
-        `esperado ${FRAME_SIZE}x${FRAME_SIZE}`,
+      `${usado}.gif tem ${lane.gif.frames.length} frames, ` +
+        `esperado ${expectedFrames}`,
     );
   }
 
-  const repairs = repairTruncatedFrames(directions);
-  const drops = dropTruncatedFrames(idle);
+  return { name, dir, gif: lane.gif, usado, substituiu: usado !== name };
+}
 
-  if (idle.frames.length > FRAMES) {
+/**
+ * Centraliza um frame menor dentro da celula da folha.
+ *
+ * A arte de origem nem sempre vem com a mesma tela em todos os
+ * arquivos. A do `urso` e o caso: `north` sai em 68x68, `east` em
+ * 64x64, `idle` em 60x60 e os dois de baixo em 56x56 — com o MESMO
+ * desenho dentro, so a borda em volta que muda
+ *
+ * Preencher a celula com transparente resolve, e sem REDIMENSIONAR:
+ * encolher o maior para o menor perderia pixel da arte, que e a razao
+ * de cada folha declarar o proprio tamanho de celula. Como o desenho
+ * ja cabe em qualquer das celulas, o unico efeito e uma margem
+ * transparente a mais
+ *
+ * O deslocamento e inteiro e Centralizado: `(celula - origem) / 2`
+ * arredondado para baixo. O `alignAnchors` cuida do pe e do centro do
+ * CORPO depois, e e ele que decide o alinhamento final — aqui so
+ * importa que a arte nao encoste na borda
+ */
+function centraliza(frame, origem, frameSize) {
+  if (origem === frameSize) return frame;
+
+  const out = new Uint8Array(frameSize * frameSize * 4);
+
+  const dx = Math.floor((frameSize - origem) / 2);
+  const dy = Math.floor((frameSize - origem) / 2);
+
+  for (let y = 0; y < origem; y += 1) {
+    for (let x = 0; x < origem; x += 1) {
+      const source = (y * origem + x) * 4;
+      const target = ((y + dy) * frameSize + x + dx) * 4;
+
+      out[target] = frame[source];
+      out[target + 1] = frame[source + 1];
+      out[target + 2] = frame[source + 2];
+      out[target + 3] = frame[source + 3];
+    }
+  }
+
+  return out;
+}
+
+function loadGif(file, nome, frameSize) {
+  const gif = decodeGif(readFileSync(file));
+
+  /**
+   * A arte MENOR que a celula e centralizada; a MAIOR ainda e erro.
+   *
+   * Centralizar e seguro porque o desenho ja cabe. Uma tela de
+   * origem MAIOR que a celula exigiria cortar pixel, e cortar pixel
+   * de arte e o que nenhuma folha deve fazer — por isso esse lado
+   * continua sendo recusado, com o tamanho na mensagem
+   */
+  if (gif.width > frameSize || gif.height > frameSize) {
     throw new Error(
-      `${IDLE_FILE} tem ${idle.frames.length} frames validos, ` +
-        `a grade comporta ${FRAMES}`,
+      `${nome} tem ${gif.width}x${gif.height}, ` +
+        `maior que a celula de ${frameSize}x${frameSize}: ` +
+        `seria preciso cortar pixel da arte`,
     );
   }
 
-  if (idle.frames.length < 2) {
+  if (gif.width !== frameSize || gif.height !== frameSize) {
+    for (const frame of gif.frames) {
+      frame.rgba = centraliza(
+        frame.rgba,
+        gif.width,
+        frameSize,
+      );
+    }
+
+    gif.centralizado = `${gif.width}x${gif.height}`;
+  }
+
+  return { gif };
+}
+
+/**
+ * O menor numero de frames do grupo, e o corte de todos nele.
+ *
+ * A arte nao vem com contagem igual em todas as direcoes: o ogre da
+ * predeira tem caminhada de 8 e 9 frames e golpe de 9 e 10. Cortar
+ * no MENOR e o que mantem o passo das pernas e o ritmo do golpe
+ * iguais em todas as direcoes.
+ *
+ * A alternativa, completar o grupo repetindo o ultimo frame, faria
+ * o ciclo dar um tranco no final da volta: em um loop, segurar o
+ * ultimo quadro por um tempo fixo e visivel.
+ */
+function normalizarFrames(lanes, grupo) {
+  const alvo = Math.min(
+    ...lanes.map((lane) => lane.gif.frames.length),
+  );
+
+  const cortes = [];
+
+  for (const lane of lanes) {
+    const total = lane.gif.frames.length;
+
+    if (total === alvo) continue;
+
+    if (total < alvo) {
+      throw new Error(
+        `${lane.name} tem ${total} frames e o menor do grupo ` +
+          `(${grupo}) tem ${alvo}: nao da para completar`,
+      );
+    }
+
+    cortes.push({
+      name: lane.name,
+      de: total,
+      para: alvo,
+    });
+
+    lane.gif.frames.length = alvo;
+  }
+
+  return { alvo, cortes };
+}
+
+/**
+ * Monta uma sheet a partir dos gifs de uma criatura ou classe.
+ *
+ * `name` e a chave em `SHEETS`. A funcao nao roda nada sozinha: quem
+ * chama e decide qual folha montar. Antes o `run()` disparava no
+ * import, e um `import { decodeGif }` num script de inspecao
+ * regerava a sheet do arqueiro por efeito colateral.
+ */
+export function buildSheet(name) {
+  const sheet = SHEETS[name];
+
+  if (!sheet) {
     throw new Error(
-      `${IDLE_FILE} ficou com ${idle.frames.length} frame valido`,
+      `sheet desconhecida: ${name} (tem ${Object.keys(SHEETS).join(", ")})`,
     );
   }
 
-  const walkAnchor = alignAnchors(directions);
-  const idleAnchor = alignAnchors([idle], {
+  const { frameSize, prefix } = sheet;
+  const sourceDir = resolve(HERE, "..", sheet.sourceDir);
+  const output = resolve(HERE, "..", sheet.output);
+
+  const querIdle = sheet.idle !== false;
+  const querShoot = sheet.shoot !== false;
+
+  // o nome do ciclo vem da arte de origem, e cada folha declara o
+  // seu quando nao for o padrao da ferramenta
+  const shootDir = sheet.shootDir ?? SHOOT_DIR;
+  const idleFile = sheet.idleFile ?? IDLE_FILE;
+
+  // Nenhuma contagem e esperada na carga: a arte de origem nao tem
+  // por que ter o mesmo numero de frames em todas as direcoes, e o
+  // ajuste para o menor do grupo acontece em `normalizarFrames`
+  const walk = ROWS.map((rowName) =>
+    loadLane(
+      sourceDir,
+      frameSize,
+      ".",
+      rowName,
+      null,
+      sheet.walkFallback ?? null,
+    ),
+  );
+
+  const shoot = [];
+
+  if (querShoot) {
+    for (const rowName of ROWS) {
+      shoot.push(
+        loadLane(
+          sourceDir,
+          frameSize,
+          shootDir,
+          rowName,
+          null,
+          sheet.shootFallback ?? null,
+        ),
+      );
+    }
+  }
+
+  const walkNorm = normalizarFrames(walk, "walk");
+  const shootNorm = querShoot
+    ? normalizarFrames(shoot, shootDir)
+    : { alvo: 0, cortes: [] };
+
+  // sem idle, a linha de tiro sobe: as linhas da folha sao as que o
+  // layout vai ler, e ele e impresso no fim
+  const idle = [];
+
+  if (querIdle) {
+    idle.push(
+      loadLane(sourceDir, frameSize, ".", idleFile, null),
+    );
+  }
+
+  // as direcoes mantem a contagem de frames porque o ciclo de
+  // caminhada e compartilhado; o idle descarta os corrompidos
+  // porque o ciclo dele e so dele
+  const repairs = [
+    ...repairTruncatedFrames(walk),
+    ...(querShoot ? repairTruncatedFrames(shoot) : []),
+  ];
+
+  const drops = [];
+
+  for (const lane of idle) {
+    drops.push(...dropTruncatedFrames(lane));
+  }
+
+  if (idle.length > 0) {
+    if (idle[0].frames.length < 2) {
+      throw new Error(
+        `idle.gif ficou com ${idle[0].frames.length} frame valido`,
+      );
+    }
+
+    /**
+     * A capacidade da grade e a MAIOR das linhas que existem, e nao
+     * a do golpe.
+     *
+     * A checagem usava `shootNorm.alvo`, que e 0 numa folha sem
+     * golpe: o ghoul faminto tem `idle.gif` e as oito direcoes, mas
+     * nao tem arte de ataque, e a ferramenta falhava com "a grade
+     * comporta 0" jogando fora uma arte valida. A largura da folha
+     * e o maximo de todas as linhas, entao e com ele que o idle se
+     * compara
+     */
+    const capacidade = Math.max(
+      walkNorm.alvo,
+      shootNorm.alvo,
+    );
+
+    if (idle[0].frames.length > capacidade) {
+      throw new Error(
+        `idle.gif tem ${idle[0].frames.length} frames validos, ` +
+          `a grade comporta ${capacidade}`,
+      );
+    }
+  }
+
+  const walkAnchor = alignAnchors(walk, null, frameSize);
+
+  const shared = {
     foot: walkAnchor.targetFoot,
     center: walkAnchor.targetCenter,
-  });
+  };
 
-  const lanes = [...directions, idle];
-  const report = audit(lanes);
+  const idleAnchor = alignAnchors(idle, shared, frameSize);
+  const shootAnchor = alignAnchors(shoot, shared, frameSize);
+
+  const lanes = [...walk, ...idle, ...shoot];
+
+  const idleRow = walk.length;
+  const shootRow = walk.length + idle.length;
+
+  const columns = Math.max(
+    walkNorm.alvo,
+    idle[0]?.frames.length ?? 0,
+    shootNorm.alvo,
+  );
+
+  const report = audit(lanes, frameSize);
 
   if (report.touching > 0) {
     throw new Error(
@@ -760,17 +1446,17 @@ function run() {
     );
   }
 
-  const sheetWidth = FRAME_SIZE * FRAMES;
-  const sheetHeight = FRAME_SIZE * lanes.length;
+  const sheetWidth = frameSize * columns;
+  const sheetHeight = frameSize * lanes.length;
   const data = new Uint8Array(sheetWidth * sheetHeight * 4);
 
   for (const [row, lane] of lanes.entries()) {
     for (const [column, frame] of lane.frames.entries()) {
-      for (let y = 0; y < FRAME_SIZE; y += 1) {
-        for (let x = 0; x < FRAME_SIZE; x += 1) {
-          const source = (y * FRAME_SIZE + x) * 4;
-          const targetX = column * FRAME_SIZE + x;
-          const targetY = row * FRAME_SIZE + y;
+      for (let y = 0; y < frameSize; y += 1) {
+        for (let x = 0; x < frameSize; x += 1) {
+          const source = (y * frameSize + x) * 4;
+          const targetX = column * frameSize + x;
+          const targetY = row * frameSize + y;
           const target = (targetY * sheetWidth + targetX) * 4;
 
           data[target] = frame[source];
@@ -789,33 +1475,129 @@ function run() {
     data,
     sheetWidth,
     lanes,
+    frameSize,
   );
 
-  writeFileSync(OUTPUT, png);
+  writeFileSync(output, png);
+
+  const substitutas = shoot.filter((lane) => lane.substituiu);
+
+  /**
+   * As telas de origem que foram centralizadas.
+   *
+   * Entra no log porque e uma diferenca entre a arte que o jogador
+   * mandou e a folha que saiu: um `gif` de 56px dentro de uma celula
+   * de 68px tem 6px de margem transparente a mais de cada lado. Sem
+   * esta linha o artefato aparecia do nada, e a primeira pessoa a
+   * verificar a arte nao teria como saber que ela foi assim
+   */
+  const centralizados = lanes.filter((lane) => lane.gif.centralizado);
+
+  if (centralizados.length > 0) {
+    console.log(
+      `\ntelas de origem menores que a celula, centralizadas:`,
+    );
+
+    for (const lane of centralizados) {
+      console.log(
+        `  ${lane.name.padEnd(12)} ${lane.gif.centralizado} ` +
+          `-> ${frameSize}x${frameSize}`,
+      );
+    }
+  }
 
   console.log(
-    `\nsheet gerada: ${sheetWidth}x${sheetHeight} ` +
-      `(${FRAMES} colunas x ${lanes.length} linhas: ` +
-      `${ROWS.length} direcoes + 1 idle)\n`,
+    `\nsheet ${name} gerada: ${sheetWidth}x${sheetHeight} ` +
+      `(${columns} colunas x ${lanes.length} linhas: ` +
+      `${ROWS.length} walk` +
+      `${idle.length > 0 ? " + 1 idle" : " (sem idle)"}` +
+      // o boneco de treino so tem direcao: a frase muda, para o
+      // relatorio nao anunciar um golpe que nao esta na folha
+      `${
+        shoot.length > 0
+          ? ` + ${ROWS.length} ${shootDir}`
+          : " (sem golpe)"
+      }, ` +
+      `celula ${frameSize}x${frameSize})\n`,
   );
+
+  /**
+ * As substituicoes, por ciclo.
+ *
+ * O log e separado por ciclo porque a RAZAO de cada um e diferente.
+ * O golpe do ogre falta em tres direcoes e a folha usa a vizinha mais
+ * proxima em grau, que e o que o mapa `shootFallback` declara. A
+ * caminhada do rato falta no `south`, e a folha usa a arte de PARADO
+ * de frente, que mantem a direcao certa ao custo das patas paradas
+ *
+ * As duas sao substituicoes declaradas, e nao algo que a ferramenta
+ * inventou: sem o mapa, a construcao para com o nome do arquivo que
+ * faltou
+ */
+const substituidasPorCiclo = [
+  { ciclo: "walk", lanes: walk.filter((lane) => lane.substituiu) },
+  {
+    ciclo: shootDir,
+    lanes: substitutas,
+  },
+];
+
+for (const { ciclo, lanes: copiadas } of substituidasPorCiclo) {
+  if (copiadas.length === 0) continue;
+
+  console.log(
+    `\ndirecoes de ${ciclo} que faltavam na arte e foram ` +
+      `copiadas de outra arte:`,
+  );
+
+  for (const lane of copiadas) {
+    console.log(
+      `  ${lane.name.padEnd(12)} <- ${lane.usado}.gif`,
+    );
+  }
+}
 
   const allOffsets = [
     ...walkAnchor.offsets,
     ...idleAnchor.offsets,
+    ...shootAnchor.offsets,
   ];
 
   for (const [row, lane] of lanes.entries()) {
     const info = report.perRow[row];
     const { dx, dy } = allOffsets[row];
 
+    const group =
+      row < walk.length
+        ? "walk"
+        : row < shootRow
+          ? "idle"
+          : shootDir;
+
+    // a direcao vem com a marca de quando foi copiada de outra, para
+    // o log deixar claro que a linha NAO veio da arte
+    const veioDe = lane.substituiu
+      ? ` (copiado de ${lane.usado})`
+      : "";
+
     console.log(
-      `  ${lane.name.padEnd(12)} ` +
+      `  ${group.padEnd(6)} ${lane.name.padEnd(12)}${veioDe.padEnd(22)} ` +
         `linha ${String(row).padStart(2)}   ` +
         `frames ${String(lane.frames.length).padStart(2)}   ` +
         `offset ${dx >= 0 ? "+" : ""}${dx},${dy >= 0 ? "+" : ""}${dy}   ` +
         `pes y=${String(info.foot).padStart(2)}   ` +
-        `bbox ${info.minX}..${info.maxX} x ${info.minY}..${info.maxY}   ` +
-        `opacos ${info.opaque}`,
+        `bbox ${info.minX}..${info.maxX} x ${info.minY}..${info.maxY}`,
+    );
+  }
+
+  for (const corte of [
+    ...walkNorm.cortes,
+    ...shootNorm.cortes,
+  ]) {
+    console.log(
+      `\n  ${corte.name}: ${corte.de} -> ${corte.para} frames ` +
+        `(o grupo foi cortado no menor, para o passo nao mudar ` +
+        `de direcao para direcao)`,
     );
   }
 
@@ -824,9 +1606,9 @@ function run() {
 
     for (const repair of repairs) {
       console.log(
-        `  ${repair.name}.gif frame ${repair.index} ` +
-          `-> copiado do frame ${repair.from} ` +
-          `(${repair.written}/${FRAME_SIZE * FRAME_SIZE} pixels)`,
+        `  ${repair.dir ? `${repair.dir}/` : ""}${repair.name}.gif ` +
+          `frame ${repair.index} -> copiado do frame ${repair.from} ` +
+          `(${repair.written}/${frameSize * frameSize} pixels)`,
       );
     }
   }
@@ -837,16 +1619,26 @@ function run() {
     for (const drop of drops) {
       console.log(
         `  ${drop.name}.gif frame ${drop.index} ` +
-          `(${drop.written}/${FRAME_SIZE * FRAME_SIZE} pixels)`,
+          `(${drop.written}/${frameSize * frameSize} pixels)`,
       );
     }
   }
 
   console.log(
-    `\nconstantes para src/data/sprites/index.js:` +
-      `\n  ARBALIST_IDLE_ROW = ${IDLE_ROW}` +
-      `\n  ARBALIST_IDLE_FRAMES = ${idle.frames.length}` +
-      `\n  ARBALIST_FRAMES = ${FRAMES}`,
+    `\nconstantes para o modulo de layout:` +
+      `\n  celula ${frameSize}x${frameSize}` +
+      `\n  ${prefix}_WALK_FRAMES = ${walkNorm.alvo}` +
+      (idle.length > 0
+        ? `\n  ${prefix}_IDLE_FRAMES = ${idle[0].frames.length}` +
+          `\n  ${prefix}_IDLE_ROW = ${idleRow}`
+        : "\n  (sem idle: aponte o idle para o frame 0 do walk)") +
+      (shoot.length > 0
+        ? `\n  ${prefix}_${shootDir.toUpperCase()}_FRAMES = ${shootNorm.alvo}` +
+          `\n  ${prefix}_${shootDir.toUpperCase()}_ROW = ${shootRow}`
+        : "\n  (sem golpe: a arte nao tem ataque)") +
+      `\n  ${prefix}_COLUMNS = ${columns}` +
+      `\n  ${prefix}_ANCHOR_X = ${walkAnchor.targetCenter / 2}` +
+      `\n  ${prefix}_ANCHOR_Y = ${walkAnchor.targetFoot}`,
   );
 
   console.log(
@@ -858,9 +1650,7 @@ function run() {
   console.log(
     `            ${report.touching} celulas encostando na borda, ` +
       `${report.empty} vazias, ` +
-      `${report.squashed.length} com personagem incompleto, ` +
-      `ancora comum em x=${walkAnchor.targetCenter / 2} ` +
-      `y=${walkAnchor.targetFoot}`,
+      `${report.squashed.length} com personagem incompleto`,
   );
 
   const spread = {
@@ -878,7 +1668,49 @@ function run() {
       `${spread.foot}px vertical, ${spread.center}px horizontal`,
   );
 
-  console.log(`\n-> ${OUTPUT} (${png.length} bytes)`);
+  console.log(
+    `\n-> ${relative(HERE + "/..", output)} (${png.length} bytes)`,
+  );
+
+  return {
+    name,
+    output,
+    frameSize,
+    width: sheetWidth,
+    height: sheetHeight,
+    columns,
+    rows: lanes.length,
+    idleRow: idle.length > 0 ? idleRow : null,
+    idleFrames: idle[0]?.frames.length ?? 0,
+    shootFrames: shoot.length > 0 ? shootNorm.alvo : 0,
+    walkFrames: walkNorm.alvo,
+    // `null` quando a folha nao tem golpe: e melhor que zero, porque
+    // zero parece "um golpe de zero frames"
+    shootRow: shoot.length > 0 ? shootRow : null,
+    anchorX: walkAnchor.targetCenter / 2,
+    anchorY: walkAnchor.targetFoot,
+
+    // as direcoes de tiro que a arte nao tinha e de onde vieram.
+    // Fica no retorno para um teste poder afirmar a escolha, e para
+    // quem chamar a ferramenta saber o que foi inventado
+    substituidas: substitutas.map((lane) => ({
+      direcao: lane.name,
+      veioDe: lane.usado,
+    })),
+  };
 }
 
-run();
+const executadoDireto =
+  process.argv[1] &&
+  import.meta.url === pathToFileURL(resolve(process.argv[1])).href;
+
+if (executadoDireto) {
+  // sem argumento, reconstroi todas as folhas: e o que se espera
+  // depois de trocar um gif na pasta da arte
+  const pedidos = process.argv.slice(2);
+  const folhas = pedidos.length > 0 ? pedidos : Object.keys(SHEETS);
+
+  for (const folha of folhas) {
+    buildSheet(folha);
+  }
+}

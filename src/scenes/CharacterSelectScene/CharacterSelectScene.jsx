@@ -1,5 +1,12 @@
+import { useId, useState } from "react";
 import { CHARACTER_CLASSES } from "../../data/characters/index.js";
 import ClassPortrait from "../../components/UI/ClassPortrait.jsx";
+import {
+  NAME_MAX,
+  NAME_MIN,
+  sanitizeNameInput,
+  validateName,
+} from "../../data/characterName.js";
 
 function SkillSummary({ skill }) {
   const typeLabels = {
@@ -34,11 +41,90 @@ function SkillSummary({ skill }) {
   );
 }
 
+/**
+ * Campo do nome do personagem.
+ *
+ * Fica na propria tela de selecao, e nao em um card de classe,
+ * porque o nome e do PERSONAGEM e nao da classe: dois jogadores
+ * da mesma classe sao gente diferente no mesmo mapa.
+ *
+ * O campo e a primeira coisa da tela. Sem ele nao existe JOGAR,
+ * porque o jogo e so online e o servidor exige um nome para
+ * identificar o jogador na lista.
+ */
+function NameField({ name, onChange, error }) {
+  const inputId = useId();
+  const helpId = `${inputId}-help`;
+
+  return (
+    <div className="name-field">
+      <label
+        className="name-field__label"
+        htmlFor={inputId}
+      >
+        <span className="eyebrow">NOME DO PERSONAGEM</span>
+      </label>
+
+      <input
+        id={inputId}
+        className={[
+          "name-field__input",
+          error ? "is-invalid" : "",
+        ]
+          .filter(Boolean)
+          .join(" ")}
+        type="text"
+        value={name}
+        maxLength={NAME_MAX}
+        autoComplete="off"
+        autoCapitalize="words"
+        spellCheck={false}
+        placeholder="Como os outros vao te ver"
+        aria-invalid={error ? "true" : undefined}
+        aria-describedby={helpId}
+        onChange={(event) =>
+          onChange(sanitizeNameInput(event.target.value))
+        }
+      />
+
+      <small
+        id={helpId}
+        className={[
+          "name-field__help",
+          error ? "is-invalid" : "",
+        ]
+          .filter(Boolean)
+          .join(" ")}
+      >
+        {error ??
+          `De ${NAME_MIN} a ${NAME_MAX} caracteres. Letras, numeros, espaco e hifen.`}
+      </small>
+    </div>
+  );
+}
+
 export default function CharacterSelectScene({
   selectedClass,
   onSelectClass,
   onPlay,
+  characterName = "",
+  onNameChange,
 }) {
+  const [tentouEntrar, setTentouEntrar] = useState(false);
+  const nome = validateName(characterName);
+
+  // o erro so aparece depois da primeira tentativa: reclamar do
+  // campo vazio enquanto o jogador ainda esta escolhendo a classe
+  // seria ruido
+  const erro = tentouEntrar && !nome.ok ? nome.reason : null;
+
+  const entrar = () => {
+    setTentouEntrar(true);
+    if (!nome.ok || !selectedClass) return;
+
+    onPlay({ name: nome.value });
+  };
+
   return (
     <main className="selection-screen">
       <div className="selection-screen__background" />
@@ -50,28 +136,48 @@ export default function CharacterSelectScene({
             PROJECT <em>ASHEN</em>
           </h1>
           <p>
-            Escolha uma classe e entre no Campo de Provas.
+            Escolha um nome, uma classe e entre no Campo de
+            Provas.
           </p>
         </div>
 
         <div className="selection-header__badge">
           <span>ETAPA</span>
-          <strong>01</strong>
+          <strong>02</strong>
           <small>8 CLASSES</small>
         </div>
       </header>
+
+      <NameField
+        name={characterName}
+        onChange={onNameChange}
+        error={erro}
+      />
 
       <section className="class-grid">
         {CHARACTER_CLASSES.map((definition) => {
           const selected =
             selectedClass?.id === definition.id;
 
+          /**
+           * O quadrado e o BOTAO, e o nome fica DEPOIS dele, fora.
+           *
+           * O botao tem `aspect-ratio: 1` e so a arte dentro: e o que
+           * o jogador clica, e ele precisa ser um quadrado para a
+           * animacao ficar centrada nele. O nome virou legenda da
+           * celula, nao conteudo do botao — alem de nao caber num
+           * quadrado, ele ja aparecia duas vezes na tela, no `<h2>`
+           * dos detalhes e no rotulo do botao
+           *
+           * O `aria-label` do botao e o que o leitor de tela anuncia,
+           * e ele NAO pode faltar: sem ele o botao so tem a arte
+           * dentro e some o nome da classe para quem nao ve
+           */
           return (
-            <button
+            <div
               key={definition.id}
-              type="button"
               className={[
-                "class-card",
+                "class-card-cell",
                 selected ? "is-selected" : "",
               ]
                 .filter(Boolean)
@@ -79,23 +185,21 @@ export default function CharacterSelectScene({
               style={{
                 "--accent": definition.accent,
               }}
-              onClick={() => onSelectClass(definition)}
             >
-              <ClassPortrait definition={definition} />
+              <button
+                type="button"
+                className="class-card"
+                aria-label={definition.name}
+                aria-pressed={selected}
+                onClick={() => onSelectClass(definition)}
+              >
+                <ClassPortrait definition={definition} />
+              </button>
 
-              <span className="class-card__role">
-                {definition.role}
+              <span className="class-card__label">
+                {definition.name}
               </span>
-
-              <strong>{definition.name}</strong>
-              <small>{definition.tagline}</small>
-
-              <span className="class-card__stats">
-                <span>HP {definition.stats.hp}</span>
-                <span>ATQ {definition.stats.attack}</span>
-                <span>DEF {definition.stats.defense}</span>
-              </span>
-            </button>
+            </div>
           );
         })}
       </section>
@@ -130,11 +234,23 @@ export default function CharacterSelectScene({
 
               <button
                 type="button"
-                className="play-button"
-                onClick={onPlay}
+                className={[
+                  "play-button",
+                  // sem nome valido nao entra: o servidor exige
+                  // nome para identificar o jogador
+                  nome.ok ? "" : "is-blocked",
+                ]
+                  .filter(Boolean)
+                  .join(" ")}
+                aria-disabled={!nome.ok}
+                onClick={entrar}
               >
                 <span>JOGAR</span>
-                <small>Entrar no mapa</small>
+                <small>
+                  {nome.ok
+                    ? "Entrar no mapa"
+                    : "Escreva um nome"}
+                </small>
               </button>
             </div>
 

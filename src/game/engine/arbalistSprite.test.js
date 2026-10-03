@@ -1,9 +1,10 @@
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { GameEngine } from "./GameEngine.js";
 import { CHARACTER_CLASSES } from "../../data/characters/index.js";
-import { TEST_MAP } from "../../data/maps/index.js";
+import { MAP_1 } from "../../data/maps/index.js";
 import { DIRECTION_KEYS, resolveDirectionKey } from "../sprites/animation.js";
 import { ARBALIST_SPRITE } from "../../data/sprites/index.js";
+import { createCreature } from "../../data/enemies/index.js";
 import {
   installDomStubs,
 } from "./testHarness.js";
@@ -128,7 +129,7 @@ function createEngine() {
     () => {},
   );
 
-  engine.setMap(TEST_MAP);
+  engine.setMap(MAP_1);
   engine.currentContext = context;
 
   return engine;
@@ -173,6 +174,19 @@ function clearCombat(engine) {
   engine.world.drops.length = 0;
 }
 
+function spawnDummy(engine, dx, dy) {
+  const player = engine.world.player;
+  const dummy = createCreature(
+    "ogre",
+    { x: player.x + dx, y: player.y + dy },
+    0,
+  );
+
+  engine.world.enemies.push(dummy);
+
+  return dummy;
+}
+
 function sheetDraws(engine, calls) {
   const image = engine.spriteSheet.image;
 
@@ -183,8 +197,15 @@ function sheetDraws(engine, calls) {
 }
 
 function keyOfRow(row) {
-  return DIRECTION_KEYS.find(
-    (key) => ARBALIST_SPRITE.directions[key] === row,
+  const shootRow = ARBALIST_SPRITE.animations.attack.rowOffset;
+
+  return (
+    DIRECTION_KEYS.find(
+      (key) => ARBALIST_SPRITE.directions[key] === row,
+    ) ??
+    DIRECTION_KEYS.find(
+      (key) => shootRow + ARBALIST_SPRITE.directions[key] === row,
+    )
   );
 }
 
@@ -193,23 +214,46 @@ function expectDrawMatchesFacing(engine, calls, player, label) {
 
   expect(drawn.length, label).toBeGreaterThan(0);
 
-  const idleRow = ARBALIST_SPRITE.animations.idle.row;
+  const animations = ARBALIST_SPRITE.animations;
 
-  for (const [, , , row] of drawn) {
-    if (!player.isMoving) {
-      expect(row / 64, `${label} parado`).toBe(idleRow);
-      continue;
-    }
+  const shooting =
+    player.attackAnimation > 0 && player.firingTargetId;
 
-    expect(
-      keyOfRow(row / 64),
-      `${label} andando`,
-    ).toBe(
+  const directionRow =
+    ARBALIST_SPRITE.directions[
       resolveDirectionKey(
         player.facing,
         ARBALIST_SPRITE.fallbackDirection,
-      ),
-    );
+      )
+    ];
+
+  /**
+   * A reacao ao dano tem a maior prioridade, e o helper precisa
+   * contar com ela.
+   *
+   * O arquiro apanha durante o auto play (ele tem vida quase
+   * infinita, mas os mob batem), e o `resolveAnimation` devolve
+   * `hurt` com o `hitFlash` ligado. O Arbalist NAO tem arte de
+   * `hurt`, entao o reserva do desenho e o `idle`.
+   *
+   * Sem esta linha o helper comparava a linha de `idle` com a da
+   * direcao e falhava em ~1 execucao de cada 3, dependendo de
+   * quando o golpe caia. Antes o reserva era `walk`, que por
+   * coincidencia dava a linha da direcao, e o teste passava sem
+   * nunca ter verificado esse estado
+   */
+  const ferido = player.hitFlash > 0;
+
+  const expectedRow = ferido
+    ? animations.idle.row
+    : shooting
+      ? animations.attack.rowOffset + directionRow
+      : player.isMoving
+        ? directionRow
+        : animations.idle.row;
+
+  for (const [, , , row] of drawn) {
+    expect(row / 64, label).toBe(expectedRow);
   }
 
   return drawn;
@@ -373,6 +417,13 @@ describe("arbalist directional sheet in game", () => {
   it("never mirrors because every direction has its own row", () => {
     const engine = createEngine();
     const player = engine.world.player;
+
+    // Este teste e sobre o JOGADOR, e `drawPlayerFrame` coleta as
+    // chamadas do frame INTEIRO. Os mobs das folhas antigas tem
+    // arte so de um lado e espelham de verdade ao virar para oeste,
+    // entao um `scale` no frame nao diz nada sobre o arqueiro.
+    // Esvaziar o mapa deixa o `scale` ser do jogador e so dele
+    engine.world.enemies.length = 0;
 
     const cases = [
       [["KeyD"]],
@@ -676,15 +727,117 @@ describe("arbalist directional sheet in game", () => {
     engine.destroy();
   });
 
-  it("keeps the idle row while attacking on the spot", () => {
+  it("shows the shoot row aimed at the focused enemy", () => {
     const engine = createEngine();
     const player = engine.world.player;
 
-    clearCombat(engine);
+    const cases = [
+      [300, 0, "east"],
+      [300, 300, "south-east"],
+      [0, 300, "south"],
+      [-300, 300, "south-west"],
+      [-300, 0, "west"],
+      [-300, -300, "north-west"],
+      [0, -300, "north"],
+      [300, -300, "north-east"],
+    ];
+
+    const shootRow =
+      ARBALIST_SPRITE.animations.attack.rowOffset;
+
+    for (const [dx, dy, key] of cases) {
+      resetPlayer(player);
+      clearCombat(engine);
+      holdKeys(engine, []);
+
+      const enemy = spawnDummy(engine, dx, dy);
+
+      player.attackAnimation = 0.2;
+      player.firingTargetId = enemy.id;
+
+      engine.update(1 / 60);
+
+      const [draw] = sheetDraws(
+        engine,
+        drawPlayerFrame(engine),
+      );
+
+      expect(
+        draw[3] / 64,
+        `atirou para ${key}`,
+      ).toBe(
+        shootRow + ARBALIST_SPRITE.directions[key],
+      );
+    }
+
+    engine.destroy();
+  });
+
+  it("turns toward the target even while walking the other way", () => {
+    const engine = createEngine();
+    const player = engine.world.player;
+
     resetPlayer(player);
+    clearCombat(engine);
+
+    // andando para o oeste...
+    holdKeys(engine, ["KeyA"]);
+
+    for (let frame = 0; frame < 10; frame += 1) {
+      player.hp = player.maxHp;
+
+      engine.update(1 / 60);
+    }
+
+    expect(resolveDirectionKey(player.facing)).toBe("west");
+
+    // ...mas atirando num inimigo a leste
+    const enemy = spawnDummy(engine, 300, 0);
+
+    player.attackAnimation = 0.2;
+    player.firingTargetId = enemy.id;
+
+    engine.update(1 / 60);
+
+    expect(resolveDirectionKey(player.facing)).toBe("east");
+
+    const [draw] = sheetDraws(
+      engine,
+      drawPlayerFrame(engine),
+    );
+
+    expect(draw[3] / 64).toBe(
+      ARBALIST_SPRITE.animations.attack.rowOffset +
+        ARBALIST_SPRITE.directions.east,
+    );
+
+    // fora da janela do tiro volta a ser a direcao do movimento
+    player.attackAnimation = 0;
+    player.firingTargetId = null;
+
+    holdKeys(engine, ["KeyA"]);
+
+    for (let frame = 0; frame < 6; frame += 1) {
+      player.hp = player.maxHp;
+
+      engine.update(1 / 60);
+    }
+
+    expect(resolveDirectionKey(player.facing)).toBe("west");
+
+    engine.destroy();
+  });
+
+  it("falls back to the idle row when firing with no enemy", () => {
+    const engine = createEngine();
+    const player = engine.world.player;
+
+    resetPlayer(player);
+    clearCombat(engine);
     holdKeys(engine, []);
 
     player.attackAnimation = 0.2;
+    player.firingTargetId = null;
 
     engine.update(1 / 60);
 
@@ -693,8 +846,106 @@ describe("arbalist directional sheet in game", () => {
       drawPlayerFrame(engine),
     );
 
-    expect(draw[3]).toBe(
-      ARBALIST_SPRITE.animations.idle.row * 64,
+    expect(draw[3] / 64).toBe(
+      ARBALIST_SPRITE.animations.idle.row,
+    );
+
+    engine.destroy();
+  });
+
+  it("reuses the idle row for a self buff", () => {
+    const engine = createEngine();
+    const player = engine.world.player;
+
+    resetPlayer(player);
+    clearCombat(engine);
+    holdKeys(engine, []);
+
+    const buff = engine.classDefinition.skills.find(
+      (skill) => skill?.type === "self",
+    );
+
+    expect(
+      buff,
+      "o arqueiro precisa de um buff proprio para o teste",
+    ).toBeDefined();
+
+    engine.skillSystem.request(buff, {
+      x: player.x,
+      y: player.y,
+    }, null);
+
+    expect(player.firingTargetId).toBe(null);
+
+    engine.update(1 / 60);
+
+    const [draw] = sheetDraws(
+      engine,
+      drawPlayerFrame(engine),
+    );
+
+    expect(draw[3] / 64).toBe(
+      ARBALIST_SPRITE.animations.idle.row,
+    );
+
+    engine.destroy();
+  });
+
+  it("plays the shoot animation in all eight directions", () => {
+    const engine = createEngine();
+    const player = engine.world.player;
+
+    const shootRow = ARBALIST_SPRITE.animations.attack.rowOffset;
+    const columns = new Set();
+
+    for (const key of DIRECTION_KEYS) {
+      const [dx, dy] = {
+        east: [300, 0],
+        "south-east": [300, 300],
+        south: [0, 300],
+        "south-west": [-300, 300],
+        west: [-300, 0],
+        "north-west": [-300, -300],
+        north: [0, -300],
+        "north-east": [300, -300],
+      }[key];
+
+      resetPlayer(player);
+      clearCombat(engine);
+      holdKeys(engine, []);
+
+      const enemy = spawnDummy(engine, dx, dy);
+
+      player.attackAnimation = 0.2;
+      player.firingTargetId = enemy.id;
+
+      // percorre a animacao de tiro inteira
+      for (let frame = 0; frame < 30; frame += 1) {
+        player.attackAnimation = 0.2;
+        player.hp = player.maxHp;
+
+        enemy.x = player.x + dx;
+        enemy.y = player.y + dy;
+
+        engine.update(1 / 60);
+
+        const [draw] = sheetDraws(
+          engine,
+          drawPlayerFrame(engine),
+        );
+
+        expect(
+          draw[3] / 64,
+          `${key} frame ${frame}`,
+        ).toBe(shootRow + ARBALIST_SPRITE.directions[key]);
+
+        columns.add(draw[2] / 64);
+      }
+    }
+
+    // 9 frames de tiro, todos visitados
+    expect(columns.size).toBe(
+      ARBALIST_SPRITE.animations.attack.length,
     );
 
     engine.destroy();
@@ -736,10 +987,32 @@ describe("arbalist directional sheet in game", () => {
       }
 
       if (player.isMoving) {
-        expect(
-          player.facing,
-          `frame ${frame}`,
-        ).toEqual(player.moveDirection);
+        /**
+         * so compara andando SEM ESTAR MIRANDO
+         *
+         * Com alvo de tiro marcado, o `facing` e a direcao da mira e nao
+         * a do movimento: e assim que o arqueiro anda de costas para
+         * um alvo. O guarda antigo aceitava a comparacao quando o
+         * `attackAnimation` ja era zero mas a mira continuava marcada —
+         * e a mira dura mais que a animacao, porque o
+         * `firingTargetId` so se desliga depois
+         *
+         * Medido: em 30 rodadas de auto-play, todos os quadros em que as
+         * duas direcoes discordaram tinham `firingTargetId` marcado, e
+         * varios com `attackAnimation` em 0.000 ja no ultimo quadro da
+         * animacao
+         */
+        if (!player.firingTargetId) {
+          // comparar pela bussola, e nao por igualdade de float:
+          // o facing e um vetor renormalizado, nao o mesmo objeto
+          // de moveDirection.
+          expect(
+            resolveDirectionKey(player.facing),
+            `frame ${frame}`,
+          ).toBe(
+            resolveDirectionKey(player.moveDirection),
+          );
+        }
 
         movingFrames += 1;
 
@@ -760,7 +1033,16 @@ describe("arbalist directional sheet in game", () => {
     expect(bobbingFrames).toBeGreaterThan(20);
     expect(moving.size).toBeGreaterThanOrEqual(2);
     expect(used.size).toBeGreaterThanOrEqual(2);
-    expect(columns.size).toBe(8);
+
+    // o autoplay tambem dispara, entao as colunas do tiro entram
+    // na contagem: o total e a maior animacao da folha
+    expect(columns.size).toBe(
+      Math.max(
+        ...Object.values(ARBALIST_SPRITE.animations).map(
+          (animation) => animation.length,
+        ),
+      ),
+    );
 
     for (const key of used) {
       expect(DIRECTION_KEYS, key).toContain(key);

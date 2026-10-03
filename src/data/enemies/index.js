@@ -1,4 +1,9 @@
-﻿import { createRandom, getZoneById, MAP_SEED } from "../maps/index.js";
+﻿import {
+  createRandom,
+  getZoneById,
+  MAP_1,
+  MAP_1_SEED,
+} from "../maps/index.js";
 import { applyDropScaling } from "../../game/balance.js";
 
 export const BEHAVIOR = {
@@ -17,6 +22,26 @@ export const CREATURE_GROWTH = {
   damagePerLevel: 0.16,
   defensePerLevel: 0.12,
 };
+
+/**
+ * A ESQUIVA das criaturas, que nao tem dado de atributo nenhum.
+ *
+ * Uma criatura e feita de hp, dano e defesa. Nao existe DEX em
+ * `CREATURE_TYPES`, e dar esquiva pelo atributo seria inventar um
+ * atributo que o resto do jogo nao conhece
+ *
+ * Entao a esquiva vem de um piso que sobe com o nivel, e o teto e o
+ * que segura: um mob de nivel alto nao pode virar um alvo que o
+ * jogador nunca acerta
+ *
+ * Sao 3% no nivel 1, subindo 0,25 ponto por nivel, ate 8%. Um jogador
+ * de Warriro no nivel 1 tem cerca de 75 de precisao, que reduz essa
+ * esquiva a uns 2% — o suficiente para o "MISS" aparecer, e raro o
+ * bastante para nao parecer que o golpe falhou
+ */
+const CREATURE_EVASION_BASE = 0.03;
+const CREATURE_EVASION_POR_NIVEL = 0.0025;
+const CREATURE_EVASION_MAXIMA = 0.08;
 
 /** variacao de nivel sorteada no roster: a maioria fica no base */
 export const LEVEL_TIERS = [0, 0, 0, 1, 2];
@@ -134,9 +159,7 @@ export const CREATURE_TYPES = {
       maxItems: 2,
       items: [
         { id: "goblin_cloth", weight: 70 },
-        { id: "goblin_dagger", weight: 26 },
-        { id: "goblin_totem", weight: 3.2 },
-        { id: "skeleton_blade", weight: 0.8 },
+
       ],
     }),
   },
@@ -167,8 +190,7 @@ export const CREATURE_TYPES = {
         { id: "ghoul_rot", weight: 78 },
         { id: "ghoul_claw", weight: 52 },
         { id: "ghoul_rib", weight: 30 },
-        { id: "ghoul_relic", weight: 3.5 },
-        { id: "skeleton_crown", weight: 0.5 },
+
       ],
     }),
   },
@@ -198,8 +220,120 @@ export const CREATURE_TYPES = {
       items: [
         { id: "skeleton_bone", weight: 58 },
         { id: "skeleton_skull", weight: 30 },
-        { id: "skeleton_blade", weight: 11 },
-        { id: "skeleton_crown", weight: 0.6 },
+
+      ],
+    }),
+  },
+
+  /**
+   * O primeiro inimigo que ataca de LONGE.
+   *
+   * Todos os outros encostam e batem. Este nasce com a arte de oito
+   * direcoes do arqueiro e por isso atira: a animacao de arco em cima
+   * de um golpe corpo a corpo ficaria incoerente.
+   *
+   * `ranged` e o que muda o comportamento na IA: com ele, o bicho
+   * entra em `retreat` quando o jogador chega perto demais, em vez de
+   * ficar parado no lugar deixando o arquero colar nele.
+   *
+   * Fica declarado ENTRE o esqueleto e o ogre, e nao no fim do
+   * arquivo, porque a ordem de declaracao e a ordem de poder: o
+   * `loot` precisa crescer junto com o nivel, e um bicho de nivel 12
+   * no fim da lista derrubaria a chance de item de todo mundo que
+   * viesse antes.
+   */
+  zumbi_arbalist: {
+    id: "zumbi_arbalist",
+    name: "Arqueiro Zumbi",
+    behavior: BEHAVIOR.ACTIVE,
+    level: 12,
+    maxHp: 360,
+    defense: 12,
+    radius: 20,
+    speed: 100,
+    damage: 30,
+    attackRange: 300,
+    aggroRange: 420,
+    leash: 900,
+    attackCooldown: 1.9,
+    spriteScale: 1,
+    wanderRadius: 70,
+    wanderSpeed: 26,
+    color: "#7fa650",
+
+    // o tiro dele
+    ranged: true,
+    keepDistance: 190,
+    projectileSpeed: 430,
+    projectileRadius: 8,
+    projectileStyle: "arrow",
+    projectileColor: "#9ec46a",
+
+    // 0.70 fica entre o esqueleto (0.62) e o ogre (0.78): e o preco
+    // de um bicho de nivel 12 que atira de longe
+    loot: applyDropScaling({
+      coins: { min: 26, max: 60 },
+      itemChance: 0.7,
+      maxItems: 2,
+      items: [
+        { id: "ghoul_rot", weight: 44 },
+        { id: "skeleton_bone", weight: 30 },
+        { id: "ghoul_claw", weight: 18 },
+        { id: "skeleton_skull", weight: 6 },
+
+      ],
+    }),
+  },
+
+  /**
+   * O ogre da PREDEIRA: o segundo direcional, e o primeiro de
+   * CORPO A CORPO com arte de oito direcoes.
+   *
+   * A pasta de origem chama o golpe de `shoot`, mas nao ha arco
+   * nenhum: e o porrete. Por isso NAO ha `ranged` nem `keepDistance`
+   * nem projétil, e e o campo `ranged` que decide: e ele que faz a
+   * `EnemyAI` escolher entre `onShootPlayer` e `onDamagePlayer`, e
+   * entre recuar e fechar. Sem ele, o ogre caminha ate o jogador e
+   * bate de perto, que e o que o bicho precisa fazer.
+   *
+   * A velocidade e 118, a mesma do goblin saqueador e acima do ogre
+   * da pedreira (92). O guerreiro anda a 165, entao da para
+   * daria para passar por ele andando, e ele nunca vai encostar num
+   * jogador que corre. Isso ja valia para o resto: nenhum mob do
+   * jogo alcanca o guerreiro em linha reta. O que muda aqui e o
+   * ARRANCADA inicial, que e o que o jogador ve quando o ogre
+   * acorda.
+   */
+  ogre_da_predeira: {
+    id: "ogre_da_predeira",
+    name: "Ogre da Predeira",
+    behavior: BEHAVIOR.ACTIVE,
+    level: 16,
+    maxHp: 1420,
+    defense: 36,
+    radius: 34,
+    speed: 118,
+    damage: 84,
+    attackRange: 84,
+    aggroRange: 430,
+    leash: 1000,
+    attackCooldown: 2.2,
+    spriteScale: 1,
+    wanderRadius: 56,
+    wanderSpeed: 30,
+    color: "#8a9a5b",
+
+    // sem `ranged`: a `EnemyAI` so cria a arte de tiro e o
+    // projétil quando o inimigo atira de longe
+    loot: applyDropScaling({
+      coins: { min: 95, max: 205 },
+      itemChance: 0.8,
+      maxItems: 3,
+      items: [
+        { id: "ogre_pebble", weight: 52 },
+        { id: "ogre_hide", weight: 34 },
+
+
       ],
     }),
   },
@@ -227,11 +361,10 @@ export const CREATURE_TYPES = {
       itemChance: 0.78,
       maxItems: 3,
       items: [
-        { id: "ogre_pebble", weight: 58 },
-        { id: "ogre_hide", weight: 38 },
-        { id: "ogre_hammer", weight: 13 },
-        { id: "ogre_heart", weight: 2.6 },
-        { id: "skeleton_crown", weight: 0.4 },
+      { id: "ogre_pebble", weight: 58 },
+      { id: "ogre_hide", weight: 38 },
+
+
       ],
     }),
   },
@@ -305,9 +438,26 @@ export const TRAINING_DUMMY_BLUEPRINTS = [
 
 export const ZONE_ROSTER = [
   {
+    // A PREDEIRA nao e uma zona do mapa: o nome do ogre vem da arte
+    // (a denseza onde ele vive), e nao de um bioma do jogo. Ele foi
+    // posto na FLORESTA, que e a zona de mato do mapa e a unica
+    // combinacao. Se um dia existir uma zona chamada predeira, e so
+    // trocar o campo `zone` aqui.
+    //
+    // O peso e alto de proposito. Com 16 de 100 e 7 spawns, o
+    // arredondamento do `allocateTypes` dava UM ogre da predeira no
+    // mapa inteiro, a 2500px do nascimento: a arte nova nunca
+    // aparecia em teste, e o que o jogador via era o ogre da
+    // pedreira, com a arte antiga. Agora sao tres.
     zone: "floresta",
-    count: 7,
-    mix: { goblin: 62, rat: 16, ghoul: 14, slime: 8 },
+    count: 14,
+    mix: {
+      goblin: 46,
+      rat: 12,
+      ghoul: 10,
+      slime: 8,
+      ogre_da_predeira: 30,
+    },
   },
   {
     zone: "acampamento",
@@ -337,7 +487,7 @@ export const ZONE_ROSTER = [
   {
     zone: "cripta",
     count: 8,
-    mix: { skeleton: 68, ogre: 20, ghoul: 12 },
+    mix: { skeleton: 62, ogre: 18, ghoul: 12, zumbi_arbalist: 8 },
   },
   {
     zone: "cinzas",
@@ -439,6 +589,13 @@ export function createCreature(
 
     id: `${typeId}_${index}`,
 
+    // O `id` da criatura carrega o indice para ficar unico no mundo
+    // (`skeleton_7`), entao NAO serve para achar sprite, loot nem
+    // ficha de bestiario: todos esses registros usam o id do TIPO.
+    // O `id` do tipo vinha no `...type` acima e era sobrescrito
+    // nesta linha, entao o tipo de gato sumia do mob.
+    typeId,
+
     level: resolvedLevel,
     baseLevel: type.level ?? 1,
 
@@ -453,6 +610,32 @@ export function createCreature(
 
     isCreature: true,
     isDummy: false,
+
+    /**
+     * A ESQUIVA desta criatura, como FRACAO.
+     *
+     * Nenhuma criatura declara `evasion` no tipo, entao ela vem de um
+     * valor base que cresce devagar com o nivel: um mob de nivel 1
+     * escapa de uns 3% dos golpes e um de nivel 20 escapa de uns 8%.
+     * O jogador ve o "MISS" aparecer de vez em quando, sem que o
+     * primeiro slimesco do mapa seja um alvo impossivel
+     *
+     * E o MESMO formato do `evasion` do jogador — fracao, e nao um
+     * numero de defesa. As duas unidades tem de bater, ou a chance de
+     * errar sai de escala em um dos lados
+     *
+     * O boneco de DUELO e a excecao declarada em `evasion: 0`: um
+     * alvo de treino que faz o jogador errar ensina a esperar, nao a
+     * jogar. Ele esta nesta lista porque revida, entao e uma
+     * criatura comum no combate
+     */
+    evasion:
+      type.evasion ??
+      Math.min(
+        CREATURE_EVASION_MAXIMA,
+        CREATURE_EVASION_BASE +
+          (resolvedLevel - 1) * CREATURE_EVASION_POR_NIVEL,
+      ),
 
     facing: { x: 0, y: 1 },
 
@@ -481,14 +664,47 @@ export function createCreature(
   };
 }
 
-export function createCreatureRoster(seed = MAP_SEED) {
+/**
+ * AS CRIATURAS DE UM MAPA.
+ *
+ * O roster mora em `ZONE_ROSTER`, que aponta para `MAP_1_ZONES` por
+ * id. Isso prendia o mundo ao vale: o hub, que nao tem zona nenhuma,
+ * aparecia cheio de Pantano Profundo assim que o mapa entrava
+ *
+ * Agora o mapa decide. Cada entrada do roster so vira criatura se a
+ * zona existir NO MAPA QUE ESTA SENDO MONTADO, e um hub sem zonas
+ * devolve lista vazia — que e o correto para um hub
+ *
+ * Sem argumento continua sendo o vale, com a mesma seed de sempre. E o
+ * que mantem de pe os testes que montam um elenco sem se preocupar com
+ * mapa: eles perguntam "as criaturas do jogo", e o jogo ainda e o vale
+ */
+export function createCreatureRoster(
+  map = MAP_1,
+  seed = MAP_1_SEED,
+) {
   const random = createRandom(seed);
   const roster = [];
+
+  /**
+   * Os ids das zonas deste mapa.
+   *
+   * Um `Set` porque a busca acontece uma vez por entrada do roster, e
+   * as zonas do vale sao doze
+   */
+  const zonasDoMapa = new Set(
+    (map.zones ?? []).map((zone) => zone.id),
+  );
 
   let index = 0;
 
   for (const entry of ZONE_ROSTER) {
-    const zone = getZoneById(entry.zone);
+    // a zona existe, mas e de outro mapa: aqui nao mora ninguem
+    if (!zonasDoMapa.has(entry.zone)) continue;
+
+    const zone =
+      map.zones.find((z) => z.id === entry.zone) ??
+      getZoneById(entry.zone);
 
     if (!zone) {
       throw new Error(`zona desconhecida: ${entry.zone}`);
@@ -555,6 +771,47 @@ export const DUMMY_LOOT = applyDropScaling({
   ],
 });
 
+/**
+ * O boneco de DUELO: o unico boneco de treino que revida.
+ *
+ * A regra pedida e: parado enquanto ninguem encosta, e assim que leva
+ * o primeiro golpe ele vai ate QUEM BATEU e causa dano. Ele nao
+ * vagueia, nao volta para casa e nao persegue o jogador mais proximo
+ * como o resto dos mobs: trava no primeiro agressor e so troca de
+ * alvo quando esse alvo MORRE, assumindo quem estiver batendo
+ * nele.
+ *
+ * Os numeros sao de boneco de treino, e nao de mob: 1500 de vida e
+ * um golpe leve o suficiente para o jogador aprender a distancia e a
+ * sobreviver. O `speed` e menor que o do jogador de proposito: um
+ * boneco que corre mais que o guerreiro nao serve para treinar
+ * nada. Ajuste aqui se quiser outro tom.
+ */
+const DUEL_DUMMY = {
+  speed: 96,
+  damage: 16,
+  attackRange: 70,
+  attackCooldown: 2.4,
+  aggroRange: Infinity,
+  leash: Infinity,
+  wanderRadius: 0,
+  wanderSpeed: 0,
+
+  /**
+   * O boneco de duelo NAO escapa de golpe.
+   *
+   * E o unico boneco que revida, entao e uma criatura no meio das
+   * outras e teria esquiva pelo nivel. Mas a funcao dele e servir de
+   * alvo: um boneco que falha 3% das vezes ensina o jogador a esperar
+   * o golpe passar em vez de aprender a acertar. As outras criaturas
+   * ficam com a esquiva do nivel
+   */
+  evasion: 0,
+};
+
+/** O boneco de madeira e o de duelo. Os outros seis sao alvos fixos. */
+const DUEL_DUMMY_IDS = new Set(["dummy_warrior"]);
+
 export function createTrainingDummy(blueprint) {
   return {
     ...blueprint,
@@ -574,6 +831,26 @@ export function createTrainingDummy(blueprint) {
     isCreature: false,
     isDummy: true,
 
+    // O `typeId` e o que o motor usa para achar a arte. O boneco
+    // precisa dele tanto quanto uma criatura, senao o registro de
+    // sprite nao acha nada e ele cai no corpo vetorial. Para o
+    // boneco de madeira o proprio id serve de tipo
+    typeId: blueprint.id,
+
+    // `duelo` marca o boneco que revida. E o que a EnemyAI le para
+    // rodar nele a regra do duelo; os outros seis ficam com zero
+    // deste campo e continuam alvos fixos
+    duelo: DUEL_DUMMY_IDS.has(blueprint.id)
+      ? { ...DUEL_DUMMY }
+      : null,
+
+    // O desenho soma este valor no tempo da animacao. Sem ele o
+    // tempo vira `NaN`, o retangulo de origem sai com `x: NaN` e o
+    // boneco SOME: foi assim que a arte do boneco de madeira "nao
+    // aparecia", carregada e valida, com o desenho recebendo
+    // coordenadas invalidas
+    spriteOffset: 0,
+
     facing: { x: 0, y: 1 },
 
     hitFlash: 0,
@@ -592,9 +869,32 @@ export function createTrainingDummy(blueprint) {
     provoked: false,
     alerted: false,
     attackCooldownRemaining: 0,
+
+    // A memoria do duelo. `targetId` e o ID do jogador travado: o
+    // boneco nao troca de alvo enquanto esse jogador estiver vivo, e
+    // e por isso que ele guarda o ID e nao a entidade. `lastHitById`
+    // e quem esta batendo AGORA, e de onde vem o alvo quando o
+    // primeiro morre
+    targetId: null,
+    lastHitById: null,
   };
 }
 
-export function createTrainingDummies() {
+/**
+ * Os bonecos do Campo de Provas.
+ *
+ * Eles vivem dentro da zona de treino do vale, entao seguem a mesma
+ * regra das criaturas: so aparecem no mapa que tem a zona. Um hub sem
+ * `kind: "training"` devolve lista vazia
+ */
+export function createTrainingDummies(map) {
+  if (map) {
+    const temTreino = (map.zones ?? []).some(
+      (zone) => zone.kind === "training",
+    );
+
+    if (!temTreino) return [];
+  }
+
   return TRAINING_DUMMY_BLUEPRINTS.map(createTrainingDummy);
 }

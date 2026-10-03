@@ -33,6 +33,10 @@ export class StatusSystem {
     const normalized = {
       ...effect,
       sourceId: source?.id ?? null,
+      // a entidade alem do id: o loot do last hit precisa saber
+      // QUEM aplicou o efeito, e o id sozinho nao localiza o
+      // dono no servidor
+      source: source ?? null,
       remaining: effect.duration,
       tickTimer: tickInterval,
       damagePerTick:
@@ -96,6 +100,16 @@ export class StatusSystem {
             0,
             entity.hp - effect.damagePerTick,
           );
+
+          // O DoT tira vida direto, sem passar pelo DamageSystem,
+          // entao o `lastHitBy` nao era gravado e o abate por
+          // veneno ficava sem dono. Como o loot e do ultimo a
+          // dar dano, o autor do tick precisa ser registrado
+          // aqui tambem, senao o last hit so funciona no dano
+          // direto.
+          if (effect.source) {
+            entity.lastHitBy = effect.source;
+          }
 
           effect.tickTimer += effect.tickInterval;
         }

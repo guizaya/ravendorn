@@ -7,7 +7,7 @@ import {
   createCreatureRoster,
   TRAINING_DUMMY_BLUEPRINTS,
 } from "../../data/enemies/index.js";
-import { TEST_MAP, ZONES } from "../../data/maps/index.js";
+import { MAP_1, MAP_1_ZONES } from "../../data/maps/index.js";
 import { CollisionSystem } from "../collision/CollisionSystem.js";
 import { StatusSystem } from "../effects/StatusSystem.js";
 
@@ -77,7 +77,13 @@ describe("roster", () => {
   it("creates a large roster across every zone", () => {
     const roster = createCreatureRoster();
 
-    expect(roster.length).toBe(76);
+    // 83 = a soma dos `count` de cada `ZONE_ROSTER`, sem os bonecos
+    // de treino, que sao acrescentados a parte. A floresta subiu de
+    // 7 para 14 quando o ogre da predeira entrou no mix: com 7
+    // spawns e o peso dele baixo, o arredondamento dava UM ogre no
+    // mapa inteiro, a 2500px do nascimento, e a arte nova nunca
+    // aparecia em teste
+    expect(roster.length).toBe(83);
   });
 
   it("covers all three behaviors", () => {
@@ -130,7 +136,7 @@ describe("roster", () => {
   });
 
   it("keeps every creature inside the map bounds", () => {
-    const bounds = TEST_MAP.bounds;
+    const bounds = MAP_1.bounds;
 
     for (const enemy of createCreatureRoster()) {
       expect(enemy.x).toBeGreaterThan(bounds.x);
@@ -148,7 +154,7 @@ describe("roster", () => {
     const roster = createCreatureRoster();
 
     for (const enemy of roster) {
-      const zone = ZONES.find(
+      const zone = MAP_1_ZONES.find(
         (candidate) =>
           enemy.x >= candidate.x &&
           enemy.x <= candidate.x + candidate.width &&
@@ -163,7 +169,7 @@ describe("roster", () => {
   it("matches the dominant behavior of each zone", () => {
     const roster = createCreatureRoster();
 
-    for (const zone of ZONES) {
+    for (const zone of MAP_1_ZONES) {
       if (zone.kind === "training") continue;
 
       const members = roster.filter(
@@ -205,7 +211,7 @@ describe("roster", () => {
   it("mixes more than one creature type per zone", () => {
     const roster = createCreatureRoster();
 
-    for (const zone of ZONES) {
+    for (const zone of MAP_1_ZONES) {
       if (zone.kind === "training") continue;
 
       const types = new Set(

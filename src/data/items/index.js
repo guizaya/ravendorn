@@ -1,4 +1,4 @@
-﻿export const RARITY = {
+export const RARITY = {
   COMMON: "common",
   UNCOMMON: "uncommon",
   RARE: "rare",
@@ -56,15 +56,180 @@ export const ITEM_TYPE_LABEL = {
   [ITEM_TYPE.TRINKET]: "Relíquia",
 };
 
+/**
+ * ONDE a peca vai no corpo.
+ *
+ * O `type` sozinho nao diz a posicao: `head`, `chest` e `legs`
+ * aceitam todos `ARMOR`, entao um capuz cabia no peito e uma bota
+ * na cabeca. Qualquer peca de armadura era aceita nos tres slots, e
+ * o slot escolhido era o primeiro que coubesse, o que dependia da
+ * ORDEM do boneco e nao do item: equipar uma bota com o slot da
+ * cabeca vazio vestia a bota na cabeca
+ *
+ * A posicao e o nome do slot que a peca realmente ocupa. Um item sem
+ * `slot` nao declara posicao nenhuma, e ai o `type` manda: e o caso
+ * das armas, que todas vao no mesmo slot, e dos relatorios, que
+ * tanto servem de anel quanto de amuleto
+ */
+export const ITEM_SLOT = {
+  HEAD: "head",
+  GLOVES: "gloves",
+  CHEST: "chest",
+  LEGS: "legs",
+  BOOTS: "boots",
+};
+
+/** A posicao que o item ocupa, ou `null` quando ele nao declara uma. */
+export function itemSlotOf(item) {
+  return item?.slot ?? null;
+}
+
+/**
+ * Familia de arma.
+ *
+ * Uma arma pertence a uma familia, e cada familia pertence a um
+ * conjunto de classes: arqueiro cria arco, guerreiro cria espada.
+ * Armadura e reliquia nao tem familia, servem a qualquer classe.
+ */
+/**
+ * As familias de arma do jogo.
+ *
+ * Uma por classe, e cada uma com a sua: arco, espada, lanca e cajado.
+ * `dagger` e `mace` sairam daqui junto com o `darkist` e o
+ * `lionheart`, que eram os unicos a usa-las. Nenhum item dessas
+ * familias existia no catalogo, entao as duas entradas eram enum sem
+ * ninguem atras: um item de adaga ou maca, se voltasse, seria
+ * inWearavel por qualquer classe.
+ */
+export const WEAPON_KIND = {
+  BOW: "bow",
+  SWORD: "sword",
+  LANCE: "lance",
+  STAFF: "staff",
+};
+
+export const WEAPON_KIND_LABEL = {
+  [WEAPON_KIND.BOW]: "Arco",
+  [WEAPON_KIND.SWORD]: "Espada",
+  [WEAPON_KIND.LANCE]: "Lança",
+  [WEAPON_KIND.STAFF]: "Cajado",
+};
+
+/**
+ * Uma familia por classe, e o contrario tambem: cada familia do
+ * `WEAPON_KIND` pertence a exatamente uma. Sao as mesmas quatro
+ * classes de `data/characters/index.js`.
+ *
+ * O cajado sobrou para a `sorcerer` sozinha, porque `taoist` e
+ * `summoner` — as outras classes de magia — sairam do jogo e
+ * levaram o compartilhamento junto.
+ */
+export const CLASS_WEAPON_KINDS = {
+  warrior: [WEAPON_KIND.SWORD],
+  lancer: [WEAPON_KIND.LANCE],
+  sorcerer: [WEAPON_KIND.STAFF],
+  arbalist: [WEAPON_KIND.BOW],
+};
+
+/**
+ * Os ids de classe do jogo, por extenso.
+ *
+ * Existe para o `classes` de cada peca de armadura nao repetir o
+ * mesmo array em dez lugares. Nao e a fonte da verdade — a lista de
+ * verdade e `CHARACTER_CLASSES` em `data/characters/index.js`, e o
+ * `itemClass.test.js` confere que todo id aqui e uma classe que
+ * existe. Importar a lista de la criaria ciclo entre os dois modulos
+ */
+export const CLASS_IDS = {
+  WARRIOR: "warrior",
+  LANCER: "lancer",
+  SORCERER: "sorcerer",
+  ARBALIST: "arbalist",
+};
+
+export function weaponKindsOfClass(classId) {
+  return CLASS_WEAPON_KINDS[classId] ?? [];
+}
+
+/** as classes que podem criar uma arma desta familia */
+export function classesOfWeaponKind(kind) {
+  return Object.entries(CLASS_WEAPON_KINDS)
+    .filter(([, kinds]) => kinds.includes(kind))
+    .map(([classId]) => classId);
+}
+
+/**
+ * Se a classe pode criar/usar o item.
+ *
+ * A trava e do item, em duas camadas, e a primeira tem prioridade:
+ *
+ * 1. `item.classes`: as classes donas da peca. E o que segura a
+ *    ARMADURA de uma classe longe da outra. A calca de couro do
+ *    arqueiro nao e a calca de couro do guerreiro, e o guerreiro
+ *    precisa da DELE
+ * 2. `item.kind`, so para arma: a familia do arma e o que amarra o
+ *    arco ao arqueiro e a espada ao guerreiro
+ *
+ * Material libera sempre, e e material e nao uma excecao: o
+ * ingrediente precisa estar disponivel para todo mundo, senao a
+ * cadeia que leva ate a arma de uma classe comeca em material de
+ * outra e ninguem consegue craftar
+ *
+ * Antes o `kind` era a unica trava, e a armadura passava reto para
+ * qualquer classe — o guerreiro via no craft a bota, a calca, o
+ * capuz, a luva e o peito do arqueiro
+ */
+export function canClassUseItem(item, classId) {
+  if (!item) return false;
+
+  if (item.type === ITEM_TYPE.MATERIAL) return true;
+
+  if (Array.isArray(item.classes)) {
+    return item.classes.includes(classId);
+  }
+
+  if (item.type !== ITEM_TYPE.WEAPON) return true;
+  if (!item.kind) return true;
+
+  return weaponKindsOfClass(classId).includes(item.kind);
+}
+
+/** as classes donas declaradas no proprio item */
+export function classesOfItemClasses(item) {
+  return Array.isArray(item?.classes) ? item.classes : null;
+}
+
 function createItem(config) {
+  const type = config.type ?? ITEM_TYPE.MATERIAL;
+
   return {
-    stackable: false,
-    maxStack: 1,
-    type: ITEM_TYPE.MATERIAL,
+    // material empilha por padrao: ele e ingrediente de craft e
+    // ocuparia um slot inteiro por unidade, o que inviabiliza
+    // qualquer receita com quantidade
+    stackable: type === ITEM_TYPE.MATERIAL,
+    maxStack: type === ITEM_TYPE.MATERIAL ? 99 : 1,
+    type,
     rarity: RARITY.COMMON,
     value: 10,
     tier: 0,
     quest: false,
+    kind: null,
+
+    /**
+     * As classes donas da peca, ou `null` quando ela e de todo mundo.
+     *
+     * E a trava da ARMADURA e da RELIQUIA, que nao tem `kind`: o
+     * `kind` e familia de ARMA, e nao faz sentido inventar uma familia
+     * "calca" so para prender a peca numa classe. Um item de armadura
+     * que aqui fica `null` e usavel por qualquer uma, que e o
+     * comportamento de material
+     */
+    classes: null,
+    // a peca nao ocupa posicao nenhuma ate declarar uma. o padrao e
+    // `null`, e nao o slot do tipo, para o catalogo nao mentir: um
+    // item novo sem `slot` e aceito por qualquer slot do mesmo tipo,
+    // que e o comportamento antigo
+    slot: null,
     stats: {},
     ...config,
   };
@@ -109,17 +274,6 @@ export const ITEMS = {
     quest: true,
   }),
 
-  goblin_dagger: createItem({
-    id: "goblin_dagger",
-    name: "Adaga Goblin",
-    icon: "†",
-    rarity: RARITY.UNCOMMON,
-    type: ITEM_TYPE.WEAPON,
-    tier: 1,
-    value: 40,
-    quest: true,
-    stats: { attack: 6 },
-  }),
 
   goblin_cloth: createItem({
     id: "goblin_cloth",
@@ -131,16 +285,6 @@ export const ITEMS = {
     quest: true,
   }),
 
-  goblin_totem: createItem({
-    id: "goblin_totem",
-    name: "Totem Saqueador",
-    icon: "☗",
-    rarity: RARITY.RARE,
-    type: ITEM_TYPE.TRINKET,
-    tier: 2,
-    value: 95,
-    stats: { attack: 4, resourceRegen: 1 },
-  }),
 
   ghoul_rot: createItem({
     id: "ghoul_rot",
@@ -161,16 +305,6 @@ export const ITEMS = {
     quest: true,
   }),
 
-  ghoul_relic: createItem({
-    id: "ghoul_relic",
-    name: "Relíquia Profana",
-    icon: "☠",
-    rarity: RARITY.EPIC,
-    type: ITEM_TYPE.TRINKET,
-    tier: 3,
-    value: 260,
-    stats: { attack: 9, attackSpeed: 0.05 },
-  }),
 
   ghoul_rib: createItem({
     id: "ghoul_rib",
@@ -190,17 +324,6 @@ export const ITEMS = {
     value: 70,
   }),
 
-  skeleton_blade: createItem({
-    id: "skeleton_blade",
-    name: "Lâmina Espectral",
-    icon: "⚔",
-    rarity: RARITY.RARE,
-    type: ITEM_TYPE.WEAPON,
-    tier: 2,
-    value: 130,
-    quest: true,
-    stats: { attack: 12 },
-  }),
 
   skeleton_bone: createItem({
     id: "skeleton_bone",
@@ -212,16 +335,6 @@ export const ITEMS = {
     quest: true,
   }),
 
-  skeleton_crown: createItem({
-    id: "skeleton_crown",
-    name: "Coroa da Cripta",
-    icon: "♕",
-    rarity: RARITY.LEGENDARY,
-    type: ITEM_TYPE.ARMOR,
-    tier: 5,
-    value: 720,
-    stats: { defense: 18, maxHp: 120 },
-  }),
 
   ogre_pebble: createItem({
     id: "ogre_pebble",
@@ -242,104 +355,346 @@ export const ITEMS = {
     quest: true,
   }),
 
-  ogre_hammer: createItem({
-    id: "ogre_hammer",
-    name: "Marreta de Pedra",
-    icon: "⌁",
-    rarity: RARITY.RARE,
+
+
+
+
+
+
+
+
+
+  /* ---- armas por classe ----
+     Cada familia de arma pertence a um grupo de classes. Sao os
+     unicos itens do catalogo com `kind`, e por isso os unicos que
+     o craft trava para quem nao e da classe. */
+
+  willow_bow: createItem({
+    id: "willow_bow",
+    name: "Arco de Galho",
+    icon: "🏹",
+    rarity: RARITY.UNCOMMON,
     type: ITEM_TYPE.WEAPON,
-    value: 150,
-    stats: { attack: 18, attackSpeed: -0.08 },
-  }),
-
-  ogre_heart: createItem({
-    id: "ogre_heart",
-    name: "Coração de Basalto",
-    icon: "♥",
-    rarity: RARITY.EPIC,
-    type: ITEM_TYPE.TRINKET,
-    tier: 3,
-    value: 300,
-    stats: { maxHp: 180, defense: 8 },
-  }),
-
-  hunter_hood: createItem({
-    id: "hunter_hood",
-    name: "Capuz de Caçador",
-    icon: "⛑",
-    rarity: RARITY.UNCOMMON,
-    type: ITEM_TYPE.ARMOR,
+    kind: WEAPON_KIND.BOW,
     tier: 1,
-    value: 55,
-    stats: { defense: 5, resourceRegen: 1 },
+    value: 58,
+    stats: { attack: 8, attackSpeed: 0.02 },
   }),
 
-  scout_jerkin: createItem({
-    id: "scout_jerkin",
-    name: "Gibão de Batedor",
-    icon: "⛊",
+  /* A arma secundaria do arbalist: a aljava.
+   *
+   * O `slot` e `weapon2` e nao `null` porque a aljava e a peça que
+   * fica nas costas, ao lado do arco na mao. Sem o `slot`, o
+   * `slotNameFor` cairia no primeiro slot livre do tipo e a aljava
+   * seria aceita na mao principal, trocando de lugar com o arco
+   *
+   * O `kind` continua sendo arco, e e o que trava a classe: as duas
+   * pecas do arbalist sao da familia `bow`. Uma familia nova so
+   * nasceria se existisse uma classe que NAO usa arco e precisasse
+   * da aljava — o que nao acontece
+   *
+   * O ATQ e menor que o do arco e o `attackSpeed` maior, porque e a
+   * segunda peca: os dois bonuses somam (`applyEquipment` junta
+   * por stat), e a aljava nao pode valer um arco inteiro sozinha
+   */
+  aljava_arbalist: createItem({
+    id: "aljava_arbalist",
+    name: "Aljava de Arqueiro",
+    icon: "🎯",
     rarity: RARITY.UNCOMMON,
-    type: ITEM_TYPE.ARMOR,
+    type: ITEM_TYPE.WEAPON,
+    kind: WEAPON_KIND.BOW,
+    slot: "weapon2",
     tier: 1,
-    value: 62,
-    stats: { defense: 7 },
+    value: 44,
+    stats: { attack: 4, attackSpeed: 0.05 },
   }),
 
-  tracker_boots: createItem({
-    id: "tracker_boots",
-    name: "Botas de Rastreio",
-    icon: "⛉",
+  /* As botas do arbalist: as grevas.
+   *
+   * Primeira peca de ARMADURA do catalogo, e a primeira que nao e
+   * arma. Duas diferencas em relacao ao arco e a aljava:
+   *
+   * 1. NAO tem `kind`. A trava de classe e a familia da ARMA, e
+   *    armadura nao tem familia: `canClassUseItem` solta qualquer
+   *    armadura para qualquer classe. Para as botas serem do
+   *    arbalist mesmo, a trava precisaria de outro campo, e ele nao
+   *    existe — entao sao livres, como a armadura sempre foi
+   *
+   * 2. O `slot` e `boots`, e nao `null`. Sem ele a peca entraria em
+   *    qualquer slot do mesmo tipo, e `slotNameFor` cairia no
+   *    primeiro: o jogador veria "Cabeça" num par de botas
+   *
+   * DEF e VEL, e nao ATQ: e a peca que se pisa no chao, e o que
+   * importa nela e nao morrer e chegar longe. A armadura soma por
+   * stat em `applyEquipment`, entao as DEF dos outros slots se
+   * juntam a esta
+   */
+  botas_arbalist: createItem({
+    id: "botas_arbalist",
+    classes: [CLASS_IDS.ARBALIST],
+    name: "Botas de Arqueiro",
+    icon: "🥾",
     rarity: RARITY.COMMON,
     type: ITEM_TYPE.ARMOR,
+    slot: "boots",
+    tier: 1,
+    value: 36,
+    stats: { defense: 5, speed: 4 },
+  }),
+
+  /* As calcas do arbalist: as calcas de couro.
+   *
+   * Terceira peca de ARMADURA, e a que explica o `legs`.
+   *
+   * O `slot` e `legs` e nao `legs` escrito em qualquer lugar: o id
+   * do slot e `legs` mesmo com a peca virando "Calcas" no texto, e
+   * o save grava o id. Um arquivo antigo que tenha `legs` continua
+   * restaurando no lugar certo. O NOME do slot e o que o jogador le
+   *
+   * DEF e HP, e nao VEL como nas botas: a peca e do corpo, e o que
+   * ela faz e aguentar dano em vez de correr. As duas somam por stat
+   * em `applyEquipment`, entao a DEF do peito se junta a esta
+   */
+  calca_arbalist: createItem({
+    id: "calca_arbalist",
+    classes: [CLASS_IDS.ARBALIST],
+    name: "Calças de Arqueiro",
+    icon: "👖",
+    rarity: RARITY.COMMON,
+    type: ITEM_TYPE.ARMOR,
+    slot: "legs",
+    tier: 1,
+    value: 40,
+    stats: { defense: 6, maxHp: 24 },
+  }),
+
+  /* O capuz do arbalist.
+   *
+   * Quarta armadura e a que fecha o torso com a cabeca. O capuz tem
+   * a pena na lateral, e por isso ganha `attackSpeed` e nao so DEF:
+   * e a peca que mira. A arte escala de aco no comum para ouro no
+   * lendario, como as outras
+   *
+   * O `critRate` foi tentado aqui e NAO cabe: `applyEquipment` le
+   * DEF, ATQ, VEL, HP, REC, `attackSpeed` e `resourceRegen`, e
+   * qualquer outro stat do item eBonus que o motor ignora. O
+   * `itemClass.test.js` trava essa lista de sete, entao um stat novo
+   * aqui aparece como falha em vez de sumir em silencio
+   *
+   * Sem `kind` como as outras armaduras: a trava de classe e a
+   * familia da ARMA, e armadura nao tem. O `slot` e `head`, e nao
+   * `null` — sem ele `slotNameFor` cairia no primeiro slot de
+   * armadura, que ja e a cabeca, e o item entraria em qualquer uma
+   */
+  capuz_arbalist: createItem({
+    id: "capuz_arbalist",
+    classes: [CLASS_IDS.ARBALIST],
+    name: "Capuz de Arqueiro",
+    icon: "🎩",
+    rarity: RARITY.COMMON,
+    type: ITEM_TYPE.ARMOR,
+    slot: "head",
+    tier: 1,
+    value: 38,
+    stats: { defense: 4, attackSpeed: 0.04 },
+  }),
+
+  /* As luvas do arbalist: as manoplas.
+   *
+   * Quinta armadura e a ultima antes do peito. Fecha a mao que
+   * segura o arco, entao DEF e ATQ juntos: e a peca que protege o
+   * golpe E a mao que o da. Nenhuma outra peca do arbalist junta os
+   * dois — o arco e so ATQ, o capuz e DEF mais velocidade
+   *
+   * O `slot` e `gloves`. Sem ele a peca entraria em qualquer slot de
+   * armadura, e o jogador veria "Cabeca" num par de luvas
+   */
+  luvas_arbalist: createItem({
+    id: "luvas_arbalist",
+    classes: [CLASS_IDS.ARBALIST],
+    name: "Luvas de Arqueiro",
+    icon: "🧤",
+    rarity: RARITY.COMMON,
+    type: ITEM_TYPE.ARMOR,
+    slot: "gloves",
     tier: 1,
     value: 34,
-    stats: { defense: 3, speed: 6 },
+    stats: { defense: 3, attack: 2 },
   }),
 
-  ashen_band: createItem({
-    id: "ashen_band",
-    name: "Anel de Cinzas",
-    icon: "◈",
-    rarity: RARITY.RARE,
-    type: ITEM_TYPE.TRINKET,
-    tier: 2,
-    value: 88,
-    quest: true,
-    stats: { attack: 6, maxHp: 40 },
-  }),
-
-  wolf_charm: createItem({
-    id: "wolf_charm",
-    name: "Feitiço de Lobo",
-    icon: "❖",
-    rarity: RARITY.UNCOMMON,
-    type: ITEM_TYPE.TRINKET,
+  /* O peito do arbalist: a couraça.
+   *
+   * Sexta armadura e a que FECHA o conjunto: com ela o arbalist tem
+   * as duas armas e os cinco slots de armadura. E a peca mais cara
+   * em DEF e HP do catalogo, que e o que faz sentido — o peito e o
+   * lugar onde o golpe chega
+   *
+   * DEF e HP sao os dois porque e a peca de defesa do corpo inteiro.
+   * Nenhuma outra peca do arbalist junta DEF alto com HP: as calcas
+   * dao DEF 6 com 24 de HP, e aqui o DEF sobe com o HP junto
+   */
+  peito_arbalist: createItem({
+    id: "peito_arbalist",
+    classes: [CLASS_IDS.ARBALIST],
+    name: "Peito de Arqueiro",
+    icon: "⛊",
+    rarity: RARITY.COMMON,
+    type: ITEM_TYPE.ARMOR,
+    slot: "chest",
     tier: 1,
-    value: 48,
-    stats: { attackSpeed: 0.06, resourceRegen: 2 },
+    value: 52,
+    stats: { defense: 8, maxHp: 30 },
   }),
 
-  frost_ward: createItem({
-    id: "frost_ward",
-    name: "Guarda de Gelo",
-    icon: "❄",
-    rarity: RARITY.RARE,
-    type: ITEM_TYPE.TRINKET,
-    tier: 2,
-    value: 92,
-    stats: { defense: 9, maxHp: 60 },
+  /* ---- armadura do guerreiro ----
+   *
+   * O guerreiro entrou com arte propria e, com ela, a primeira
+   * armadura que NAO e do arqueiro: antes these pecas eram livres e
+   * apareciam no craft de qualquer classe, o que deixava o guerreiro
+   * com a bota, a calca, o capuz, a luva e o peito do arqueiro.
+   *
+   * A `classes` e o que fecha isso. E o mesmo campo nos dois lados:
+   * o do arqueiro declara `CLASS_IDS.ARBALIST` e o deste declara
+   * `CLASS_IDS.WARRIOR`, entao as duas Series sao exclusivas na
+   * pratica sem nenhuma lista paralela de "quem pode ver o que"
+   *
+   * Os STATS sao o que separa as duas classes, e nao um ajuste
+   * qualquer:
+   *
+   * - o arqueiro e de ALCANCE, e por isso o capuz dele da
+   *   `attackSpeed` e a bota da `speed`: e a peca que mira e a peca
+   *   que foge
+   * - o guerreiro e de CORPO A CORPO, e por isso nao ganha
+   *   `speed` em lugar nenhum: ele nao corre de ninguem, ele
+   *   aguenta. A troca e DEF e HP por peca, e `attack` na luva, que
+   *   e a mao que segura a espada
+   *
+   * As pecas sem arte hoje caem no glifo de texto do `ItemIcon`, que
+   * e um caminho suportado e testado. A arte entra em
+   * `data/items/icons.js` quando existir, sem mexer em nada aqui
+   */
+
+  /**
+   * As botas do guerreiro: as sabatonas.
+   *
+   * O slot e `boots` e nao `null`: sem ele a peca entraria em
+   * qualquer slot do mesmo tipo e `slotNameFor` cairia no primeiro,
+   * e o jogador veria "Cabeca" num par de botas
+   *
+   * DEF e HP, e nao `speed` como as botas do arqueiro. O guerreiro
+   * nao esta fugindo: a bota dele e para pisar firme, e a troca de
+   * `speed` por `maxHp` e o que faz as duas classes se sentirem
+   * diferentes com o MESMO numero de pecas
+   */
+  botas_warrior: createItem({
+    id: "botas_warrior",
+    classes: [CLASS_IDS.WARRIOR],
+    name: "Botas de Guerreiro",
+    icon: "🥾",
+    rarity: RARITY.COMMON,
+    type: ITEM_TYPE.ARMOR,
+    slot: "boots",
+    tier: 1,
+    value: 40,
+    stats: { defense: 6, maxHp: 12 },
   }),
 
-  ember_blade: createItem({
-    id: "ember_blade",
-    name: "Lâmina de Brasa",
-    icon: "⚒",
-    rarity: RARITY.EPIC,
-    type: ITEM_TYPE.WEAPON,
-    tier: 3,
-    value: 280,
-    stats: { attack: 22, attackSpeed: 0.04 },
+  /**
+   * As calcas do guerreiro.
+   *
+   * O `slot` e `legs`, que e o id do slot mesmo com a peca virando
+   * "Calcas" no texto, e o save grava o id
+   *
+   * DEF e HP como as do arqueiro, e um ponto acima: e a peca que
+   * segura o golpe de frente, e o guerreiro nao tem onde recuar
+   */
+  calca_warrior: createItem({
+    id: "calca_warrior",
+    classes: [CLASS_IDS.WARRIOR],
+    name: "Calças de Guerreiro",
+    icon: "👖",
+    rarity: RARITY.COMMON,
+    type: ITEM_TYPE.ARMOR,
+    slot: "legs",
+    tier: 1,
+    value: 44,
+    stats: { defense: 7, maxHp: 30 },
   }),
+
+  /**
+   * O elmo do guerreiro.
+   *
+   * O `slot` e `head`, e nao `null`: sem ele a peca entraria em
+   * qualquer slot de armadura e o jogador veria "Cabeca" numa luva
+   *
+   * DEF e `maxHp`, e nao `attackSpeed` como o capuz do arqueiro: o
+   * elmo nao ajuda a mirar, ele segura a cabeca
+   */
+  elmo_warrior: createItem({
+    id: "elmo_warrior",
+    classes: [CLASS_IDS.WARRIOR],
+    name: "Elmo de Guerreiro",
+    icon: "🪖",
+    rarity: RARITY.COMMON,
+    type: ITEM_TYPE.ARMOR,
+    slot: "head",
+    tier: 1,
+    value: 42,
+    stats: { defense: 6, maxHp: 10 },
+  }),
+
+  /**
+   * As manoplas do guerreiro.
+   *
+   * DEF e ATQ juntos, e o mesmo par do capuz e da luva do arqueiro
+   * porem com o ATQ dobrado: e a mao que segura a espada, e o golpe
+   * do guerreiro e a unica coisa que ele tem
+   */
+  luvas_warrior: createItem({
+    id: "luvas_warrior",
+    classes: [CLASS_IDS.WARRIOR],
+    name: "Luvas de Guerreiro",
+    icon: "🧤",
+    rarity: RARITY.COMMON,
+    type: ITEM_TYPE.ARMOR,
+    slot: "gloves",
+    tier: 1,
+    value: 36,
+    stats: { defense: 4, attack: 4 },
+  }),
+
+  /**
+   * O peitoral do guerreiro.
+   *
+   * FECHA o conjunto: com ele o guerreiro tem a espada e os cinco
+   * slots de armadura. E a peca mais cara em DEF e HP do catalogo,
+   * acima do peito do arqueiro (8/30), que e o que faz sentido: o
+   * arqueiro morre longe e o guerreiro morre perto
+   */
+  peito_warrior: createItem({
+    id: "peito_warrior",
+    classes: [CLASS_IDS.WARRIOR],
+    name: "Peito de Guerreiro",
+    icon: "⛊",
+    rarity: RARITY.COMMON,
+    type: ITEM_TYPE.ARMOR,
+    slot: "chest",
+    tier: 1,
+    value: 58,
+    stats: { defense: 11, maxHp: 45 },
+  }),
+
+
+
+
+
+
+
+
+
+
+
 
   dummy_wood: createItem({
     id: "dummy_wood",
@@ -365,6 +720,99 @@ export function rarityOf(item) {
 
 export function isStackable(item) {
   return Boolean(item?.stackable) && (item?.maxStack ?? 1) > 1;
+}
+
+/**
+ * Quanto cada raridade escala stats e custo.
+ *
+ * A raridade de um item NAO e fixa: o craft entrega o mesmo item em
+ * qualquer uma das cinco. O indice 1 e a raridade "natural" do item,
+ * entao criar na raridade base sai pelo mesmo preco da receita.
+ * As escalas sao proporcionais a base, o que mantem o preco e o
+ * poder sempre ligados.
+ */
+export const RARITY_STAT_SCALE = {
+  [RARITY.COMMON]: 0.7,
+  [RARITY.UNCOMMON]: 0.85,
+  [RARITY.RARE]: 1,
+  [RARITY.EPIC]: 1.2,
+  [RARITY.LEGENDARY]: 1.45,
+};
+
+export const RARITY_COST_SCALE = {
+  [RARITY.COMMON]: 0.5,
+  [RARITY.UNCOMMON]: 0.75,
+  [RARITY.RARE]: 1,
+  [RARITY.EPIC]: 1.7,
+  [RARITY.LEGENDARY]: 2.8,
+};
+
+/** stats que sao proporcionais e nao podem ser arredondados a inteiro */
+const FRACTION_STATS = new Set(["attackSpeed"]);
+
+function scaleStat(stat, value, factor) {
+  if (FRACTION_STATS.has(stat)) {
+    // preserva o sinal: attackSpeed negativo e penalidade
+    return Number((value * factor).toFixed(3));
+  }
+
+  return Math.round(value * factor);
+}
+
+/** a raridade que o item tem no catalogo, sem craft por cima */
+export function baseRarityOf(itemId) {
+  return getItem(itemId)?.rarity ?? RARITY.COMMON;
+}
+
+/**
+ * Os stats do item naquela raridade.
+ *
+ * Sem `rarity`, devolve os stats do catalogo, entao loot e missao
+ * continuam usando a definicao crua.
+ */
+export function statsAt(itemId, rarity = null) {
+  const item = getItem(itemId);
+
+  if (!item) return {};
+
+  const base = RARITY_STAT_SCALE[item.rarity] ?? 1;
+  const target =
+    rarity === null || rarity === undefined
+      ? base
+      : (RARITY_STAT_SCALE[rarity] ?? base);
+
+  if (target === base) return { ...item.stats };
+
+  const factor = target / base;
+  const scaled = {};
+
+  for (const [stat, value] of Object.entries(item.stats)) {
+    scaled[stat] = scaleStat(stat, value, factor);
+  }
+
+  return scaled;
+}
+
+/** o valor de mercado acompanha o que se pagou pela raridade */
+export function valueAt(itemId, rarity = null) {
+  const item = getItem(itemId);
+
+  if (!item) return 0;
+
+  const base = RARITY_COST_SCALE[item.rarity] ?? 1;
+  const target =
+    rarity === null || rarity === undefined
+      ? base
+      : (RARITY_COST_SCALE[rarity] ?? base);
+
+  return Math.max(1, Math.round(item.value * (target / base)));
+}
+
+/** identificador de variante, usado em logs e nos testes */
+export function variantId(itemId, rarity = null) {
+  const resolved = rarity ?? baseRarityOf(itemId);
+
+  return `${itemId}@${resolved}`;
 }
 
 export function isQuestItem(id) {

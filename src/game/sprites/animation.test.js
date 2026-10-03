@@ -16,20 +16,35 @@ import {
   SPRITE_FORMAT,
   getClassSprite,
 } from "../../data/sprites/index.js";
+import { createSpriteDefinition } from "../../data/sprites/layout.js";
+import { CHARACTER_CLASSES } from "../../data/characters/index.js";
 
-const SHEET_SPRITE = getClassSprite("warrior");
+/**
+ * O fixture do formato ANTIGO: 3 linhas e espelhamento.
+ *
+ * Nenhuma classe do jogo usa mais este formato: com o `lancer`
+ * convertido, as quatro jogaveis sao direcionais. O `createSpriteDefinition`
+ * continua exportado e o motor continua tratando o caso — e sao os
+ * ramos de `resolveDirection`, do `flip` e do `walkBob` nulo que ainda
+ * precisam de cobertura.
+ *
+ * O fixture e MONTADO aqui, e nao pego de uma classe: buscar
+ * `getClassSprite(<id>)` num formato que nenhuma classe tem mais seria
+ * um teste que so passa enquanto sobrar alguem no formato velho, e
+ * passaria a testar `undefined` no dia em que a conversao terminasse
+ */
+const SHEET_SPRITE = createSpriteDefinition(
+  "fixture_folha_3_linhas",
+  null,
+);
 const DIRECTIONS = SHEET_SPRITE.directions;
 
-const ALL_CLASSES = [
-  "warrior",
-  "lancer",
-  "taoist",
-  "sorcerer",
-  "arbalist",
-  "darkist",
-  "lionheart",
-  "summoner",
-];
+// as quatro classes do jogo. Vem da lista de verdade, e nao escrita
+// aqui: quando uma classe sai, este teste passa a rodar so nas que
+// existem em vez de quebrar num id apagado
+const ALL_CLASSES = CHARACTER_CLASSES.map(
+  (definition) => definition.id,
+);
 
 function normalize(x, y) {
   const length = Math.hypot(x, y);
@@ -377,23 +392,26 @@ describe("directional frame rect", () => {
   });
 
   it("keeps the column inside the sheet", () => {
-    for (const animation of Object.values(
-      ARBALIST_SPRITE.animations,
-    )) {
+    const columns = Math.max(
+      ...Object.values(ARBALIST_SPRITE.animations).map(
+        (animation) => animation.length,
+      ),
+    );
+
+    for (const name of Object.keys(ARBALIST_SPRITE.animations)) {
       for (let step = 0; step < 120; step += 1) {
         const rect = resolveFrameRect(
           ARBALIST_SPRITE,
-          Object.entries(ARBALIST_SPRITE.animations).find(
-            ([, value]) => value === animation,
-          )[0],
+          name,
           step / 60,
           { x: 1, y: 0 },
         );
 
-        expect(rect.x).toBeGreaterThanOrEqual(0);
-        expect(rect.x + rect.width).toBeLessThanOrEqual(
-          ARBALIST_SPRITE.animations.walk.length * 64,
-        );
+        expect(rect.x, name).toBeGreaterThanOrEqual(0);
+        expect(
+          rect.x + rect.width,
+          name,
+        ).toBeLessThanOrEqual(columns * 64);
       }
     }
   });
@@ -601,23 +619,59 @@ describe("sprite manifest", () => {
     }
   });
 
-  it("gives every class the same on-screen size and anchor", () => {
-    const reference = resolveDrawRect(
-      getClassSprite("warrior"),
-      { x: 640, y: 360 },
-    );
-
-    expect(reference.width).toBe(64);
-    expect(reference.height).toBe(64);
+  it("draws each class at the size its own cell declares", () => {
+    // O retangulo saiu de ser IGUAL para todas as classes. A celula
+    // do arquiro tem 64px e a do guerreiro 68px, porque sao artes de
+    // origem de dimensoes diferentes: encolher uma para a outra
+    // perderia pixel da arte nova
+    //
+    // O que continua valendo e o chao: todo mundo tem de pisar na
+    // mesma linha do mapa
+    const PONTO = { x: 640, y: 360 };
+    const bases = [];
 
     for (const id of ALL_CLASSES) {
-      const rect = resolveDrawRect(
-        getClassSprite(id),
-        { x: 640, y: 360 },
+      const definition = getClassSprite(id);
+      const rect = resolveDrawRect(definition, PONTO);
+
+      // o retangulo sai da propria definicao, sem deslocamento
+      // escondido: a ancora e o que amarra a celula ao personagem
+      expect(rect.width, id).toBe(
+        definition.frameWidth * definition.scale,
+      );
+      expect(rect.height, id).toBe(
+        definition.frameHeight * definition.scale,
+      );
+      expect(rect.x, id).toBe(
+        PONTO.x - definition.anchorX * definition.scale,
+      );
+      expect(rect.y, id).toBe(
+        PONTO.y +
+          definition.footOffset -
+          definition.anchorY * definition.scale,
       );
 
-      expect(rect, id).toEqual(reference);
+      bases.push(rect.y + rect.height);
     }
+
+    /**
+     * A base da celula e o chao, e ela e o que `footOffset` e
+     * `anchorY` determinam.
+     *
+     * Nao sai exatamente igual porque sobra uma margem transparente
+     * entre o pe e a base da celula, e ela e uma propriedade de cada
+     * arte: o `gif-to-sheet` alinha o pe DENTRO de uma folha, e o
+     * que sobra embaixo do pe depende de quanto a arte de origem
+     * ocupa a celula. Entre estas folhas a diferenca e de poucos
+     * pixels
+     *
+     * A margem de 6px pega erro de ancora de verdade — um digito
+     * trocado na ancora joga a celula dezenas de pixels — e deixa
+     * passar a diferenca de arte entre as classes
+     */
+    const chao = Math.max(...bases) - Math.min(...bases);
+
+    expect(chao, `bases ${bases.join(", ")}`).toBeLessThanOrEqual(6);
   });
 
   it("gives every class a distinct image source", () => {
@@ -631,23 +685,51 @@ describe("sprite manifest", () => {
   });
 
   it("keeps every sheet animation inside the sheet", () => {
-    const sheets = ALL_CLASSES.filter(
-      (id) => !isDirectionalFormat(getClassSprite(id)),
+    // Toda animacao precisa caber na largura da folha, senao o
+    // `drawImage` recorta a coluna seguinte e o personagem sai com um
+    // pedaco de outro quadro — em silencio, sem erro no console
+    //
+    // O fixture entra na lista porque nenhuma classe do jogo usa mais
+    // o formato antigo: sem ele, o ramo de 3 linhas ficaria sem
+    // cobertura nenhuma
+    const definitions = ALL_CLASSES.map((id) =>
+      getClassSprite(id),
     );
 
-    expect(sheets.length).toBeGreaterThan(0);
+    definitions.push(SHEET_SPRITE);
 
-    for (const id of sheets) {
-      const definition = getClassSprite(id);
+    for (const definition of definitions) {
+      const animations = Object.values(definition.animations);
 
-      for (const animation of Object.values(
-        definition.animations,
-      )) {
+      /**
+       * A largura da folha, por formato.
+       *
+       * Na folha de 3 linhas as animacoes DIVIDEM a mesma linha com
+       * deslocamento: idle nas colunas 0 e 1, caminhada de 2 a 5 e
+       * golpe de 6 a 8. E a largura e um numero fixo do formato, 9.
+       *
+       * Na direcional cada animacao comeca na coluna 0 e tem o seu
+       * proprio bloco de linhas, entao a largura e a maior que a
+       * propria folha ocupa
+       */
+      const colunas = isDirectionalFormat(definition)
+        ? Math.max(
+            ...animations.map(
+              (animation) => animation.start + animation.length,
+            ),
+          )
+        : 9;
+
+      for (const animation of animations) {
         const last = animation.start + animation.length;
 
-        expect(last, id).toBeLessThanOrEqual(9);
-        expect(animation.length, id).toBeGreaterThan(0);
-        expect(animation.fps, id).toBeGreaterThan(0);
+        expect(
+          last,
+          `${definition.id}: a animacao passa da folha de ${colunas}`,
+        ).toBeLessThanOrEqual(colunas);
+
+        expect(animation.length, definition.id).toBeGreaterThan(0);
+        expect(animation.fps, definition.id).toBeGreaterThan(0);
       }
     }
   });
@@ -673,14 +755,36 @@ describe("sprite manifest", () => {
     }
   });
 
-  it("marks every sheet class as a sheet", () => {
+  it("marks the converted classes as directional", () => {
+    // `warrior` entrou na lista quando a arte dele deixou de ser a
+    // folha de 3 linhas com espelhamento e passou a ser a folha
+    // direcional de 8 direcoes gerada pelo `gif-to-sheet.mjs`.
+    // `sorcerer` entrou do mesmo jeito, e sem arte de golpe: a folha
+    // dele tem as 8 direcoes e a linha de idle, e o `attack` aponta
+    // para o idle. `lancer` foi o ultimo: com ele, as quatro classes
+    // jogaveis sao direcionais e nenhuma ficou na folha de 3 linhas
+    const DIRECIONAIS = [
+      "arbalist",
+      "warrior",
+      "sorcerer",
+      "lancer",
+    ];
+
     for (const id of ALL_CLASSES) {
       const definition = getClassSprite(id);
 
       expect(
         isDirectionalFormat(definition),
         id,
-      ).toBe(id === "arbalist");
+      ).toBe(DIRECIONAIS.includes(id));
+    }
+
+    // e nenhuma classe nova entra sem ser declarada aqui: uma classe
+    // direcional que esquecesse esta lista passaria no teste acima
+    for (const id of ALL_CLASSES) {
+      if (!isDirectionalFormat(getClassSprite(id))) continue;
+
+      expect(DIRECIONAIS, id).toContain(id);
     }
   });
 });
@@ -712,6 +816,7 @@ describe("arbalist directional sprite", () => {
     const animations = ARBALIST_SPRITE.animations;
 
     expect(Object.keys(animations).sort()).toEqual([
+      "attack",
       "idle",
       "walk",
     ]);
@@ -723,24 +828,157 @@ describe("arbalist directional sprite", () => {
     }
   });
 
-  it("has no attack art, so a standing archer keeps the idle row", () => {
-    expect(
-      ARBALIST_SPRITE.animations.attack,
-    ).toBe(undefined);
+  it("usa a arte de tiro so quando ha inimigo no foco", () => {
+    const attack = ARBALIST_SPRITE.animations.attack;
 
+    expect(attack.needsTarget).toBe(true);
+
+    // atirando com alvo: arte de tiro
     expect(
       resolveAnimation(
-        { attackAnimation: 0.2, isMoving: false },
+        {
+          attackAnimation: 0.2,
+          isMoving: false,
+          firingTargetId: "ogro_0",
+        },
+        ARBALIST_SPRITE,
+      ),
+    ).toBe("attack");
+
+    // buff proprio tambem dispara attackAnimation, mas nao tem
+    // alvo: o arqueiro tem de continuar na pose de idle
+    expect(
+      resolveAnimation(
+        {
+          attackAnimation: 0.2,
+          isMoving: false,
+          firingTargetId: null,
+        },
         ARBALIST_SPRITE,
       ),
     ).toBe("idle");
 
+    // parado, sem atirar
     expect(
       resolveAnimation(
-        { attackAnimation: 0.2, isMoving: true },
+        {
+          attackAnimation: 0,
+          isMoving: false,
+          firingTargetId: null,
+        },
+        ARBALIST_SPRITE,
+      ),
+    ).toBe("idle");
+
+    // andando e atirando: a arte de tiro tem prioridade
+    expect(
+      resolveAnimation(
+        {
+          attackAnimation: 0.2,
+          isMoving: true,
+          firingTargetId: "ogro_0",
+        },
+        ARBALIST_SPRITE,
+      ),
+    ).toBe("attack");
+
+    // andando sem atirar
+    expect(
+      resolveAnimation(
+        {
+          attackAnimation: 0,
+          isMoving: true,
+          firingTargetId: null,
+        },
         ARBALIST_SPRITE,
       ),
     ).toBe("walk");
+  });
+
+  it("a arte de tiro tem um bloco de linhas por direcao", () => {
+    const attack = ARBALIST_SPRITE.animations.attack;
+    const walk = ARBALIST_SPRITE.animations.walk;
+
+    expect(attack.rowOffset).toBeGreaterThanOrEqual(
+      Object.keys(ARBALIST_DIRECTIONS).length + 1,
+    );
+    expect(walk.rowOffset).toBe(undefined);
+    expect(walk.row).toBe(undefined);
+
+    for (const [facing, key] of [
+      [{ x: 1, y: 0 }, "east"],
+      [{ x: 1, y: 1 }, "south-east"],
+      [{ x: 0, y: 1 }, "south"],
+      [{ x: -1, y: 1 }, "south-west"],
+      [{ x: -1, y: 0 }, "west"],
+      [{ x: -1, y: -1 }, "north-west"],
+      [{ x: 0, y: -1 }, "north"],
+      [{ x: 1, y: -1 }, "north-east"],
+    ]) {
+      const shoot = resolveFrameRect(
+        ARBALIST_SPRITE,
+        "attack",
+        0,
+        facing,
+      );
+
+      const walking = resolveFrameRect(
+        ARBALIST_SPRITE,
+        "walk",
+        0,
+        facing,
+      );
+
+      expect(
+        shoot.y / 64,
+        `tiro para ${key}`,
+      ).toBe(attack.rowOffset + ARBALIST_DIRECTIONS[key]);
+
+      expect(
+        walking.y / 64,
+        `andar para ${key}`,
+      ).toBe(ARBALIST_DIRECTIONS[key]);
+
+      expect(
+        shoot.y,
+        `${key} nao pode usar a linha de andar`,
+      ).not.toBe(walking.y);
+    }
+  });
+
+  it("as linhas de tiro nao colidem com walk nem com idle", () => {
+    const facings = [
+      { x: 1, y: 0 },
+      { x: 1, y: 1 },
+      { x: 0, y: 1 },
+      { x: -1, y: 1 },
+      { x: -1, y: 0 },
+      { x: -1, y: -1 },
+      { x: 0, y: -1 },
+      { x: 1, y: -1 },
+    ];
+
+    const rows = new Set();
+
+    for (const name of ["walk", "idle", "attack"]) {
+      for (const facing of facings) {
+        rows.add(
+          resolveFrameRect(ARBALIST_SPRITE, name, 0, facing)
+            .y / 64,
+        );
+      }
+    }
+
+    expect(facings.length).toBe(DIRECTION_KEYS.length);
+    expect(rows.size).toBe(8 + 1 + 8);
+  });
+
+  it("a arte de tiro tem fps de disparo, nao de caminhada", () => {
+    expect(
+      ARBALIST_SPRITE.animations.attack.fps,
+    ).toBeGreaterThan(
+      ARBALIST_SPRITE.animations.walk.fps,
+    );
   });
 
   it("still uses the attack art when the definition has one", () => {
