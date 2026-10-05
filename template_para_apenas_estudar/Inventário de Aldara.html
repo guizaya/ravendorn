@@ -1,0 +1,851 @@
+<!doctype html><html><head><meta charset=utf8><meta name=viewport content="width=device-width,initial-scale=1,viewport-fit=cover"><style>:root{color-scheme:light;box-sizing:border-box;padding-top:env(safe-area-inset-top,0px);padding-bottom:env(safe-area-inset-bottom,0px)}html{scroll-padding-top:env(safe-area-inset-top,0px)}body{margin:0;padding:0;font:14px -apple-system,BlinkMacSystemFont,sans-serif;background:#faf9f5;color:#141413}img{max-width:100%}[hidden]:not([hidden=until-found i]){display:none!important}</style></head><body>
+<title>Inventário de Aldara</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Cinzel:wght@500;700&family=Rajdhani:wght@500;600;700&display=swap">
+<style>
+  /* Layout: duas janelas com moldura dourada chanfrada, como num MMORPG de ação.
+     Esquerda: personagem (cinco slots de cada lado do boneco, atributos embaixo).
+     Direita: mochila com abas, grade, moedas e barra de ações. No celular as janelas empilham.
+     Visual escuro de propósito: azul-marinho profundo, ouro velho e cores de raridade. */
+  :root {
+    --bg: #07090f;
+    --navy-1: #0b1120;
+    --navy-2: #111a2e;
+    --navy-3: #1a2641;
+    --line: #2a3857;
+    --gold-hi: #f0d594;
+    --gold: #cfa95b;
+    --gold-lo: #7a5a26;
+    --ink: #e6e1d3;
+    --mute: #8d97ad;
+    --good: #7ddc8a;
+    --bad: #ef6a62;
+    --crimson: #c23a3f;
+    --r0: #aab2c0;
+    --r1: #5fd07a;
+    --r2: #4da3ff;
+    --r3: #b672ff;
+    --r4: #ffa23a;
+    --font-display: "Cinzel", "Trajan Pro", Georgia, serif;
+    --font-ui: "Rajdhani", "Arial Narrow", system-ui, sans-serif;
+    color-scheme: dark;
+  }
+  * { box-sizing: border-box; }
+  html, body { min-height: 100%; }
+  body {
+    margin: 0;
+    background-color: var(--bg);
+    background-image:
+      radial-gradient(900px 520px at 50% -12%, #1b2a4d 0%, transparent 66%),
+      radial-gradient(760px 420px at 92% 112%, #2a1218 0%, transparent 62%),
+      repeating-linear-gradient(135deg, rgba(255,255,255,.014) 0 2px, transparent 2px 7px);
+    color: var(--ink);
+    font: 500 16px/1.3 var(--font-ui);
+    -webkit-font-smoothing: antialiased;
+  }
+  /* largura mínima de projeto: abaixo dela o conjunto inteiro é reduzido, e as janelas nunca empilham */
+  .app { max-width: 1140px; min-width: 900px; margin: 0 auto; padding-inline: 16px; padding-block: 22px 52px; }
+  .top { margin-bottom: 16px; }
+  .eyebrow { margin: 0; font: 600 12px var(--font-display); letter-spacing: .34em; text-transform: uppercase; color: var(--gold); }
+  h1 { margin: 2px 0 0; font: 700 clamp(24px, 4vw, 32px)/1.1 var(--font-display); letter-spacing: .06em; }
+
+  /* molduras chanfradas */
+  .fr, .fr::after, .win, .win-in, .btn, .t-box, .t-in {
+    clip-path: polygon(var(--c) 0, calc(100% - var(--c)) 0, 100% var(--c), 100% calc(100% - var(--c)), calc(100% - var(--c)) 100%, var(--c) 100%, 0 calc(100% - var(--c)), 0 var(--c));
+  }
+  .board { display: grid; grid-template-columns: minmax(0, .88fr) minmax(0, 1fr); gap: 18px; align-items: start; }
+  .win-wrap { filter: drop-shadow(0 18px 28px rgba(0,0,0,.55)); min-width: 0; }
+  .win { --c: 18px; padding: 1.5px; background: linear-gradient(160deg, var(--gold-hi) 0%, var(--gold-lo) 28%, var(--gold) 52%, var(--gold-lo) 78%, #3a2c12 100%); }
+  .win-in { --c: 17px; padding: 18px 18px 20px; background: linear-gradient(180deg, var(--navy-2), var(--navy-1) 70%); position: relative; container-type: inline-size; }
+  .win-title { display: flex; align-items: center; gap: 14px; margin: 0 0 16px; }
+  .win-title::before, .win-title::after { content: ""; flex: 1; height: 1px; background: linear-gradient(90deg, transparent, var(--gold-lo) 60%, var(--gold)); }
+  .win-title::after { transform: scaleX(-1); }
+  h2 { margin: 0; font: 700 15px var(--font-display); letter-spacing: .26em; text-transform: uppercase; color: var(--gold-hi); }
+
+  /* personagem */
+  .char-head { display: grid; grid-template-columns: auto minmax(0, 1fr) auto; gap: 12px; align-items: center; }
+  .hex { position: relative; width: 50px; height: 56px; display: grid; place-items: center; background: linear-gradient(160deg, var(--gold-hi), var(--gold-lo)); clip-path: polygon(50% 0, 100% 25%, 100% 75%, 50% 100%, 0 75%, 0 25%); }
+  .hex::before { content: ""; position: absolute; inset: 2px; background: linear-gradient(#18233f, #0b1120); clip-path: polygon(50% 0, 100% 25%, 100% 75%, 50% 100%, 0 75%, 0 25%); }
+  .hex span { position: relative; font: 700 20px var(--font-ui); color: var(--gold-hi); font-variant-numeric: tabular-nums; }
+  .char-name { font: 700 18px/1.15 var(--font-display); letter-spacing: .04em; overflow-wrap: anywhere; }
+  .char-class { color: var(--mute); font-size: 15px; letter-spacing: .04em; }
+  .cp { text-align: right; line-height: 1; }
+  .cp small { display: block; margin-bottom: 4px; font-size: 11px; letter-spacing: .2em; text-transform: uppercase; color: var(--mute); }
+  .cp b { font: 700 28px var(--font-ui); color: var(--gold-hi); text-shadow: 0 0 18px rgba(240,213,148,.35); font-variant-numeric: tabular-nums; }
+  .bars { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; margin: 14px 0 16px; }
+  @container (max-width: 330px) { .bars { grid-template-columns: 1fr; } .cp b { font-size: 22px; } .char-name { font-size: 16px; } }
+  .bar-label { display: flex; justify-content: space-between; font-size: 13px; color: var(--mute); font-variant-numeric: tabular-nums; margin-bottom: 3px; }
+  .bar { height: 9px; background: #060910; border: 1px solid var(--line); overflow: hidden; }
+  .bar i { display: block; height: 100%; transition: width .35s ease; }
+  .bar.hp i { background: linear-gradient(#e0555a, #8f2428); }
+  .bar.xp i { background: linear-gradient(var(--gold-hi), var(--gold-lo)); }
+
+  /* slots */
+  .slot { --c: 7px; --rc: var(--r0); position: relative; aspect-ratio: 1; display: grid; place-items: center; user-select: none; -webkit-user-select: none; transition: filter .12s ease, opacity .15s ease; }
+  .fr { position: absolute; inset: 0; background: linear-gradient(150deg, #44537a, #1d2845); pointer-events: none; }
+  .fr::after { content: ""; position: absolute; inset: 1.5px; background: radial-gradient(circle at 50% 38%, #121b30 0%, #090e1b 85%); }
+  .slot.has { cursor: grab; color: var(--rc); }
+  .slot.has .fr { background: linear-gradient(150deg, color-mix(in srgb, var(--rc) 55%, #fff), color-mix(in srgb, var(--rc) 55%, #000)); }
+  .slot.has .fr::after { background: radial-gradient(circle at 50% 30%, color-mix(in srgb, var(--rc) 34%, #101a30) 0%, #0a1020 86%); }
+  .rar-1 { --rc: var(--r1); } .rar-2 { --rc: var(--r2); } .rar-3 { --rc: var(--r3); } .rar-4 { --rc: var(--r4); }
+  .slot.has:hover, .slot.has:focus-visible { outline: none; filter: drop-shadow(0 0 9px color-mix(in srgb, var(--rc) 85%, transparent)); }
+  .slot:focus-visible .fr, .slot.sel .fr { background: linear-gradient(150deg, var(--gold-hi), var(--gold-lo)); }
+  .slot.sel { filter: drop-shadow(0 0 8px rgba(240,213,148,.5)); }
+  .slot .ico { position: relative; width: 62%; height: 62%; filter: drop-shadow(0 2px 2px rgba(0,0,0,.7)); pointer-events: none; }
+  .slot.locked .ico { opacity: .5; }
+  .slot.dim { opacity: .22; }
+  .slot.drop-ok .fr { background: linear-gradient(150deg, var(--gold-hi), var(--gold)); }
+  .slot.drop-ok { filter: drop-shadow(0 0 10px rgba(240,213,148,.6)); }
+  .slot.ghost .fr { background: linear-gradient(150deg, #34416a, #18223c); }
+  .slot.ghost .ico { color: var(--mute); opacity: .26; width: 50%; height: 50%; margin-bottom: 11px; }
+  .cap { position: absolute; left: 0; right: 0; bottom: 5px; text-align: center; font-size: 11px; letter-spacing: .14em; text-transform: uppercase; color: var(--mute); pointer-events: none; }
+  .plus { position: absolute; right: 6px; top: 3px; font: 700 13px var(--font-ui); color: var(--gold-hi); text-shadow: 0 1px 2px #000, 0 0 4px #000; pointer-events: none; }
+  .qty { position: absolute; right: 6px; bottom: 2px; font: 700 14px var(--font-ui); color: #fff; text-shadow: 0 1px 2px #000, 0 0 4px #000; font-variant-numeric: tabular-nums; pointer-events: none; }
+  .lvl-lock { position: absolute; left: 6px; top: 3px; font: 700 12px var(--font-ui); color: var(--bad); text-shadow: 0 1px 2px #000; pointer-events: none; }
+  .slot.flash { animation: flash .85s ease-out; }
+  @keyframes flash { 0% { filter: drop-shadow(0 0 2px #fff) drop-shadow(0 0 24px var(--rc)); } 100% { filter: drop-shadow(0 0 0 transparent); } }
+  @keyframes spin { to { rotate: 360deg; } }
+  @media (prefers-reduced-motion: reduce) { .slot.flash, .rune { animation: none !important; } .bar i { transition: none; } }
+
+  /* slots de equipamento posicionados nos pontos do corpo (sem desenho de personagem) */
+  .paper { --s: clamp(52px, 21cqw, 84px); display: grid; justify-content: center; grid-template-columns: repeat(3, var(--s)); grid-template-rows: repeat(5, var(--s)); gap: clamp(8px, 2.6cqw, 14px); }
+  .paper .slot { width: var(--s); height: var(--s); z-index: 1; }
+  @container (max-width: 380px) { .cap { display: none; } .slot.ghost .ico { margin-bottom: 0; } }
+  .aura { grid-area: 1 / 1 / 6 / 4; position: relative; display: grid; place-items: center; pointer-events: none;
+    background: radial-gradient(closest-side, rgba(46,72,128,.4) 0%, rgba(20,30,56,.2) 60%, transparent 100%); }
+  .rune { position: absolute; left: 50%; top: 50%; translate: -50% -50%; width: 125%; color: var(--gold-lo); opacity: .55; animation: spin 150s linear infinite; pointer-events: none; }
+
+  /* atributos */
+  .stats { margin-top: 18px; padding-top: 14px; border-top: 1px solid var(--line); display: grid; grid-template-columns: repeat(auto-fit, minmax(170px, 1fr)); gap: 2px 26px; }
+  .stat { display: flex; align-items: baseline; gap: 8px; padding: 6px 2px; border-bottom: 1px solid #1c2740; font-variant-numeric: tabular-nums; }
+  .stat span { color: var(--mute); letter-spacing: .04em; }
+  .stat b { margin-left: auto; font-size: 19px; font-weight: 600; }
+  .stat em { font-style: normal; color: var(--good); font-size: 14px; }
+
+  /* mochila */
+  .tabs { display: flex; flex-wrap: wrap; gap: 2px; border-bottom: 1px solid var(--line); margin-bottom: 14px; }
+  .tab { position: relative; font: 600 15px var(--font-ui); letter-spacing: .08em; text-transform: uppercase; color: var(--mute); background: none; border: 0; padding: 9px 13px 10px; cursor: pointer; }
+  .tab:hover { color: var(--ink); }
+  .tab[aria-selected="true"] { color: var(--gold-hi); background: linear-gradient(transparent, rgba(207,169,91,.12)); }
+  .tab[aria-selected="true"]::after { content: ""; position: absolute; left: 8px; right: 8px; bottom: -1px; height: 2px; background: var(--gold); box-shadow: 0 0 10px var(--gold); }
+  .tab:focus-visible { outline: 2px solid var(--gold); outline-offset: -2px; }
+  .grid { display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); gap: 6px; }
+  @container (min-width: 300px) { .grid { grid-template-columns: repeat(5, minmax(0, 1fr)); } }
+  @container (min-width: 360px) { .grid { grid-template-columns: repeat(8, minmax(0, 1fr)); } }
+  @container (min-width: 620px) { .grid { grid-template-columns: repeat(10, minmax(0, 1fr)); } }
+  @container (max-width: 299px) { .grid { grid-template-columns: repeat(4, minmax(0, 1fr)); } }
+  @container (max-width: 520px) { .tab { padding: 8px 9px 9px; font-size: 14px; letter-spacing: .04em; } }
+  .bag-foot { display: flex; flex-wrap: wrap; gap: 10px 18px; align-items: center; justify-content: space-between; margin-top: 16px; }
+  .wallet { display: flex; flex-wrap: wrap; gap: 8px 20px; font-size: 18px; font-weight: 600; font-variant-numeric: tabular-nums; }
+  .coin { display: inline-flex; align-items: center; gap: 8px; }
+  .coin::before { content: ""; width: 14px; height: 14px; border-radius: 50%; background: radial-gradient(circle at 35% 30%, #fff1b8, #d6a93c 55%, #7d5d14); box-shadow: 0 0 0 1px #3d2d08; }
+  .coin.gem::before { border-radius: 0; width: 14px; height: 14px; background: linear-gradient(135deg, #bff3ff, #3aa9d6 60%, #1c5f86); clip-path: polygon(50% 0, 100% 40%, 50% 100%, 0 40%); box-shadow: none; }
+  .count { color: var(--mute); font-size: 15px; font-variant-numeric: tabular-nums; }
+
+  .btn { --c: 6px; font: 700 14px var(--font-ui); letter-spacing: .1em; text-transform: uppercase; color: var(--ink); padding: 9px 20px; cursor: pointer;
+    border: 1.5px solid transparent;
+    background: linear-gradient(#1c2a4a, #121c35) padding-box, linear-gradient(160deg, var(--gold-hi), var(--gold-lo)) border-box; }
+  .btn:hover { background: linear-gradient(#26375e, #172344) padding-box, linear-gradient(160deg, #fff0c4, var(--gold)) border-box; }
+  .btn:focus-visible { outline: 2px solid var(--gold-hi); outline-offset: 2px; }
+  .btn.primary { color: #1a1307; background: linear-gradient(#f2d899, #b98d3d) padding-box, linear-gradient(160deg, #fff6d6, var(--gold)) border-box; }
+  .btn.primary:hover { filter: brightness(1.08); }
+  .btn.warn { color: #fff; background: linear-gradient(#a8353a, #6d1e22) padding-box, linear-gradient(160deg, #ff9d96, #a8353a) border-box; }
+  .btn[disabled] { opacity: .5; cursor: not-allowed; filter: grayscale(.6); }
+
+  .actions { display: flex; flex-wrap: wrap; gap: 10px 16px; align-items: center; min-height: 58px; margin-top: 16px; padding: 10px 14px; background: linear-gradient(90deg, rgba(26,38,65,.9), rgba(17,26,46,.6)); border: 1px solid var(--line); }
+  .sel-info { display: grid; min-width: 0; }
+  .sel-name { font: 700 15px/1.2 var(--font-display); letter-spacing: .03em; overflow-wrap: anywhere; }
+  .sel-sub { color: var(--mute); font-size: 14px; }
+  .actions .spacer { flex: 1 1 0; }
+  .actions .btns { display: flex; gap: 8px; flex-wrap: wrap; }
+  .actions .none { color: var(--mute); }
+  .msg { min-height: 22px; margin-top: 10px; font-size: 16px; color: var(--mute); }
+  .msg.ok { color: var(--good); } .msg.bad { color: var(--bad); }
+  .hint { margin: 4px 0 0; font-size: 14px; color: var(--mute); }
+  .hint kbd { font: 700 12px var(--font-ui); letter-spacing: .06em; padding: 1px 7px; border: 1px solid var(--line); background: #0a1020; color: var(--ink); }
+
+  [hidden] { display: none !important; }
+  /* forja */
+  .up { color: var(--good); } .neg { color: var(--bad); }
+  .tab.forge-tab { display: inline-flex; align-items: center; gap: 7px; align-self: center; margin: 0 10px 6px 0; padding: 7px 14px; color: #1a1307; font-weight: 700;
+    background: linear-gradient(#f2d899, #b98d3d); border: 1px solid var(--gold-hi); box-shadow: 0 0 14px rgba(207,169,91,.28); }
+  .tab.forge-tab:hover { color: #1a1307; filter: brightness(1.08); }
+  .tab.forge-tab[aria-selected="true"] { background: linear-gradient(#b98d3d, #7a5a26); color: #fff3d2; box-shadow: 0 0 0 1px var(--gold-hi), 0 0 18px rgba(240,213,148,.45); }
+  .tab.forge-tab::after { display: none; }
+  .forge { display: grid; gap: 14px; }
+  .fmodes { display: flex; gap: 8px; }
+  .seg { font: 700 14px var(--font-ui); letter-spacing: .12em; text-transform: uppercase; color: var(--mute); background: #0a1020; border: 1px solid var(--line); padding: 8px 18px; cursor: pointer; }
+  .seg:hover { color: var(--ink); border-color: var(--gold-lo); }
+  .seg[aria-pressed="true"] { color: #1a1307; background: linear-gradient(#f2d899, #b98d3d); border-color: var(--gold-hi); }
+  .seg:focus-visible { outline: 2px solid var(--gold-hi); outline-offset: 2px; }
+  .craft { display: grid; grid-template-columns: minmax(0, 1fr); gap: 14px; align-items: start; }
+  @container (min-width: 520px) { .craft { grid-template-columns: minmax(0, .92fr) minmax(0, 1.08fr); } }
+  .rlist { display: grid; gap: 5px; align-content: start; max-height: 372px; overflow-y: auto; padding-right: 4px; }
+  .rline { display: flex; flex-wrap: wrap; align-items: center; gap: 2px 8px; margin-top: 2px; }
+  .rrow { display: grid; grid-template-columns: 40px minmax(0, 1fr); gap: 10px; align-items: center; padding: 6px 8px; background: rgba(26,38,65,.55); border: 1px solid var(--line); cursor: pointer; }
+  .rrow:hover { border-color: var(--gold-lo); }
+  .rrow[aria-pressed="true"] { border-color: var(--gold); background: rgba(207,169,91,.11); }
+  .rrow:focus-visible { outline: 2px solid var(--gold-hi); outline-offset: 1px; }
+  .rrow .slot, .ing .slot { width: 40px; height: 40px; }
+  .rtxt { min-width: 0; }
+  .rname { font: 700 14px/1.15 var(--font-display); letter-spacing: .02em; overflow-wrap: anywhere; }
+  .rname.big { font-size: 16px; }
+  .rsub { font-size: 14px; color: var(--mute); }
+  .badge { font: 700 12px var(--font-ui); letter-spacing: .1em; text-transform: uppercase; padding: 2px 7px; border: 1px solid currentColor; white-space: nowrap; }
+  .badge.ok { color: var(--good); } .badge.no { color: var(--mute); } .badge.bad { color: var(--bad); }
+  .detail { display: grid; gap: 12px; align-content: start; min-width: 0; padding: 12px; background: linear-gradient(180deg, rgba(26,38,65,.85), rgba(14,21,38,.7)); border: 1px solid var(--line); }
+  .d-head { display: grid; grid-template-columns: 64px minmax(0, 1fr); gap: 12px; align-items: center; }
+  .d-head .slot { width: 64px; height: 64px; }
+  .ing { display: grid; grid-template-columns: 40px minmax(0, 1fr) auto; gap: 10px; align-items: center; }
+  .have { font: 700 17px var(--font-ui); font-variant-numeric: tabular-nums; }
+  .have.ok { color: var(--good); } .have.no { color: var(--bad); }
+  .sect { font-size: 12px; letter-spacing: .18em; text-transform: uppercase; color: var(--mute); margin: 0 0 6px; }
+  .detail .stat b { font-size: 17px; }
+  .detail .arrow { color: var(--mute); }
+  .note { font-size: 14px; color: var(--mute); margin: 6px 0 0; }
+  .note.warn { color: var(--bad); }
+  .bar.gold i { background: linear-gradient(var(--gold-hi), var(--gold-lo)); }
+  .bar.prog i { width: 0; background: linear-gradient(var(--gold-hi), var(--gold)); animation: fill var(--dur, 1100ms) linear forwards; }
+  @keyframes fill { to { width: 100%; } }
+  .result { padding: 8px 10px; border: 1px solid currentColor; font-weight: 700; font-size: 15px; }
+  .result.ok { color: var(--good); background: rgba(125,220,138,.08); } .result.bad { color: var(--bad); background: rgba(239,106,98,.08); }
+  .pick { display: grid; grid-template-columns: repeat(auto-fill, minmax(50px, 1fr)); gap: 6px; }
+  .pick-wrap { display: grid; gap: 8px; align-content: start; max-height: 372px; overflow-y: auto; padding-right: 4px; min-width: 0; }
+  .slot[data-src="cat"] { cursor: default; }
+
+  /* dica flutuante */
+  #tip { --rc: var(--gold); position: fixed; left: 0; top: 0; z-index: 100; width: max-content; max-width: min(310px, calc(100vw - 24px)); pointer-events: none; opacity: 0; transition: opacity .08s ease; filter: drop-shadow(0 14px 26px rgba(0,0,0,.75)); }
+  #tip.on { opacity: 1; }
+  .t-box { --c: 9px; padding: 1.5px; background: linear-gradient(160deg, color-mix(in srgb, var(--rc) 70%, #fff), color-mix(in srgb, var(--rc) 45%, #000)); }
+  .t-in { --c: 8px; background: #090e1b; }
+  .t-head { padding: 11px 14px 9px; background: linear-gradient(90deg, color-mix(in srgb, var(--rc) 38%, #090e1b), #090e1b 92%); }
+  .t-name { font: 700 15px/1.2 var(--font-display); letter-spacing: .03em; color: var(--rc); text-wrap: balance; }
+  .t-name i { font-style: normal; color: var(--gold-hi); margin-left: 4px; }
+  .t-sub { margin-top: 3px; font-size: 14px; color: var(--mute); letter-spacing: .04em; }
+  .t-body { padding: 4px 14px 11px; }
+  .t-tag { display: inline-block; margin: 7px 0 0; font-size: 12px; letter-spacing: .18em; text-transform: uppercase; color: var(--gold); }
+  .t-power { display: flex; align-items: baseline; gap: 10px; padding: 8px 0 6px; border-bottom: 1px solid var(--line); }
+  .t-power span { font-size: 12px; letter-spacing: .16em; text-transform: uppercase; color: var(--mute); }
+  .t-power b { font: 700 24px var(--font-ui); color: var(--gold-hi); font-variant-numeric: tabular-nums; }
+  .t-power em { margin-left: auto; font-style: normal; font-weight: 700; font-size: 15px; }
+  .t-block { margin-top: 8px; padding-top: 8px; border-top: 1px solid var(--line); }
+  .t-block:first-child { margin-top: 0; padding-top: 0; border-top: 0; }
+  .t-stat { display: flex; justify-content: space-between; gap: 18px; font-size: 16px; font-variant-numeric: tabular-nums; }
+  .t-stat span { color: var(--mute); }
+  .t-stat b { font-weight: 600; color: var(--good); }
+  .t-stat b.neutral { color: var(--ink); } .t-stat b.bad, em.down, .t-stat b.down { color: var(--bad); } .t-stat b.up, em.up { color: var(--good); }
+  .t-use { font-size: 16px; color: var(--good); }
+  .t-desc { margin: 9px 0 0; font-size: 14px; font-style: italic; color: #a8a79a; line-height: 1.35; }
+  .t-cap { font-size: 12px; letter-spacing: .14em; text-transform: uppercase; color: var(--mute); margin-bottom: 4px; }
+  .t-cap span { letter-spacing: .02em; text-transform: none; font-size: 15px; font-weight: 700; }
+  .t-foot { display: flex; justify-content: space-between; gap: 14px; margin-top: 10px; padding-top: 8px; border-top: 1px solid var(--line); font-size: 13px; color: var(--mute); letter-spacing: .03em; }
+  .t-foot .gold { color: #e6c875; }
+</style>
+
+<svg width="0" height="0" style="position:absolute" aria-hidden="true" focusable="false">
+  <defs>
+    <symbol id="i-sword" viewBox="0 0 32 32"><g fill="currentColor" fill-opacity=".2" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round" stroke-linecap="round"><g transform="rotate(45 16 16)"><path d="M16 2.5 L19 6 V19.5 H13 V6 Z"/><path d="M16 8 V17.5" fill="none" stroke-opacity=".6"/><path d="M9.5 19.5 H22.5 V22.5 H9.5 Z"/><path d="M14.5 22.5 H17.5 V27 H14.5 Z"/><circle cx="16" cy="29" r="1.6"/></g></g></symbol>
+    <symbol id="i-staff" viewBox="0 0 32 32"><g fill="currentColor" fill-opacity=".2" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round" stroke-linecap="round"><path d="M7 28 L20 11.5" fill="none" stroke-width="2.4"/><circle cx="22.5" cy="8" r="5"/><circle cx="22.5" cy="8" r="1.9" fill-opacity=".7"/><path d="M17.5 3.5 L19.5 5.5 M27.5 12.5 L25.5 10.5" fill="none" stroke-opacity=".6"/></g></symbol>
+    <symbol id="i-shield" viewBox="0 0 32 32"><g fill="currentColor" fill-opacity=".2" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round" stroke-linecap="round"><path d="M16 3 L26 6.5 V15.5 C26 22 21.5 26.5 16 29 C10.5 26.5 6 22 6 15.5 V6.5 Z"/><path d="M16 6.5 V25.5 M9.5 13 H22.5" fill="none" stroke-opacity=".55"/></g></symbol>
+    <symbol id="i-buckler" viewBox="0 0 32 32"><g fill="currentColor" fill-opacity=".2" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round" stroke-linecap="round"><circle cx="16" cy="16" r="11.5"/><circle cx="16" cy="16" r="4.5" fill-opacity=".5"/><path d="M16 4.5 V11.5 M16 20.5 V27.5 M4.5 16 H11.5 M20.5 16 H27.5" fill="none" stroke-opacity=".5"/></g></symbol>
+    <symbol id="i-helm" viewBox="0 0 32 32"><g fill="currentColor" fill-opacity=".2" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round" stroke-linecap="round"><path d="M6.5 19 C6.5 10.5 10.5 5 16 5 C21.5 5 25.5 10.5 25.5 19 V25.5 H20 V20.5 H12 V25.5 H6.5 Z"/><path d="M10.5 14.5 H21.5 V18 H10.5 Z" fill-opacity=".5"/><path d="M16 5 V14.5" fill="none" stroke-opacity=".5"/></g></symbol>
+    <symbol id="i-hood" viewBox="0 0 32 32"><g fill="currentColor" fill-opacity=".2" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round" stroke-linecap="round"><path d="M16 3.5 C9.5 3.5 6 9.5 6 15.5 C6 21.5 8.5 25.5 11.5 28.5 L16 24 L20.5 28.5 C23.5 25.5 26 21.5 26 15.5 C26 9.5 22.5 3.5 16 3.5 Z"/><path d="M16 10.5 C13 10.5 11 12.8 11 15.5 C11 18.2 13 20.5 16 20.5 C19 20.5 21 18.2 21 15.5 C21 12.8 19 10.5 16 10.5 Z" fill-opacity="0" stroke-opacity=".6"/></g></symbol>
+    <symbol id="i-chest" viewBox="0 0 32 32"><g fill="currentColor" fill-opacity=".2" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round" stroke-linecap="round"><path d="M11 4 L16 7 L21 4 L28 9 L25 14.5 L22 12.5 V28 H10 V12.5 L7 14.5 L4 9 Z"/><path d="M11 4 L16 10.5 L21 4" fill="none" stroke-opacity=".6"/><path d="M16 10.5 V28" fill="none" stroke-opacity=".4"/></g></symbol>
+    <symbol id="i-gloves" viewBox="0 0 32 32"><g fill="currentColor" fill-opacity=".2" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round" stroke-linecap="round"><path d="M8.5 15 V9 C8.5 7.7 11 7.7 11 9 V6 C11 4.7 13.7 4.7 13.7 6 V5 C13.7 3.7 16.3 3.7 16.3 5 V6.5 C16.3 5.3 19 5.3 19 6.5 V17 L22.5 13.5 C23.5 12.7 25 13.8 24.2 15 L20.5 22.5 C19.3 25.5 17.5 27 14.5 27 H13 C10 27 8.5 25 8.5 22 Z"/><path d="M9 22 H20" fill="none" stroke-opacity=".55"/></g></symbol>
+    <symbol id="i-legs" viewBox="0 0 32 32"><g fill="currentColor" fill-opacity=".2" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round" stroke-linecap="round"><path d="M9 4 H23 L24.5 28 H17.5 L16 13 L14.5 28 H7.5 Z"/><path d="M9 8.5 H23" fill="none" stroke-opacity=".5"/></g></symbol>
+    <symbol id="i-boots" viewBox="0 0 32 32"><g fill="currentColor" fill-opacity=".2" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round" stroke-linecap="round"><path d="M10 4 H18 V17 L26 21.5 V27 H10 Z"/><path d="M10 9 H18" fill="none" stroke-opacity=".5"/><path d="M10 23 H26" fill="none" stroke-opacity=".5"/></g></symbol>
+    <symbol id="i-ring" viewBox="0 0 32 32"><g fill="currentColor" fill-opacity=".2" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round" stroke-linecap="round"><circle cx="16" cy="20" r="8"/><circle cx="16" cy="20" r="4.5" fill-opacity="0" stroke-opacity=".6"/><path d="M16 3.5 L20 8 L16 12 L12 8 Z" fill-opacity=".5"/></g></symbol>
+    <symbol id="i-amulet" viewBox="0 0 32 32"><g fill="currentColor" fill-opacity=".2" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round" stroke-linecap="round"><path d="M7.5 4 C8 15 12 18 16 18 C20 18 24 15 24.5 4" fill="none"/><path d="M16 18 L21.5 23.5 L16 29.5 L10.5 23.5 Z"/><path d="M16 21 L18.5 23.5 L16 26.5 L13.5 23.5 Z" fill-opacity=".6"/></g></symbol>
+    <symbol id="i-potion" viewBox="0 0 32 32"><g fill="currentColor" fill-opacity=".12" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round" stroke-linecap="round"><path d="M12.5 3.5 H19.5 V9 L25.5 21 C27 24.5 24.5 28.5 21 28.5 H11 C7.5 28.5 5 24.5 6.5 21 L12.5 9 Z"/><path d="M8.2 19 H23.8 L25 21.5 C26.2 25 23.8 28.5 21 28.5 H11 C8.2 28.5 5.8 25 7 21.5 Z" stroke="none" fill-opacity=".55"/><path d="M11.5 3.5 H20.5" stroke-width="2.6"/></g></symbol>
+    <symbol id="i-ore" viewBox="0 0 32 32"><g fill="currentColor" fill-opacity=".2" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round" stroke-linecap="round"><path d="M5 22 L9 11 L17 6 L26 12 L27 23 L16 28 Z"/><path d="M9 11 L16 16 L26 12 M16 16 V28" fill="none" stroke-opacity=".55"/></g></symbol>
+    <symbol id="i-ingot" viewBox="0 0 32 32"><g fill="currentColor" fill-opacity=".2" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round" stroke-linecap="round"><path d="M4 19 L9 10 H23 L28 19 Z"/><path d="M4 19 H28 V25 H4 Z"/><path d="M10 14.5 H22" fill="none" stroke-opacity=".55"/></g></symbol>
+    <symbol id="i-hide" viewBox="0 0 32 32"><g fill="currentColor" fill-opacity=".2" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round" stroke-linecap="round"><path d="M10 4 L14 7.5 H18 L22 4 L29 10 L25 15 V27 H7 V15 L3 10 Z"/><path d="M12 14 C14 18 18 18 20 14" fill="none" stroke-opacity=".55"/></g></symbol>
+    <symbol id="i-crystal" viewBox="0 0 32 32"><g fill="currentColor" fill-opacity=".2" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round" stroke-linecap="round"><path d="M16 3 L24 11 L20.5 28 H11.5 L8 11 Z"/><path d="M8 11 H24 M16 3 L13 11 L16 28 L19 11 Z" fill="none" stroke-opacity=".55"/></g></symbol>
+    <symbol id="i-essence" viewBox="0 0 32 32"><g fill="currentColor" fill-opacity=".2" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round" stroke-linecap="round"><path d="M16 3 C21.5 10.5 26 15 26 20 A10 10 0 0 1 6 20 C6 15 10.5 10.5 16 3 Z"/><path d="M11 20 C11 23 13 25 16 25" fill="none" stroke-opacity=".6"/></g></symbol>
+    <symbol id="i-rune" viewBox="0 0 32 32"><g fill="currentColor" fill-opacity=".2" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round" stroke-linecap="round"><path d="M9 4 H23 L26 9 V27 H6 V9 Z"/><path d="M16 10 V22 M11 14 L16 10 L21 14 M12 19 H20" fill="none" stroke-opacity=".7"/></g></symbol>
+    <symbol id="i-scale" viewBox="0 0 32 32"><g fill="currentColor" fill-opacity=".2" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round" stroke-linecap="round"><path d="M16 3 C23 3 27.5 9 27.5 15 C27.5 22 21.5 29 16 29 C10.5 29 4.5 22 4.5 15 C4.5 9 9 3 16 3 Z"/><path d="M10 14 C13 17 19 17 22 14 M11 20 C14 23 18 23 21 20" fill="none" stroke-opacity=".6"/></g></symbol>
+  </defs>
+</svg>
+
+<div class="app">
+  <header class="top">
+    <p class="eyebrow">Aldara Online</p>
+    <h1>Inventário</h1>
+  </header>
+
+  <main class="board">
+    <div class="win-wrap"><section class="win" aria-labelledby="char-h"><div class="win-in">
+      <div class="win-title"><h2 id="char-h">Personagem</h2></div>
+      <div id="char"></div>
+      <div class="paper" id="paper"></div>
+      <div class="stats" id="stats"></div>
+    </div></section></div>
+
+    <div class="win-wrap"><section class="win" aria-labelledby="bag-h"><div class="win-in">
+      <div class="win-title"><h2 id="bag-h">Mochila</h2></div>
+      <div class="tabs" id="tabs" role="tablist" aria-label="Categorias"></div>
+      <div class="grid" id="bag"></div>
+      <div class="forge" id="forge" hidden></div>
+      <div class="actions" id="actions"></div>
+      <div class="bag-foot">
+        <div class="wallet"><span class="coin" id="gold"></span><span class="coin gem" id="gems"></span></div>
+        <div style="display:flex;gap:12px;align-items:center;flex-wrap:wrap"><span class="count" id="count"></span><button type="button" class="btn" data-act="sort">Organizar</button></div>
+      </div>
+      <div class="msg" id="msg" role="status" aria-live="polite"></div>
+      <p class="hint"><kbd>Duplo clique</kbd> ou <kbd>botão direito</kbd> equipa e usa. Arraste um item até o slot do equipamento.</p>
+    </div></section></div>
+  </main>
+</div>
+
+<div id="tip" role="tooltip"></div>
+
+<script>
+(() => {
+  const LEVEL = 42, SIZE = 40, GEMS = 320, BASE_HP_NOW = 410;
+  const BASE = { atk: 18, def: 10, hp: 450, crit: 5, spd: 100 };
+  const W = { atk: 12, def: 9, hp: .5, crit: 30, spd: 15 };
+  const SCALED = ['atk', 'def', 'hp'];
+  const RAR = ['Comum', 'Incomum', 'Raro', 'Épico', 'Lendário'];
+  const SLOT_LABEL = { head: 'Elmo', chest: 'Peito', gloves: 'Luvas', legs: 'Pernas', boots: 'Botas', weapon: 'Arma', offhand: 'Escudo', amulet: 'Amuleto', ring1: 'Anel I', ring2: 'Anel II' };
+  const SLOT_TYPE = { head: 'head', chest: 'chest', gloves: 'gloves', legs: 'legs', boots: 'boots', weapon: 'weapon', offhand: 'offhand', amulet: 'amulet', ring1: 'ring', ring2: 'ring' };
+  const SLOT_ICON = { head: 'helm', chest: 'chest', gloves: 'gloves', legs: 'legs', boots: 'boots', weapon: 'sword', offhand: 'shield', amulet: 'amulet', ring1: 'ring', ring2: 'ring' };
+  const STAT = { atk: ['Ataque', ''], def: ['Defesa', ''], hp: ['Vida', ''], crit: ['Crítico', '%'], spd: ['Velocidade', '%'] };
+  const ORDER = ['atk', 'def', 'hp', 'crit', 'spd'];
+  const FILTERS = {
+    all: ['Tudo', null],
+    arma: ['Armas', ['weapon']],
+    armadura: ['Armaduras', ['offhand', 'head', 'chest', 'gloves', 'legs', 'boots']],
+    acessorio: ['Acessórios', ['ring', 'amulet']],
+    consumivel: ['Consumíveis', ['potion']],
+    material: ['Materiais', ['material']]
+  };
+
+  const ITEMS = {
+    w_ferro: { name: 'Espada de Ferro Gasto', type: 'weapon', sub: 'Espada de uma mão', icon: 'sword', r: 0, lvl: 5, stats: { atk: 24 }, desc: 'A lâmina tem mais remendos que fio. Ainda corta pão.', price: 45 },
+    w_crepusculo: { name: 'Lâmina do Crepúsculo', type: 'weapon', sub: 'Espada de uma mão', icon: 'sword', r: 3, lvl: 40, stats: { atk: 86, crit: 6 }, desc: 'Forjada numa só noite. O aço lembra a cor do céu às seis da tarde.', price: 2480 },
+    w_ventos: { name: 'Cajado dos Ventos Uivantes', type: 'weapon', sub: 'Cajado', icon: 'staff', r: 2, lvl: 34, stats: { atk: 61, spd: 4 }, desc: 'Assobia sozinho quando alguém mente por perto.', price: 1120 },
+    w_alvorada: { name: 'Fendedora da Alvorada', type: 'weapon', sub: 'Espada de uma mão', icon: 'sword', r: 4, lvl: 48, stats: { atk: 142, crit: 11 }, desc: 'Os antigos juravam que ela abriu o horizonte ao meio.', price: 9800 },
+    o_basalto: { name: 'Escudo Torre de Basalto', type: 'offhand', sub: 'Escudo', icon: 'shield', r: 2, lvl: 36, stats: { def: 48, hp: 120 }, desc: 'Pesa o dobro do que parece e aguenta o triplo.', price: 980 },
+    o_madeira: { name: 'Broquel de Madeira', type: 'offhand', sub: 'Escudo leve', icon: 'buckler', r: 0, lvl: 3, stats: { def: 12 }, desc: 'Madeira de carvalho com reforço de ferro nas bordas.', price: 30 },
+    h_rubro: { name: 'Elmo do Guardião Rubro', type: 'head', sub: 'Armadura pesada', icon: 'helm', r: 2, lvl: 30, stats: { def: 31, hp: 80 }, desc: 'Usado pelos vigias da Muralha Vermelha durante o cerco.', price: 760 },
+    h_couro: { name: 'Capuz de Couro Curtido', type: 'head', sub: 'Armadura leve', icon: 'hood', r: 1, lvl: 12, stats: { def: 9, spd: 2 }, desc: 'Cheira a fumaça de acampamento.', price: 120 },
+    c_escamas: { name: 'Couraça de Escamas de Dragão', type: 'chest', sub: 'Armadura pesada', icon: 'chest', r: 4, lvl: 46, stats: { def: 118, hp: 380, crit: 3 }, desc: 'Cada escama foi arrancada de um dragão que não queria ser esquecido.', price: 8400 },
+    c_gibao: { name: 'Gibão Remendado', type: 'chest', sub: 'Armadura leve', icon: 'chest', r: 0, lvl: 4, stats: { def: 14, hp: 30 }, desc: 'Costurado três vezes pela mesma pessoa, sempre reclamando.', price: 40 },
+    c_aco: { name: 'Peitoral de Aço Temperado', type: 'chest', sub: 'Armadura pesada', icon: 'chest', r: 2, lvl: 33, stats: { def: 74, hp: 210 }, desc: 'Temperado em óleo de baleia e paciência.', price: 1350 },
+    g_couro: { name: 'Luvas de Couro Batido', type: 'gloves', sub: 'Armadura leve', icon: 'gloves', r: 1, lvl: 10, stats: { def: 7, atk: 3 }, desc: 'Macias por dentro, duras de tanto bater.', price: 90 },
+    g_ferro: { name: 'Manoplas de Aço Frio', type: 'gloves', sub: 'Armadura pesada', icon: 'gloves', r: 2, lvl: 31, stats: { def: 29, atk: 11 }, desc: 'Nunca esquentam, nem junto à forja.', price: 700 },
+    g_lobo: { name: 'Manoplas do Lobo Cinzento', type: 'gloves', sub: 'Armadura média', icon: 'gloves', r: 3, lvl: 37, stats: { def: 34, atk: 20, crit: 4 }, desc: 'O couro vem de um lobo que ninguém caçou. Ele só aceitou o acordo.', price: 1900 },
+    l_aconegro: { name: 'Grevas de Aço Negro', type: 'legs', sub: 'Armadura pesada', icon: 'legs', r: 2, lvl: 35, stats: { def: 52, hp: 90 }, desc: 'Escurecidas na forja da Colina de Cinzas.', price: 890 },
+    l_viajante: { name: 'Calças de Viajante', type: 'legs', sub: 'Armadura leve', icon: 'legs', r: 0, lvl: 2, stats: { def: 8, spd: 1 }, desc: 'Confortáveis para caminhar três dias seguidos.', price: 25 },
+    b_silenciosas: { name: 'Botas Silenciosas', type: 'boots', sub: 'Armadura leve', icon: 'boots', r: 3, lvl: 38, stats: { def: 24, spd: 12, crit: 3 }, desc: 'Solas de feltro encantado. Nem o chão percebe você passando.', price: 2100 },
+    b_gastas: { name: 'Botas Gastas', type: 'boots', sub: 'Armadura leve', icon: 'boots', r: 0, lvl: 1, stats: { def: 5 }, desc: 'Já viram mais estrada que a maioria dos mapas.', price: 8 },
+    r_cobre: { name: 'Anel de Cobre', type: 'ring', sub: 'Anel', icon: 'ring', r: 0, lvl: 6, stats: { atk: 4 }, desc: 'Deixa o dedo esverdeado.', price: 15 },
+    r_onix: { name: 'Anel de Ônix', type: 'ring', sub: 'Anel', icon: 'ring', r: 2, lvl: 28, stats: { atk: 14, crit: 3 }, desc: 'A pedra parece olhar de volta.', price: 640 },
+    r_eclipse: { name: 'Anel do Eclipse', type: 'ring', sub: 'Anel', icon: 'ring', r: 3, lvl: 41, stats: { atk: 22, crit: 7, hp: 60 }, desc: 'Esquenta quando a Lua cobre o Sol.', price: 2750 },
+    a_estrela: { name: 'Amuleto da Estrela Cadente', type: 'amulet', sub: 'Amuleto', icon: 'amulet', r: 4, lvl: 40, stats: { hp: 150, atk: 18, crit: 5, spd: 6 }, desc: 'Caiu do céu numa noite sem nuvens e ninguém pediu de volta.', price: 6200 },
+    a_osso: { name: 'Talismã de Osso', type: 'amulet', sub: 'Amuleto', icon: 'amulet', r: 1, lvl: 15, stats: { hp: 40, def: 3 }, desc: 'Entalhado por um xamã que cobrava em sal.', price: 180 },
+    p_vida1: { name: 'Poção de Vida Menor', type: 'potion', sub: 'Consumível', icon: 'potion', r: 0, lvl: 1, stats: {}, heal: 150, desc: 'Gosto de cereja e xarope.', price: 20 },
+    p_vida2: { name: 'Poção de Vida Maior', type: 'potion', sub: 'Consumível', icon: 'potion', r: 2, lvl: 20, stats: {}, heal: 400, desc: 'Brilha levemente no escuro.', price: 120 },
+    m_ferro: { name: 'Minério de Ferro', type: 'material', sub: 'Material · Minério', icon: 'ore', r: 0, lvl: 1, stats: {}, desc: 'Pedra pesada com veios cor de ferrugem.', price: 6 },
+    m_lingote: { name: 'Lingote de Aço Negro', type: 'material', sub: 'Material · Metal', icon: 'ingot', r: 1, lvl: 1, stats: {}, desc: 'Fundido três vezes até perder o brilho e ganhar peso.', price: 40 },
+    m_couro: { name: 'Couro Curtido', type: 'material', sub: 'Material · Couro', icon: 'hide', r: 0, lvl: 1, stats: {}, desc: 'Macio o bastante para costurar, duro o bastante para parar uma flecha.', price: 12 },
+    m_cristal: { name: 'Cristal Bruto', type: 'material', sub: 'Material · Gema', icon: 'crystal', r: 1, lvl: 1, stats: {}, desc: 'Vibra baixinho quando alguém usa magia por perto.', price: 55 },
+    m_essencia: { name: 'Essência Rúnica', type: 'material', sub: 'Material · Arcano', icon: 'essence', r: 2, lvl: 1, stats: {}, desc: 'Uma gota de poder que escorre para cima.', price: 160 },
+    m_pedra: { name: 'Pedra de Aprimoramento', type: 'material', sub: 'Material · Aprimoramento', icon: 'rune', r: 1, lvl: 1, stats: {}, desc: 'Gravada com uma runa antiga. Usada na Forja para aprimorar peças.', price: 90 },
+    m_escama: { name: 'Escama de Dragão', type: 'material', sub: 'Material · Raro', icon: 'scale', r: 3, lvl: 1, stats: {}, desc: 'Ainda quente ao toque, mesmo anos depois da caçada.', price: 900 }
+  };
+
+  const mk = (id, plus, qty) => { const e = { id }; if (plus) e.plus = plus; if (qty) e.qty = qty; return e; };
+  let inv = Array(SIZE).fill(null);
+  [[0, 'w_crepusculo', 7], [1, 'o_basalto', 3], [2, 'h_rubro', 5], [3, 'c_aco', 2], [4, 'l_aconegro', 1], [5, 'b_silenciosas', 4],
+   [6, 'g_lobo', 2], [7, 'g_ferro', 5], [8, 'r_eclipse', 1], [9, 'r_onix'], [10, 'a_estrela', 4], [11, 'w_ventos', 3],
+   [12, 'w_alvorada'], [13, 'c_escamas'], [14, 'g_couro'], [16, 'p_vida1', 0, 12], [17, 'p_vida2', 0, 3],
+   [18, 'h_couro'], [19, 'o_madeira'], [20, 'a_osso'], [21, 'l_viajante'],
+   [24, 'm_ferro', 0, 24], [25, 'm_couro', 0, 9], [26, 'm_cristal', 0, 5], [27, 'm_essencia', 0, 4], [28, 'm_pedra', 0, 14], [29, 'm_escama', 0, 2], [30, 'm_lingote', 0, 4]].forEach(([i, id, p, q]) => { inv[i] = mk(id, p, q); });
+
+  const eq = { head: null, chest: mk('c_gibao'), gloves: null, legs: null, boots: mk('b_gastas'), weapon: mk('w_ferro', 2), offhand: null, amulet: null, ring1: mk('r_cobre'), ring2: null };
+
+  let gold = 12480, hp = BASE_HP_NOW, sel = null, filter = 'all', flash = null, drag = null, dragging = false, pendingSell = null;
+  let view = 'bag', fmode = 'craft', rsel = 'rc_lingote', crafting = false, lastResult = null;
+  let lastX = 0, lastY = 0, lastType = 'mouse', hoverEl = null, lastClick = { k: '', t: 0 }, msgTimer = 0;
+
+  const $ = s => document.querySelector(s);
+  const itemOf = e => (e ? ITEMS[e.id] : null);
+  const get = (src, key) => (src === 'inv' ? inv[+key] : src === 'cat' ? { id: key } : eq[key]);
+  const fmt = n => n.toLocaleString('pt-BR');
+  const canWear = (it, slot) => SLOT_TYPE[slot] === it.type;
+  const isGear = it => it.type !== 'potion' && it.type !== 'material';
+  const stackable = it => it.type === 'potion' || it.type === 'material';
+  const locked = it => isGear(it) && it.lvl > LEVEL;
+  const same = (s, k) => sel && sel.src === s && String(sel.key) === String(k);
+  const icon = n => `<svg class="ico" viewBox="0 0 32 32" aria-hidden="true"><use href="#i-${n}"/></svg>`;
+
+  function statsOf(e) {
+    const it = ITEMS[e.id], k = 1 + 0.06 * (e.plus || 0), o = {};
+    for (const s in it.stats) o[s] = SCALED.includes(s) ? Math.round(it.stats[s] * k) : it.stats[s];
+    return o;
+  }
+  function powerOf(e) { const s = statsOf(e); return Math.round(ORDER.reduce((a, k) => a + (s[k] || 0) * W[k], 0)); }
+  function totals() {
+    const t = { ...BASE };
+    for (const k in eq) if (eq[k]) { const s = statsOf(eq[k]); for (const x in s) t[x] += s[x]; }
+    return t;
+  }
+  function combatPower() {
+    const base = Math.round(BASE.atk * W.atk + BASE.def * W.def + BASE.hp * W.hp + BASE.crit * W.crit);
+    return base + Object.values(eq).reduce((a, e) => a + (e ? powerOf(e) : 0), 0);
+  }
+  function targetSlot(it) {
+    if (it.type === 'ring') return !eq.ring1 ? 'ring1' : !eq.ring2 ? 'ring2' : 'ring1';
+    return Object.keys(SLOT_TYPE).find(k => SLOT_TYPE[k] === it.type);
+  }
+
+  function say(text, kind) {
+    const m = $('#msg'); m.textContent = text; m.className = 'msg ' + (kind || '');
+    clearTimeout(msgTimer); msgTimer = setTimeout(() => { m.textContent = ''; m.className = 'msg'; }, 4200);
+  }
+
+  /* ---------- ações ---------- */
+  function equip(i, slot) {
+    const e = inv[i]; if (!e) return;
+    const it = ITEMS[e.id]; slot = slot || targetSlot(it);
+    if (!canWear(it, slot)) return say(`${it.name} não cabe no slot ${SLOT_LABEL[slot]}.`, 'bad');
+    if (it.lvl > LEVEL) return say(`${it.name} exige nível ${it.lvl}. Você está no nível ${LEVEL}.`, 'bad');
+    const old = eq[slot];
+    eq[slot] = e; inv[i] = old || null;
+    sel = { src: 'eq', key: slot }; flash = { src: 'eq', key: slot }; clampHp();
+    say(old ? `Equipado: ${it.name}. ${ITEMS[old.id].name} voltou para a mochila.` : `Equipado: ${it.name}.`, 'ok'); commit();
+  }
+  function unequip(slot, to) {
+    const e = eq[slot]; if (!e) return;
+    if (to != null && inv[to]) {
+      const o = inv[to], oit = ITEMS[o.id];
+      if (canWear(oit, slot) && oit.lvl <= LEVEL) {
+        eq[slot] = o; inv[to] = e; sel = { src: 'eq', key: slot }; flash = { src: 'eq', key: slot }; clampHp();
+        say(`Trocado: ${oit.name} equipado.`, 'ok'); return commit();
+      }
+    }
+    const idx = to != null && !inv[to] ? to : inv.findIndex(x => !x);
+    if (idx < 0) return say('A mochila está cheia.', 'bad');
+    inv[idx] = e; eq[slot] = null; sel = { src: 'inv', key: idx }; flash = { src: 'inv', key: idx }; clampHp();
+    if (filter !== 'all' && !FILTERS[filter][1].includes(ITEMS[e.id].type)) filter = 'all';
+    say(`Desequipado: ${ITEMS[e.id].name}.`, 'ok'); commit();
+  }
+  function usePotion(i) {
+    const e = inv[i], it = ITEMS[e.id], max = totals().hp;
+    if (hp >= max) return say('Sua vida já está cheia.', 'bad');
+    hp = Math.min(max, hp + it.heal);
+    e.qty -= 1; if (e.qty <= 0) { inv[i] = null; sel = null; }
+    say(`${it.name}: +${it.heal} de vida.`, 'ok'); commit();
+  }
+  function sell(i) {
+    const e = inv[i]; if (!e) return;
+    const it = ITEMS[e.id], v = it.price * (e.qty || 1);
+    gold += v; inv[i] = null; sel = null;
+    say(`Vendido: ${it.name} por ${fmt(v)} de ouro.`, 'ok'); commit();
+  }
+  function clampHp() { hp = Math.min(hp, totals().hp); }
+  function primary(src, key) {
+    if (src === 'eq') return unequip(key);
+    const e = inv[+key]; if (!e) return;
+    const it = ITEMS[e.id];
+    if (it.type === 'potion') return usePotion(+key);
+    if (it.type === 'material') return say(`${it.name} é material de criação. Use na Forja.`);
+    if (view === 'forge') return say('Feche a Forja para equipar peças.', 'bad');
+    equip(+key);
+  }
+  function moveInv(a, b) {
+    if (a === b) return;
+    const A = inv[a], B = inv[b];
+    if (A && B && A.id === B.id && A.qty && B.qty) { B.qty += A.qty; inv[a] = null; }
+    else { inv[a] = B; inv[b] = A; }
+    sel = { src: 'inv', key: b }; flash = { src: 'inv', key: b }; commit();
+  }
+  function sortInv() {
+    const list = inv.filter(Boolean);
+    list.sort((a, b) => { const A = ITEMS[a.id], B = ITEMS[b.id];
+      return stackable(A) - stackable(B) || B.r - A.r || A.type.localeCompare(B.type) || A.name.localeCompare(B.name, 'pt'); });
+    inv = list.concat(Array(SIZE - list.length).fill(null)); sel = null;
+    say('Mochila organizada por raridade.', 'ok'); commit();
+  }
+  function handleDrop(d, tsrc, tkey) {
+    if (d.src === 'inv' && tsrc === 'inv') return moveInv(+d.key, +tkey);
+    if (d.src === 'inv' && tsrc === 'eq') return equip(+d.key, tkey);
+    if (d.src === 'eq' && tsrc === 'inv') return unequip(d.key, +tkey);
+    if (d.src === 'eq' && tsrc === 'eq' && d.key !== tkey && SLOT_TYPE[d.key] === SLOT_TYPE[tkey]) {
+      [eq[d.key], eq[tkey]] = [eq[tkey], eq[d.key]]; sel = { src: 'eq', key: tkey }; commit();
+    }
+  }
+
+  /* ---------- renderização ---------- */
+  function slot(src, key, e, o = {}) {
+    const it = itemOf(e), k = String(key), pos = o.pos ? ` style="grid-area:${o.pos}"` : '';
+    if (!it) {
+      return `<div class="slot${o.ghost ? ' ghost' : ''}"${pos} data-src="${src}" data-key="${k}"${o.ghost ? ` aria-label="${SLOT_LABEL[k]}, vazio"` : ''}><span class="fr"></span>${o.ghost ? icon(SLOT_ICON[k]) + `<span class="cap">${SLOT_LABEL[k]}</span>` : ''}</div>`;
+    }
+    const lk = locked(it), dim = false;
+    const fl = o.flash || (flash && flash.src === src && String(flash.key) === k);
+    const label = src === 'eq' ? `${SLOT_LABEL[k]}: ` : '';
+    return `<div class="slot has rar-${it.r}${lk ? ' locked' : ''}${dim ? ' dim' : ''}${same(src, k) ? ' sel' : ''}${fl ? ' flash' : ''}"${pos} draggable="${src !== 'cat'}" tabindex="${src === 'cat' ? -1 : 0}" role="${src === 'cat' ? 'img' : 'button'}" data-src="${src}" data-key="${k}" aria-label="${label}${it.name}${e.plus ? ' +' + e.plus : ''}, ${RAR[it.r]}${lk ? ', exige nível ' + it.lvl : ''}"><span class="fr"></span>${icon(it.icon)}${e.plus ? `<span class="plus">+${e.plus}</span>` : ''}${e.qty > 1 ? `<span class="qty">${e.qty}</span>` : ''}${lk ? `<span class="lvl-lock">${it.lvl}</span>` : ''}</div>`;
+  }
+  const RUNE = (() => {
+    let t = ''; for (let i = 0; i < 36; i++) { const a = i * Math.PI / 18, r1 = i % 3 ? 90 : 86, c = Math.cos(a), s = Math.sin(a); t += `<line x1="${(100 + 94 * c).toFixed(1)}" y1="${(100 + 94 * s).toFixed(1)}" x2="${(100 + r1 * c).toFixed(1)}" y2="${(100 + r1 * s).toFixed(1)}"/>`; }
+    return `<svg class="rune" viewBox="0 0 200 200" aria-hidden="true"><g fill="none" stroke="currentColor" stroke-width="1"><circle cx="100" cy="100" r="94"/><circle cx="100" cy="100" r="78" stroke-dasharray="2 6"/><circle cx="100" cy="100" r="60" stroke-width=".8"/>${t}</g></svg>`;
+  })();
+  function renderChar() {
+    const t = totals(), pct = Math.max(0, Math.min(100, hp / t.hp * 100));
+    $('#char').innerHTML = `<div class="char-head"><div class="hex"><span>${LEVEL}</span></div>
+      <div><div class="char-name">Kael Brasa-Negra</div><div class="char-class">Cavaleiro Rúnico</div></div>
+      <div class="cp"><small>Poder de combate</small><b>${fmt(combatPower())}</b></div></div>
+      <div class="bars"><div><div class="bar-label"><span>Vida</span><span>${fmt(hp)} / ${fmt(t.hp)}</span></div><div class="bar hp" role="progressbar" aria-label="Vida" aria-valuemin="0" aria-valuemax="${t.hp}" aria-valuenow="${hp}"><i style="width:${pct}%"></i></div></div>
+      <div><div class="bar-label"><span>Experiência</span><span>63,2%</span></div><div class="bar xp" role="progressbar" aria-label="Experiência" aria-valuemin="0" aria-valuemax="100" aria-valuenow="63"><i style="width:63.2%"></i></div></div></div>`;
+  }
+  function renderPaper() {
+    // posição de cada peça no corpo: linha / coluna (3 colunas x 5 linhas)
+    const POS = { head: '1 / 2', amulet: '2 / 2', weapon: '3 / 1', chest: '3 / 2', offhand: '3 / 3', gloves: '4 / 1', legs: '4 / 2', ring1: '4 / 3', boots: '5 / 2', ring2: '5 / 3' };
+    $('#paper').innerHTML = `<div class="aura">${RUNE}</div>` + Object.keys(POS).map(k => slot('eq', k, eq[k], { ghost: true, pos: POS[k] })).join('');
+  }
+  function renderStats() {
+    const t = totals();
+    $('#stats').innerHTML = ORDER.map(s => {
+      const b = t[s] - BASE[s];
+      return `<div class="stat"><span>${STAT[s][0]}</span><b>${fmt(t[s])}${STAT[s][1]}</b>${b > 0 ? `<em>+${fmt(b)}${STAT[s][1]}</em>` : ''}</div>`;
+    }).join('');
+  }
+  function renderBag() {
+    const anvil = '<svg viewBox="0 0 32 32" width="18" height="18" aria-hidden="true"><g fill="currentColor" fill-opacity=".25" stroke="currentColor" stroke-width="2" stroke-linejoin="round"><path d="M3 9 H21 C21 14 25 14 29 12 C28 17 24 18 20 18 V21 H24 V26 H8 V21 H12 V18 C8 18 5 15 3 9 Z"/></g></svg>';
+    $('#tabs').innerHTML = `<button type="button" class="tab forge-tab" role="tab" data-view="forge" aria-selected="${view === 'forge'}">${anvil}Forja</button>`
+      + Object.entries(FILTERS).map(([k, v]) => `<button type="button" class="tab" role="tab" data-filter="${k}" aria-selected="${view === 'bag' && filter === k}">${v[0]}</button>`).join('');
+    // filtro de verdade: só os itens da categoria aparecem; o restante vira espaço vazio inerte
+    const shown = filter === 'all' ? inv.map((e, i) => i) : inv.map((e, i) => i).filter(i => inv[i] && FILTERS[filter][1].includes(ITEMS[inv[i].id].type));
+    $('#bag').innerHTML = shown.map(i => slot('inv', i, inv[i])).join('')
+      + (filter === 'all' ? '' : Array(SIZE - shown.length).fill('<div class="slot" data-filler="1"><span class="fr"></span></div>').join(''));
+    $('#count').textContent = `${inv.filter(Boolean).length}/${SIZE} espaços`;
+    $('#gold').textContent = fmt(gold); $('#gems').textContent = fmt(GEMS);
+    const inForge = view === 'forge';
+    $('#bag').hidden = inForge; $('#actions').hidden = inForge; $('#forge').hidden = !inForge;
+    if (inForge) renderForge();
+  }
+  function renderActions() {
+    const el = $('#actions'), e = sel && get(sel.src, sel.key), it = itemOf(e);
+    if (!it) { el.innerHTML = `<span class="none">Selecione um item para ver as ações.</span>`; return; }
+    let btns;
+    if (sel.src === 'eq') btns = `<button type="button" class="btn primary" data-act="primary">Desequipar</button>`;
+    else {
+      const pend = pendingSell !== null && String(pendingSell) === String(sel.key), val = it.price * (e.qty || 1);
+      btns = (it.type === 'material' ? '' : it.type === 'potion' ? `<button type="button" class="btn primary" data-act="primary">Usar</button>`
+        : locked(it) ? `<button type="button" class="btn primary" disabled>Exige nível ${it.lvl}</button>`
+        : `<button type="button" class="btn primary" data-act="primary">Equipar</button>`)
+        + `<button type="button" class="btn${pend ? ' warn' : ''}" data-act="sell">${pend ? `Confirmar +${fmt(val)}` : 'Vender'}</button>`;
+    }
+    el.innerHTML = `<div class="sel-info"><span class="sel-name" style="color:var(--r${it.r})">${it.name}${e.plus ? ` <span style="color:var(--gold-hi)">+${e.plus}</span>` : ''}</span><span class="sel-sub">${RAR[it.r]} · ${it.sub}${isGear(it) ? ` · Poder ${fmt(powerOf(e))}` : ''}</span></div><span class="spacer"></span><div class="btns">${btns}</div>`;
+  }
+  function render() {
+    const ae = document.activeElement, fk = ae && ae.dataset && ae.dataset.src ? `${ae.dataset.src}:${ae.dataset.key}` : null;
+    const rk = ae && ae.dataset && ae.dataset.rcp ? ae.dataset.rcp : null;
+    renderChar(); renderPaper(); renderStats(); renderBag(); renderActions();
+    flash = null; if (lastResult) lastResult.fresh = false;
+    if (rk) { const n = document.querySelector(`[data-rcp="${rk}"]`); if (n) n.focus({ preventScroll: true }); }
+    if (fk) { const [s, k] = fk.split(':'); const n = document.querySelector(`.slot[data-src="${s}"][data-key="${k}"]`); if (n) n.focus({ preventScroll: true }); }
+  }
+  function commit() { hoverEl = null; render(); syncTip(); }
+
+  /* ---------- dica flutuante ---------- */
+  const tip = $('#tip');
+  const wrap = (rc, inner) => ({ rc, html: `<div class="t-box"><div class="t-in">${inner}</div></div>` });
+  function tipContent(src, key) {
+    const e = get(src, key);
+    if (!e) {
+      if (src !== 'eq') return null;
+      return wrap('var(--line)', `<div class="t-head"><div class="t-name" style="color:var(--ink)">${SLOT_LABEL[key]}</div><div class="t-sub">Slot vazio</div></div><div class="t-body"><p class="t-desc">Arraste ou dê duplo clique em um item compatível da mochila.</p></div>`);
+    }
+    const it = ITEMS[e.id], lk = locked(it), gear = isGear(it), st = statsOf(e);
+    let h = `<div class="t-head"><div class="t-name">${it.name}${e.plus ? `<i>+${e.plus}</i>` : ''}</div><div class="t-sub">${RAR[it.r]} · ${it.sub}</div></div><div class="t-body">`;
+    if (src === 'eq') h += `<span class="t-tag">Equipado</span>`;
+    let cur = null, cit = null, slotK = null;
+    if ((src === 'inv' || src === 'cat') && gear) { slotK = targetSlot(it); cur = eq[slotK]; cit = itemOf(cur); }
+    if (gear) {
+      const pw = powerOf(e), dp = cur ? pw - powerOf(cur) : null;
+      h += `<div class="t-power"><span>Poder</span><b>${fmt(pw)}</b>${dp ? `<em class="${dp > 0 ? 'up' : 'down'}">${dp > 0 ? '▲ +' : '▼ −'}${fmt(Math.abs(dp))}</em>` : ''}</div>`;
+      h += `<div class="t-block"><div class="t-stat"><span>Nível necessário</span><b class="${lk ? 'bad' : 'neutral'}">${it.lvl}</b></div>`;
+      h += ORDER.filter(s => st[s]).map(s => `<div class="t-stat"><span>${STAT[s][0]}</span><b>+${fmt(st[s])}${STAT[s][1]}</b></div>`).join('') + `</div>`;
+    } else {
+      h += it.heal ? `<div class="t-block"><div class="t-use">Usar: restaura ${it.heal} de vida</div></div>` : `<div class="t-block"><div class="t-use" style="color:var(--mute)">Material de criação</div></div>`;
+    }
+    h += `<p class="t-desc">${it.desc}</p>`;
+    if ((src === 'inv' || src === 'cat') && gear) {
+      if (cit) {
+        const cs = statsOf(cur);
+        const rows = ORDER.map(s => { const d = (st[s] || 0) - (cs[s] || 0); return d ? `<div class="t-stat"><span>${STAT[s][0]}</span><b class="${d > 0 ? 'up' : 'down'}">${d > 0 ? '▲ +' : '▼ −'}${fmt(Math.abs(d))}${STAT[s][1]}</b></div>` : ''; }).join('');
+        h += `<div class="t-block"><div class="t-cap">Equipado agora: <span style="color:var(--r${cit.r})">${cit.name}${cur.plus ? ' +' + cur.plus : ''}</span></div>${rows || '<div class="t-stat"><span>Mesmos atributos</span></div>'}</div>`;
+      } else h += `<div class="t-block"><div class="t-cap">Slot ${SLOT_LABEL[slotK]} está vazio</div></div>`;
+    }
+    const hint = src === 'cat' ? '' : src === 'eq' ? 'Duplo clique: desequipar' : it.type === 'material' ? 'Use na Forja' : !gear ? 'Duplo clique: usar' : lk ? `Exige nível ${it.lvl}` : 'Duplo clique: equipar';
+    h += `<div class="t-foot"><span class="gold">Valor ${fmt(it.price * (e.qty || 1))}</span><span>${hint}</span></div></div>`;
+    return wrap(`var(--r${it.r})`, h);
+  }
+  function place(x, y) {
+    const w = tip.offsetWidth, h = tip.offsetHeight, pad = 16;
+    let L = x + pad, T = y + pad;
+    if (L + w > innerWidth - 8) L = x - w - pad;
+    if (L < 8) L = Math.max(8, innerWidth - w - 8);
+    if (T + h > innerHeight - 8) T = y - h - pad;
+    if (T < 8) T = 8;
+    tip.style.transform = `translate(${Math.round(L)}px, ${Math.round(T)}px)`;
+  }
+  function showTip(el, anchored) {
+    const c = tipContent(el.dataset.src, el.dataset.key);
+    if (!c) return hideTip();
+    hoverEl = el; tip.innerHTML = c.html; tip.style.setProperty('--rc', c.rc); tip.classList.add('on');
+    if (anchored) { const r = el.getBoundingClientRect(); place(r.right - 8, r.top + r.height / 2 - 20); } else place(lastX, lastY);
+  }
+  function hideTip() { tip.classList.remove('on'); hoverEl = null; }
+  function syncTip() {
+    if (lastType !== 'mouse' || dragging) return hideTip();
+    const el = document.elementFromPoint(lastX, lastY);
+    const s = el && el.closest ? el.closest('.slot[data-src]') : null;
+    s ? showTip(s) : hideTip();
+  }
+
+  document.addEventListener('pointermove', e => {
+    lastX = e.clientX; lastY = e.clientY; lastType = e.pointerType;
+    if (e.pointerType !== 'mouse' || dragging) return;
+    const el = e.target.closest ? e.target.closest('.slot[data-src]') : null;
+    if (el !== hoverEl) { el ? showTip(el) : hideTip(); } else if (el) place(lastX, lastY);
+  });
+  document.documentElement.addEventListener('mouseleave', hideTip);
+  window.addEventListener('scroll', () => { if (lastType !== 'mouse') hideTip(); }, { passive: true });
+
+  /* ---------- forja ---------- */
+  const DUR = matchMedia('(prefers-reduced-motion: reduce)').matches ? 150 : 1100;
+  const MAXPLUS = 10, CHANCE = [100, 100, 95, 90, 80, 65, 50, 35, 25, 15];
+  const RECIPES = [
+    { id: 'rc_lingote', out: 'm_lingote', qty: 1, cost: { m_ferro: 3 }, gold: 30, chance: 100 },
+    { id: 'rc_pedra', out: 'm_pedra', qty: 2, cost: { m_cristal: 1, m_ferro: 4 }, gold: 80, chance: 90 },
+    { id: 'rc_vida2', out: 'p_vida2', qty: 1, cost: { p_vida1: 3, m_cristal: 1 }, gold: 60, chance: 100 },
+    { id: 'rc_manoplas', out: 'g_ferro', qty: 1, cost: { m_lingote: 4, m_cristal: 2 }, gold: 520, chance: 90 },
+    { id: 'rc_onix', out: 'r_onix', qty: 1, cost: { m_cristal: 2, m_essencia: 1 }, gold: 480, chance: 85 },
+    { id: 'rc_grevas', out: 'l_aconegro', qty: 1, cost: { m_lingote: 5, m_couro: 3 }, gold: 700, chance: 90 },
+    { id: 'rc_peitoral', out: 'c_aco', qty: 1, cost: { m_lingote: 8, m_couro: 4 }, gold: 1100, chance: 80 },
+    { id: 'rc_botas', out: 'b_silenciosas', qty: 1, cost: { m_couro: 6, m_essencia: 2 }, gold: 1500, chance: 70 },
+    { id: 'rc_crepusculo', out: 'w_crepusculo', qty: 1, cost: { m_lingote: 10, m_essencia: 3, m_cristal: 2 }, gold: 1800, chance: 60 },
+    { id: 'rc_escamas', out: 'c_escamas', qty: 1, cost: { m_lingote: 12, m_escama: 6, m_essencia: 3 }, gold: 6000, chance: 40 }
+  ];
+  const rlvl = r => (isGear(ITEMS[r.out]) ? ITEMS[r.out].lvl : 1);
+  const countOf = id => inv.reduce((a, e) => a + (e && e.id === id ? (e.qty || 1) : 0), 0);
+  const cloneInv = () => inv.map(e => (e ? { ...e } : null));
+  function take(arr, id, n) {
+    for (let i = arr.length - 1; i >= 0 && n > 0; i--) {
+      const e = arr[i]; if (!e || e.id !== id) continue;
+      const have = e.qty || 1, t = Math.min(n, have); n -= t;
+      if (have - t <= 0) arr[i] = null; else e.qty = have - t;
+    }
+  }
+  function give(arr, id, qty) {
+    const it = ITEMS[id];
+    if (stackable(it)) { const s = arr.findIndex(e => e && e.id === id); if (s >= 0) { arr[s].qty = (arr[s].qty || 1) + qty; return s; } }
+    const i = arr.findIndex(e => !e); if (i < 0) return -1;
+    arr[i] = stackable(it) ? { id, qty } : { id }; return i;
+  }
+  function canCraft(r) {
+    const miss = Object.entries(r.cost).some(([id, n]) => countOf(id) < n);
+    const lvlOk = LEVEL >= rlvl(r), goldOk = gold >= r.gold;
+    return { miss, lvlOk, goldOk, ok: !miss && lvlOk && goldOk };
+  }
+  function doCraft() {
+    const r = RECIPES.find(x => x.id === rsel); if (!r || crafting) return;
+    const it = ITEMS[r.out], c = canCraft(r);
+    if (!c.ok) return say(!c.lvlOk ? `Exige nível ${rlvl(r)}.` : c.miss ? 'Faltam materiais.' : 'Ouro insuficiente.', 'bad');
+    const probe = cloneInv(); Object.entries(r.cost).forEach(([id, n]) => take(probe, id, n));
+    if (give(probe, r.out, r.qty) < 0) return say('A mochila está cheia. Libere um espaço.', 'bad');
+    crafting = true; render();
+    setTimeout(() => {
+      crafting = false;
+      const c2 = canCraft(r), next = cloneInv();
+      Object.entries(r.cost).forEach(([id, n]) => take(next, id, n));
+      const at = give(next, r.out, r.qty);
+      if (!c2.ok || at < 0) { say('A criação foi cancelada: o inventário mudou.', 'bad'); return commit(); }
+      gold -= r.gold;
+      if (Math.random() * 100 < r.chance) {
+        inv = next; lastResult = { kind: 'craft', ok: true, fresh: true, id: r.out };
+        say(`Criado: ${it.name}${r.qty > 1 ? ' ×' + r.qty : ''}.`, 'ok');
+      } else {
+        Object.entries(r.cost).forEach(([id, n]) => take(inv, id, Math.floor(n / 2)));
+        lastResult = { kind: 'craft', ok: false, fresh: true, id: r.out };
+        say('A criação falhou. Metade dos materiais foi perdida.', 'bad');
+      }
+      commit();
+    }, DUR);
+  }
+  function enhanceInfo(e) {
+    const n = e.plus || 0, r = ITEMS[e.id].r;
+    return { n, max: n >= MAXPLUS, stones: n + 1, gold: (n + 1) * 120 * (1 + r), chance: CHANCE[n] || 0, drop: n >= 5 };
+  }
+  function doEnhance() {
+    if (crafting) return;
+    const e = sel && get(sel.src, sel.key), it = itemOf(e);
+    if (!it || !isGear(it)) return say('Selecione uma peça para aprimorar.', 'bad');
+    const f = enhanceInfo(e);
+    if (f.max) return say('Esta peça já está no aprimoramento máximo.', 'bad');
+    if (countOf('m_pedra') < f.stones) return say('Faltam Pedras de Aprimoramento.', 'bad');
+    if (gold < f.gold) return say('Ouro insuficiente.', 'bad');
+    crafting = true; render();
+    setTimeout(() => {
+      crafting = false;
+      take(inv, 'm_pedra', f.stones); gold -= f.gold;
+      if (Math.random() * 100 < f.chance) {
+        e.plus = f.n + 1;
+        lastResult = { kind: 'enh', ok: true, fresh: true, text: `Sucesso! ${it.name} agora está em +${e.plus}.` };
+        say(`Aprimorado: ${it.name} +${e.plus}.`, 'ok');
+      } else {
+        if (f.drop) e.plus = f.n - 1 || 0;
+        if (!e.plus) delete e.plus;
+        lastResult = { kind: 'enh', ok: false, fresh: true, text: f.drop ? `Falhou. ${it.name} caiu para +${f.n - 1}.` : 'Falhou. As pedras e o ouro foram perdidos.' };
+        say(lastResult.text, 'bad'); clampHp();
+      }
+      commit();
+    }, DUR);
+  }
+  const progress = () => `<div class="bar prog" style="--dur:${DUR}ms" role="progressbar" aria-label="Forjando"><i></i></div>`;
+  function craftHtml() {
+    const r = RECIPES.find(x => x.id === rsel) || RECIPES[0], it = ITEMS[r.out], c = canCraft(r), gear = isGear(it);
+    const rows = RECIPES.map(q => {
+      const o = ITEMS[q.out], k = canCraft(q);
+      const b = k.ok ? ['ok', 'Pronto'] : !k.lvlOk ? ['bad', 'Nv. ' + rlvl(q)] : k.miss ? ['no', 'Faltam materiais'] : ['no', 'Sem ouro'];
+      return `<div class="rrow" role="button" tabindex="0" data-rcp="${q.id}" aria-pressed="${rsel === q.id}">${slot('cat', q.out, { id: q.out })}<div class="rtxt"><div class="rname" style="color:var(--r${o.r})">${o.name}${q.qty > 1 ? ' ×' + q.qty : ''}</div><div class="rline"><span class="rsub">${q.chance}%</span><span class="badge ${b[0]}">${b[1]}</span></div></div></div>`;
+    }).join('');
+    const ing = Object.entries(r.cost).map(([id, n]) => {
+      const m = ITEMS[id], have = countOf(id);
+      return `<div class="ing">${slot('cat', id, { id })}<div class="rtxt"><div class="rname" style="color:var(--r${m.r})">${m.name}</div></div><span class="have ${have >= n ? 'ok' : 'no'}">${fmt(have)} / ${n}</span></div>`;
+    }).join('');
+    const reason = !c.lvlOk ? `Exige nível ${rlvl(r)}.` : c.miss ? 'Faltam materiais.' : !c.goldOk ? 'Ouro insuficiente.' : '';
+    const lr = lastResult && lastResult.kind === 'craft' && lastResult.id === r.out ? lastResult : null;
+    const res = lr ? `<div class="result ${lr.ok ? 'ok' : 'bad'}">${lr.ok ? `Sucesso! ${it.name} criado.` : 'A criação falhou. Metade dos materiais foi perdida.'}</div>` : '';
+    return `<div class="craft"><div class="rlist" role="group" aria-label="Receitas">${rows}</div>
+      <div class="detail">
+        <div class="d-head">${slot('cat', r.out, { id: r.out }, { flash: !!(lr && lr.ok && lr.fresh) })}<div class="rtxt"><div class="rname big" style="color:var(--r${it.r})">${it.name}${r.qty > 1 ? ' ×' + r.qty : ''}</div><div class="rsub">${RAR[it.r]} · ${it.sub}${gear ? ` · Poder ${fmt(powerOf({ id: r.out }))}` : ''}</div></div></div>
+        <div><p class="sect">Materiais</p><div style="display:grid;gap:6px">${ing}</div></div>
+        <div class="stat"><span>Custo</span><b class="${c.goldOk ? '' : 'neg'}"><span class="coin">${fmt(r.gold)}</span></b></div>
+        <div><div class="bar-label"><span>Chance de sucesso</span><span>${r.chance}%</span></div><div class="bar gold"><i style="width:${r.chance}%"></i></div>${r.chance < 100 ? '<p class="note">Se falhar, você perde metade dos materiais e o ouro.</p>' : ''}</div>
+        ${res}
+        ${crafting ? progress() + '<button type="button" class="btn primary" disabled>Forjando…</button>' : `<button type="button" class="btn primary" data-act="craft"${c.ok ? '' : ' disabled'}>Criar</button>${reason ? `<p class="note">${reason}</p>` : ''}`}
+      </div></div>`;
+  }
+  function enhanceHtml() {
+    const eqs = Object.keys(eq).filter(k => eq[k]).map(k => slot('eq', k, eq[k])).join('');
+    const bag = inv.map((e, i) => (e && isGear(ITEMS[e.id]) ? slot('inv', i, e) : '')).join('');
+    const e = sel ? get(sel.src, sel.key) : null, it = itemOf(e);
+    let det;
+    if (!it || !isGear(it)) det = '<div class="detail"><p class="note">Selecione uma peça equipada ou da mochila para aprimorar.</p></div>';
+    else {
+      const f = enhanceInfo(e), a = statsOf(e), b = statsOf({ id: e.id, plus: f.n + 1 });
+      const stones = countOf('m_pedra'), ok = !f.max && stones >= f.stones && gold >= f.gold;
+      const rows = ORDER.filter(s => a[s]).map(s => `<div class="stat"><span>${STAT[s][0]}</span><b>${fmt(a[s])}${STAT[s][1]}${!f.max && SCALED.includes(s) ? ` <span class="arrow">→</span> <span class="up">${fmt(b[s])}</span>` : ''}</b></div>`).join('');
+      const reason = f.max ? 'Aprimoramento máximo (+10).' : stones < f.stones ? 'Faltam Pedras de Aprimoramento.' : gold < f.gold ? 'Ouro insuficiente.' : '';
+      const lr = lastResult && lastResult.kind === 'enh' ? lastResult : null;
+      det = `<div class="detail">
+        <div class="d-head">${slot(sel.src, sel.key, e, { flash: !!(lr && lr.ok && lr.fresh) })}<div class="rtxt"><div class="rname big" style="color:var(--r${it.r})">${it.name} <span style="color:var(--gold-hi)">+${f.n}${f.max ? '' : ` → +${f.n + 1}`}</span></div><div class="rsub">${RAR[it.r]} · ${it.sub}</div></div></div>
+        <div>${rows}<div class="stat"><span>Poder</span><b>${fmt(powerOf(e))}${f.max ? '' : ` <span class="arrow">→</span> <span class="up">${fmt(powerOf({ id: e.id, plus: f.n + 1 }))}</span>`}</b></div></div>
+        ${f.max ? '' : `<div><p class="sect">Materiais</p><div class="ing">${slot('cat', 'm_pedra', { id: 'm_pedra' })}<div class="rtxt"><div class="rname" style="color:var(--r1)">${ITEMS.m_pedra.name}</div></div><span class="have ${stones >= f.stones ? 'ok' : 'no'}">${fmt(stones)} / ${f.stones}</span></div></div>
+        <div class="stat"><span>Custo</span><b class="${gold >= f.gold ? '' : 'neg'}"><span class="coin">${fmt(f.gold)}</span></b></div>
+        <div><div class="bar-label"><span>Chance de sucesso</span><span>${f.chance}%</span></div><div class="bar gold"><i style="width:${f.chance}%"></i></div><p class="note${f.drop ? ' warn' : ''}">${f.drop ? 'Se falhar, a peça perde 1 nível de aprimoramento e você perde as pedras e o ouro.' : f.chance < 100 ? 'Se falhar, você perde as pedras e o ouro. A peça não muda.' : 'Aprimoramento garantido.'}</p></div>`}
+        ${lr ? `<div class="result ${lr.ok ? 'ok' : 'bad'}">${lr.text}</div>` : ''}
+        ${f.max ? '<p class="note">Esta peça já está no aprimoramento máximo.</p>' : crafting ? progress() + '<button type="button" class="btn primary" disabled>Forjando…</button>' : `<button type="button" class="btn primary" data-act="enhance"${ok ? '' : ' disabled'}>Aprimorar</button>${reason ? `<p class="note">${reason}</p>` : ''}`}
+      </div>`;
+    }
+    return `<div class="craft"><div class="pick-wrap">${eqs ? `<div><p class="sect">Equipadas</p><div class="pick">${eqs}</div></div>` : ''}${bag ? `<div><p class="sect">Na mochila</p><div class="pick">${bag}</div></div>` : ''}</div>${det}</div>`;
+  }
+  function renderForge() {
+    $('#forge').innerHTML = `<div class="fmodes" role="group" aria-label="Modo da forja"><button type="button" class="seg" data-fmode="craft" aria-pressed="${fmode === 'craft'}">Criar</button><button type="button" class="seg" data-fmode="enhance" aria-pressed="${fmode === 'enhance'}">Aprimorar</button></div>`
+      + (fmode === 'craft' ? craftHtml() : enhanceHtml());
+  }
+
+  /* ---------- eventos ---------- */
+  document.addEventListener('click', e => {
+    const prev = pendingSell; pendingSell = null; lastResult = null;
+    if (e.target.closest('[data-view]')) { view = 'forge'; return commit(); }
+    const fm = e.target.closest('[data-fmode]');
+    if (fm) {
+      fmode = fm.dataset.fmode;
+      if (fmode === 'enhance') {
+        const cur = sel && itemOf(get(sel.src, sel.key));
+        if (!cur || !isGear(cur)) { const k = eq.weapon ? 'weapon' : Object.keys(eq).find(x => eq[x]); if (k) sel = { src: 'eq', key: k }; }
+      }
+      return commit();
+    }
+    const tab = e.target.closest('[data-filter]');
+    if (tab) { filter = tab.dataset.filter; view = 'bag'; return commit(); }
+    const act = e.target.closest('[data-act]');
+    if (act) {
+      if (act.dataset.act === 'craft') return doCraft();
+      if (act.dataset.act === 'enhance') return doEnhance();
+      if (act.dataset.act === 'sort') return sortInv();
+      if (act.dataset.act === 'primary' && sel) return primary(sel.src, sel.key);
+      if (act.dataset.act === 'sell' && sel && sel.src === 'inv') {
+        const k = String(sel.key);
+        if (prev !== null && String(prev) === k) return sell(+k);
+        pendingSell = k; return render();
+      }
+      return;
+    }
+    const rr = e.target.closest('[data-rcp]');
+    if (rr) { rsel = rr.dataset.rcp; return commit(); }
+    const el = e.target.closest('.slot[data-src]');
+    if (!el || el.dataset.src === 'cat') return;
+    if (!get(el.dataset.src, el.dataset.key)) { sel = null; commit(); return; }
+    const k = el.dataset.src + ':' + el.dataset.key, now = Date.now();
+    if (lastClick.k === k && now - lastClick.t < 400 && view !== 'forge') { lastClick = { k: '', t: 0 }; return primary(el.dataset.src, el.dataset.key); }
+    lastClick = { k, t: now }; sel = { src: el.dataset.src, key: el.dataset.key };
+    render();
+    if (lastType === 'touch') { const n = document.querySelector(`.slot[data-src="${sel.src}"][data-key="${sel.key}"]`); if (n) showTip(n, true); } else syncTip();
+  });
+  document.addEventListener('contextmenu', e => {
+    const el = e.target.closest ? e.target.closest('.slot.has') : null;
+    if (el) { e.preventDefault(); pendingSell = null; primary(el.dataset.src, el.dataset.key); }
+  });
+  document.addEventListener('keydown', e => {
+    const rr = e.target.closest ? e.target.closest('[data-rcp]') : null;
+    if (rr && (e.key === 'Enter' || e.key === ' ')) { e.preventDefault(); rsel = rr.dataset.rcp; lastResult = null; return commit(); }
+    const el = e.target.closest ? e.target.closest('.slot.has') : null;
+    if (!el) return;
+    if (e.key === 'Enter') { e.preventDefault(); pendingSell = null; primary(el.dataset.src, el.dataset.key); }
+    if (e.key === ' ') { e.preventDefault(); pendingSell = null; sel = { src: el.dataset.src, key: el.dataset.key }; render(); }
+  });
+  document.addEventListener('focusin', e => {
+    const el = e.target.closest ? e.target.closest('.slot[data-src]') : null;
+    if (el && el.matches(':focus-visible')) showTip(el, true);
+  });
+  document.addEventListener('focusout', e => { if (e.target.closest && e.target.closest('.slot')) hideTip(); });
+
+  const mark = on => document.querySelectorAll('.paper .slot').forEach(s => {
+    const it = drag && drag.src === 'inv' ? itemOf(inv[+drag.key]) : null;
+    s.classList.toggle('drop-ok', !!(on && it && canWear(it, s.dataset.key)));
+  });
+  document.addEventListener('dragstart', e => {
+    const el = e.target.closest ? e.target.closest('.slot.has') : null;
+    if (!el) return;
+    drag = { src: el.dataset.src, key: el.dataset.key }; dragging = true; hideTip();
+    e.dataTransfer.effectAllowed = 'move'; e.dataTransfer.setData('text/plain', drag.key); mark(true);
+  });
+  document.addEventListener('dragend', () => { mark(false); drag = null; dragging = false; });
+  document.addEventListener('dragover', e => {
+    if (drag && e.target.closest && e.target.closest('.slot[data-src], .slot[data-filler]')) { e.preventDefault(); e.dataTransfer.dropEffect = 'move'; }
+  });
+  document.addEventListener('drop', e => {
+    const el = e.target.closest ? e.target.closest('.slot[data-src], .slot[data-filler]') : null;
+    if (!drag || !el) return;
+    e.preventDefault(); const d = drag; mark(false); drag = null; dragging = false; pendingSell = null;
+    if (el.dataset.filler) { if (d.src === 'eq') unequip(d.key); return; }
+    handleDrop(d, el.dataset.src, el.dataset.key);
+  });
+
+  const app = document.querySelector('.app');
+  const fit = () => { const z = Math.min(1, innerWidth / 900); app.style.zoom = z < 1 ? String(z) : ''; };
+  fit(); addEventListener('resize', fit);
+
+  render();
+})();
+</script>
+
+</body></html>

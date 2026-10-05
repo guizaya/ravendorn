@@ -316,6 +316,47 @@ export default function GameCanvas({
     };
   }, []);
 
+  /**
+   * O ponteiro muda conforme o que ha embaixo dele: mao de armadura na
+   * base (la nao ha o que bater), mao aberta em cima de NPC e mira fora
+   * deles.
+   *
+   * A classe vai no canvas e nao em `style`, porque o modo muda varias
+   * vezes por segundo enquanto o ponteiro anda entre NPC e chao: um
+   * `useState` transformaria cada uma dessas viradas em render do React
+   * do jogo inteiro. `classList.toggle` no DOM nao custa render nenhum
+   */
+  useEffect(() => {
+    const engine = engineRef.current;
+
+    if (!engine) return;
+
+    const canvas = canvasRef.current;
+
+    if (!canvas) return;
+
+    engine.onCursorChange = (modo) => {
+      canvas.classList.toggle("game-canvas--hub", modo === "hub");
+      canvas.classList.toggle("game-canvas--npc", modo === "npc");
+    };
+
+/**
+     * O primeiro modo precisa ser escrito na mao.
+     *
+     * O motor so avisa quando o modo MUDA, e o `setMap` do mount acontece
+     * num efeito ANTERIOR a este — o aviso daquela vez foi perdido, sem
+     * ouvinte. Ler o `cursorMode` ja resolvido pelo `setMap` evita
+     * recalcular o modo aqui e ter duas regras para a mesma coisa
+     */
+    engine.onCursorChange(engine.cursorMode);
+
+    return () => {
+      engine.onCursorChange = null;
+
+      canvas.classList.remove("game-canvas--hub", "game-canvas--npc");
+    };
+  }, [engineRef]);
+
   return (
     <canvas
       ref={canvasRef}

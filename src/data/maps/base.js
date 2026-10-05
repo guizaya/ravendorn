@@ -1,4 +1,6 @@
 import { BASE_PORTALS, PORTAL_SHEETS } from "../portais/index.js";
+import { BASE_NPCS } from "../npc/index.js";
+import { NPC_SHEETS } from "../npc/sheets.js";
 
 /**
  * O MAPA BASE: o HUB do jogo.
@@ -165,6 +167,20 @@ export const BASE_MAP = {
    * Nao entra em `solids`: o portal e decorativo e nao barra passagem
    */
   portals: BASE_PORTALS,
+
+  /**
+   * O MERCADOR DO HUB, em (710, 377)
+   *
+   * Lista vazia de props, lista com um item de NPC. A diferenca nao e
+   * decorativa: um prop e enfeite e nao reage a clique, e um NPC reage
+   * a clique abrindo painel. Colocar o mercador em `props` faria ele
+   * parecer parte do cenario e o clique passaria direto
+   *
+   * Vem do catalogo de NPCs, e nao e montado aqui: e um enfeite com
+   * posicao pedida, e `BASE_NPCS` fica separado pelo mesmo motivo que
+   * `BASE_PORTALS` — cada mapa declara os seus
+   */
+  npcs: BASE_NPCS,
 };
 
 /**
@@ -177,4 +193,5 @@ export const BASE_MAP = {
 export const BASE_ASSETS = {
   groundTile: "cidade",
   portalSheets: PORTAL_SHEETS,
+  npcSheets: NPC_SHEETS,
 };

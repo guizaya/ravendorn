@@ -129,14 +129,26 @@ export const ZONES_USE_TILE = true;
 /**
  * Uma zona e ladrilhada com o `terra.jpg`?
  *
- * O `kind: "training"` e o campo de provas, que so tem bonecos de
- * treino. Ele fica de fora de proposito: nao e area de mob, e o jogador
- * precisa enxergar que e um campo de treino e nao um territorio hostil
+ * ## TODAS AS DOZE
+ *
+ * Inclusive o campo de provas. Ele ja foi a unica de fora — o
+ * argumento era que o jogador precisa ver que ali e um campo de treino
+ * e nao um territorio hostil. A leitura vem do que mora dentro: dois
+* bonecos parados, nenhum inimigo, nenhum ataque. E o `terra.jpg`
+ * faz o campo de provas deixar de ser o unico retangulo do vale com
+ * outra textura, o que aparecia como um degrau de estilo na borda
+ *
+ * ## POR QUE O INTERRUPTOR CONTINUA SENDO O `ZONES_USE_TILE`
+ *
+ * Com ele em `false`, as doze voltam ao pixel art de 32px sem mexer em
+ * mais nada. O que nao e o nome da pasta de arte nem o `terrain` da
+ * zona — e o mesmo ladrilho para as doze, e o `terrain` so pinta a
+ * area no minimapa
  */
 export function zoneUsesTile(zone) {
   if (!ZONES_USE_TILE) return false;
 
-  return zone.kind !== "training";
+  return true;
 }
 
 /**

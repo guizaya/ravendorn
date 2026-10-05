@@ -216,9 +216,13 @@ describe("conexao de verdade", () => {
     await bento.entrar();
 
     // a Ana mata o primeiro slime vivo
-    const alvo = jogo.engine.world.enemies.find(
-      (e) => e.kind !== "training" && e.hp > 0,
-    );
+    const alvo = jogo.engine.world.enemies
+      .filter((e) => e.isCreature && e.hp > 0)
+      .sort(
+        (a, b) =>
+          Math.hypot(a.x - 3000, a.y - 2100) -
+          Math.hypot(b.x - 3000, b.y - 2100),
+      )[0];
 
     jogo.engine.withPlayer(ana.playerId, () => {
       jogo.engine.damage.applyDamage(

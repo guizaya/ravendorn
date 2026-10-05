@@ -16,6 +16,29 @@ import {
   RARITY_ORDER,
 } from "../items/index.js";
 import { CREATURE_TYPES } from "../enemies/index.js";
+import { POCAO_IDS } from "../potions/index.js";
+
+/**
+ * Os itens que NAO tem receita, e o motivo de cada um.
+ *
+ * A regra deste arquivo e "todo item do catalogo tem receita", e ela
+ * vale para tudo que o jogo produz com MATERIA-PRIMA. A pocao de cura
+ * quebra a regra de proposito: ela e comprada do mercador, e nao
+ * fabricada. Dar receita a ela transformaria 50 moedas e duas plantas
+ * em um item que qualquer jogador pode produzir sem passar pela
+ * barraca — e o mercador da base deixaria de ter razao de existir
+ *
+ * A lista vem do CATALOGO DA LOJA, e nao e escrita aqui. Um item
+ * escrito a mao apareceria neste arquivo e no catalogo da loja, e o
+ * catalogo da loja sem este teste seria um furo silencioso: a pocao
+ * viraria craftavel sem ninguem notar
+ */
+const SO_NA_LOJA = new Set(POCAO_IDS);
+
+/** os itens que este arquivo exige que tenham receita */
+const CRAFTAVEIS = ITEM_LIST.filter(
+  (item) => !SO_NA_LOJA.has(item.id),
+);
 
 /** o preco total de uma receita escrita: ingrediente mais moeda */
 const total = (recipe) =>
@@ -115,7 +138,7 @@ describe("receitas de craft", () => {
       CRAFT_RECIPES.map((recipe) => recipe.itemId),
     );
 
-    const semReceita = ITEM_LIST.filter(
+    const semReceita = CRAFTAVEIS.filter(
       (item) => !comReceita.has(item.id),
     );
 
@@ -124,8 +147,24 @@ describe("receitas de craft", () => {
     ).toEqual([]);
   });
 
+  /**
+   * O item SO DA LOJA nao tem receita, e isso e conferido aqui.
+   *
+   * Sem esta asercao, `CRAFTAVEIS` viraria um buraco silencioso: da
+   * proxima vez que algo entrar em `SO_NA_LOJA`, o teste comecaria a
+   * pular esse item sem ninguem ter decidido isso
+   */
+  it("nenhum item so da loja tem receita de craft", () => {
+    for (const recipe of CRAFT_RECIPES) {
+      expect(
+        SO_NA_LOJA.has(recipe.itemId),
+        `${recipe.itemId} esta na loja e tem receita`,
+      ).toBe(false);
+    }
+  });
+
   it("todo item do catalogo tem receita nas cinco raridades", () => {
-    for (const item of ITEM_LIST) {
+    for (const item of CRAFTAVEIS) {
       for (const rarity of RARITY_ORDER) {
         expect(
           getCraftVariant(item.id, rarity),
@@ -135,7 +174,7 @@ describe("receitas de craft", () => {
     }
 
     expect(CRAFT_VARIANTS).toHaveLength(
-      ITEM_LIST.length * RARITY_ORDER.length,
+      CRAFTAVEIS.length * RARITY_ORDER.length,
     );
   });
 

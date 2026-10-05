@@ -150,6 +150,55 @@ export const PORTALS = [
     y: 180,
     size: PORTAL_SIZE,
     sheet: "floresta",
+
+    /**
+     * O PAR DO MAPA 2.
+     *
+     * Este e o SEGUNDO portal do mapa 1, e ele vai para o PRIMEIRO
+     * portal do mapa 2. Os dois declaram o par pelo `id` do outro: este
+     * diz para onde vai e onde chega, e o outro faz o mesmo na volta
+     *
+     * E a `chegada` e `portal_mapa2`, e nao uma coordenada. Chegar "no
+     * portal 1" e chegar "perto do portal 1" sao coisas diferentes: se
+     * o portal se mover, o ponto de chegada acompanha sem ninguem editar
+     * numero
+     *
+     * Um `chegada` que nao exista no mapa de destino cai no spawn do
+     * mapa — e melhor aparecer no meio do vale do que nao atravessar
+     */
+    destino: "map_2",
+    chegada: "portal_mapa2",
+  },
+];
+
+/**
+ * Os portais do MAPA 2.
+ *
+ * Um so, por enquanto: o `portal_mapa2`, que faz par com o
+ * `portal_floresta` do mapa 1. O mapa 2 e uma copia do mapa 1, e a copia
+ * ainda nao tem o par do `portal_pantano` — quando ele vier, entra aqui
+ * como segundo portal, do mesmo jeito que no mapa 1
+ *
+ * A posicao e a mesma do `portal_floresta` porque o mapa 2 tem as mesmas
+ * dimensoes e o mesmo terreno: o portal cai na Floresta Sombria, no
+ * canto superior esquerdo
+ */
+export const MAP_2_PORTALS = [
+  {
+    id: "portal_mapa2",
+    x: 178,
+    y: 180,
+    size: PORTAL_SIZE,
+    sheet: "floresta",
+
+    /**
+     * A VOLTA PARA O MAPA 1.
+     *
+     * E o par do `portal_floresta`: ele traz o jogador para o
+     * `portal_mapa2`, e este devolve
+     */
+    destino: "map_1",
+    chegada: "portal_floresta",
   },
 ];
 

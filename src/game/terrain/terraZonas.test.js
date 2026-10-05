@@ -9,6 +9,7 @@ import {
 
 import { TerrainRenderer } from "./TerrainRenderer.js";
 import {
+  BASE_TERRAIN,
   groundTileFor,
   ZONE_TILE,
   ZONE_TILE_SIZE,
@@ -278,15 +279,6 @@ describe("as onze areas de mob", () => {
     }
   });
 
-  it("o campo de provas NAO usa o tile", () => {
-    /**
-     * O unico lugar do mapa que ainda monta grade de tiles de 32px
-     */
-    expect(TREINO, "o campo de provas sumiu").toBeTruthy();
-
-    expect(zoneUsesTile(TREINO)).toBe(false);
-  });
-
   it("o catalogo ainda guarda o terreno de cada zona", () => {
     /**
      * O `terrain` nao foi apagado: e ele que pinta a area no minimapa.
@@ -347,20 +339,63 @@ describe("as onze areas de mob", () => {
     expect(renderer.patches.size).toBe(0);
   });
 
-  it("o campo de provas ainda monta a grade", () => {
+  it("o campo de provas usa o ladrilho de terra, como as onze", () => {
     const renderer = rendererCom();
 
-    renderer.draw(
-      contextQueConta(),
-      MAP_1,
-      [TREINO],
-      VIEW,
-    );
+    /**
+     * A REGRA FINAL: as DOZE usam o `terra.jpg`.
+     *
+     * O campo de provas ja foi a unica de fora, duas vezes, por motivos
+     * diferentes — a primeira para ficar no pixel art de 32px, a
+     * segunda para mostrar o chao do mapa. As duas leituras o deixavam
+     * como o unico retangulo do vale com outra textura
+     *
+     * Agora ele entra no mesmo `fillZone` das onze, e a leitura de
+     * "campo de treino" vem do que mora dentro: dois bonecos parados,
+     * nenhum inimigo, nenhum ataque
+     */
+    expect(TREINO, "o campo de provas sumiu").toBeTruthy();
 
-    expect(renderer.zoneGrids.size).toBe(1);
+    expect(zoneUsesTile(TREINO)).toBe(true);
 
-    // e ele ainda usa patch, nao o ladrilho de terra
-    expect(renderer.patches.size).toBeGreaterThan(0);
+    renderer.draw(contextQueConta(), MAP_1, [TREINO], VIEW);
+
+    // e o ladrilho foi construido e usado
+    expect(renderer.zonePattern).not.toBe(null);
+  });
+
+  it("as DOZE zonas ladrilham, e sao doze", () => {
+    /**
+     * O numero subiu de onze para doze.
+     *
+     * Antes o campo de provas ficava de fora e o vale contava onze
+     * areas de mob. Agora nao existe nenhuma excecao de ladrilho no
+     * mapa, e um `zoneUsesTile` que devolvesse `false` para alguma zona
+     * reprovaria aqui
+     */
+    expect(MAP_1_META.zones.length).toBe(12);
+
+    for (const zone of MAP_1_META.zones) {
+      expect(zoneUsesTile(zone), zone.id).toBe(true);
+    }
+  });
+
+  it("o campo de provas devolve o terreno base em terrainAt", () => {
+    /**
+     * O `terrain` continua sendo `BASE_TERRAIN`.
+     *
+     * Ele nao muda o ladrilho — as doze compartilham um pattern so — mas
+     * e ele que pinta a area no minimapa, e um campo de provas e verde
+     */
+    expect(TREINO.terrain).toBe(BASE_TERRAIN);
+
+    expect(
+      rendererCom().terrainAt(
+        TREINO.x + TREINO.width / 2,
+        TREINO.y + TREINO.height / 2,
+        [TREINO],
+      ),
+    ).toBe(BASE_TERRAIN);
   });
 
   it("onze zonas visiveis sao onze preenchimentos", () => {

@@ -1,5 +1,6 @@
 import { createTrainingDummies } from "../entities/TrainingDummy.js";
 import { createPlayerSession } from "./PlayerSession.js";
+import { PARTY_MAX } from "../../shared/protocol.js";
 import { EnemyAI } from "../enemies/EnemyAI.js";
 import {
   grantXp,
@@ -35,6 +36,8 @@ import {
 } from "../loot/lootFilter.js";
 import { TerrainRenderer } from "../terrain/TerrainRenderer.js";
 import { PropRenderer } from "../props/PropRenderer.js";
+import { NpcRenderer } from "../npc/NpcRenderer.js";
+import { getNpcType } from "../../data/npc/index.js";
 import { PortalRenderer } from "../portais/PortalRenderer.js";
 import { portalsOf } from "../../data/portais/index.js";
 import { findMap, getMap } from "../../data/maps/index.js";
@@ -115,6 +118,20 @@ const EMPTY_MARKET = {
  * guilda, e nao o talent. Marcar tudo como bloqueado faria o jogador
  * ver uma arvore morta em vez de uma arvore para destravar
  */
+/**
+ * A PARTY VAZIA.
+ *
+ * O estado de quem nao esta em party nenhuma: a box existe e traz o
+ * botao de criar, que e o que o pedido descreve para o jogador sozinho
+ */
+const EMPTY_PARTY_SNAPSHOT = {
+  partyId: null,
+  lider: null,
+  max: PARTY_MAX,
+  membros: [],
+  convite: null,
+};
+
 const EMPTY_GUILD_SNAPSHOT = {
   guilda: null,
   ehLider: false,
@@ -156,6 +173,8 @@ import {
   MINIMAP_WIDTH,
 } from "../ui/minimap.js";
 import { getZoneById } from "../../data/maps/index.js";
+import { NavGrid } from "../nav/NavGrid.js";
+import { rotaDeMapas } from "../nav/rotaDeViagem.js";
 import {
   BEHAVIOR,
   createCreatureRoster,
@@ -164,6 +183,102 @@ import {
 const AUTO_RETARGET_INTERVAL = 0.25;
 const AUTO_LEASH_RANGE = 1500;
 const AUTO_LOW_HEALTH = 0.6;
+
+/**
+ * O RAIO DE CHEGADA de uma etapa da viagem.
+ *
+ * O mesmo `24` do `walkToward`, e nao o raio de travessia do portal
+ * (96px). A razao e a ordem: estar a 24px do centro do portal ja esta
+ * dentro dos 96px, entao o `travessarPortal` nunca recusa aqui
+ *
+ * Com um raio MENOR que o do `walkToward` o piloto passaria direto
+ * pelas etapas: o `walkToward` devolve `false` ao chegar, o ponto
+ * seraitado, e a etapasaltaria sem nunca chegar perto o bastante para
+ * o portal valer
+ */
+const TRAVEL_CHEGADA = 24;
+
+/**
+ * A MEIA CELULA de tolerancia a mais na chegada de uma ETAPA.
+ *
+ * O caminho nem sempre termina no ponto exato da etapa: quando o destino
+ * esta a menos de uma celula de um obstaculo, o `NavGrid` fecha o caminho
+ * no CENTRO da celula vizinha, porque ir ate o centro e um passo de lado
+ * e ir ate o destino seria raspar no obstaculo. Sao ate 28px de diferenca,
+ * e 24px de tolerancia deixaria o piloto a 4px do fim, andando para sempre
+ *
+ * Meia celula e o que resolve: 24 + 20 = 44px, que e menos que o raio de
+ * 96px do portal e continua sendo "chegou na zona", nao "chegou no
+ * canto da zona"
+ */
+const TRAVEL_CHEGADA_CELULA = 20;
+
+/**
+ * QUANTO tempo o jogador pode ficar parado numa etapa antes de o motor
+ * replanejar o caminho.
+ *
+ * Tres segundos e o tempo de um coinco lento de inferno, e o que separa
+ * "chegando na arvore" de "preso na arvore". Menor que isso, um
+ * obstaculo que empurre o jogador por um quadro faria o A* rodar de
+ * novo sem necessidade — e o A* custa ate 80ms
+ */
+/**
+ * DE QUANTO EM QUANTO O PLANO DE SEGUIR E REFEITO.
+ *
+ * O seguido anda varias vezes por segundo. Refazer o A* a cada quadro
+ * custaria um BFS e uma montagem de plano por quadro, e o plano novo
+ * quase nunca muda tanto assim em 400ms
+ *
+ * O valor e o mesmo periodo de um tique de rede do servidor: e o que faz
+ * o seguidor virar no mesmo passo em que o followed vira
+ */
+const SEGUIR_REPLANEJA = 0.4;
+
+/**
+ * QUANTO o seguido precisa andar para o plano de seguir ser refeito.
+ *
+ * O relogio acima e o TETO, e nao o gatilho: 400ms e o piso para o
+ * seguidor virar no mesmo passo que o lider, mas refazer o A* a cada
+ * 400ms custa ate 80ms de CPU por chamada — e o A* do seguidor e o
+ * caminho mais caro do jogo, porque o objetivo dele e a posicao de uma
+ * PESSOA, que nunca para de andar
+ *
+ * Com o piso de distancia, dois jogadores andando na mesma direcao
+ * reusam o mesmo caminho: o plano so e refeito quando o lider se afasta
+ * o bastante para o caminho antigo acabar na posicao errada. E o que
+ * mantem o A* do `seguir` na frequencia de uma mudanca de direcao, e
+ * nao na frequencia de um relogio
+ *
+ * 96px e meio corredor de arvore: e o tanto de deslocamento que muda a
+ * rota, e nao o tanto que muda o rumo
+ */
+const SEGUIR_REPLANEJA_PX = 96;
+
+const TRAVEL_TRAVADO_LIMITE = 3;
+
+/**
+ * O MENOR deslocamento que conta como "andou".
+ *
+ * Um quadro a 60fps da uns 6px de caminhada, entao 4px separa o
+ * tremor de uma arvore do movimento real. Maior que isso, o piloto
+ * andando em direcao a uma parede por dois segundos contaria como
+ * progresso e o replanejamento nunca aconteceria
+ */
+const TRAVEL_TRAVADO_EPSILON = 4;
+
+/**
+ * DE QUANDO EM QUANDO o caminho de perseguicao e refeito.
+ *
+ * Meio segundo e o compromise entre "o alvo andou" e "o A* custa ate
+ * 80ms". Com 0.5s o arqueiro refaz o caminho umas duas vezes por
+ * intervalo de tiro, o que e suficiente para a mira nao ficar
+ * apontando para um lugar de onde o limo saiu
+ *
+ * O caminho tambem se refaz antes disso quando ele ACABA — e o sinal de
+ * que o alvo escapou para longe demais e que o proximo passo precisa de
+ * um caminho novo
+ */
+const CACA_RECALCULA = 0.5;
 
 /**
  * Teto de flechas no ar, contando as do jogador e as do inimigo.
@@ -279,9 +394,25 @@ export class GameEngine {
    * para a mesma lista de inimigos: e isso que faz duas pessoas
    * verem o mesmo slime.
    */
-  addPlayer(session, { focus = false } = {}) {
+  addPlayer(session, { focus = false, mapId = null } = {}) {
     if (this.world.players.has(session.id)) {
       return this.world.players.get(session.id);
+    }
+
+    /**
+     * O MAPA DE QUEM ENTRA.
+     *
+     * Uma sessao nova vem sem `mapId`, e sem esta linha o `focusPlayer`
+     * nao acharia mapa nenhum e o jogador nasceria sem colisor nem
+     * inimigos
+     *
+     * O servidor passa o mapa de entrada dele, e nao o `world.map`: com
+     * cada jogador no seu mapa, o `world` aponta para o do ultimo em
+     * foco, e quem entrasse enquanto outro estivesse no vale nasceria no
+     * vale
+     */
+    if (!session.mapId) {
+      session.mapId = mapId ?? this.world.map?.id ?? null;
     }
 
     this.world.players.set(session.id, session);
@@ -312,7 +443,26 @@ export class GameEngine {
   focusPlayer(id) {
     this.world.session = this.world.players.get(id) ?? null;
 
-    return this.world.session;
+    const sessao = this.world.session;
+
+    if (!sessao) return null;
+
+    /**
+     * O `world` PASTA A APONTAR PARA O MAPA DELE.
+     *
+     * Sem esta troca o mapa seria o do ultimo `setMap`, e o jogador que
+     * NAO atravessou o portal seria simulado no mapa do outro: os
+     * inimigos, o colisor e os portais seriam os de fora
+     *
+     * E o que faz o portal atravessar so quem clique nele
+     */
+    const mapa = findMap(sessao.mapId);
+
+    if (mapa) {
+      this.aplicarContexto(this.contextoDoMapa(mapa));
+    }
+
+    return sessao;
   }
 
   /**
@@ -496,6 +646,49 @@ export class GameEngine {
     if (sessao) sessao.autoDecisionTimer = valor;
   }
 
+  /**
+   * A FILA de etapas da viagem, por sessao.
+   *
+   * O `?? []` e o que mantem o motor funcionando antes de existir
+   * sessao em foco: o construtor chama `sendSnapshot` antes de qualquer
+   * `setMap`, e `updateAutoPlay` roda logo depois
+   */
+  get travelPlan() {
+    return this.sessaoDeJogador?.travelPlan ?? [];
+  }
+
+  set travelPlan(valor) {
+    const sessao = this.sessaoDeJogador;
+    if (sessao) sessao.travelPlan = valor;
+  }
+
+  get travelParado() {
+    return this.sessaoDeJogador?.travelParado ?? 0;
+  }
+
+  set travelParado(valor) {
+    const sessao = this.sessaoDeJogador;
+    if (sessao) sessao.travelParado = valor;
+  }
+
+  get cacadaCaminho() {
+    return this.sessaoDeJogador?.cacadaCaminho ?? null;
+  }
+
+  set cacadaCaminho(valor) {
+    const sessao = this.sessaoDeJogador;
+    if (sessao) sessao.cacadaCaminho = valor;
+  }
+
+  get cacadaRelogio() {
+    return this.sessaoDeJogador?.cacadaRelogio ?? 0;
+  }
+
+  set cacadaRelogio(valor) {
+    const sessao = this.sessaoDeJogador;
+    if (sessao) sessao.cacadaRelogio = valor;
+  }
+
   get autoLeashRange() {
     return (
       this.sessaoDeJogador?.autoLeashRange ?? AUTO_LEASH_RANGE
@@ -567,6 +760,18 @@ export class GameEngine {
      */
     this.guildStore = opcoes.guildStore ?? null;
 
+    /**
+     * A PARTY: estado compartilhado, injetado pelo servidor.
+     *
+     * O motor so LÊ. Ele pergunta "quem mais esta na party deste
+     * jogador" e divide o abate; quem cria, quem entra e quem sai e o
+     * `PartyStore`, no servidor
+     *
+     * `null` no single player, e o jogo segue sem divisao de loot — que e
+     * o que ja acontecia antes de a party existir
+     */
+    this.partyStore = opcoes.partyStore ?? null;
+
     // No modo rede o motor vira so DESENHO. `GameEngine` continua
     // sendo a unica fonte de layout de sprites, terreno, props e
     // barras de vida, para o online e o offline olharem igual; o
@@ -579,6 +784,57 @@ export class GameEngine {
     // entrega o id; quem fala com o servidor e a camada de rede,
     // que o motor nao conhece.
     this.onTargetClick = null;
+
+    /**
+     * O NPC que foi clicado.
+     *
+     * Differe do `onTargetClick` porque o alvo de um golpe e um ID que
+     * o servidor valida, e o alvo de um painel e a ENTIDADE do NPC, com
+     * o que ela abre dentro. Passar so o id obrigaria a tela a voltar
+     * ao motor para perguntar de novo o que aquele NPC faz
+     */
+    this.onNpcClick = null;
+
+    /**
+     * O NPC SOB O CURSOR, e o modo do cursor que ele implica.
+     *
+     * Antes so havia o clique: o `pickAt` rodava no clique e o ponteiro
+     * era sempre a mesma mira. O jogador nao tinha como saber que aquele
+     * mercador era clicavel sem clicar, e clicava para discover
+     *
+     * O `id` e guardado em vez da ENTIDADE porque o NPC e recriado a cada
+     * snapshot da rede. Guardar o objeto faria `===` falhar logo no
+     * primeiro pacote recebido, e o balanco do NPC pararia de piscar
+     */
+    this.npcHover = null;
+
+    /**
+     * O ponteiro como o jogo quer que ele apareca: `npc`, `hub` ou
+     * `combat`. Quem le e o `GameCanvas`, que escreve no `style` do
+     * canvas — o motor nao mexe em DOM
+     */
+    this.cursorMode = "combat";
+
+    /**
+     * Notifica a tela quando o MODO do cursor muda.
+     *
+     * So no cambio, e nao a cada quadro: o `render` roda 60 vezes por
+     * segundo e o `classList.toggle` 60 vezes por segundo nao mudaria
+     * nada visivel, mas faria o React reavaliar a lista de classes do
+     * canvas sem parar
+     */
+    this.onCursorChange = null;
+
+    /**
+     * O relogio do balanco de hover, em segundos.
+     *
+     * Vive aqui e nao no renderer porque o motor e o unico que sabe
+     * quanto tempo passou entre dois desenhos. `performance.now()` dentro
+     * do `drawNpc` daria um salto para cada NPC e o balanco deles
+     * ficaria dessincronizado entre si
+     */
+    this.drawClock = 0;
+    this.lastDrawAt = null;
 
     this.context = canvas
       ? canvas.getContext("2d")
@@ -600,6 +856,48 @@ export class GameEngine {
       height: 1,
       dpr: 1,
     };
+
+    /**
+     * A GRADE de navegacao do mapa atual, ou `null`.
+     *
+     * Montada sob demanda pelo `gradeDoMapa` e ZERADA no `setMap`. Nao
+     * entra no construtor como `NavGrid`: a grade precisa do
+     * `world.collision`, que so existe depois do primeiro `setMap`, e
+     * construir uma no construtor custaria 15 mil testes de colisao
+     * para um motor que talvez nunca ande
+     */
+    this.navGrid = null;
+
+/**
+   * O ESTADO DE CADA MAPA, cacheado pelo OBJETO do mapa.
+   *
+   * Nasce vazio e se preenche no primeiro `setMap`. E o que permite
+   * dois jogadores estarem em mapas diferentes ao mesmo tempo sem
+   * que o `world` do motor seja um so
+   *
+   * ## POR QUE UM `WeakMap` E NAO UM `Map` POR ID
+   *
+   * A chave e o OBJETO do mapa, e nao o `id`. Os mapas de verdade sao
+   * singletons — o `findMap` devolve sempre o mesmo objeto — entao o
+   * efeito e o de um cache por id: dois jogadores no mesmo mapa
+   * compartilham o mesmo contexto
+   *
+   * A diferenca aparece com dois objetos de mapa de mesmo id: o cache
+   * por id devolveria o contexto do primeiro para o segundo, e o segundo
+   * apareceria com os inimigos e os portais do primeiro
+   */
+  this.mapContexts = new WeakMap();
+
+
+    /**
+     * A ONDE o jogador estava no quadro anterior da viagem.
+     *
+     * E o que permite detectar travamento por POSICAO em vez de por
+     * comando. `null` no primeiro quadro, porque comparar com zero
+     * diria que o jogador andou tres mil pixels
+     */
+    this.travelUltimaX = null;
+    this.travelUltimaY = null;
 
     // o input nasce dentro da sessao do jogador local (ver
     // `createPlayerSession`). aqui so guardamos uma referencia
@@ -654,6 +952,20 @@ export class GameEngine {
        * Profundo
        */
       enemies: [],
+
+      /**
+       * Os NPCs deste mapa.
+       *
+       * Lista propria e nao dentro de `props` porque um NPC reage a
+       * clique e uma prop nao. Juntar os dois faria o mercador do hub
+       * parecer parte do cenario, e o clique atravessaria ele ate
+       * chegar no chao
+       *
+       * Vive no `world` e nao em `this.npcs`, pelo mesmo motivo que
+       * `enemies`: o `CollisionSystem` e o desenho leem pela mesma
+       * lista, e duas copias divergem no primeiro quadro
+       */
+      npcs: [],
 
       projectiles: [],
       pendingPulses: [],
@@ -793,6 +1105,17 @@ export class GameEngine {
     this.minimapCache = null;
     this.terrain = new TerrainRenderer();
     this.props = new PropRenderer();
+
+    /**
+     * O renderer dos NPCs, ao lado do das props.
+     *
+     * Sao dois porque as artes nao se misturam: prop vem de folha de
+     * 32px com quatro variacoes, NPC e um desenho unico ancorado no
+     * pe. Forcar os NPCs a entrarem no `PropRenderer` seria fazer o
+     * indice de quadro valer para uma imagem que nao tem grade
+     */
+    this.npcs = new NpcRenderer();
+
     this.portals = new PortalRenderer();
     this.world.sort = [];
     this.frameErrors = 0;
@@ -921,45 +1244,136 @@ export class GameEngine {
     }
   }
 
-  setMap(map, { chegada = null } = {}) {
-    this.world.map = map;
-    this.world.collision = new CollisionSystem(map);
-    this.world.props = map.props ?? [];
+/**
+   * O ESTADO DE CADA MAPA, e o `world` aponta para um deles.
+   *
+   * ## POR QUE EXISTE ISSO
+   *
+   * O mapa, os inimigos, os NPCs, o colisor e os portais sao campos do
+   * MOTOR, e o servidor tem um motor so. Com eles globais, o `setMap` de
+   * um jogador trocava o mapa de todo mundo: o `broadcast` mandava o id
+   * novo no pacote dos outros, o `NetworkWorld` de cada um via o mapa
+   * junto, e os dois personagens atravessavam o portal como se fosse um
+   *
+   * A correcao e o `world` apontar para o contexto do mapa de quem esta
+   * em foco. Dois jogadores no mesmo mapa compartilham o MESMO contexto
+   * — e o que faz "os mesmos mobs" continuar valendo — e cada um ve o
+   * contexto do seu proprio mapa
+   *
+   * O contexto e cacheado por `mapId`: sem o cache, voltar ao hub
+   * remontaria os inimigos do hub e o drop que estava no chao sumiria
+   */
+  contextoDoMapa(map) {
+    const guardado = this.mapContexts.get(map);
 
-    /**
-     * Os INIMIGOS deste mapa.
-     *
-     * Eles moram dentro das zonas, entao so podem existir depois que o
-     * mapa entrou. O vale mantem as onze areas de mob e o Campo de
-     * Provas; o hub, que nao tem zona nenhuma, fica sem ninguem — que e
-     * o que um hub e
-     *
-     * A lista e recriada aqui, e nao somada: trocar de mapa tem que
-     * trocar o elenco. Um mob do pantano que sobrasse no hub andaria
-     * por fora dos limites
-     */
-    this.world.enemies = [
-      ...createTrainingDummies(map),
-      ...createCreatureRoster(map, map.seed),
-    ];
+    if (guardado) return guardado;
 
-    /**
-     * As folhas andam com o elenco.
-     *
-     * Era aqui que o boneco de madeira perdia a arte: as folhas eram
-     * montadas no construtor, quando a lista de inimigos ainda estava
-     * vazia
-     */
+    const contexto = this.montarContexto(map);
+
+    this.mapContexts.set(map, contexto);
+
+    return contexto;
+  }
+
+  /**
+   * Monta o estado de UM mapa, sem encostar no `world`.
+   *
+   * E o corpo antigo do `setMap`, com o destino trocado: cada campo
+   * nasce dentro do contexto em vez de sobrescrever o do mundo
+   */
+  montarContexto(map) {
+    const npcs = (map.npcs ?? []).map((npc) => {
+      const tipo = getNpcType(npc.typeId);
+
+      if (!tipo) return null;
+
+      return {
+        ...npc,
+        ...tipo,
+        typeId: npc.typeId,
+      };
+    }).filter(Boolean);
+
+    const collision = new CollisionSystem(
+      map,
+      npcs.filter((npc) => npc.blocking).map((npc) => this.npcs.blockBoxOf(npc)),
+    );
+
+    return {
+      map,
+      collision,
+      npcs,
+      props: map.props ?? [],
+      portals: portalsOf(map),
+      enemies: [
+        ...createTrainingDummies(map),
+        ...createCreatureRoster(map, map.seed),
+      ],
+
+      /**
+       * O que esta NO CHAO tambem e do mapa.
+       *
+       * Drop, tiro e efeito pendente de um mapa nao podem aparecer em
+       * outro: com o mundo unico isso nunca acontecia, porque so havia
+       * um mapa. Com dois contextos vivos, um drop largado no vale
+       * reapareceria no hub
+       */
+      drops: [],
+      projectiles: [],
+      pendingPulses: [],
+      delayedEffects: [],
+
+      /**
+       * A GRADE e guardada no contexto, e nao no motor.
+       *
+       * Ela foi construida com o colisor DESTE mapa. Reusar a grade de
+       * outro daria um caminho calculado contra obstaculos que nao
+       * existem aqui
+       */
+      navGrid: null,
+    };
+  }
+
+  /**
+   * APONTA O `world` PARA O CONTEXTO DE UM MAPA.
+   *
+   * E o `world` que o resto do motor le, entao trocar o contexto aqui e
+   * o mesmo que trocar de mapa — so que agora o mapa anterior fica
+   * intacto para quem ainda esta nele
+   */
+  aplicarContexto(contexto) {
+    this.world.map = contexto.map;
+    this.world.collision = contexto.collision;
+    this.world.npcs = contexto.npcs;
+    this.world.props = contexto.props;
+    this.world.portals = contexto.portals;
+    this.world.enemies = contexto.enemies;
+    this.world.drops = contexto.drops;
+    this.world.projectiles = contexto.projectiles;
+    this.world.pendingPulses = contexto.pendingPulses;
+    this.world.delayedEffects = contexto.delayedEffects;
+
+    this.navGrid = contexto.navGrid;
+
+    // as folhas andam com o elenco
     this.buildEnemySprites();
+  }
+
+  setMap(map, { chegada = null } = {}) {
+    const sessao = this.world.session;
 
     /**
-     * Os portais, e nao `map.portals ?? []` dentro do desenho.
+     * O MAPA PASSA A SER DA SESSAO.
      *
-     * O mesmo motivo dos props: e o estado do mundo, montado uma vez
-     * quando o mapa entra. No desenho, o `portalsOf` ja devolve lista
-     * vazia quando falta
+     * E o `mapId` que o `focusPlayer` le para trocar o `world` de mapa,
+     * e o `broadcast` que le para mandar o id certo no pacote de cada
+     * um. Sem esta linha o servidor continuaria sabendo de um mapa so
      */
-    this.world.portals = portalsOf(map);
+    if (sessao) {
+      sessao.mapId = map.id;
+    }
+
+    this.aplicarContexto(this.contextoDoMapa(map));
 
     /**
      * ONDE O JOGADOR NASCE NESTE MAPA.
@@ -979,6 +1393,19 @@ export class GameEngine {
     this.world.player.x = ondeChega.x;
     this.world.player.y = ondeChega.y;
     this.autoWaypoint = null;
+
+    /**
+     * O CURSOR ACOMPANHA O MAPA.
+     *
+     * O modo inicial do construtor e `combat`, e ele so seria corrigido no
+     * primeiro quadro — o que deixaria a base com a mira de combate
+     * durante a tela de carregamento inteira. Entrar num mapa e justamente
+     * quando o cursor pode mudar, entao e aqui que a troca e feita
+     *
+     * O `render` tambem chama `atualizarHoverDeNpc`, e os dois nao
+     * brigam: ele so avisa a tela quando o modo de fato mudou
+     */
+    this.atualizarHoverDeNpc();
   }
 
   /**
@@ -1213,6 +1640,57 @@ screenToWorld(clientX, clientY) {
 
   handlePointerLeave() {
     this.input.pointer.inside = false;
+
+    // Saiu da tela: o NPC debaixo do cursor deixou de existir. Sem isto o
+    // ultimo mercador ficaria balancando para sempre, com o ponteiro fora
+    this.npcHover = null;
+  }
+
+  /**
+   * O NPC debaixo do cursor e o modo do cursor. Roda no desenho.
+   *
+   * No `render` e nao no `pointermove` por dois motivos: o ponteiro pode
+   * estar parado enquanto um NPC entra no alcance dele — um snapshot da
+   * rede cria e remove mercadores sem mover um pixel do mouse — e o
+   * calculo depende de `world.npcs`, que no cliente so existe depois do
+   * primeiro pacote
+   */
+  atualizarHoverDeNpc() {
+    const ponteiro = this.input.pointer;
+
+    /**
+     * A ORDEM DE PRECEDENCIA DO CURSOR.
+     *
+     * O NPC ganha do hub, e o hub ganha do combate. O motivo e que os
+     * dois casos sao sobre o QUE O PONTEIRO FAZ, nao sobre o lugar: um
+     * mercador na base continua sendo clicavel, e o hub continua sem
+     * inimigos mesmo com o ponteiro em cima de um
+     */
+    const npc =
+      ponteiro.inside === true
+        ? this.npcs.pickAt(this.world.npcs, ponteiro)
+        : null;
+
+    const hover = npc?.id ?? null;
+
+    this.npcHover = hover;
+
+    const modo = hover !== null ? "npc" : this.cursorDoMapa();
+
+    if (modo === this.cursorMode) return;
+
+    this.cursorMode = modo;
+    this.onCursorChange?.(modo);
+  }
+
+  /**
+   * O modo do cursor quando nao ha NPC embaixo dele.
+   *
+   * A base e `hub` porque la nao existe inimigo: a mira de combate seria
+   * uma promessa que o mapa nao cumpre. Todo o resto e `combat`
+   */
+  cursorDoMapa() {
+    return this.world.map?.id === "base" ? "hub" : "combat";
   }
 
   handlePointerDown(event) {
@@ -1227,6 +1705,48 @@ screenToWorld(clientX, clientY) {
       ...point,
       inside: true,
     };
+
+    /**
+     * O NPC tem a PRIMEIRA palavra, antes do inimigo.
+     *
+     * O mercador e o alvo que o jogador quis mirar, e a barra de
+     * pocoes dele tem 203px de altura: o raio do inimigo embaixo
+     * passaria por dentro da perna do NPC e o clique abriria o
+     * combate no chao em vez do painel
+     *
+     * O `return` e o que garante isso: um NPC sob o cursor e um NPC
+     * clicado, e o inimigo mais perto nao existe para o jogador que
+     * estava mirando no mercador
+     */
+    const npc = this.npcs.pickAt(this.world.npcs, point);
+
+    if (npc) {
+      this.onNpcClick?.(npc);
+      return;
+    }
+
+    /**
+     * O OUTRO JOGADOR tem a PRIMEIRA palavra, depois do NPC.
+     *
+     * Os remotos vivem em `world.enemies` com `isPlayer: true` e raio 12,
+     * e o `find` de inimigos abaixo ENCAIXAVA NELES. Clicar num colega de
+     * party abria o combate contra ele: o motor nao acha alvo valido, o
+     * jogador batia em um aliado e nenhuma animacao de golpe saia
+     *
+     * O clique num jogador e o pedido de convite, e nao um ataque
+     */
+    const outroJogador = this.world.enemies.find(
+      (entity) =>
+        entity.isPlayer === true &&
+        (entity.x - point.x) ** 2 + (entity.y - point.y) ** 2 <=
+          (entity.radius + 18) ** 2,
+    );
+
+    if (outroJogador) {
+      this.onPlayerClick?.(outroJogador.id, outroJogador);
+
+      return;
+    }
 
     const target = this.world.enemies.find(
       (enemy) =>
@@ -1391,6 +1911,29 @@ screenToWorld(clientX, clientY) {
     this.autoWaypoint = null;
     this.autoDecisionTimer = 0;
 
+    /**
+     * A VIAGEM tambem e solta.
+     *
+     * Sem esta linha, desligar o piloto no meio de uma travessia
+     * deixava o plano esperando: o `runTravelPlan` roda no inicio do
+     * `updateAutoPlay`, que so volta a chegar nele com `isAutoActive`
+     * verdadeiro — e ele nao estaria mais. O plano ficaria parado em
+     * memoria ate o proximo `auto` ligado, e o jogador comecaria a
+     * viagem de onde parou, sem saber por que
+     */
+    this.travelPlan = [];
+    this.travelParado = 0;
+
+    /**
+     * O CAMINHO de perseguicao tambem e solto.
+     *
+     * Sem esta linha ele ficaria na sessao apontando para um alvo que o
+     * jogador acabou de trocar, e o proximo `approachTarget` comecaria
+     * por um `shift` em cima de um caminho de outro mob
+     */
+    this.cacadaCaminho = null;
+    this.cacadaRelogio = 0;
+
     this.bestiaryTargetType = null;
   }
 
@@ -1398,6 +1941,18 @@ screenToWorld(clientX, clientY) {
     const next = Boolean(enabled);
 
     if (next === this.autoPlay) return;
+
+    /**
+     * APERTAR T LIBERTA O PERSONAGEM PARADO.
+     *
+     * O "parado" da chegada do follow e uma suspensao, nao uma trava: o
+     * jogador apertar T e o jeito de mandar o personagem
+     * andar de novo. Sem esta linha, chegar do lado de alguem deixava
+     * o Auto inerte ate recarregar a pagina
+     */
+    if (this.world.session) {
+      this.world.session.seguindoParado = false;
+    }
 
     // O botao (e a tecla T) e o auto de CACAR PERTO. Ele nao pode
     // dividir o comando com a missao nem com o bestiario: com os
@@ -1818,6 +2373,101 @@ screenToWorld(clientX, clientY) {
 
     this.applyEquipment();
     this.checkEquipQuest();
+    this.sendSnapshot();
+
+    return true;
+  }
+
+  /**
+   * USA um item consumivel da mochila: a pocao de cura, por enquanto.
+   *
+   * E o caminho de uso, e nao um caso particular da pocao. O
+   * catalogo diz O QUE o item faz (`use: { heal: 120 }`) e este
+   * metodo aplica qualquer efeito declarado ali. Uma pocao de mana
+   * entra acrescentando `restoreResource`, e um item que da dano
+   * pessoal entra com `heal` negativo — sem tocar neste arquivo de
+   * novo
+   *
+   * ## A POCAO NAO E GASTA COM VIDA CHEIA
+   *
+   * O `heal` devolve quanto curou, e o `0` e a condicao de recusa.
+   * Sem isso, beber a ultima pocao em vida cheia daria `+0`, apagaria
+   * da mochila e nao curaria nada — o pior resultado possivel, porque
+   * o jogador perdeu o item E nao ganhou nada. E o jogador precisa
+   * poder Falhar aqui de proposito, e nao por acidente
+   *
+   * ## O EFEITO PRECISA VALER ALGO ANTES DE GASTAR
+   *
+   * O item sai da mochila so depois do efeito. Inverter a ordem
+   * cobraria o jogador por uma pocao que nao curou, e no online o
+   * erro apareceria como um item a menos sem causa
+   */
+  usarItem(uid) {
+    const inventory = this.world.inventory;
+
+    const stack = inventory.findByUid(uid);
+
+    if (!stack) return false;
+
+    const definition = getItem(stack.itemId);
+
+    /**
+     * Item sem `use` nao e consumivel, e nao ha o que aplicar.
+     *
+     * O `equipItem` tambem recusa item que nao serve no slot, e pelo
+     * mesmo motivo: a acao foi pedida para um item que nao admite ela,
+     * e o certo e recusar em vez de gastar o item
+     */
+    if (!definition?.use) return false;
+
+    /**
+     * O jogador local e `world.player`, e nao `sessaoDeJogador`.
+     *
+     * `sessaoDeJogador` e a sessao com os INTENTS (alvo, auto-play,
+     * waypoint) e pode nao existir em rede, onde o cliente nao e dono
+     * da sessao. `world.player` e quem o `heal` ja cura no regeneracao,
+     * entao e o mesmo objeto que a barra de vida da tela mostra
+     */
+    const jogador = this.world.player;
+
+    if (!jogador) return false;
+
+    let aplicou = false;
+
+    for (const [efeito, valor] of Object.entries(definition.use)) {
+      if (efeito === "heal") {
+        /**
+         * Soma o que cada efeito devolveu.
+         *
+         * Um item com dois efeitos (curar e curar recurso) precisa
+         * CONSUMIR se um deles funcionou. Com um `if` por efeito e
+         * `aplicou = true` em ambos, isso vem natural; com um `if` por
+         * efeito assignando direto, o segundo efeito apagaria o
+         * primeiro e o item sumiria sem curar
+         */
+        const curado = this.damage.heal(jogador, valor);
+
+        if (curado > 0) aplicou = true;
+      } else {
+        /**
+         * Efeito declarado e nao implementado.
+         *
+         * Fica visivel de proposito: e melhor um efeito que nao faz
+         * nada do que um item que nao se consome e nao avisa. Um
+         * `throw` aqui derrubaria o turno por causa de um item
+         *catalogo, e um `continue` calado deixaria o jogador preso
+         * com uma pocao que nao bebe
+         */
+        console.warn(
+          `[usarItem] efeito desconhecido: ${efeito} em ${stack.itemId}`,
+        );
+      }
+    }
+
+    if (!aplicou) return false;
+
+    inventory.takeUid(uid, 1);
+
     this.sendSnapshot();
 
     return true;
@@ -2378,7 +3028,35 @@ guildBonuses() {
     );
   }
 
+  /**
+   * O MAPA ACEITA GOLPE?
+   *
+   * A base e o hub, e la nao ha inimigo. O basico nao PRECISA de um alvo
+   * valido para sair: `skillSystem.request` so precisa da DIRECAO da
+   * mira, entao ele dispara em pleno chao vazio, a animacao da espada
+   * varre o piso e nenhum dano acontece. Era o que o jogador via na base
+   *
+   * A pergunta e do MAPA e nao do ALVO. Um inimigo embaixo do cursor nao
+   * muda nada, porque o inimigo nao existe na base — e o caminho do
+   * `targetId` nem passa por aqui, entao perguntar pelo alvo deixaria o
+   * basico destravado justamente no mapa onde ele nao tem para quem
+   * acertar
+   */
+  emZonaDeCombate() {
+    return this.world.map?.id !== "base";
+  }
+
   useBasicAttack() {
+    /**
+     * O portao do hub.
+     *
+     * O `return false` ANTES do `request` e o que importa: pedir o golpe e
+     * o que comeca a animacao e a contagem de recarga. Barrar depois
+     * deixaria o jogador gastando recarga num golpe que nao aconteceu, e
+     * o proximo ataque no vale sairia mais fraco sem ele saber por que
+     */
+    if (!this.emZonaDeCombate()) return false;
+
     return this.skillSystem.request(
       this.classeDoJogador.basicAttack,
       this.input.pointer,
@@ -2722,15 +3400,29 @@ guildBonuses() {
 
     if (target) return target;
 
-    const zone = this.getQuestZone(objective);
+    const destino = this.destinoDoObjetivo();
 
-    if (!zone) return null;
+    if (!destino) return null;
 
-    if (this.reachedQuestZone(zone)) return null;
+    /**
+     * O objetivo esta em OUTRO MAPA.
+     *
+     * Aqui nao ha nada a fazer, e e o que a `runTravelPlan` resolve
+     * antes deste metodo ser chamado. A guarda existe porque este
+     * metodo tambem e chamado de fora do ciclo do piloto — e o sintoma
+     * de nao ter a guarda era o pior possivel: um waypoint para uma
+     * coordenada de outro mapa, com o boneco andando contra a borda do
+     * mapa atual ate o auto ser desligado a mao
+     */
+    if (destino.mapId !== this.world.map.id) return null;
+
+    const zona = destino.zone;
+
+    if (this.reachedQuestZone(zona)) return null;
 
     return {
-      x: zone.x + zone.width / 2,
-      y: zone.y + zone.height / 2,
+      x: destino.x,
+      y: destino.y,
       isWaypoint: true,
     };
   }
@@ -2870,6 +3562,9 @@ guildBonuses() {
 
     if (!this.isAutoActive()) {
       this.autoWaypoint = null;
+      this.travelPlan = [];
+      this.travelParado = 0;
+
       return;
     }
 
@@ -2879,7 +3574,41 @@ guildBonuses() {
 
     if (this.engagedTargetId !== null) {
       this.autoWaypoint = null;
+      this.travelPlan = [];
       this.runEngagedTarget(player);
+      return;
+    }
+
+    /**
+     * A VIAGEM tem a PRIMEIRA palavra sobre o piloto.
+     *
+     * Antes do piloto, e nao depois: enquanto o objetivo esta em outro
+     * mapa, qualquer coisa que o `runAutoHunt` fizesse seria andar
+     * na direcao errada. Ele receberia a zona como waypoint, a zona
+     * estaria a tres mil pixels e meio mapa longe, e o boneco iria
+     * contra a borda do hub ate o auto ser desligado a mao
+     *
+     * E o `return` logo depois e o que impede o `runAutoHunt` de
+     * sobrescrever o waypoint da viagem com o `autoPlayTarget`: os dois
+     * escrevem no mesmo campo, e quem escreve por ultimo ganha
+     */
+    if (this.runTravelPlan(deltaTime, player)) return;
+
+    /**
+     * CHEGOU DO LADO E FICOU PARADO.
+     *
+     * O pedido foi: seguir, e ao chegar ficar parado no ponto final. O
+     * `autoPlay` desligado sozinho NAO basta: o auto da missao e o do
+     * bestiario continuam valendo em `getAutoObjective`, e no quadro
+     * seguinte ao da chegada o `runAutoHunt` recebia a vez e ia bater no
+     * mob mais proximo — o mesmo sintoma de antes, so que um quadro
+     * depois
+     *
+     * Este flag e o que segura o personagem no ponto final. Ele some
+     * quando o jogador manda alguma coisa: apertar T, ligar a cacada, ou
+     * clicar num mob
+     */
+    if (this.world.session?.seguindoParado && !this.world.session?.focarLider) {
       return;
     }
 
@@ -2891,9 +3620,714 @@ guildBonuses() {
     // apertar T no meio de uma missao desligava o piloto sem
     // desligar a missao: a tela dizia AUTO e o personagem ficava
     // parado.
-    if (this.getAutoObjective() !== null || this.autoPlay) {
+    if (this.getAutoObjective() !== null || this.autoPlay || this.focoDoLiderAtivo()) {
       this.runAutoHunt(deltaTime, player);
     }
+  }
+
+  /**
+   * A GRADE de navegacao do mapa atual, montada uma vez por mapa.
+   *
+   * O cache e um campo so, e nao um `Map` por id, porque ele e
+   * invalidado no `setMap` — que e a unica hora em que o mapa muda.
+   * Guardar duas grades ao mesmo tempo custaria 15 mil celulas do outro
+   * mapa sem ninguem pedir
+   *
+   * E o cache NAO e de modulo porque a grade depende do
+   * `CollisionSystem`, e o colisor muda com o mapa e com os NPCs
+   * bloqueantes. Um cache de modulo sobreviveria a uma troca de mapa e
+   * serviria a grade do mapa velho com o colisor do novo
+   */
+  gradeDoMapa() {
+    if (this.navGrid instanceof NavGrid) return this.navGrid;
+
+    const t0 = Date.now();
+
+    this.navGrid = new NavGrid(
+      this.world.map,
+      this.world.collision,
+    );
+
+    /**
+     * O tempo de montagem vale ser visto.
+     *
+     * Sao 15 mil testes de `isPositionFree` no vale, e o numero e o que
+     * diria se a celula da grade fosse diminuida. Em silencio, a grade
+     * virando um segundo por frame seria muito mais dificil de achar
+     */
+    if (Date.now() - t0 > 50) {
+      console.info(
+        `[nav] grade de ${this.world.map.id} em ${Date.now() - t0}ms`,
+      );
+    }
+
+    return this.navGrid;
+  }
+
+  /**
+   * ONDE o objetivo do piloto esta, e em que mapa.
+   *
+   * Devolve `{ x, y, mapId }` ou `null`. E a unica fonte de "para onde
+   * ir" do piloto, e tanto a viagem quanto a cacada leem daqui — assim
+   * o bestiario e a missao nao podem divergir sobre o destino
+   */
+  destinoDoObjetivo() {
+    /**
+     * O SEGUIDO VEM ANTES DA MISSAO.
+     *
+     * Quem esta seguindo alguem nao esta indo atras de zona nenhuma: o
+     * destino e a posicao viva de quem se segue. E o que faz o plano
+     * atravessar portal e ficar do outro lado, porque e a mesma montagem
+     * de `rotaDeMapas` com outro destino
+     */
+    const seguindo = this.destinoDoSeguido();
+
+    if (seguindo) return seguindo;
+
+    const objective = this.getAutoObjective();
+
+    if (!objective) return null;
+
+    const zona = this.getQuestZone(objective);
+
+    if (!zona) return null;
+
+    return {
+      x: zona.x + zona.width / 2,
+      y: zona.y + zona.height / 2,
+      mapId: zona.mapId,
+      zone: zona,
+    };
+  }
+
+/**
+   * ONDE ESTA QUEM EU ESTOU SEGUINDO.
+   *
+   * Devolve `null` quando nao ha ninguem sendo seguido, e quando quem se
+   * seguia saiu do jogo — um id que nao acha sessao e o mesmo que nao
+   * haver id
+   *
+   * ## O MAPA E O DO ALVO, E ISSO E O QUE FAZ O PORTAL FUNCIONAR
+   *
+   * Cada jogador tem o seu mapa. Quando Bento atravessa um portal, so
+   * ele muda de mapa — e as coordenadas dele passam a nao significar
+   * nada no mapa da Ana, que ficou para tras
+   *
+   * Ler o mapa do SEGUIDOR aqui fazia o pior dos dois: o destino saia
+   * "no meu mapa, na posicao do outro", e a Ana ia andar em direcao a
+   * um ponto que no mapa dela nao existe. O resultado na tela era o
+   * personagem andando infinito contra o limite do mapa
+   *
+   * Devolver o `mapId` do alvo e o que entrega a rota: o
+   * `travelPlanParaObjetivo` ja sabe receber um destino em outro mapa e
+   * monta a etapa de portal com o `rotaDeMapas`
+   */
+  destinoDoSeguido() {
+    const sessao = this.world.session;
+
+    const id = sessao?.seguindoId;
+
+    if (!id) return null;
+
+    // seguir a si mesmo e o que acontece quando o alvo sai do jogo e o
+    // store ainda aponta para a sessao antiga
+    if (id === sessao.id) return null;
+
+const alvo = this.world.players.get(id);
+
+    if (!alvo?.player) return null;
+
+    /**
+     * AINDA ESTA NA MINHA PARTY?
+     *
+     * Sem esta conferences, sair da party deixava o acompanhamento
+     * pendurado: o `seguindoId` continua apontando para a sessao, que
+     * continua no mundo, e o jogador iria atras de alguem que nao e mais
+     * do grupo — atravessando portal, inclusive
+     *
+     * E o `membrosDe` que decide, e nao o `id existir`: estar no mundo
+     * e estar na party sao coisas diferentes
+     */
+    const party = this.partyStore?.partyDe(sessao.id);
+
+    if (party && !party.membros.has(id)) return null;
+
+    return {
+      x: alvo.player.x,
+      y: alvo.player.y,
+
+      /**
+       * O MAPA DELE, e nao o meu.
+       *
+       * E o campo inteiro do acompanhamento entre mapas: com o `mapId`
+       * do alvo aqui, o `travelPlanParaObjetivo` cai no `rotaDeMapas` e
+       * monta a etapa de portal
+       */
+      mapId: alvo.mapId,
+    };
+  }
+
+  /**
+   * COMECOU A SEGUIR ALGUEM.
+   *
+   * O plano antigo e jogado fora: ele era para a zona da missao, e as
+   * etapas apontariam para o meio de outra zona ate o primeiro replanejar
+   */
+  seguirJogador(sessionId) {
+    const sessao = this.world.session;
+
+    if (!sessao) return false;
+
+    sessao.seguindoId = sessionId;
+    sessao.seguindoRelogio = 0;
+
+    // pedir para seguir de novo e uma ordem do jogador: o "parado" da
+    // chegada anterior deixa de valer
+    sessao.seguindoParado = false;
+
+    /**
+     * O PILOTO PRECISA ANDAR.
+     *
+     * O Auto e o que le o plano de viagem, entao sem ele o botao de
+     * seguir nao andava nada. E o `autoPlay` e ligado AQUI, e nao no
+     * servidor, para o `pararDeSeguir` saber que foi ele quem ligou e
+     * desligar no fim
+     */
+    if (!this.autoPlay) {
+      this.setAutoPlay(true);
+
+      sessao.seguindoAuto = true;
+    }
+
+    this.travelPlan = [];
+    this.travelParado = 0;
+
+    return true;
+  }
+
+  /**
+   * PAROU DE SEGUIR.
+   *
+   * O plano tambem e limpo: sem isto o piloto continuaria andando para a
+   * ultima etapa conhecida depois que o jogador clicasse em parar
+   *
+   * ## POR QUE O AUTO DESLIGA AQUI
+   *
+   * O `autoPlay` e o que faz o personagem andar e CAÇAR o que esta perto.
+   * Sem esta linha o jogador chegava do lado, o follow acabava, e o
+   * Auto aproveitava o mesmo quadro para ir bater no slime mais proximo
+   * — que foi o que o jogador viu: "apos seguir o personagem saiu
+   * batendo nos mobs proximos"
+   *
+   * O pedido e chegar do lado e FICAR PARADO no ponto final, entao o
+   * Auto que o proprio follow ligou e desligado aqui
+   */
+  pararDeSeguir() {
+    const sessao = this.world.session;
+
+    if (!sessao?.seguindoId) return false;
+
+    sessao.seguindoId = null;
+    sessao.seguindoRelogio = 0;
+
+    if (sessao.seguindoAuto) {
+      sessao.seguindoAuto = false;
+
+      this.setAutoPlay(false);
+    }
+
+    this.travelPlan = [];
+    this.travelParado = 0;
+
+    // o alvo escolhido no quadro da chegada viraria alvo de ataque
+    this.selectedTargetId = null;
+
+    return true;
+  }
+
+  /**
+   * MONTAR o plano de viagem, se o objetivo esta em outro mapa.
+   *
+   * Devolve `true` quando existe viagem a fazer. `false` quando o
+   * jogador ja esta no mapa do destino, quando nao ha rota, ou quando
+   * nao ha objetivo com zona — e nos tres casos o piloto deve seguir o
+   * caminho normal
+   */
+  travelPlanParaObjetivo() {
+    const destino = this.destinoDoObjetivo();
+
+    if (!destino) return false;
+
+    /**
+     * O MAPA em que a etapa atual acontece.
+     *
+     * E `let` porque o laco das etapas avanca: cada portal causa a etapa
+     * seguinte a acontecer no mapa de DESTINO dele. Um `const` aqui era
+     * o `Assignment to constant variable` que impedia qualquer viagem de
+     * existir — o plano era montado, o `for` estourava na primeira
+     * travessia, e o piloto nunca saia do hub
+     */
+    let mapaAtual = this.world.map.id;
+
+    /**
+     * O MESMO MAPA tambem e um plano, e e uma etapa so.
+     *
+     * Antes esta linha era `return false`, e o objetivo no mapa de
+     * qualquer era um waypoint reto: `walkToward` aponta e o boneco
+     * empurra contra a arvore. O vale tem 137 arvores, e a reta do
+     * spawn ate a Cripta tem arvore no meio — o piloto andava 694px e
+     * travava, a 1.566px do destino
+     *
+     * Com o destino no mapa, o plano vira uma etapa sem portal, e o
+     * A* dela faz o contorno. O codigo e o mesmo que ja levava ate o
+     * portal: e o mesmo percorrimento de `caminho`, o mesmo
+     * replanejamento por travamento e o mesmo consumo de etapa
+     */
+    const rota =
+      destino.mapId === mapaAtual
+        ? []
+        : rotaDeMapas(mapaAtual, destino.mapId);
+
+    /**
+     * Sem rota: o destino esta em um mapa inalcancavel.
+     *
+     * Nao e erro do jogador e nao e caso de teste; e o caso em que a box
+     * de travessia do portal da `portal_floresta` tambem nao aparece.
+     * O aviso importa porque sem ele o piloto simplesmente para, e o
+     * jogador nao distingue "chegou" de "desistiu"
+     */
+    if (rota === null) {
+      this.travelPlan = [];
+      this.travelParado = 0;
+
+      return false;
+    }
+
+    /**
+     * O plano so e refeito quando o destino MUDA.
+     *
+     * Refazer a cada chamada custaria um BFS e uma montagem de plano
+     * por quadro. Como o `runTravelPlan` roda antes do `runAutoHunt` e
+     * devolve `true` enquanto o plano tem etapa, o caminho so chega aqui
+     * quando o plano acabou — ou quando o objetivo mudou. O `firmar` no
+     * ultimo passo cobre o primeiro caso; o resto vem do objetivo
+     */
+    const atual = this.travelPlan[0];
+
+    if (
+      atual &&
+      atual.destinoX === destino.x &&
+      atual.destinoY === destino.y &&
+      atual.destinoMapId === destino.mapId
+    ) {
+      return true;
+    }
+
+    const etapas = [];
+
+    /**
+     * Uma etapa por portal da rota, MAIS a etapa final.
+     *
+     * A etapa final e a que nao atravessa nada: ela leva do portal de
+     * chegada ate a zona. Sem ela, o piloto atravessaria, acordaria no
+     * portal e ficaria parado — o `setMap` zera o `autoWaypoint` e o
+     * proximo destino so viria 0.25s depois, tempo em que o jogador ve
+     * o boneco parado no meio do vale
+     */
+    for (const saida of rota) {
+      etapas.push({
+        mapId: mapaAtual,
+        x: saida.portal.x,
+        y: saida.portal.y,
+        portalId: saida.portal.id,
+        destinoMapa: saida.mapa.id,
+        destinoX: destino.x,
+        destinoY: destino.y,
+        destinoMapId: destino.mapId,
+        caminho: null,
+      });
+
+      mapaAtual = saida.mapa.id;
+    }
+
+    etapas.push({
+      mapId: mapaAtual,
+      x: destino.x,
+      y: destino.y,
+      portalId: null,
+      destinoX: destino.x,
+      destinoY: destino.y,
+      destinoMapId: destino.mapId,
+      caminho: null,
+    });
+
+    this.travelPlan = etapas;
+    this.travelParado = 0;
+
+    return true;
+  }
+
+  /**
+   * PERCORRER o plano: andar o caminho e atravessar os portais.
+   *
+   * Devolve `true` enquanto houver viagem, e `false` quando o plano
+   * acabou — e o `false` e o que devolve o controle ao piloto normal
+   *
+   * ## POR QUE O PLANO VENCE A CACADA, MAS SO A CAMINHADA
+   *
+   * Uma viagem entre mapas e uma cacada com duas etapas a mais. Se o
+   * piloto de cacada rodar junto, ele apontaria para a zona de outro mapa
+   * e brigaria com o caminho do portal pela mesma variavel
+   *
+   * ## POR QUE UMA CRIATURA VIVA CANCELA A CAMINHADA
+   *
+   * O plano tambem existe agora para o objetivo no MESMO mapa, e nesse
+   * caso ele seria uma etapa so: andar ate o centro da zona. Se ele
+   * rodasse sem condicao, o boneco iria para o centro da zona e nunca
+   * brigaria com o slime que esta a dois passos dele
+   *
+   * E o `pickAutoTarget` que decide: devolve a criatura da zona que
+   * esta viva, e o plano cede. Sem criatura, o plano manda — que e o
+   * caso em que o boneco precisa atravessar o vale
+   */
+  runTravelPlan(deltaTime, player) {
+    if (!this.isAutoActive()) return false;
+
+    if (player.hp <= 0) return false;
+
+    /**
+     * A CACADA VENCE quando ha alvo vivo.
+     *
+     * O `pickAutoTarget` e o mesmo que o `autoPlayTarget` usa, e ele
+     * exige que a criatura seja do tipo do objetivo e esteja dentro da
+     * zona. Uma criatura do outro tipo, ou fora da zona, nao cancela a
+     * caminhada: o objetivo continua sendo chegar na zona
+     *
+     * ## POR QUE ISSO NAO VALE QUANDO ESTA SEGUINDO
+     *
+     * Quem segue quer ir atras de uma PESSOA, e nao de um slime. Sem
+     * esta guarda, um bicho vivo no caminho cancelava o plano de ir ate
+     * o outro e o jogador ficava parado lutando no meio do caminho —
+     * o botao parecia quebrado
+     */
+    if (!this.world.session?.seguindoId && this.pickAutoTarget()) {
+      return false;
+    }
+
+    if (this.travelPlan.length === 0) {
+      if (!this.travelPlanParaObjetivo()) return false;
+    }
+
+/**
+     * SEGUINDO, O PLANO VELHO.
+     *
+     * Quem se segue anda varias vezes por segundo, e um plano guardado
+     * levaria o seguidor para o ponto onde o outro ESTAVA. O plano e
+     * refeito no ritmo de `seguindoRelogio`, e nao a cada quadro: um A*
+     * por quadro e um BFS por quadro, e o plano novo quase nunca muda
+     * tanto assim em 400ms
+     *
+     * O relogio e zerado em cada replanejamento, entao o intervalo conta
+     * a partir do ULTIMO plano, e nao do inicio do acompanhamento
+     *
+     * ## E O RELOGIO E UM TETO, NAO UM GATILHO
+     *
+     * Quem segue tem por destino a posicao de uma PESSOA, e a primeira
+     * etapa dessa viagem e o A* mais caro do jogo — o objetivo e uma
+     * coordenada que muda a cada quadro. Refazer o plano a cada 400ms
+     * gastaria ate 80ms de CPU por chamada, e o follower ficaria com o
+     * jogo travando a cada meio segundo enquanto andava
+     *
+     * Por isso o plano so e refeito quando o seguido ANDOU o bastante
+     * para o caminho antigo terminar na posicao errada. Dois jogadores
+     * andando na mesma direcao reusam o mesmo caminho, e o A* roda na
+     * frequencia de uma mudanca de rumo, que e a frequencia que importa
+     *
+     * O piso de distancia nunca segura o plano para sempre: e o
+     * `#contarTravelParado` que abre a excepcao, zerando o `caminho` da
+     * etapa quando o jogador para, e o caminho passa a ser refeito do
+     * zero no proximo tique
+     */
+
+    const sessao = this.world.session;
+
+    if (sessao?.seguindoId) {
+      sessao.seguindoRelogio += deltaTime;
+
+      if (sessao.seguindoRelogio >= SEGUIR_REPLANEJA) {
+        sessao.seguindoRelogio = 0;
+
+        const destino = this.destinoDoObjetivo();
+
+        const etapaAtual = this.travelPlan[0];
+
+        const andou =
+          !destino ||
+          !etapaAtual ||
+          Math.hypot(
+            etapaAtual.destinoX - destino.x,
+            etapaAtual.destinoY - destino.y,
+          ) >= SEGUIR_REPLANEJA_PX;
+
+        if (andou) {
+          this.travelPlan = [];
+
+          if (!this.travelPlanParaObjetivo()) return false;
+        }
+      }
+    }
+
+    /**
+     * CHEGOU DO LADO.
+     *
+     * O pedido foi "deve parar de seguir ao chegar do lado somente". O
+     * `TRAVEL_CHEGADA` e a distancia de chegada de uma etapa: chegar ali
+     * e estar do lado. Acima disso o Auto continuaria andando em direcao
+     * a um jogador que ja esta do lado, e ele ia passar por ele
+     */
+    const seguindo = this.destinoDoSeguido();
+
+    if (seguindo && seguindo.mapId === this.world.map.id) {
+      const distancia = Math.hypot(
+        seguindo.x - player.x,
+        seguindo.y - player.y,
+      );
+
+      const sessaoSeguida = this.world.players.get(
+        this.world.session?.seguindoId,
+      );
+
+      /**
+       * `+` o raio do seguido: o ponto do plano e o CENTRO dele, e o que
+       * "do lado" significa e a borda. Sem isto o Auto andava ate o meio
+       * do outro personagem antes de parar
+       */
+      const raioDoAlvo = sessaoSeguida?.player?.radius ?? 0;
+
+      if (distancia <= TRAVEL_CHEGADA + raioDoAlvo) {
+        /**
+         * O CHEGADA MARCA O FIM.
+         *
+         * `pararDeSeguir` desliga o Auto; este flag segura o personagem
+         * no ponto final contra o auto da missao e o do bestiario, que
+         * voltariam a cacar no proximo quadro
+         */
+        sessao.seguindoParado = true;
+
+        this.pararDeSeguir();
+
+        this.sendSnapshot();
+
+        return false;
+      }
+    }
+
+    const etapa = this.travelPlan[0];
+
+    /**
+     * O PLANO VELHO.
+     *
+     * A etapa e de outro mapa: o jogador atravessou o portal a mao, ou
+     * morreu e renasceu no hub, ou o servidor o devolveu ao inicio. Em
+     * vez de tentar seguir uma etapa de outro mapa — e andar para uma
+     * coordenada que aqui nao significa nada — o plano e descartado e
+     * refeito a partir de onde o jogador esta
+     */
+    if (etapa.mapId !== this.world.map.id) {
+      this.travelPlan = [];
+      this.travelParado = 0;
+
+      return this.travelPlanParaObjetivo();
+    }
+
+    this.#contarTravelParado(deltaTime, player);
+
+    /**
+     * O TRAVADO.
+     *
+     * Acima do limite, a etapa e refeita com um caminho novo. E o que
+     * salva o piloto quando o plano envelhece sem ninguem mexer nele: um
+     * inimigo empurra o jogador para tras do ultimo ponto do caminho, ou
+     * o ponto final fica dentro de um obstaculo que o grid marcou livre
+     */
+    if (this.travelParado > TRAVEL_TRAVADO_LIMITE) {
+      this.travelParado = 0;
+      etapa.caminho = null;
+    }
+
+    /**
+     * Chegou no ponto final da etapa?
+     *
+     * O `24` e o mesmo raio do `walkToward`, e nao o raio de travessia
+     * do portal: estar a 24px do centro ja esta dentro do raio de 96px
+     * que o `portalSobOsPes` aceita, entao o `travessarPortal` nunca
+     * falha aqui. Se falhasse, o passo abaixo reentraria no loco e a
+     * proxima tentativa veria o jogador ja em cima do portal
+     *
+     * E a chegada e MEDIA CELULA mais larga que a de um ponto do caminho,
+     * porque o caminho nem sempre termina no ponto exato da etapa: quando
+     * o destino esta perto demais de um arbusto para a folga, o `NavGrid`
+     * fecha o caminho no centro da celula vizinha. Ver
+     * `TRAVEL_CHEGADA_CELULA`
+     */
+    if (
+      Math.hypot(etapa.x - player.x, etapa.y - player.y) <
+      TRAVEL_CHEGADA + TRAVEL_CHEGADA_CELULA
+    ) {
+      return this.#concluirEtapa(etapa);
+    }
+
+    /**
+     * O CAMINHO da etapa, calculado uma vez e consumido aos poucos.
+     *
+     * O A* custa ate 80ms no vale. Por quadro, com dois jogadores, isso
+     * seria um travamento visivel. Por etapa, e um custo invisivel
+     *
+     * E o `length === 0` no teste: caminho VAZIO e caminho gasto. Acontece
+     * no `seguir`, em que o alvo e uma pessoa e o plano so e refeito
+     * quando o seguido andou 96px — o caminho acaba antes disso e o
+     * jogador precisa de um caminho novo para o resto do caminho, sem
+     * contar com o replanejamento do plano
+     */
+    if (!etapa.caminho || etapa.caminho.length === 0) {
+      etapa.caminho = this.gradeDoMapa()
+        .caminho(
+          { x: player.x, y: player.y },
+          { x: etapa.x, y: etapa.y },
+        );
+
+      /**
+       * Sem caminho, a etapa e INALCANCAVEL e nao "dificil".
+       *
+       * A grade e feita dos solidos do mapa e dos NPCs bloqueantes.
+       * O caso real e o mercador do hub: se algum dia ele for para
+       * dentro de uma parede, o destino fica dentro de um solido e o
+       * A* nao acha celula de entrada. Sem este `if` o piloto ficaria
+       * andando na direcao do obstaculo para sempre
+       *
+       * E o caminho VAZIO entra no mesmo `if` de proposito: um caminho
+       * sem nenhum ponto faria o `caminho[0]` abaixo ser `undefined`, e o
+       * `walkToward` explodiria em `proximo.x`. Descartar a etapa e o
+       * que mantem o piloto dando as costas em vez de quebrando
+       */
+      if (!etapa.caminho || etapa.caminho.length === 0) {
+        this.travelPlan = [];
+        this.travelParado = 0;
+
+        return false;
+      }
+    }
+
+    const proximo = etapa.caminho[0];
+
+    /**
+     * O ponto seguinte e o destino: consome e a etapa terminou.
+     *
+     * O `shift` em vez de indice guardado e o que mantem o plano
+     * pequeno. Um plano de viagem tem duas ou tres etapas; guardar o
+     * indice seria um campo a mais na sessao por causa de nada
+     */
+    if (this.#chegouEm(player, proximo.x, proximo.y)) {
+      etapa.caminho.shift();
+
+      return true;
+    }
+
+    /**
+     * O WAYPOINT PUBLICADO e o proximo ponto do caminho.
+     *
+     * Sem esta linha o plano andava pelo `caminho` e deixava o
+     * `autoWaypoint` vazio, e o campo que responde "para onde o boneco
+     * esta indo" ficaria mentindo durante toda a caminhada — inclusive
+     * para o `bestiaryAuto.test.js`, que verifica que o piloto usa
+     * waypoint
+     *
+     * Ele e espelhado, nao e a fonte: quem manda no movimento e o
+     * `walkToward` com o `proximo`, logo abaixo. Um lugar so decide o
+     * destino e o outro o movimento, e nao um so as duas coisas
+     */
+    this.autoWaypoint = proximo;
+
+    this.walkToward(player, proximo);
+
+    return true;
+  }
+
+  /**
+   * O TEMPO que o jogador passou sem avancar, para o replanejamento.
+   *
+   * A medicao e de POSICAO e nao de "o motor pediu para andar": durante
+   * a viagem o piloto pode querer andar e nao andar — um status que
+   * prende, um `canMove` falso — e um contador de comando ignoraria
+   * esses quadros. Medindo o deslocamento real, so conta o que o
+   * jogador esta de fato parado
+   *
+   * O primeiro quadro e ignorado de proposito: `travelUltimaX` comeca em
+   * zero, e a primeira comparacao diria "andou 3000px" e zeraria o
+   * contador em qualquer viagem
+   */
+  #contarTravelParado(deltaTime, player) {
+    if (this.travelUltimaX !== null) {
+      const andou =
+        Math.hypot(
+          player.x - this.travelUltimaX,
+          player.y - this.travelUltimaY,
+        ) > TRAVEL_TRAVADO_EPSILON;
+
+      this.travelParado = andou ? 0 : this.travelParado + deltaTime;
+    }
+
+    this.travelUltimaX = player.x;
+    this.travelUltimaY = player.y;
+  }
+
+  /** o jogador esta no RAIO DE CHEGADA do ponto? */
+  #chegouEm(player, x, y) {
+    return Math.hypot(x - player.x, y - player.y) < TRAVEL_CHEGADA;
+  }
+
+  /**
+   * TERMINOU a etapa: atravessou o portal, ou era a ultima.
+   *
+   * E aqui que o plano sobrevive ao `setMap`. O `travessarPortal` chama
+   * `setMap`, que reposiciona o jogador no ponto de chegada e ZERA o
+   * `autoWaypoint` — mas nao toca no `travelPlan`, entao a etapa seguinte
+   * ja esta esperando com o mapa novo
+   */
+  #concluirEtapa(etapa) {
+    /**
+     * A ETAPA FINAL: o destino foi alcancado.
+     *
+     * O plano e esvaziado e o piloto recebe de volta o
+     * `autoPlayTarget`, que vai passar a cacar a criatura da zona. A
+     * proxima linha e o `return true`, e ele impede o `updateAutoPlay`
+     * de cair no `runAutoHunt` no MESMO quadro — o que daria um quadro
+     * de cacada em um mapa onde a criatura da zona pode nao estar, e o
+     * piloto andaria para tras
+     */
+    if (etapa.portalId === null) {
+      this.travelPlan = [];
+      this.travelParado = 0;
+
+      return true;
+    }
+
+    /**
+     * A TRAVESSIA.
+     *
+     * `travessarPortal` refaz a conferencia de posicao e de destino: se
+     * o portal debaixo do jogador nao for o desta etapa, ele devolve
+     * `false` e a etapa fica para a proxima tentativa. E o que impede
+     * o piloto de atravessar o portal errado — num mapa com dois portais
+     * para o mesmo destino, e no caso em que um inimigo empurrou o
+     * jogador para dentro do portal vizinho
+     */
+    if (!this.travessarPortal()) return true;
+
+    this.travelPlan.shift();
+    this.travelParado = 0;
+
+    return true;
   }
 
   runEngagedTarget(player) {
@@ -2910,13 +4344,112 @@ guildBonuses() {
     this.approachTarget(player, target);
   }
 
+  /**
+   * O FOCO DO LIDER ESTA LIGADO PARA ESTE JOGADOR?
+   *
+   * Exige as tres coisas: o botao ligado, uma party, e NAO ser o lider.
+   * O lider nao foca em ninguem — ele ja e a fonte do foco, e o motor
+   * trataria ele como alvo de si mesmo
+   */
+  focoDoLiderAtivo() {
+    const sessao = this.world.session;
+
+    if (!sessao?.focarLider) return false;
+
+    const party = this.partyStore?.partyDe(sessao.id);
+
+    if (!party) return false;
+
+    return party.lider !== sessao.id;
+  }
+
+  /**
+   * O INIMIGO QUE O LIDER ESTA BATENDO, e so esse.
+   *
+   * Devolve `null` quando o lider nao tem alvo, quando a party sumiu,
+   * quando o lider esta em OUTRO MAPA, e quando o mob ja morreu. Nos
+   * tres ultimos casos o efeito e o mesmo: o membro nao bate em ninguem
+   *
+   * O `findEnemyById` e o que resolve o ultimo caso de graca: os
+   * inimigos sao do mapa em foco, e o do outro mapa simply nao esta na
+   * lista
+   */
+  inimigoDoAlvoDoLider() {
+    const sessao = this.world.session;
+
+    const party = this.partyStore?.partyDe(sessao.id);
+
+    if (!party) return null;
+
+    const lider = this.world.players.get(party.lider);
+
+    if (!lider) return null;
+
+    /**
+     * O `engagedTargetId` e o clique: o que o jogador mandou bater.
+     * O `selectedTargetId` e o Auto do lider: o que o piloto dele
+     * escolheu. Os dois contam como "estar batendo", e o clique vem
+     * primeiro porque e a intencao mais especifica
+     */
+    const alvo = lider.engagedTargetId ?? lider.selectedTargetId ?? null;
+
+    return this.findEnemyById(alvo);
+  }
+
   runAutoHunt(deltaTime, player) {
+    /**
+     * A BASE NAO E CAMPO DE CACA.
+     *
+     * Este e o quarto caminho do golpe, e o unico que nao passa por
+     * `useBasicAttack`: o piloto chama `skillSystem.request` direto, com a
+     * mira ja apontada no alvo. Sem esta guarda, o autoplay ligado na base
+     * procuraria um mob que nao existe e sairia do `alvo` vazio — mas o
+     * `T` do teclado liga o piloto em qualquer mapa, e o jogador que
+     * entrasse no hub com o auto ligado levaria o portao de lado
+     *
+     * E a MESMA regra de `useBasicAttack`, pelo mesmo metodo. Duas
+     * condicoes com nomes diferentes divergem na primeira vez que uma delas
+     * for esquecida
+     */
+    if (!this.emZonaDeCombate()) return;
+
+    /**
+     * O FOCO DO LIDER SUBSTITUI A ESCOLHA DE ALVO.
+     *
+     * E o unico ponto do piloto que decide "contra quem eu bato". Com o
+     * foco ligado, a escolha e o alvo do lider; sem o foco, e o
+     * `autoPlayTarget` de sempre
+     *
+     * Devolver `null` quando o lider nao esta batendo em ninguem e o que
+     * faz a segunda metade do pedido: `picked` vazio limpa o
+     * `selectedTargetId`, e o `findEnemyById` abaixo nao acha alvo
+     * nenhum — o membro fica parado em vez de ir atras do mob mais
+     * proximo
+     */
+    const focusing = this.focoDoLiderAtivo();
+
+    /**
+     * SEGUINDO, O PILOTO NAO CACA.
+     *
+     * Sem esta guarda, o Auto cacava o slime que estava no caminho: o
+     * `runTravelPlan` só cede o controle quando o plano acaba ou não
+     * existe, e nesses quadros o `runAutoHunt` recebia a vez e ia
+     * atrás do mob mais proximo. O jogador pedia para seguir uma
+     * pessoa e acabava batendo em tudo que passava no caminho
+     *
+     * Quem se segue e uma PESSOA, e a missao de chegar do lado nao tem
+     * alvo nenhum
+     */
+    if (this.world.session?.seguindoId) return;
+
     this.autoDecisionTimer -= deltaTime;
 
     if (this.autoDecisionTimer <= 0) {
       this.autoDecisionTimer = AUTO_RETARGET_INTERVAL;
 
-      const picked = this.autoPlayTarget();
+      const picked = focusing
+        ? this.inimigoDoAlvoDoLider()
+        : this.autoPlayTarget();
 
       this.autoWaypoint = picked?.isWaypoint
         ? picked
@@ -2972,10 +4505,20 @@ guildBonuses() {
       targetDistance > this.getAutoDesiredRange() &&
       this.statuses.canMove(player)
     ) {
-      this.autoMoveDirection = normalize(
-        this.autoFacing.x,
-        this.autoFacing.y,
+      this.autoMoveDirection = this.direcaoDePerseguicao(
+        player,
+        target,
       );
+    } else {
+      /**
+       * Alvo em alcance: o caminho antigo nao serve mais.
+       *
+       * Sem esta limpeza o proximo quadro que precisar se aproximar
+       * comecaria a andar para um ponto de um caminho obsoleto, com o
+       * alvo ja having ido
+       */
+      this.cacadaCaminho = null;
+      this.cacadaRelogio = 0;
     }
 
     const action = this.chooseAutoAction(targetDistance);
@@ -2990,6 +4533,105 @@ guildBonuses() {
         inside: true,
       },
       target.id,
+    );
+  }
+
+  /**
+   * A DIRECAO do proximo passo em direcao a um alvo que anda.
+   *
+   * ## A RETA PRIMEIRO, E O CASO COMUM
+   *
+   * O vale tem 137 arvores, mas a maioria dos alvos esta a vista. O
+   * teste de linha de visada custa uma linha e nao aloca nada, e um
+   * caminho de A* aqui seria 80ms de trabalho para redesenhar a reta
+   *
+   * ## O CAMINHO SO QUANDO A RTA ESTA BLOQUEADA
+   *
+   * Era aqui que o piloto morria: com arvore no meio, o boneco empurrava
+   * contra o tronco e o arqueiro ficava a 800px de um limo, fora do
+   * alcance de 550, sem disparar uma flecha em 60 segundos. A correcao
+   * nao e "andar mais rapido": e nao haver para onde andar
+   *
+   * ## POR QUE UM RELOGIO, E NAO A CADA QUADRO
+   *
+   * O alvo ANDA, entao o caminho envelhece. Refazer a cada quadro
+   * custaria ate 80ms por quadro por jogador. O `cacadaRelogio` refaz
+   * meio segundo, ou antes se o caminho acabar — e o caminho acabando e
+   * o sinal de que o alvo corrou para longe demais
+   *
+   * ## SEM ROTA, VOLTA A RETA
+   *
+   * Nao ha rota possivel quando o alvo esta atras de um solido fechado.
+   * A reta e o melhor que resta: o `escapeCorner` pode destravar, e ficar
+   * parado de proposito pioraria
+   */
+  direcaoDePerseguicao(player, alvo) {
+    const grade = this.gradeDoMapa();
+
+    const de = { x: player.x, y: player.y };
+    const para = { x: alvo.x, y: alvo.y };
+
+    const reta = { x: para.x - de.x, y: para.y - de.y };
+
+    if (grade.temLinhaDeVisada(de, para)) {
+      this.cacadaCaminho = null;
+      this.cacadaRelogio = 0;
+
+      return normalize(reta.x, reta.y);
+    }
+
+    this.cacadaRelogio -= this.frameDelta;
+
+    const semCaminho =
+      !this.cacadaCaminho || this.cacadaCaminho.length === 0;
+
+    if (semCaminho || this.cacadaRelogio <= 0) {
+      this.cacadaCaminho = grade.caminho(de, para);
+      this.cacadaRelogio = CACA_RECALCULA;
+    }
+
+    const caminho = this.cacadaCaminho;
+
+    if (!caminho || caminho.length === 0) {
+      return normalize(reta.x, reta.y);
+    }
+
+    /**
+     * Consome os pontos ja alcancados.
+     *
+     * ## POR QUE ESTE `while` E O DESCARTAR DO PRIMEIRO PONTO
+     *
+     * A primeira versao fazia `shift()` assim que recalculava, com a
+     * justificativa de que "o primeiro ponto e a celula de partida". Era
+     * falso: o `NavGrid` passa por *string pulling*, e o primeiro ponto
+     * que sobra e o mais DISTANTE que o jogador enxerga — o canto que
+     * contorna a arvore, muitas vezes no lado oposto do alvo
+     *
+     * Descartar esse canto e o que fazia o piloto andar direto no
+     * obstaculo: o caminho bruto era `[(3220, 2900), (limo)]`, virava
+     * `[(limo)]`, e o passo seguinte batia na arvore. O piloto travava
+     * a 1.700px do alvo, com a direcao publicada e o passo bloqueado
+     *
+     * O `while` abaixo resolve os dois casos: ele so descarta o ponto
+     * quando o jogador esta EM CIMA dele, e o canto sobrevive
+     */
+    while (
+      caminho.length > 1 &&
+      Math.hypot(
+        caminho[0].x - player.x,
+        caminho[0].y - player.y,
+      ) < TRAVEL_CHEGADA
+    ) {
+      caminho.shift();
+    }
+
+    const proximo = caminho[0];
+
+    this.autoWaypoint = proximo;
+
+    return normalize(
+      proximo.x - player.x,
+      proximo.y - player.y,
     );
   }
 
@@ -3088,22 +4730,42 @@ guildBonuses() {
 
     this.spriteTime += deltaTime;
 
-    // A PARTE COMPARTILHADA: inimigos, projeteis, efeitos e
-    // drops sao o MESMO para todo mundo, entao rodam UMA vez por
-    // tick. Se estes loops ficassem dentro do de cima, um slime
-    // levaria o dano do tanto de jogadoresQuanto houvesse online
-    // e o tempo de vida dele cairia N vezes mais rapido.
-    this.updateEnemies(deltaTime);
+    /**
+     * A PARTE COMPARTILHADA: inimigos, projeteis, efeitos e
+     * drops sao o MESMO para todo mundo, entao rodam UMA vez por
+     * tick. Se estes loops ficassem dentro do de cima, um slime
+     * levaria o dano do tanto de jogadoresQuanto houvesse online
+     * e o tempo de vida dele cairia N vezes mais rapido.
+     *
+     * ## POR QUE UMA VEZ POR MAPA, E NAO UMA VEZ POR TICK
+     *
+     * Estes loops leem `world.enemies`, e o `world` aponta para o mapa
+     * do jogador em foco. Rodando uma vez so, os mobs do mapa de quem
+     * NAO esta em foco simplesmente nao andariam: ficariam parados com
+     * a vida cheia, e o drop de um mapa vazio nunca venceria
+     *
+     * Uma passada por mapa com pelo menos um jogador resolve. Passando
+     * por `withPlayer` com um jogador daquele mapa, a `updateEnemies`
+     * ainda tem um `world.player` para medir a distancia do agro e o
+     * guia — e sem ninguem em cena, nao ha o que agressar
+     */
+    for (const id of this.jogadoresPorMapa()) {
+      if (!this.world.players.has(id)) continue;
 
-    // As flechas andam aqui, e nao dentro do `skillSystem.update`:
-    // `world.projectiles` e compartilhado, entao rodar por jogador
-    // fazia a flecha voar N vezes mais rapida com N gente online
-    this.skillSystem.updateProjectiles(deltaTime);
-    this.updateFlechasHostis(deltaTime);
+      this.withPlayer(id, () => {
+        this.updateEnemies(deltaTime);
+
+        // As flechas andam aqui, e nao dentro do `skillSystem.update`:
+        // `world.projectiles` e compartilhado, entao rodar por jogador
+        // fazia a flecha voar N vezes mais rapida com N gente online
+        this.skillSystem.updateProjectiles(deltaTime);
+        this.updateFlechasHostis(deltaTime);
+
+        this.updateDrops(deltaTime);
+      });
+    }
 
     this.effects.update(deltaTime);
-
-    this.updateDrops(deltaTime);
 
     this.snapshotAccumulator += deltaTime;
 
@@ -3111,6 +4773,30 @@ guildBonuses() {
       this.snapshotAccumulator = 0;
       this.sendSnapshot();
     }
+  }
+
+  /**
+   * UM JOGADOR POR MAPA, para a parte compartilhada do tick.
+   *
+   * Devolve o id de um jogador de cada mapa que tem alguem online. E o
+   * suficiente para a `updateEnemies` ter um `world.player` do mapa
+   * certo: dois jogadores no mesmo mapa nao precisam de duas passadas,
+   * e os mobs deles nao podem tomar o dano em dobro
+   */
+  jogadoresPorMapa() {
+    const vistos = new Set();
+
+    const umPorMapa = [];
+
+    for (const sessao of this.world.players.values()) {
+      if (vistos.has(sessao.mapId)) continue;
+
+      vistos.add(sessao.mapId);
+
+      umPorMapa.push(sessao.id);
+    }
+
+    return umPorMapa;
   }
 
   updateCooldowns(deltaTime) {
@@ -3510,16 +5196,239 @@ guildBonuses() {
      * jogadores, o terceiro da fila recebia as moedas de um abate
      * alheio.
      */
-    const collected = this.loot.collectFrom(enemy, sessao);
+    /**
+     * O LOOT DO DONO so entra quando NAO ha party.
+     *
+     * Com party, o dono e creditado dentro do `repartirAbatePorParty`,
+     * que divide o total entre todos. Creditar aqui E la dava o loot
+     * cheio ao dono e mais uma parte: o unico membro de uma party de
+     * tres recebia 1/3 a mais do que o mob tinha
+     */
+    const membrosDaParty = this.partnersDe(sessao.id);
 
-    this.withPlayer(sessao.id, () => {
-      // dentro do bloco, e nao antes: o "+16 moedas" e um aviso da
-      // SESSAO, e escrito fora daqui ele cairia no jogador que
-      // estivesse em foco no fim do tick
-      this.announceLoot(collected);
+    const temParty = membrosDaParty.length > 0;
 
-      this.concederAbate(enemy, owner);
+    /**
+     * O ITEM VAI PARA UM SO, e por isso o sorteio do loot tem de ser o
+     * mesmo com e sem party.
+     *
+     * Sem party, o dono recebe tudo. Com party, o lote completo e o que
+     * sera dividido — o item sai para um membro sorteado, e o ouro pela
+     * divisao
+     */
+    const collected = temParty
+      ? this.loot.roll(enemy, sessao?.lootFilter ?? this.loot.filter)
+      : this.loot.collectFrom(enemy, sessao);
+
+this.withPlayer(sessao.id, () => {
+      // dentro do bloco, e nao antes: o "+16 moedas" e um aviso da]
+      // SESSAO, e escrito fora daqui ele cairia no jogador que]
+      // estivesse em foco no fim do tick]
+      if (!temParty) {
+        this.announceLoot(collected);
+
+        /**
+         * O ABATE DO DONO, SO SEM PARTY.
+         *
+         * Com party, quem credita missao, bestiario e XP de cada membro
+         * — inclusive o dono — e o `repartirAbatePorParty`, logo abaixo.
+         * Rodar os dois creditaria o dono DUAS vezes: um slime abatido
+         * contava 2 na missao dele, o bestiario subia duas vezes, e o XP
+         * era o inteiro mais uma fração
+         *
+         * Era o loot que ja ficava sem duplicar (o `collected` completo
+         * so entrava sem party) e a missao que escapou
+         */
+        this.concederAbate(enemy, owner);
+      }
     });
+
+    /**
+     * A PARTY recebe o MESMO abate.
+     *
+     * A divisao acontece AQUI e nao dentro do `concederAbate`, porque o
+     * que muda nao e apenas para quem matou: e que os OUTROS membros
+     * tambem contam o mesmo mob na missao deles
+     *
+     * E o `collected` ja sorteado que e dividido, e nao um sorteio novo
+     * por membro: um item por abate, para o grupo inteiro. Sortear tres
+     * vezes fara tres itens cairem em tres gente, e a party viraria uma
+     * maquina de multiplicar loot
+     */
+    if (temParty) {
+      this.repartirAbatePorParty(
+        enemy,
+        owner,
+        collected,
+        membrosDaParty,
+      );
+    }
+  }
+
+  /**
+   * Os IDS de sessao da party de um jogador, ele fora.
+   *
+   * Vem do servidor: no modo rede o `PartyStore` mora la, e o motor so
+   * le. No single player e `null` e o jogo segue como antes
+   */
+  partnersDe(sessionId) {
+    /**
+     * Os OUTROS membros, nunca o proprio jogador.
+     *
+     * O dono do abate ja foi credenciado em `handleKill` antes de vir
+     * aqui. Inclui-lo na lista faria ele receber o gold duas vezes: uma
+     * como dono e outra como "parceiro" de si mesmo
+     */
+    if (!this.partyStore) return [];
+
+    return this.partyStore
+      .membrosDe(sessionId)
+      .filter((id) => id !== sessionId);
+  }
+
+  /**
+   * O MESMO ABATE PARA TODOS OS MEMBROS DA PARTY.
+   *
+   * ## AS TRES DIVISAS
+   *
+   * - MISSAO e BESTIARIO contam o abate INTEIRO para cada um. Nao e
+   *   divisao: o pedido foi "o mob que 1 matar deve contar na missao dos
+   *   dois", e dividir a barra por dois faria a missao levar o dobro de
+   *   tempo so por estar acompanhado
+   *
+   * - OURO e XP sao DIVIDIDOS: cada um recebe `total / membros`, e a
+   *   sobra vai para o dono. E o que faz a party ser comparavel a jogar
+   *   sozinho em numero de recurso
+   *
+   * - ITEM vai para UM so, sorteado. Um item por abate, e o dono do
+   *   sorteio e quem pegou — quem matou entra no sorteio com o mesmo
+   *   peso de quem nao matou
+   */
+  repartirAbatePorParty(
+    enemy,
+    owner,
+    collected,
+    membrosDaParty,
+  ) {
+    const todos = [owner?.id, ...membrosDaParty];
+
+    const idsUnicos = [...new Set(todos.filter(Boolean))];
+
+    const tipoId = enemy.isCreature
+      ? enemy.id.replace(/_\d+$/, "")
+      : null;
+
+    /* -------------------------------------------------------------- */
+    /* OURO E XP: DIVIDIDOS                                           */
+    /* -------------------------------------------------------------- */
+
+    const moedas = Math.floor(
+      (collected.coins ?? 0) / idsUnicos.length,
+    );
+
+    const sobraMoedas =
+      (collected.coins ?? 0) - moedas * idsUnicos.length;
+
+    const xpTotal = xpForKill(enemy);
+
+    const xp = Math.floor(xpTotal / idsUnicos.length);
+
+    const sobraXp = xpTotal - xp * idsUnicos.length;
+
+    /* -------------------------------------------------------------- */
+    /* ITEM: SORTEADO PARA UM SO                                       */
+    /* -------------------------------------------------------------- */
+
+    /**
+     * O ITEM VAI PARA UM MEMBRO SO.
+     *
+     * O sorteio e sobre o INDICE, e nao sobre a sessao: distribuir o item
+     * para o dono e "sortear" seria o item ir sempre para quem matou, e
+     * a party nao valeria nada
+     *
+     * O indice sai do mesmo sorteio que o `scatter` usa. E o `Math.random` que
+     * sorteou o resto do loot, entao um teste com semente fixa continua
+     * reproduzivel
+     */
+    const itens = collected.items ?? [];
+
+    const destinoDoItem =
+      itens.length > 0
+        ? Math.floor(Math.random() * idsUnicos.length)
+        : -1;
+
+    /* -------------------------------------------------------------- */
+    /* APLICANDO                                                      */
+    /* -------------------------------------------------------------- */
+
+    for (const [i, sessionId] of idsUnicos.entries()) {
+      const sessao = this.world.players.get(sessionId);
+
+      if (!sessao) continue;
+
+      /**
+       * A MOEDA E O XP DELES: mais a sobra, quando ha sobra.
+       *
+       * A sobra vai para os primeiros da lista, e o dono e o primeiro.
+       * E o que faz a divisao fechar certinho — a soma das partes e
+       * igual ao total, sem moeda que aparece do nada nem que some
+       */
+      const moedasDele = moedas + (i < sobraMoedas ? 1 : 0);
+
+      const xpDele = xp + (i < sobraXp ? 1 : 0);
+
+      this.withPlayer(sessionId, () => {
+        if (moedasDele > 0) {
+          sessao.inventory.addCoins(moedasDele);
+        }
+
+        /**
+         * A MISSÃO E DO MEMBRO, e nao do dono.
+         *
+         * E o `onKill` deste jogador com o `typeId` e o nivel do bicho.
+         * Sem o nivel, a missao de nivel 6 do Brejo contaria um limo do
+         * Pantano
+         */
+        if (tipoId) {
+          this.resolveQuestProgress(
+            this.world.quests.onKill(tipoId, 1, enemy.level),
+          );
+
+          this.resolveBestiaryProgress(
+            this.world.bestiary.onKill(tipoId, 1),
+          );
+        }
+
+        if (xpDele > 0) {
+          const levels = grantXp(this.world.player, xpDele);
+
+          for (const level of levels) {
+            this.announceLevelUp(level);
+
+            this.resolveQuestProgress(
+              this.world.quests.onLevelUp(level),
+            );
+          }
+
+          if (levels.length > 0) {
+            this.applyEquipment();
+          }
+        }
+
+        const itensDele =
+          i === destinoDoItem ? itens : [];
+
+        if (itensDele.length > 0 || moedasDele > 0 || xpDele > 0) {
+          this.announceLoot({
+            coins: moedasDele,
+            items: itensDele,
+            party: idsUnicos.length > 1,
+          });
+        }
+
+        this.sendSnapshot();
+      });
+    }
   }
 
   /**
@@ -3533,8 +5442,15 @@ guildBonuses() {
       : null;
 
     if (typeId) {
+      /**
+       * O NIVEL vai junto do `typeId`.
+       *
+       * A missao "matar 5 limos de nivel 1" precisa saber o nivel do
+       * bicho abatido: sem ele, o objetivo conta qualquer limo e o
+       * jogador cumpre a missao no Brejo sem nunca ir ao Pantano
+       */
       this.resolveQuestProgress(
-        this.world.quests.onKill(typeId, 1),
+        this.world.quests.onKill(typeId, 1, enemy.level),
       );
 
       this.resolveBestiaryProgress(
@@ -3819,6 +5735,14 @@ guildBonuses() {
       lootFilter: this.lootFilterSummary(),
       bestiary: this.world.bestiary.snapshot(),
       quests: this.world.quests.snapshot(),
+      /**
+       * A PARTY, no painel.
+       *
+       * Vai por aqui e nao no `SNAPSHOT` do mundo porque a composicao do
+       * grupo e dado do JOGADOR: cada um ve os mesmos nomes, mas so o
+       * que importa e a box dele
+       */
+      party: this.partySnapshot(),
       craft: this.craftSnapshot(),
       collection: this.collectionSnapshot(),
 
@@ -4179,6 +6103,33 @@ market: this.marketStore
     // sozinho e o estado vai por snapshot
     if (this.headless) return;
 
+    /**
+     * O TEMPO ENTRE DOIS DESENHOS.
+     *
+     * O `lastDrawAt` comecando em `null` e o que faz o primeiro quadro
+     * nao dividir por zero: sem ele, `agora - null` seria `NaN` e o
+     * `drawClock` viraria `NaN` para sempre, matando o balanco do NPC
+     * para o resto da sessao
+     */
+    const agora = performance.now();
+
+    if (this.lastDrawAt !== null) {
+      this.drawClock += Math.min((agora - this.lastDrawAt) / 1000, 0.1);
+    }
+
+    this.lastDrawAt = agora;
+
+    /**
+     * O hover ANTES de qualquer desenho.
+     *
+     * O balanco do NPC e lido no `drawNpc`, e o `cursorMode` e lido pelo
+     * `GameCanvas` no mesmo quadro. Se esta chamada viesse depois do laco
+     * de desenho, o NPC reagiria um quadro atrasado e o cursor um
+     * quadro atrasado em relacao aos dois — o balanco "acordaria" quando
+     * o ponteiro ja tivesse ido embora
+     */
+    this.atualizarHoverDeNpc();
+
     const context = this.context;
     const { width, height, dpr } = this.viewport;
     const player = this.world.player;
@@ -4245,6 +6196,25 @@ market: this.marketStore
       }
     }
 
+    /**
+     * Os NPCs entram com a PROPRIA linha de ordenacao.
+     *
+     * E o que faz o jogador passar ATRAS do mercador: a lista e
+     * ordenada por `y`, e o NPC entra com o `y` do PE dele. Com o
+     * jogador abaixo, o NPC e desenhado primeiro e o boneco passa por
+     * cima; com o jogador acima, o NPC tapa a barra de pocoes — que e o
+     * que um cenario com altura tem de fazer
+     *
+     * Um NPC nao e prop e nao e inimigo, entao precisa do proprio
+     * `kind` para saber desenhar do jeito certo
+     */
+    for (const npc of this.npcs.collectVisible(
+      this.world.npcs,
+      this.getViewBounds(),
+    )) {
+      list.push({ y: npc.y, kind: 5, ref: npc });
+    }
+
     for (const drop of this.world.drops) {
       list.push({ y: drop.y, kind: 2, ref: drop });
     }
@@ -4281,6 +6251,20 @@ market: this.marketStore
 
       if (entry.kind === 3) {
         this.drawEnemy(context, entry.ref);
+        continue;
+      }
+
+      if (entry.kind === 5) {
+        /**
+         * O `hover` e o id que o `atualizarHoverDeNpc` guardou, e nao um
+         * booleano calculado aqui: o `pickAt` e caro e ele ja rodou neste
+         * quadro. E comparar id e o que sobrevive ao snapshot da rede,
+         * que recria a lista de NPCs a cada pacote
+         */
+        const hover = this.npcHover === entry.ref.id;
+
+        this.npcs.drawShadow(context, entry.ref, hover);
+        this.npcs.drawNpc(context, entry.ref, hover, this.drawClock);
         continue;
       }
 
@@ -4490,6 +6474,23 @@ dadosDoPortalNoPe() {
  * Sem store — no single player — devolve a arvore bloqueada e nada
  * mais, que e o que o painel sabe mostrar sem guilda nenhuma
  */
+/**
+ * A PARTY VAZIA, para quando nao ha `PartyStore`.
+ *
+ * E o estado do single player: uma box com "Criar party" que nao faz
+ * nada. `null` seria o terceiro estado, e a tela teria de tratar "sem
+ * party" e "sem party porque nao ha ninguem" como duas coisas
+ *
+ * O `max` vem do pedido de tres, e e o mesmo numero do `PartyStore`.
+ * Estar escrito aqui tambem e o que faz o botao de convidar sumir sozinho
+ * quando a party chega no limite
+ */
+partySnapshot() {
+  if (!this.partyStore) return EMPTY_PARTY_SNAPSHOT;
+
+  return this.partyStore.snapshot(this.world.session?.id, this.world);
+}
+
 guildaSnapshot() {
   const sessao = this.world.session;
 
@@ -4768,18 +6769,35 @@ getMinimapTransform(panelWidth, panelHeight) {
       );
     }
 
-    context.lineWidth = 8;
-    context.strokeStyle = "#647064";
-    context.strokeRect(
-      map.bounds.x,
-      map.bounds.y,
-      map.bounds.width,
-      map.bounds.height,
-    );
+    /**
+     * A LINHA CINZA DA BORDA FOI DESPENSADA.
+     *
+     * Era um `strokeRect` de 8px em `#647064` desenhado em cima de
+     * `map.bounds`, e ele existia para mostrar onde o mapa acabava. Com
+     * a sebe de arbusto fechando as quatro bordas — `BORDAS`, em
+     * `src/data/maps/index.js` — a linha virou parede pintada de cinza
+     * por cima da parede de verdade
+     *
+     * A `setMap`/`clampToBounds` continuam sendo o limite do mundo: so
+     * deixou de haver uma linha na tela dizendo onde ele esta
+     */
   }
 
   drawAim(context) {
     if (!this.input.pointer.inside) return;
+
+    /**
+     * O ALCANCE E A LINHA, e os dois somem na base.
+     *
+     * O circulo tracejado e o alcance do golpe e a linha tracejada e o
+     * caminho da mira ate o ponteiro. Nenhum dos dois faz sentido no hub,
+     * e o circulo e o mais errado dos dois: ele anuncia "voce acerta o
+     * que estiver a esta distancia", e na base o golpe esta barrado. Era
+     * um contradito com o portao do turno anterior, desenhado na tela
+     *
+     * A regra e a mesma de `useBasicAttack`, pelo mesmo metodo
+     */
+    if (!this.emZonaDeCombate()) return;
 
     const player = this.world.player;
 
@@ -5469,6 +7487,21 @@ getMinimapTransform(panelWidth, panelHeight) {
   }
 
   drawCrosshair(context) {
+    /**
+     * A MIRA NAO EXISTE NA BASE.
+     *
+     * A mira e desenhada em COORDENADA DE TELA`, colada no ponteiro, e
+     * nao e a arte do cursor do navegador: sao duas coisas diferentes que
+     * o jogador ve no mesmo pixel. Trocar o cursor para a mao de armadura
+     * nao tirou nada, porque esta continua aparecendo por cima
+     *
+     * E o lugar dela e o mesmo do golpe: onde nao ha combate, nao ha o
+     * que mirar. Um reticulo de alvo desenhado no hub seria a mesma
+     * promessa que a mira de combate fazia — "aqui e um alvo" — sem
+     * nenhum alvo possivel
+     */
+    if (!this.emZonaDeCombate()) return;
+
     const screenX =
       this.input.pointer.x -
       this.world.player.x +

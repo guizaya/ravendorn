@@ -6,6 +6,7 @@ import {
   createCreature,
   createCreatureRoster,
   TRAINING_DUMMY_BLUEPRINTS,
+  ZONE_ROSTER,
 } from "../../data/enemies/index.js";
 import { MAP_1, MAP_1_ZONES } from "../../data/maps/index.js";
 import { CollisionSystem } from "../collision/CollisionSystem.js";
@@ -43,14 +44,27 @@ function createHarness(playerX = 2000, playerY = 1400) {
   };
 
   const hits = [];
+  const tiros = [];
 
   const ai = new EnemyAI(world, {
     onDamagePlayer: (enemy, amount) => {
       hits.push({ id: enemy.id, amount });
     },
+
+    /**
+     * O TIRO, em lista propria.
+     *
+     * Sem este registro, um inimigo que atira pareceria um inimigo que
+     * nao ataca: o `onDamagePlayer` nao e chamado, e um teste que
+     * espera `hits` crescendo falha com "0 golpes" sem nenhuma pista
+     * de que o bicho fez a coisa certa do outro jeito
+     */
+    onShootPlayer: (enemy, target) => {
+      tiros.push({ id: enemy.id, target: target?.id });
+    },
   });
 
-  return { world, ai, hits };
+  return { world, ai, hits, tiros };
 }
 
 function spawn(typeId, offset = 0) {
@@ -77,13 +91,15 @@ describe("roster", () => {
   it("creates a large roster across every zone", () => {
     const roster = createCreatureRoster();
 
-    // 83 = a soma dos `count` de cada `ZONE_ROSTER`, sem os bonecos
-    // de treino, que sao acrescentados a parte. A floresta subiu de
-    // 7 para 14 quando o ogre da predeira entrou no mix: com 7
-    // spawns e o peso dele baixo, o arredondamento dava UM ogre no
-    // mapa inteiro, a 2500px do nascimento, e a arte nova nunca
-    // aparecia em teste
-    expect(roster.length).toBe(83);
+    // 93 = a soma dos `count` de cada `ZONE_ROSTER`, sem os bonecos
+    // de treino, que sao acrescentados a parte (e hoje nao ha nenhum:
+    // o campo de provas trocou os dois bonecos por um par de criaturas).
+    // A floresta subiu de 7 para 14 quando o ogre da predeira entrou no
+    // mix: com 7 spawns e o peso dele baixo, o arredondamento dava UM
+    // ogre no mapa inteiro, a 2500px do nascimento, e a arte nova
+    // nunca aparecia em teste. E o campo de provas subiu de 2 para 10
+    // criaturas, o que levou o total de 83 para 93
+    expect(roster.length).toBe(93);
   });
 
   it("covers all three behaviors", () => {
@@ -208,13 +224,32 @@ describe("roster", () => {
     }
   });
 
-  it("mixes more than one creature type per zone", () => {
+it("mixes more than one creature type per zone", () => {
     const roster = createCreatureRoster();
 
     for (const zone of MAP_1_ZONES) {
       if (zone.kind === "training") continue;
 
-      const types = new Set(
+      /**
+       * O QUE A ZONA DECLARA que vai aparecer nela.
+       *
+       * A regra original era "toda zona tem mais de um tipo", e o Pantano
+       * a quebrou de proposito: ele virou a zona de entrada e passou a
+       * ter so limo. Exigir a mistura ali seria exigir de volta o ogre
+       * de nivel 15 que o jogador de nivel 1 encontrava no primeiro
+       * passo depois de atravessar o portal
+       *
+       * O que o teste passa a exigir e a COERENCIA entre o `mix`
+       * declarado e o que o sorteio produz. Uma zona que declara dois
+       * tipos e produz um so ainda falha — e esse e o defeito que a
+       * regra original pegava de verdade
+       */
+      const declarados = Object.keys(
+        ZONE_ROSTER.find((r) => r.zone === zone.id)
+          ?.mix ?? {},
+      );
+
+      const tipos = new Set(
         roster
           .filter(
             (enemy) =>
@@ -229,7 +264,14 @@ describe("roster", () => {
           ),
       );
 
-      expect(types.size, zone.id).toBeGreaterThan(1);
+      expect(
+        tipos.size,
+        `a zona ${zone.id} declara ${declarados.length} ` +
+          `tipo(s) e gerou ${tipos.size}`,
+      ).toBe(declarados.length);
+
+      // uma zona com um tipo so continua sendo uma zona valida
+      expect(declarados.length, zone.id).toBeGreaterThan(0);
     }
   });
 
@@ -351,8 +393,16 @@ describe("semi-passive behavior", () => {
 
 describe("active behavior", () => {
   it("aggrons when the player enters its range", () => {
+    /**
+     * O `ogre`, e nao a sentinela.
+     *
+     * A sentinela virou ATIRADORA, e um `ranged` nao passa por
+     * `onDamagePlayer` — ele chama `onShootPlayer`. Usar a sentinela
+     * aqui daria "0 golpes" num bicho que esta fazendo a coisa certa
+     * pelo outro caminho
+     */
     const { ai, hits } = createHarness();
-    const enemy = spawn("skeleton", 100);
+    const enemy = spawn("ogre", 100);
 
     ai.world.enemies.push(enemy);
 
@@ -360,6 +410,67 @@ describe("active behavior", () => {
 
     expect(enemy.alerted).toBe(true);
     expect(hits.length).toBeGreaterThan(0);
+  });
+
+  /**
+   * A SENTINELA, que agora e o segundo atirador do jogo.
+   *
+   * Este e o teste que trava a troca: sem ele, voltar a sentinela para
+   * corpo a corpo seria uma troca de numero em `index.js` que nenum
+   * teste notaria
+   */
+  it("a sentinela atira em vez de encostar", () => {
+    const { ai, hits, tiros } = createHarness();
+    const enemy = spawn("skeleton", 100);
+
+    ai.world.enemies.push(enemy);
+
+    run(ai, enemy, 10);
+
+    expect(enemy.alerted, "a sentinela nao aggro").toBe(true);
+
+    expect(
+      tiros.length,
+      "a sentinela bateu em vez de atirar",
+    ).toBeGreaterThan(0);
+
+    expect(
+      hits.length,
+      "a sentinela deu dano direto, e ela e atiradora",
+    ).toBe(0);
+  });
+
+  it("a sentinela recua quando o jogador chega perto", () => {
+    const { ai, world } = createHarness();
+    const enemy = spawn("skeleton", 100);
+
+    ai.world.enemies.push(enemy);
+
+    const jogador = world.player;
+    const antes = Math.hypot(
+      enemy.x - jogador.x,
+      enemy.y - jogador.y,
+    );
+
+    run(ai, enemy, 3);
+
+    /**
+     * A DISTANCIO grew, e nao o `aiState`.
+     *
+     * O `retreat` e um estado de passagem: o bicho da um passo para
+     * tras, passa dos 220 do `keepDistance`, e no quadro seguinte entra
+     * em `attack` e atira de longe. Medir a string pegaria o fim da
+     * corrida e diria "attack", que e o comportamento certo
+     */
+    const depois = Math.hypot(
+      enemy.x - jogador.x,
+      enemy.y - jogador.y,
+    );
+
+    expect(
+      depois,
+      "a sentinela nao recuou do jogador que chegou perto",
+    ).toBeGreaterThan(antes);
   });
 
   it("ignores a player outside its range", () => {

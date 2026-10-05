@@ -254,20 +254,35 @@ export class DamageSystem {
     return amount;
   }
 
+  /**
+   * Cura `target` e devolve QUANTO curou.
+   *
+   * O retorno e o que permite ao uso de item nao beber a pocao com a
+   * vida cheia: quem chama decide se consume com base no numero, e
+   * nao num `void` que so diz "pode ter curado". O `min` com o teto ja
+   * existia para o lifesteal nao estourar a barra; aqui ele e
+   * informacao, e nao so um clamp
+   *
+   * `0` quando nao curou nada: alvo morto, valor invalido, ou vida
+   * ja cheia
+   */
   heal(target, amount) {
-    if (!target || target.hp <= 0 || amount <= 0) return;
+    if (!target || target.hp <= 0 || amount <= 0) return 0;
 
     const healed = Math.min(amount, target.maxHp - target.hp);
+
+    if (healed <= 0) return 0;
+
     target.hp += healed;
 
-    if (healed > 0) {
-      this.effects.addText(
-        target.x,
-        target.y - target.radius - 12,
-        `+${healed}`,
-        "#83ef9b",
-      );
-    }
+    this.effects.addText(
+      target.x,
+      target.y - target.radius - 12,
+      `+${healed}`,
+      "#83ef9b",
+    );
+
+    return healed;
   }
 
   restoreResource(target, amount) {

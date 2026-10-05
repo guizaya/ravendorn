@@ -13,8 +13,21 @@
  */
 
 /** o que o cliente pede */
+/**
+ * QUANTAS PESSOAS CABEM NUMA PARTY.
+ *
+ * Mora aqui, e nao no `PartyStore`, porque os DOIS lados precisam do
+ * numero: o servidor decide quem entra, e a caixa da tela esconde o
+ * botao de convidar quando a party chega nele
+ *
+ * Se o numero so vivesse no servidor, a tela mostraria "convidar" para uma
+ * party cheia e o pedido falharia na hora de clicar
+ */
+export const PARTY_MAX = 3;
+
 export const CLIENT_COMMANDS = Object.freeze({
   JOIN: "JOIN",
+  INPUT: "INPUT",
   INPUT: "INPUT",
   ACTION: "ACTION",
   PANEL: "PANEL",
@@ -75,6 +88,23 @@ export const PANEL_OPS = Object.freeze({
   // TOGGLE_AUTO_PLAY
   SET_BESTIARY_AUTO: "SET_BESTIARY_AUTO",
   CLEAR_BESTIARY_AUTO: "CLEAR_BESTIARY_AUTO",
+
+  /**
+   * A PARTY.
+   *
+   * As quatro operacoes sao de painel como as outras: um `op` so, e o
+   * servidor valida tudo. O cliente nunca decide a composicao da party —
+   * ele so pede, e quem monta o grupo e o dono
+   */
+  PARTY_INVITE: "PARTY_INVITE",
+  PARTY_CREATE: "PARTY_CREATE",
+  PARTY_INVITE_BY_NAME: "PARTY_INVITE_BY_NAME",
+  PARTY_ACCEPT_INVITE: "PARTY_ACCEPT_INVITE",
+  PARTY_KICK: "PARTY_KICK",
+  PARTY_FOLLOW: "PARTY_FOLLOW",
+  PARTY_FOCUS: "PARTY_FOCUS",
+  PARTY_TRANSFER: "PARTY_TRANSFER",
+  PARTY_LEAVE: "PARTY_LEAVE",
 
   /**
    * O `RESET_TARGETS` foi embora junto com o atalho.
@@ -157,8 +187,34 @@ GUILD_COFRE: "GUILD_COFRE",
    * servidor nao aceitou, e o jogador veria o numero mudando quando o
    * pacote chegasse
    */
-  ENCHANT: "ENCHANT",
+ENCHANT: "ENCHANT",
+
+  /**
+   * BEBER um consumivel da mochila.
+   *
+   * Pelo mesmo caminho do `ENCHANT` e pelo mesmo motivo: o botao "usar"
+   * e um ato do cliente, e quem tem a vida e o item e o servidor. Chamar
+   * o motor da tela curaria em um jogador local e o servidor nunca
+   * saberia — em rede o jogador veria o `+120` na tela, a barra dele
+   * nao mexeria, e a pocao nao sairia da mochila
+   *
+   * O servidor e quem recusa o uso com a vida cheia, e nao o cliente.
+   * Confiar nisso no cliente daria um item que se perde sem curar
+   */
+  USE_ITEM: "USE_ITEM",
+
+  /**
+   * COMPRAR na loja de pocoes do mercador.
+   *
+   * Differe do `MARKET_BUY` em uma coisa que importa: aqui o dinheiro
+   * vai para o jogo e o item vem do CATALOGO da loja. No mercado entre
+   * jogadores o preco vem de quem vendeu. Nos dois casos o servidor
+   * ignora o preco do pedido e resolve contra o catalogo dele, porque o
+   * cliente nao pode escolher quanto paga
+   */
+  BUY_POTION: "BUY_POTION",
 });
+
 
 /**
  * As DUAS acoes do cofre da guilda.
@@ -190,6 +246,17 @@ export const SERVER_EVENTS = Object.freeze({
   PLAYER_LEFT: "PLAYER_LEFT",
   LOOT: "LOOT",
   PONG: "PONG",
+
+  /**
+   * A PARTY.
+   *
+   * Sao tres eventos e nao um so, porque o CONVITE tem dono diferente
+   * da party: ele chega so para quem foi convidado, e some em 5 segundos
+   * sem nenhum pacote de "expirou" — o cliente conta o tempo e descarta
+   */
+  PARTY_STATE: "PARTY_STATE",
+  PARTY_INVITE_RECEIVED: "PARTY_INVITE_RECEIVED",
+  PARTY_INVITE_CLOSED: "PARTY_INVITE_CLOSED",
 
   /**
    * UM GOLPE RESOLVIDO, para o numero que sobe na tela.
@@ -255,6 +322,16 @@ export const REJECT = Object.freeze({
   ALREADY_JOINED: "Voce ja entrou nesta partida.",
   RATE_LIMIT: "Voce esta mandando comandos demais.",
   PLAYER_FULL: "O mundo esta cheio.",
+
+  /**
+   * O golpe na base.
+   *
+   * A base e o hub: nao ha inimigo nela, e o basico nao tem alvo
+   * legitimo — mas a animacao do golpe saia mesmo assim, e o jogador
+   * via uma espada varrer o chao vazio sem causar nenhum dano. A
+   * recusa explica o silencio em vez de deixar o clique sem resposta
+   */
+  NO_COMBAT_IN_BASE: "Nao da para atacar na base.",
 
   // mandou INPUT ou ACTION sem ter mandado JOIN antes. Sem o
   // JOIN o pacote entraria sem dono e o loot do abate iria para
@@ -467,10 +544,12 @@ collectionId,
     guildId,
     alvoId,
     talentId,
-    cofreAcao,
+cofreAcao,
+      itemId,
       price,
       count,
     } = payload;
+
 
   if (!Object.values(PANEL_OPS).includes(op)) {
     return { ok: false, reason: REJECT.BAD_MESSAGE };
@@ -516,6 +595,19 @@ collectionId,
 
       skillId: isShortString(skillId, 64) ? skillId : null,
       ativo: typeof ativo === "boolean" ? ativo : null,
+
+      /**
+       * O INTERRUPTOR DO FOCO DO LIDER, ligado ou desligado.
+       *
+       * E o `ativo` de novo, e nao um `ligado` novo: o `parsePanel`
+       * reconstroi o payload com uma lista fixa de campos, e um campo
+       * que nao estivesse nela chegaria ao servidor como `undefined` —
+       * o botao pareceria funcionar e o estado nunca mudaria
+       *
+       * O nome e `ativo` porque e o mesmo formato de pedido: um estado
+       * pedido, e nao um "inverter". Com "inverter", dois cliques rapidos
+       * voltariam ao comeco
+       */
 
       // o id da missao vem do cliente, entao e dado nao confiavel
       // como o resto. o servidor procura a missao pelo id e, se nao
@@ -638,6 +730,16 @@ collectionId,
         Math.floor(price) <= MARKET_PRECO_MAX
           ? Math.floor(price)
           : null,
+
+      /**
+       * O ITEM que o jogador esta comprando na loja do NPC.
+       *
+       * Vem do cliente e nao e confiavel, como todo id: o servidor
+       * procura no catalogo da loja e recusa o que nao esta a venda.
+       * Se o servidor confiasse, bastaria mandar um id de item
+       * qualquer e receber o preco de `null`
+       */
+      itemId: isShortString(itemId, 64) ? itemId : null,
     },
   };
 }

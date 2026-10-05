@@ -24,9 +24,11 @@ const HERE = dirname(fileURLToPath(import.meta.url));
  * arte nova, entao cada sheet declara o proprio tamanho.
  *
  * `idle` e `shootFallback` existem por causa do ogre da predeira, que
- * veio com uma arte menos completa que as outras duas: nao tem
- * `idle.gif`, e o golpe (o nome da pasta no origem e `shoot`, mas nao
- * ha arco nenhum) so veio em 5 das 8 direcoes. Ver `buildSheet`.
+ * veio com uma arte menos completa que as outras duas: o golpe (o nome
+ * da pasta no origem e `shoot`, mas nao ha arco nenhum) so veio em 5
+ * das 8 direcoes, e o `idle.gif` chegou depois de a folha estar montada
+ * — o `idle: false` abaixo e o que segurava a folha sem essa linha.
+ * Ver `buildSheet`.
  */
 export const SHEETS = {
   arbalist: {
@@ -48,12 +50,15 @@ export const SHEETS = {
     frameSize: 68,
     prefix: "OGRE_PREDEIRA",
 
-    // Sem `idle.gif`. A folha sai com 8 linhas de caminhada e 8 de
-    // golpe, sem a linha de idle no meio, e o layout do inimigo
-    // aponta o idle para o primeiro frame da propria linha de
-    // caminhada da direcao: um pose parado, mas virado para o
-    // lugar certo, que e o melhor que existe sem arte de idle.
-    idle: false,
+    /**
+     * O `idle.gif` EXISTE.
+     *
+     * A folha ficava sem idle ate a arte de parado chegar. Agora ela veio: a
+     * folha sai com 8 linhas de caminhada, 1 de idle e 8 de golpe, e o
+     * layout aponta o idle para a linha dele em vez de congelar um frame
+     * da caminhada
+     */
+    idle: true,
 
     /**
      * Direcao que substitui cada lane de golpe ausente.
@@ -284,23 +289,18 @@ export const SHEETS = {
     // tem `idle` desenhado, com oito quadros
     idle: true,
 
-    /**
-     * Sem golpe, como o ghoul e o rato.
+/**
+     * O GOLPE TEM ARTE, EM OITRO DIRECOES.
      *
-     * A sentinela e `ACTIVE` e GOLPE de verdade — `attackRange: 58`,
-     * `damage: 42`, `aggroRange: 330` — e mesmo assim nao ha arte de
-     * ataque na pasta. E o mesmo caso do ghoul: sem bloco `attack`, o
-     * pedido de golpe cai no reserva do `resolveFrameRect`, que
-     * prefere o `idle` a caminhada, e o esqueleto fica parado em vez
-     * de sair andando no meio da pancada
+     * A pasta do `shoot/` encheu depois de a folha ter sido montada pela
+     * primeira vez: as oito direcoes de golpe chegaram de uma vez. Antes
+     * disso a sentinela atirava sem animacao, e o golpe caia no reserva do
+     * `resolveFrameRect` — a linha do idle, que e a pose de parado
      *
-     * A diferenca em relacao ao ghoul e ao rato e que aqui o salto de
-     * direcao durante o golpe e visivel: os dois sao passivos e quase
-     * nao batem, e a sentinela ataca o tempo todo. Ver o comentario
-     * do `SENTINELA_ESQUELETICA_SPRITE` em
-     * `src/data/sprites/enemyLayout.js`
+     * Sem `walkFallback` nem `shootFallback`: as oito direcoes estao
+     * la, entao a folha sai direto e nada e copiado
      */
-    shoot: false,
+    shoot: true,
   },
 
   /**

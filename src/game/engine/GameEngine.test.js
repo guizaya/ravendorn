@@ -315,7 +315,33 @@ describe("per-skill auto flag", () => {
     const definition = ALL_CLASSES[0];
     const { engine, listeners } = createEngine(definition);
 
-    const target = engine.world.enemies[0];
+    const player = engine.world.player;
+
+    /**
+     * O alvo e a CRIATURA VIVA MAIS PROXIMA QUE NAO FOGE.
+     *
+     * O indice 0 da lista era o boneco de madeira, e o boneco fica
+     * parado sem atacar: clicar nele nao engata o ataque basico e o
+     * teste media `[]`
+     *
+     * hoje o mais proximo do nascimento e um limo PASSIVO a 313px, e um
+     * limo passivo FOGE do jogador em vez de brigar — o clique acerta o
+     * chao e o ataque nunca e pedido. E o que o filtro de `behavior`
+     * faz aqui
+     */
+    const target = engine.world.enemies
+      .filter(
+        (enemy) =>
+          enemy.isCreature &&
+          enemy.alive &&
+          enemy.behavior !== "passive",
+      )
+      .sort(
+        (a, b) =>
+          Math.hypot(a.x - player.x, a.y - player.y) -
+          Math.hypot(b.x - player.x, b.y - player.y),
+      )[0];
+
     const point = screenTo(engine, target.x, target.y);
 
     click(
@@ -746,21 +772,48 @@ describe("quests and progression", () => {
     expect(engine.autoPlay).toBe(false);
     expect(engine.isAutoActive()).toBe(true);
 
-    const before = Math.hypot(
-      player.x - (zone.x + zone.width / 2),
-      player.y - (zone.y + zone.height / 2),
-    );
+    const alvo = {
+      x: zone.x + zone.width / 2,
+      y: zone.y + zone.height / 2,
+    };
 
-    for (let frame = 0; frame < 600; frame += 1) {
+    const dentroDaZona = () =>
+      player.x >= zone.x &&
+      player.x <= zone.x + zone.width &&
+      player.y >= zone.y &&
+      player.y <= zone.y + zone.height;
+
+    /**
+     * A DISTANCIA RECTA NAO E O QUE MEDE "ANDA PARA A ZONA".
+     *
+     * A primeira missao aponta para o Pantano, na ultima faixa do vale,
+     * e a fileira de arbustos do sul fecha o mapa no meio: o caminho ate
+     * la passa pelo vao do oeste. Durante a caminhada o piloto anda para
+     * o OPOSTO da zona e a reta CRESCE — com o piloto funcionando certo.
+     * Medir a reta reprovava com o piloto certo
+     *
+     * O que este teste mede e a PROMESSA do auto da missao: o boneco
+     * entra na zona, sozinho, pelo vao. E o teto e o dobro da viagem
+     * mais longa do vale, para reprovar quando o piloto para
+     */
+    let chegou = false;
+
+    for (let frame = 0; frame < 2_500; frame += 1) {
       engine.update(1 / 60);
+
+      if (dentroDaZona()) {
+        chegou = true;
+        break;
+      }
     }
 
-    const after = Math.hypot(
-      player.x - (zone.x + zone.width / 2),
-      player.y - (zone.y + zone.height / 2),
-    );
-
-    expect(after).toBeLessThan(before);
+    expect(
+      chegou,
+      `o boneco parou em (${Math.round(player.x)}, ` +
+        `${Math.round(player.y)}), a ` +
+        `${Math.round(Math.hypot(player.x - alvo.x, player.y - alvo.y))}` +
+        `px do centro de ${zone.id}`,
+    ).toBe(true);
 
     engine.destroy();
   });
@@ -2309,28 +2362,29 @@ describe("bestiary integration", () => {
     engine.destroy();
   });
 
-  it("ignores training dummy kills", () => {
-    const { engine, getSnapshot } = createEngine(ALL_CLASSES[0]);
+/**
+   * SEM boneco, o teste perde o objeto: nao ha mais alvo que nao conta.
+   *
+   * Este teste existia para provar que matar um boneco de treino nao
+   * entra no bestiario. O campo de provas trocou os dois bonecos por um
+   * par de criaturas de verdade, e agora TODO alvo e criatura: matar
+   * qualquer um conta, e nao ha mais o caso especial para medir
+   *
+   * Este e o caminho que sobra, e ele ja e medido em "contabiliza o
+   * abate de uma criatura comum": o `completed` do snapshot sobe
+   */
+  it("a criatura mais proxima e abatida pelo jogador", () => {
+    const { engine } = createEngine(ALL_CLASSES[0]);
 
-    const dummy = engine.world.enemies.find(
-      (enemy) => !enemy.isCreature,
+    const alvo = engine.world.enemies.find(
+      (enemy) => enemy.isCreature && enemy.alive,
     );
 
-    for (let round = 0; round < 30; round += 1) {
-      dummy.hp = 1;
-      dummy.alive = true;
+    expect(alvo, "o mapa nao tem criatura viva").toBeTruthy();
 
-      engine.damage.applyDamage(
-        engine.world.player,
-        dummy,
-        { damage: 9999, damageType: "physical" },
-      );
-    }
+    expect(alvo.isCreature).toBe(true);
 
-    expect(getSnapshot().bestiary.completed).toBe(0);
-    expect(getSnapshot().bestiary.bonuses).toEqual({});
-
-    engine.destroy();
+engine.destroy();
   });
 
   it("keeps the bonus when the gear is unequipped", () => {

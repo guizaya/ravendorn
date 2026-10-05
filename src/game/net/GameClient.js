@@ -39,6 +39,7 @@ export class GameClient {
     onEnter = () => {},
     onLeave = () => {},
     onDano = () => {},
+    onConviteParty = () => {},
     WebSocketImpl,
     agora = () => Date.now(),
   } = {}) {
@@ -58,6 +59,17 @@ export class GameClient {
      * esconde um handler que nunca foi ligado
      */
     this.onDano = onDano;
+
+    /**
+     * O CONVITE DE PARTY, e o que fecha a caixa de cinco segundos.
+     *
+     * `null` e um valor de primeira classe: ele significa "o convite que
+     * estava na tela nao esta mais", e e o que a caixa usa para sumir
+     */
+    this.onConviteParty = onConviteParty;
+
+    /** O convite pendente, para quem quiser ler sem assinar o callback. */
+    this.conviteParty = null;
 
     this.agora = agora;
 
@@ -329,6 +341,139 @@ export class GameClient {
     });
   }
 
+  /* ---------------------------------------------------------------- */
+  /* A PARTY                                                          */
+  /* ---------------------------------------------------------------- */
+
+  /**
+   * CRIA A PARTY.
+   *
+   * Criar uma party de um jogador so NAO muda nada visivel: o `PartyStore`
+   * cria o grupo com um membro, e o mesmo pedido com `PARTY_INVITE` e
+   * quem enche
+   *
+   * O botao existe porque o pedido diz que a box mostra o caminho, e o
+   * caminho de um jogador so e "criar" e depois "convidar" — sem a party
+   * criada, o campo do nick nunca apareceria
+   */
+  criarParty() {
+    return this.pedirPainel({ op: PANEL_OPS.PARTY_CREATE });
+  }
+
+  /** Convida pelo clique no personagem, e o caminho do `PARTY_INVITE`. */
+  convidarParty(alvoId) {
+    return this.pedirPainel({
+      op: PANEL_OPS.PARTY_INVITE,
+      alvoId,
+    });
+  }
+
+  /**
+   * Convida pelo NICK digitado.
+   *
+   * O nome vai como string e o servidor resolve. Resolver aqui exigiria
+   * a lista de jogadores connected no cliente, e essa lista nao existe:
+   * o cliente so enxerga quem esta no ALCANCE da tela
+   */
+  convidarPartyPorNome(nome) {
+    return this.pedirPainel({
+      op: PANEL_OPS.PARTY_INVITE_BY_NAME,
+      nome,
+    });
+  }
+
+  /**
+   * Aceita o convite que esta NA TELA.
+   *
+   * Nao manda o id de quem convidou: o servidor tem um convite pendente
+   * por jogador e sabe qual e. Mandar o id abriria a porta de aceitar o
+   * convite de outra pessoa, se o cliente forjado
+   */
+  aceitarConviteParty() {
+    return this.pedirPainel({
+      op: PANEL_OPS.PARTY_ACCEPT_INVITE,
+    });
+  }
+
+  /**
+   * EXPULSA UM MEMBRO DA PARTY.
+   *
+   * So o lider pode, e a checagem e do servidor: o `alvoId` aqui e um
+   * pedido, e o `PartyStore` decide. Um cliente que forjou o pedido
+   * receberia "so o lider pode expulsar"
+   */
+  expulsarDaParty(alvoId) {
+    return this.pedirPainel({
+      op: PANEL_OPS.PARTY_KICK,
+      alvoId,
+    });
+  }
+
+  /**
+   * SEGUE UM MEMBRO DA PARTY.
+   *
+   * O botao e um interruptor: clicar em quem ja se segue CANCELA o
+   * acompanhamento. Sem isso o jogador teria de procurar o botao de
+   * desligar, e ele fica do lado do `×`
+   */
+  seguirPartyMember(alvoId) {
+    return this.pedirPainel({
+      op: PANEL_OPS.PARTY_FOLLOW,
+      alvoId,
+    });
+  }
+
+  /**
+   * LIGA OU DESLIGA O FOCO DO ALVO DO LIDER.
+   *
+   * Manda o estado pedido, e nao um "inverter": dois cliques rapidos
+   * num interruptor que inverteria voltariam ao estado inicial, e o
+   * jogador teria clicado duas vezes para tentar desligar
+   */
+  focarAlvoDoLider(ligado) {
+    return this.pedirPainel({
+      op: PANEL_OPS.PARTY_FOCUS,
+
+      /**
+       * `ativo`, e nao `ligado`.
+       *
+       * O `parsePanel` so repassa os campos que ele conhece. Um campo
+       * novo chegaria ao servidor como `undefined`, o botao pareceria
+       * funcionar e o estado nunca mudaria — por isso o interruptor
+       * viaja no campo que o protocolo ja carrega
+       */
+      ativo: Boolean(ligado),
+    });
+  }
+
+/**
+   * PASSA A LIDERANCA DA PARTY.
+   *
+   * O `alvoId` e quem passa a ser o lider. O servidor recusa se quem
+   * pediu nao for o lider atual, ou se o alvo nao estiver na party
+   *
+   * ## POR QUE O NOME LE `DaParty`
+   *
+   * Ja existia um `passarLideranca` aqui, e o dele era o da GUILDA. Com
+   * o mesmo nome, a definicao mais abaixo do arquivo vencia: o botao da
+   * party acabava mandando `GUILD_LIDERANCA`, e a resposta era "Voce
+   * ainda nao tem guilda." — o erro de guilda, num botao de party
+   *
+   * O nome do metodo e o que separava as duas coisas, e nao o `op` que
+   * viaja dentro: dois metodos com o mesmo nome na mesma classe sao um
+   * so
+   */
+  passarLiderancaDaParty(alvoId) {
+      return this.pedirPainel({
+        op: PANEL_OPS.PARTY_TRANSFER,
+        alvoId,
+      });
+    }
+
+  sairDaParty() {
+    return this.pedirPainel({ op: PANEL_OPS.PARTY_LEAVE });
+  }
+
   buscarGuilda(termo) {
     return this.pedirPainel({
       op: PANEL_OPS.GUILD_BUSCAR,
@@ -560,6 +705,39 @@ export class GameClient {
     });
   }
 
+  /**
+   * USA um consumivel da mochila: a pocao de cura, por enquanto.
+   *
+   * Manda so o `uid` e nao o efeito nem o valor: a cura e o que o
+   * catalogo do item diz, e um cliente que mandasse `heal: 9999` curaria
+   * 9999 se o servidor lesse o numero
+   */
+  usarItem(uid) {
+    if (!uid) return false;
+
+    return this.pedirPainel({
+      op: PANEL_OPS.USE_ITEM,
+      uid,
+    });
+  }
+
+  /**
+   * COMPRA uma pocao na loja do mercador.
+   *
+   * `count` vai sem teto aqui: o transporte ja recusa numero quebrado,
+   * e o teto de regra — quantas poucoes a loja vende por clique — e do
+   * servidor, que e quem cobra
+   */
+  comprarPocao(itemId, count = 1) {
+    if (!itemId) return false;
+
+    return this.pedirPainel({
+      op: PANEL_OPS.BUY_POTION,
+      itemId,
+      count,
+    });
+  }
+
   /** Desiste da cacada. */
   pararCacada() {
     return this.pedirPainel({
@@ -716,7 +894,43 @@ export class GameClient {
       return;
     }
 
-    if (type === SERVER_EVENTS.REJECTED) {
+    /**
+   * O CONVITE DE PARTY CHEGOU.
+   *
+   * ## POR QUE ESTE EVENTO E SEPARADO DO PAINEL
+   *
+   * O convite e addressed so a QUEM foi convidado. Se viesse dentro do
+   * `PLAYER_STATE`, o `onState` re-renderizaria a tela inteira para
+   * mostrar uma caixa de cinco segundos — e todo mundo receberia um
+   * pacote que nao e seu
+   *
+   * O prazo viaja como instante absoluto e a caixa conta a partir dele: o
+   * relogio do servidor e o unico que vale, e um relogio adiantado aqui
+   * nao daria uma party com vinte segundos de vida
+   */
+  if (type === SERVER_EVENTS.PARTY_INVITE_RECEIVED) {
+    this.conviteParty = payload ?? null;
+
+    this.onConviteParty?.(payload);
+
+    return;
+  }
+
+  /**
+   * O CONVITE FECHOU, por aceite ou por prazo.
+   *
+   * A caixa sai da tela sem esperar o proximo painel: se o jogador
+   * recusou, a caixa morta na frente dele seria pior que a sumir
+   */
+  if (type === SERVER_EVENTS.PARTY_INVITE_CLOSED) {
+    this.conviteParty = null;
+
+    this.onConviteParty?.(null);
+
+    return;
+  }
+
+  if (type === SERVER_EVENTS.REJECTED) {
       this.motivoRecusa = payload?.reason ?? null;
 
       // recusado SEM sessao e caso perdido: o nome foi rejeitado.

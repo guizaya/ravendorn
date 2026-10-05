@@ -113,8 +113,20 @@ export function drawMinimap(
   const baseX = transform.offsetX;
   const baseY = transform.offsetY;
 
-  context.fillStyle = "#141d1a";
-  context.fillRect(0, 0, transform.width, transform.height);
+  /**
+   * O FUNDO DO MAPA sumiu.
+   *
+   * Havia um `fillRect` com `#141d1a` — um verde quase preto — que
+   * cobria a area inteira do minimapa antes das zonas. O efeito era um
+   * fundo verde chapado, e o painel arredondado parecia a borda de uma
+   * mancha em vez de uma moldura
+   *
+   * O que fica e o `drawMinimapPanel`: o quadrado de `border-radius` com
+   * o seu fundo escuro e a borda. As zonas, as arvores, o retangulo do
+   * seu campo de visao e os pontos de mob continuam desenhados por
+   * cima, e o que nao tem zona fica transparente, deixando o jogo
+   * aparecer em vez de um retangulo opaco
+   */
 
   for (const zone of zones) {
     context.fillStyle =

@@ -16,7 +16,14 @@ const CRC_TABLE = (() => {
   return table;
 })();
 
-function crc32(buffer) {
+/**
+ * O CRC32 de um buffer.
+ *
+ * Exportado porque o `gerar-cursor.mjs` monta o PNG na mao — precisa
+ * ler um PNG de 1254px e escrever um de 64, e o `encodePng` deste
+ * arquivo so sabe fazer a segunda metade
+ */
+export function crc32(buffer) {
   let crc = -1;
 
   for (let i = 0; i < buffer.length; i += 1) {

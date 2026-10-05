@@ -1,4 +1,4 @@
-﻿import {
+import {
   createRandom,
   getZoneById,
   MAP_1,
@@ -80,11 +80,23 @@ export const CREATURE_TYPES = {
     name: "Limo Preguiçoso",
     behavior: BEHAVIOR.PASSIVE,
     level: 1,
-    maxHp: 140,
+
+    /**
+     * O HP vai de 140 para 150 e o DANO de 7 para 22.
+     *
+     * Com 7 de dano o limo tirava o lvl 1 em 91 golpes: nenhuma criatura
+     * do mapa era uma ameaca, e a campanha inteira era so volume. Com 22
+     * sao ~44 golpes, e tres limos juntos derrubam quem fica parado
+     *
+     * O HP subiu pouco de proposito: o limo e o degrau 1 e precisa cair
+     * em 2 golpes de um lvl 1, senao o primeiro degrau da campanha ja
+     * vira uma parede
+     */
+    maxHp: 150,
     defense: 2,
     radius: 21,
     speed: 48,
-    damage: 7,
+    damage: 22,
     attackRange: 44,
     aggroRange: 0,
     leash: 260,
@@ -195,6 +207,33 @@ export const CREATURE_TYPES = {
     }),
   },
 
+  /**
+   * A SENTINELA ESQUELETICA: o segundo atirador, e o esqueleto de
+   * elite.
+   *
+   * Antes era um `skeleton` comum, com `attackRange` de 58 — o alcance
+   * de uma chifrada. O bicho andava ate o jogador e batia de perto,
+   * que era incoerente com a arte: uma sentinela com escudo e lance nao
+   * briga de punho
+   *
+   * O que troca, e por que cada campo importa:
+   *
+   * - `ranged` — o campo que a IA le. Com ele, o golpe vira `flecha`
+   *   em vez de dano direto, e o bicho entra em `retreat` quando o
+   *   jogador encosta, em vez de ficar parado deixando o arqueiro
+   *   colar nele
+   * - `attackRange` 58 -> 300 — de onde ele atira. Com 58 ele
+   *   continuaria tendo de encostar para ter o que atirar
+   * - `keepDistance` — a distancia que ele tenta manter. Sem ela o
+   *   `retreat` nao tem para onde recuar e o arqueiro fica colado
+   * - `projectileSpeed` — mais lenta que a do zumbi: a sentinela e mais
+   *   pesada, e a flecha pesada da para o jogador desviar
+   *
+   * O `damage` cai de 42 para 34 porque o golpe agora chega de longe e
+   * o jogador tem mais chance de desviar. Um arqueiro mais forte e
+   * mais preciso seria injusto; um arqueiro mais lento e mais fraco e
+   * um alvo legivel
+   */
   skeleton: {
     id: "skeleton",
     name: "Sentinela Esquelética",
@@ -204,15 +243,24 @@ export const CREATURE_TYPES = {
     defense: 22,
     radius: 22,
     speed: 126,
-    damage: 42,
-    attackRange: 58,
-    aggroRange: 330,
+    damage: 34,
+    attackRange: 300,
+    aggroRange: 380,
     leash: 900,
-    attackCooldown: 1.6,
+    attackCooldown: 1.9,
     spriteScale: 1.35,
     wanderRadius: 60,
     wanderSpeed: 30,
     color: "#cfd3d6",
+
+    // o tiro dele
+    ranged: true,
+    keepDistance: 220,
+    projectileSpeed: 370,
+    projectileRadius: 9,
+    projectileStyle: "arrow",
+    projectileColor: "#d8dde0",
+
     loot: applyDropScaling({
       coins: { min: 30, max: 68 },
       itemChance: 0.62,
@@ -226,20 +274,10 @@ export const CREATURE_TYPES = {
   },
 
   /**
-   * O primeiro inimigo que ataca de LONGE.
+   * O arqueiro zumbi: o primeiro inimigo que ataca de LONGE.
    *
-   * Todos os outros encostam e batem. Este nasce com a arte de oito
-   * direcoes do arqueiro e por isso atira: a animacao de arco em cima
-   * de um golpe corpo a corpo ficaria incoerente.
-   *
-   * `ranged` e o que muda o comportamento na IA: com ele, o bicho
-   * entra em `retreat` quando o jogador chega perto demais, em vez de
-   * ficar parado no lugar deixando o arquero colar nele.
-   *
-   * Fica declarado ENTRE o esqueleto e o ogre, e nao no fim do
-   * arquivo, porque a ordem de declaracao e a ordem de poder: o
-   * `loot` precisa crescer junto com o nivel, e um bicho de nivel 12
-   * no fim da lista derrubaria a chance de item de todo mundo que
+   * A sentinela passou a atirar tambem e subiu para o topo da lista
+   * dos atiradores, entao este deixa de ser "o primeiro"
    * viesse antes.
    */
   zumbi_arbalist: {
@@ -308,12 +346,34 @@ export const CREATURE_TYPES = {
     id: "ogre_da_predeira",
     name: "Ogre da Predeira",
     behavior: BEHAVIOR.ACTIVE,
-    level: 16,
-    maxHp: 1420,
-    defense: 36,
+
+    /**
+     * O NIVEL BASE E 7, e nao 16.
+     *
+     * `level` e o ponto de partida da escala: o `scaleForLevel` faz
+     * `steps = nivel_da_zona - level`. Com 16 aqui e a zona no nivel 7,
+     * `steps` era -9, o fator `1 + 0.22 * -9` ficava negativo e o HP
+     * caia no piso de 1. O ogre do campo de provas morria de um golpe
+     * e dava 1 de XP
+     *
+     * E o `maxHp` tambem era do nivel 16. Um bicho de nivel 7 na escada
+     * deste mapa tem 280 de HP, e e contra esse numero que a missao
+     * `minLevel: 7` foi calibrada
+     */
+    level: 7,
+    maxHp: 280,
+    defense: 16,
     radius: 34,
     speed: 118,
-    damage: 84,
+
+    /**
+     * O DANO sobe de 84 para 46.
+     *
+     * Com 84, o ogre tirava o lvl 1 em ~24 golpes. Agora sao ~44: o
+     * jogador ainda pode morrer se ficar parado na frente de tres, que e
+     * o que torna a zona do campo de provas um degrau e nao um passeio
+     */
+    damage: 46,
     attackRange: 84,
     aggroRange: 430,
     leash: 1000,
@@ -326,7 +386,7 @@ export const CREATURE_TYPES = {
     // sem `ranged`: a `EnemyAI` so cria a arte de tiro e o
     // projétil quando o inimigo atira de longe
     loot: applyDropScaling({
-      coins: { min: 95, max: 205 },
+      coins: { min: 60, max: 130 },
       itemChance: 0.8,
       maxItems: 3,
       items: [
@@ -342,12 +402,32 @@ export const CREATURE_TYPES = {
     id: "ogre",
     name: "Ogre da Pedreira",
     behavior: BEHAVIOR.ACTIVE,
-    level: 15,
-    maxHp: 1250,
-    defense: 34,
+
+    /**
+     * O NIVEL BASE E 8, e nao 15 — o mesmo bug do ogre da predeira.
+     *
+     * As cinco zonas de ogre deste mapa sao os niveis 8 a 12. Com 15
+     * aqui, `steps` ia de -7 a -3, o HP caia no piso de 1 nas tres
+     * primeiras zonas e o `damage` tambem despencava
+     *
+     * O `maxHp` de 1250 era o do nivel 15. Contra a escada real, um ogre
+     * de base 8 tem 260
+     */
+    level: 8,
+    maxHp: 260,
+    defense: 20,
     radius: 32,
     speed: 92,
-    damage: 78,
+
+    /**
+     * O DANO desce de 78 para 52.
+     *
+     * Com 78 o ogre tirava o lvl 1 em ~13 golpes, e a zona da Floresta
+     * virava um espacinho sem risco. Agora sao ~24, o que mantem o
+     * degrau 12 como o mais perigoso do mapa sem matar o jogador em
+     * segundos
+     */
+    damage: 52,
     attackRange: 78,
     aggroRange: 400,
     leash: 1000,
@@ -357,7 +437,7 @@ export const CREATURE_TYPES = {
     wanderSpeed: 24,
     color: "#b07a52",
     loot: applyDropScaling({
-      coins: { min: 85, max: 190 },
+      coins: { min: 70, max: 160 },
       itemChance: 0.78,
       maxItems: 3,
       items: [
@@ -370,71 +450,51 @@ export const CREATURE_TYPES = {
   },
 };
 
-export const TRAINING_DUMMY_BLUEPRINTS = [
-  {
-    id: "dummy_warrior",
-    name: "Boneco de Madeira",
-    maxHp: 1500,
-    defense: 10,
-    radius: 25,
-    color: "#b78555",
-    position: { x: 2820, y: 1900 },
-  },
-  {
-    id: "dummy_mage",
-    name: "Boneco Arcano",
-    maxHp: 1100,
-    defense: 5,
-    radius: 25,
-    color: "#8d76bf",
-    position: { x: 3160, y: 2080 },
-  },
-  {
-    id: "dummy_heavy",
-    name: "Boneco Reforçado",
-    maxHp: 2400,
-    defense: 25,
-    radius: 30,
-    color: "#8e6849",
-    position: { x: 2880, y: 2320 },
-  },
-  {
-    id: "dummy_light",
-    name: "Boneco Leve",
-    maxHp: 900,
-    defense: 2,
-    radius: 22,
-    color: "#c79c66",
-    position: { x: 3260, y: 1860 },
-  },
-  {
-    id: "dummy_control",
-    name: "Boneco de Controle",
-    maxHp: 1300,
-    defense: 8,
-    radius: 26,
-    color: "#5b9b8e",
-    position: { x: 2760, y: 2180 },
-  },
-  {
-    id: "dummy_ranged",
-    name: "Boneco de Longo Alcance",
-    maxHp: 1000,
-    defense: 4,
-    radius: 24,
-    color: "#7095b7",
-    position: { x: 3380, y: 2200 },
-  },
-  {
-    id: "dummy_poison",
-    name: "Boneco de Ensaio",
-    maxHp: 1200,
-    defense: 6,
-    radius: 25,
-    color: "#a95774",
-    position: { x: 3060, y: 2420 },
-  },
-];
+/**
+ * Os BOMBOS do Campo de Provas.
+ *
+ * Sao dois, e a lista encolheu de sete: o Arcano, o Leve, o de Longo
+ * Alcance, o de Ensaio e o de Controle foram removidos. Eles ocupavam
+ * o campo de provas com cinco alvos passivos que so existiam para
+ * medir um numero — e um jogador passava por eles sem nunca ter motivo
+ * para bater, porque boneco nao anda e boneco nao ataca
+ *
+ * ## POR QUE SOBRARAM ESTES DOIS
+ *
+ * - o Boneco de Madeira e o de DUELO: o unico que revida, e o que da
+ *   ao Campo de Provas o unico teste que importa, que e o de perder
+ *   para algo
+ * - o Boneco Reforzado e o alvo de TANTO HP que da para ver a barra de
+ *   vida inteira
+ *
+ * Os cinco que sairam nao tinham papel nenhum depois do primeiro
+ * golpe: sem recompensa propria (o loot e o mesmo dos outros), sem
+ * comportamento, e sem numero de balanceamento quedependesse do id
+ */
+/**
+ * O CAMPO DE PROVAS NAO TEM MAIS BONECO.
+ *
+ * O Campo de Provas comeca com sete bonecos e dois sobreviveram: o de
+ * madeira e o reforcado. Os dois sairam agora, e a lista ficou vazia
+ *
+ * ## POR QUE O CAMPO FICOU COM CRIATURAS DE VERDADE
+ *
+ * O boneco existe para o jogador treinar sem risco: parado, sem dano,
+ * com muita vida. Um par de limo 6 e ogre 7 faz o oposto — o jogador
+ * que entra no campo agora apanha, e o campo virou mais um degrau da
+ * progressao em vez de um lugar seguro
+ *
+ * O que fica no lugar dos bonecos e o par de criaturas, com nivel alto
+ * e dos dois lados: limo do lado do Brejo, ogre do lado da Cripta
+ *
+ * ## POR QUE A LISTA CONTINUA SENDO UMA LISTA
+ *
+ * `createTrainingDummies` continua existindo e continua devolvendo uma
+ * lista, mesmo vazia. O chamador, o `createTrainingDummy` e o
+ * `DUEL_DUMMY_IDS` nao mudam: um hub sem zona de treino ja devolvia
+ * lista vazia antes, entao esse caminho ja era exercitado
+ */
+export const TRAINING_DUMMY_BLUEPRINTS = [];
 
 export const ZONE_ROSTER = [
   {
@@ -451,65 +511,500 @@ export const ZONE_ROSTER = [
     // pedreira, com a arte antiga. Agora sao tres.
     zone: "floresta",
     count: 14,
-    mix: {
-      goblin: 46,
-      rat: 12,
-      ghoul: 10,
-      slime: 8,
-      ogre_da_predeira: 30,
-    },
+
+    /**
+     * SO OGRE, NIVEL 12.
+     *
+     * ## A ESCALADA DE OGRE
+     *
+     * Cinco zonas de ogre, e o nivel sobe uma de uma vez seguindo a
+     * ordem em que o jogador atravessa o mapa:
+     *
+     *   Cripta Esquelética   8
+     *   Ruinas dos Ghouls    9
+     *   Campina Gelada      10
+     *   Acampamento Goblin  11
+     *   Floresta Sombria    12
+     *
+     * Sao os cinco degraus mais altos do vale, acima dos seis degraus de
+     * limo (1 a 6) e do par do campo de provas (6 e 7)
+     *
+     * A Floresta e o topo da escalada: era a zona mais populosa do mapa
+     * e a unica com seis tipos. O `ogre_da_predeira` era o segundo
+     * direcional novo do jogo, posto aqui porque a Pedreira e o nome da
+     * arte dele e nao uma zona; com o campo de provas ganhando um ogre
+     * de nivel 7, ele passa a ter um lugar mais honesto
+     */
+    mix: { ogre: 100 },
+    niveis: [12, 12],
   },
   {
     zone: "acampamento",
     count: 6,
-    mix: { goblin: 66, rat: 18, ghoul: 16 },
+
+    /**
+     * SO OGRE, NIVEL 11.
+     *
+     * Segundo degrau do topo da escalada de ogre
+     */
+    mix: { ogre: 100 },
+    niveis: [11, 11],
   },
   {
     zone: "campina",
     count: 7,
-    mix: { skeleton: 60, slime: 24, ogre: 16 },
+
+    /**
+     * SO OGRE, NIVEL 10.
+     *
+     * Terceiro degrau do topo da escalada de ogre
+     */
+    mix: { ogre: 100 },
+    niveis: [10, 10],
   },
   {
     zone: "ruinas",
     count: 7,
-    mix: { ghoul: 62, skeleton: 24, goblin: 14 },
+
+    /**
+     * SO OGRE, NIVEL 9.
+     *
+     * Segundo degrau de baixo da escalada de ogre. Era o lugar de maior
+     * peso do ghoul (62), e o ghoul nao esta mais no mapa
+     */
+    mix: { ogre: 100 },
+    niveis: [9, 9],
   },
   {
+    /**
+     * A TOCA DOS RATOS, o quinto e ultimo degrau de limo.
+     *
+     * A sequencia completa que o jogador percorre atravessando o portal
+     * do hub: Pantano (1 e 2), Pedreira (2), Dunas (3), Cinzas (4),
+     * Toca (5). As cinco tem um tipo so, e o nivel sobe de uma em uma
+     *
+     * A ordem das zonas NAO e a ordem geografica: a Toca fica no canto
+     * superior esquerdo do vale e o Pantano no inferior direito. A
+     * progressao e de nivel, e nao de distancia — o que mantem o
+     * "ir matar limo" do bestiario no degrau 1, que e o que o jogador
+     * alcanca pelo portal
+     *
+     * Antes eram rato (70), goblin (18) e limo (12). O rato e o caso
+     * delicate: a Toca era o lugar de MAIOR peso dele, e o que sobra e o
+     * Brejo (20, contra 18 do Acampamento e 12 da Floresta). E por isso
+     * que o rato e o unico creature que muda de zona no bestiario
+     */
     zone: "toca",
     count: 7,
-    mix: { rat: 70, goblin: 18, slime: 12 },
+    mix: { slime: 100 },
+
+    /** Todo limo aqui e do nivel 5 */
+    niveis: [5, 5],
   },
   {
+    /**
+     * O BREJO LENTO, o sexto e ULTIMO degrau de limo.
+     *
+     * A sequencia completa: Pantano (1 e 2), Pedreira (2), Dunas (3),
+     * Cinzas (4), Toca (5), Brejo (6). As seis tem um tipo so, e o nivel
+     * sobe de uma em uma
+     *
+     * O Brejo e onde a progressao volta para a direita depois da Toca, no
+     * canto superior esquerdo. A ordem geografica e um zigue-zague e nao
+     * importa: o que ordena e o nivel, e e o que permite o "ir matar
+     * limo" do bestiario recomecar no degrau 1
+     *
+     * Antes eram limo (66), rato (20) e ghoul (14). O rato e o caso
+     * delicado: depois do Brejo ele sobra em DUAS zonas — o Acampamento
+     * (18) e a Floresta (12), uma margem de 6 pontos. O ghoul continua
+     * nas Ruinas (62), o mais alto de todos
+     */
     zone: "brejo",
     count: 7,
-    mix: { slime: 66, rat: 20, ghoul: 14 },
+    mix: { slime: 100 },
+
+    /** Todo limo aqui e do nivel 6 */
+    niveis: [6, 6],
   },
   {
-    zone: "cripta",
+zone: "cripta",
     count: 8,
-    mix: { skeleton: 62, ogre: 18, ghoul: 12, zumbi_arbalist: 8 },
+
+    /**
+     * SO OGRE, NIVEL 8.
+     *
+     * O MAIS BAIXO dos cinco degraus da escalada de ogre, e o primeiro
+     * que o jogador encontra
+     *
+     * A Cripta era ogerada por quatro tipos — esqueleto (62), ogre (18),
+     * ghoul (12) e zumbi arbalist (8) — e o nome da zona prometia o
+     * esqueleto
+     */
+    mix: { ogre: 100 },
+    niveis: [8, 8],
   },
   {
+    /**
+     * O VALE DAS CINZAS, o quarto degrau de limo.
+     *
+     * A sequencia que o jogador percorre atravessando o portal do hub:
+     * Pantano (1 e 2), Pedreira (2), Dunas (3), Cinzas (4). As quatro tem
+     * um tipo so, e o nivel sobe de uma em uma
+     *
+     * Antes eram ogre (60), ghoul (24) e esqueleto (16). As tres vivem
+     * em outras zonas, entao nenhuma some: o ghoul continua nas Ruinas
+     * (62) e o esqueleto na Cripta (62). O ogre e o unico que muda de
+     * zona — as Cinzas eram o lugar de maior peso dele (60) e o que
+     * sobra e a Cripta (18), o que faz o Ogre e o Esqueleto apontarem
+     * para a mesma zona
+     */
     zone: "cinzas",
     count: 7,
-    mix: { ogre: 60, ghoul: 24, skeleton: 16 },
+    mix: { slime: 100 },
+
+    /** Todo limo aqui e do nivel 4 */
+    niveis: [4, 4],
   },
   {
+    /**
+     * As DUNAS PERDIDAS, o terceiro degrau de limo.
+     *
+     * A sequencia que o jogador percorre atravessando o portal do hub:
+     * Pantano (nivel 1 e 2), Pedreira (nivel 2), Dunas (nivel 3). As tres
+     * zonas tem um tipo so, e o nivel sobe de uma em uma
+     *
+     * Antes eram goblin (60), rat (24) e ogre (16) — e nenhum limo. As
+     * tres vivem em outras zonas com peso maior, entao nenhuma some do
+     * bestiario: o goblin vai para o Acampamento (66), o rat para a
+     * Toca (70) e o ogre para o Vale das Cinzas (60)
+     */
     zone: "dunas",
     count: 6,
-    mix: { goblin: 60, rat: 24, ogre: 16 },
+    mix: { slime: 100 },
+
+    /** Todo limo aqui e do nivel 3 */
+    niveis: [3, 3],
   },
   {
+    /**
+     * A PEDREIRA DO OGRO, ao lado do Pantano.
+     *
+     * So tem Limo Preguiçoso, e todo limo e do nivel 2. Antes eram
+     * ogre (68), esqueleto (20) e goblin (12) — a zona se chamava
+     * Pedreira do Ogre e nao tinha nenhum ogre nela
+     *
+     * ## NENHUMA CRIATURA SAI DO JOGO
+     *
+     * As tres que moravam aqui vivem em outras zonas, e o bestiario
+     * continua com as tres. O que muda e ONDE o "ir matar" leva o
+     * jogador: o ogre vai para o Vale das Cinzas (peso 60, era 68 aqui),
+     * o esqueleto para a Cripta (62) e o goblin para o Acampamento (66).
+     * O limite e 2 e nao "1 a 2" porque a zona e o degrau DEPOIS do
+     * Pantano na progressao do jogador
+     */
     zone: "pedreira",
     count: 7,
-    mix: { ogre: 68, skeleton: 20, goblin: 12 },
+    mix: { slime: 100 },
+
+    /**
+     * Todo limo aqui e do nivel 2.
+     *
+     * O intervalo e `[2, 2]` e nao `2`: o campo e um intervalo, e
+     * escrever `niveis: 2` seria lido como `[2, undefined]` e viraria
+     * `NaN` no sorteio
+     */
+    niveis: [2, 2],
   },
   {
+    /**
+     * O PANTANO e a zona de ENTRADA do vale.
+     *
+     * Ela e onde o jogador chega atravessando o portal que vem do hub,
+     * entao o que mora aqui e a primeira coisa que ele enfrenta. E o
+     * unico lugar do jogo que so tem limo, e so limo de nivel 1 e 2
+     *
+     * Antes eram ogre (nivel 15), ghoul (8) e um punhado de limo. O
+     * jogador de nivel 1 saia do hub, andava quatro mil pixels e
+     * encontrava um ogre de nivel 15 no primeiro passo — o portal
+     * became a armadilha mais longe do mapa
+     *
+     * O `niveis` e o que segura o teto. O `LEVEL_TIERS` global soma ate
+     * 2 ao nivel do tipo, e o limo tem base 1, entao sem o clamp ele
+     * nasceria tambem no nivel 3
+     */
     zone: "pantano",
     count: 7,
-    mix: { ogre: 62, ghoul: 22, slime: 16 },
+    mix: { slime: 100 },
+
+    /**
+     * O NIVEL sorteado na zona, em vez do `LEVEL_TIERS` global.
+     *
+     * O clamp e o que garante o "1 a 2" do enunciado. Um limo tem base
+     * 1, entao 1 e 2 e o nivel base e o nivel base mais um
+     */
+    niveis: [1, 2],
+  },
+  {
+    /**
+     * O CAMPO DE PROVAS tambem tem um par de criaturas.
+     *
+     * O campo e o lugar de treino, e os bonecos parados continuam
+     * sendo o alvo de pratica. Estas duas nao sao alvo: sao o par de
+     * nivel mais alto do vale, postas nos lados para o jogador medir
+     *
+     * O limo 6 continua a progressao (o Brejo e 6 tambem) e o ogre 7 e
+     * o degrau acima dele
+     *
+     * ## ESTA ENTRADA VAI NO FIM DE PROPONTO
+     *
+     * A ordem do roster define o indice global de cada criatura, e o
+     * indice 0 e o que os testes de auto e de missao usam como "a
+     * primeira criatura do mapa". Colocar o campo na frente punha um
+     * limo a 1800px do nascimento nesse papel, e o piloto passava a
+     * atravessar o mapa para alcancar uma criatura que nao e a que o
+     * teste nomeou
+     */
+    zone: "treino",
+    count: 10,
+    mix: { slime: 60, ogre_da_predeira: 40 },
+
+    /** Um nivel por tipo: o `niveis` da zona e um intervalo so */
+    niveisPorTipo: { slime: 6, ogre_da_predeira: 7 },
+
+    /**
+     * Comportamento por tipo, e nao so o `niveisPorTipo`.
+     *
+     * Um limo do campo e SEMI_PASSIVE: ele nao persegue, mas tambem nao
+     * FOGE. O `slime` do tipo e PASSIVE, e um passive foge do jogador a
+     * 100px — o piloto andando atras dele mantem a distancia igual, e o
+     * auto de cacar perto fica sem alvo valido
+     *
+     * Este e o primeiro limo da lista, e o que fica mais perto do
+     * nascimento dentro do campo
+     */
+    behaviors: { slime: BEHAVIOR.SEMI_PASSIVE },
+
+    /**
+     * Posicao por TIPO, e nao por slot.
+     *
+     * A grade do roster espalha por igual, e aqui os lados importam: o
+     * limo encosta no Brejo (oeste, que termina em x=2420) e o ogre na
+     * Cripta (leste, que comeca em x=4620)
+     *
+     * ## POR QUE OS DOIS FICAM LONGE DO CENTRO
+     *
+     * O nascimento do jogador e no meio do campo (3000,2100). Uma
+     * criatura perto dele atravessa a linha entre o jogador e o resto
+     * do mapa, e qualquer teste que posicione um alvo no oeste a 420px
+     * passa a ter um obstaculo no meio do caminho — o alvo fica a 217px
+     * e nunca chega no alcance
+     *
+     * Todos os pontos ficam a mais de 500px do nascimento, entao o
+     * campo nunca vira um obstaculo no meio do mapa
+     */
+    posicoes: {
+      /**
+       * O PRIMEIRO limo nao entra no miolo.
+       *
+       * E o mais perto do nascimento que nao esta na linha dos outros,
+       * e ele precisa ficar assim: o clique-para-engatar do
+       * `GameEngine.test` procura a criatura viva mais proxima, e um
+       * limo PASSIVO a 253px do spawn foge do jogador em vez de
+       *fightar — o clique erra e o ataque basico nunca e pedido
+       *
+       * Os outros cinco ficam agrupados no canto oeste, que e o lado do
+       * Brejo
+       */
+      slime: [
+        { x: 2720, y: 1960 },
+        { x: 2960, y: 2560 },
+        { x: 2660, y: 2280 },
+        { x: 2900, y: 1780 },
+        { x: 3140, y: 1660 },
+        { x: 2760, y: 2520 },
+      ],
+      ogre_da_predeira: [
+        { x: 4300, y: 1900 },
+        { x: 4200, y: 2300 },
+        { x: 4340, y: 2540 },
+        { x: 4180, y: 1640 },
+      ],
+    },
   },
 ];
+
+/**
+ * O ROSTER DO MAPA 2.
+ *
+ * ## A ESCALA CONTINUA DEPOIS DO MAPA 1
+ *
+ * O mapa 1 fecha no 12, na Floresta Sombria — que e a zona onde esta o
+ * `portal_floresta`, o unico portal que leva para ca. No mapa 2 essa
+ * mesma Floresta e o 13, e o mapa inteiro continua subindo a partir
+ * dela: o Acampamento, que esta do lado, e o 14
+ *
+ * ## POR QUE A ESCALA SOBE, E O MAPA 1 DESCE
+ *
+ * No mapa 1 o jogador entra pelo Pantano, no nivel 1, e sobe ate a
+ * Floresta. No mapa 2 ele entra pela Floresta, no 13, e a partir dai o
+ * caminho continua para o lado oposto: Acampamento, Campina, Ruinas,
+ * Cripta, e depois o campo de provas e o miolo do mapa
+ *
+ * Por isso a lista e escrita na ordem da ESCALA e nao na ordem em que
+ * as linhas do mapa 1 foram escritas. Um `+1` mecanico daria Acampamento
+ * 12 — o jogador atravessaria o portal para o 13 e encontraria o 12 logo
+ * em seguida, e a campanha voltaria a andar para tras
+ *
+ * ## A SENTINELA NO LUGAR DO OGRE
+ *
+ * Todo ogre do mapa 2 e `skeleton`, a Sentinela Esqueletica, inclusive o
+ * `ogre_da_predeira` do campo de provas. As contagens por zona e as
+ * posicoes vem do roster do mapa 1, entao o desenho do territorio e o
+ * mesmo e so a criatura muda
+ */
+const ESCALA_MAPA_2 = [
+  ["floresta", 13],
+  ["acampamento", 14],
+  ["campina", 15],
+  ["ruinas", 16],
+  ["cripta", 17],
+
+  /**
+   * O CAMPO DE PROVAS e o par, como no mapa 1: um nivel para o slime e
+   * um para a sentinela, com o `slime` no mais fraco
+   */
+  ["treino", 18],
+
+  ["brejo", 20],
+  ["toca", 21],
+  ["cinzas", 22],
+  ["dunas", 23],
+  ["pedreira", 24],
+  ["pantano", 25],
+];
+
+/**
+ * A TABELA DE TIPOS DO MAPA 2.
+ *
+ * O mapa 2 nao tem nenhum ogre nem nenhum limo: onde o mapa 1 tem ogre
+ * e sentinela, onde o mapa 1 tem limo e arqueiro zumbi
+ *
+ * E uma tabela, e nao uma regra no estilo "comeca com ogre". Os dois
+ * ogres viram a MESMA sentinela, e o limo vira o arqueiro — um `+1`
+ * mecanico ou um `replace` por nomeacinaria o limo no arqueiro e
+ * esqueceria o `ogre_da_predeira`, que e o outro ogre do jogo
+ */
+const TIPOS_DO_MAPA_2 = {
+  ogre: "skeleton",
+  ogre_da_predeira: "skeleton",
+  slime: "zumbi_arbalist",
+};
+
+export const MAP_2_ROSTER = ESCALA_MAPA_2.map(([zone, nivel]) => {
+  const base = ZONE_ROSTER.find((row) => row.zone === zone);
+
+  if (!base) {
+    throw new Error(`zona ausente no roster do mapa 1: ${zone}`);
+  }
+
+  const renomeia = (typeId) => TIPOS_DO_MAPA_2[typeId] ?? typeId;
+
+  const trocou = (typeId) => renomeia(typeId) !== typeId;
+
+  /**
+   * O `mix` e a lista de tipos com peso, e os dois ogres do campo de
+   * provas somam 100. Trocar os dois pelo mesmo `skeleton` faria o peso
+   * dobrar, entao as chaves iguais somam e o total volta a 100
+   */
+  const mix = {};
+
+  for (const [typeId, weight] of Object.entries(base.mix ?? {})) {
+    mix[renomeia(typeId)] = (mix[renomeia(typeId)] ?? 0) + weight;
+  }
+
+  /**
+   * O `niveisPorTipo` e do PAR do campo de provas: um nivel para o
+   * slime e o seguinte para a sentinela, na ordem em que as chaves
+   * aparecem no `niveisPorTipo` do mapa 1
+   *
+   * Soma-se o indice da chave e nao um `+1` fixo: o par do mapa 1 e
+   * {slime: 6, ogre_da_predeira: 7}, entao o primeiro tipo fica na
+   * escala e o segundo um acima
+   */
+  const chaves = Object.keys(base.niveisPorTipo ?? {});
+
+  const niveisPorTipo = {};
+
+  chaves.forEach((typeId, indice) => {
+    niveisPorTipo[renomeia(typeId)] = nivel + indice;
+  });
+
+/**
+ * O `behaviors` NAO E LEVADO JUNTO QUANDO O TIPO MUDA.
+ *
+ * O override do mapa 1 existe para o SLIME do campo de provas: ele e
+ * semi-passivo no treino e passivo no resto, porque um passive foge do
+ * jogador a 100px e o auto de cacar perto fica sem alvo valido
+ *
+ * Copiar esse override para o arqueiro zumbi inverteria o comportamento
+ * dele: a sentinela e ATIVA e ataca de longe, e um arqueiro zumbi
+ * semi-passivo andando de costas atirando flecha seria o pior dos dois
+ * mundos. O arqueiro fica com o ATIVE do proprio tipo
+ */
+  const behaviors = Object.fromEntries(
+    Object.entries(base.behaviors ?? {})
+      .filter(([typeId]) => !trocou(typeId))
+      .map(([typeId, valor]) => [renomeia(typeId), valor]),
+  );
+
+  /**
+   * AS POSICOES por tipo, ligadas ao mix.
+   *
+   * Sao os mesmos pontos do mapa 1 — o mapa 2 tem as mesmas dimensoes e
+   * o mesmo terreno — e so a CHAVE do tipo muda
+   */
+  const posicoes = {};
+
+  for (const [typeId, pontos] of Object.entries(base.posicoes ?? {})) {
+    posicoes[renomeia(typeId)] = pontos;
+  }
+
+  const linha = { zone, count: base.count, mix };
+
+  if (base.niveis) {
+    /**
+     * O `niveis` do mapa 1 e um INTERVALO, e o Pantano era [1, 2] — o
+     * jogador mata qualquer um dos dois. Aqui vira um nivel so, o da
+     * escala: o mapa 2 nao repete degrau
+     */
+    linha.niveis = [nivel, nivel];
+  }
+
+  if (Object.keys(niveisPorTipo).length > 0) {
+    linha.niveisPorTipo = niveisPorTipo;
+  }
+
+  if (behaviors) {
+    linha.behaviors = behaviors;
+  }
+
+  if (Object.keys(posicoes).length > 0) {
+    linha.posicoes = posicoes;
+  }
+
+  return linha;
+});
+
+/**
+ * O ROSTER DE UM MAPA.
+ *
+ * O mapa 1 usa o roster declarado na mão; o mapa 2 usa o derivado. A
+ * escolha e pelo `id` do mapa e nao por "tem zona com `baseId`", porque
+ * o `id` e a unica coisa que identifica o mapa em todo o resto do jogo
+ */
+export function rosterOf(map) {
+  return map?.id === "map_2" ? MAP_2_ROSTER : ZONE_ROSTER;
+}
 
 function allocateTypes(count, mix) {
   const entries = Object.entries(mix);
@@ -549,6 +1044,63 @@ function allocateTypes(count, mix) {
   return exact
     .filter((entry) => entry.count > 0)
     .map((entry) => ({ id: entry.id, count: entry.count }));
+}
+
+/**
+ * O NIVEL de uma criatura nesta zona.
+ *
+ * ## A REGRA GERAL
+ *
+ * O `LEVEL_TIERS` global sorteia um deslocamento e soma ao nivel base do
+ * tipo: um limo (base 1) nasce em 1, 2 ou 3, e um ogre (base 15) em 15,
+ * 16 ou 17. E o que faz a zona危险 do jeito que o bioma pede
+ *
+ * ## A REGRA DA ZONA
+ *
+ * Uma zona que declara `niveis` usa o intervalo dela, e o nivel base do
+ * tipo e IGNORADO. E assim que o Pantano Profundo consegue ser a zona de
+ * entrada com limo de nivel 1 e 2: sem o intervalo, o `LEVEL_TIERS`
+ * global colocaria um limo de nivel 3 la, e o `slime.level` continuaria
+ * sendo 1 para o resto do jogo
+ *
+ * O campo e um intervalo, e nao um teto. Um "teto" sozinho deixaria o
+ * piso nas maos do sorteio global, e a zona nao teria os dois numeros
+ * que o enunciado pede
+ *
+ * ## POR QUE O `random` E PASSADO
+ *
+ * A funcao sorteia, e nao recebe o numero ja sorteado. Assim o mesmo
+ * `random` do roster serve para posicao e para nivel, e uma semente
+ * continua reproduzindo o mesmo mapa
+ */
+function nivelDaZona(entry, type, random) {
+  /**
+   * O NIVEL POR TIPO tem precedencia sobre o da zona.
+   *
+   * O campo de provas tem dois niveis diferentes no mesmo campo: limo 6
+   * e ogre 7. O `niveis` da zona e um unico intervalo, entao ele nao da
+   * para expressar os dois. O `niveisPorTipo` e escrito por tipo e
+   * consultado antes
+   */
+  if (entry.niveisPorTipo) {
+    const nivel = entry.niveisPorTipo[type.id];
+
+    if (nivel !== undefined) return nivel;
+  }
+
+  if (!entry.niveis) {
+    return Math.max(
+      1,
+      (type.level ?? 1) +
+        LEVEL_TIERS[
+          Math.floor(random() * LEVEL_TIERS.length)
+        ],
+    );
+  }
+
+  const [min, max] = entry.niveis;
+
+  return Math.round(min + random() * (max - min));
 }
 
 function buildZoneTypes(entry) {
@@ -686,25 +1238,52 @@ export function createCreatureRoster(
   const random = createRandom(seed);
   const roster = [];
 
-  /**
+/**
    * Os ids das zonas deste mapa.
    *
-   * Um `Set` porque a busca acontece uma vez por entrada do roster, e
-   * as zonas do vale sao doze
+   * Um `Set` porque a busca acontece uma vez por entrada do roster, e as
+   * zonas do vale sao doze
+   *
+   * Entram os DOIS ids de cada zona: o dela e o `baseId`, que e o id da
+   * zona do mapa 1 que ela copia. Sem o `baseId` no conjunto, o mapa 2
+   * — cujas zonas tem o prefixo `m2_` — nao casaria com nenhuma entrada
+   * do roster e nasceria sem criatura nenhuma
    */
   const zonasDoMapa = new Set(
-    (map.zones ?? []).map((zone) => zone.id),
+    (map.zones ?? []).flatMap((zone) =>
+      zone.baseId ? [zone.id, zone.baseId] : [zone.id],
+    ),
   );
 
   let index = 0;
 
-  for (const entry of ZONE_ROSTER) {
+  /**
+   * O ROSTER E DO MAPA, e nao um so.
+   *
+   * O mapa 1 usa o roster declarado na mao e o mapa 2 usa o derivado:
+   * sentinela no lugar do ogre e um nivel acima em cada degrau. Um
+   * roster unico obrigaria o mapa 2 a ter ogres, ou o mapa 1 a ter
+   * sentinelas
+   */
+  for (const entry of rosterOf(map)) {
     // a zona existe, mas e de outro mapa: aqui nao mora ninguem
     if (!zonasDoMapa.has(entry.zone)) continue;
 
-    const zone =
-      map.zones.find((z) => z.id === entry.zone) ??
-      getZoneById(entry.zone);
+    /**
+   * A ZONA DO ROSTER NESTE MAPA.
+   *
+   * O `ZONE_ROSTER` aponta para as zonas pelo id do mapa 1. O mapa 2 e
+   * uma copia, e as zonas dele tem o prefixo `m2_` — sem o `baseId` o
+   * roster nao reconheceria nenhuma e o mapa 2 nasceria sem criatura
+   *
+   * O `baseId` e o id da zona do mapa 1 que a copia representa. E o que
+   * evita duplicar as centenas de linhas do roster para o mapa 2
+   */
+  const zone =
+    map.zones.find(
+      (z) => z.id === entry.zone || z.baseId === entry.zone,
+    ) ??
+    getZoneById(entry.zone);
 
     if (!zone) {
       throw new Error(`zona desconhecida: ${entry.zone}`);
@@ -716,44 +1295,80 @@ export function createCreatureRoster(
     const types = buildZoneTypes(entry);
 
     for (let slot = 0; slot < entry.count; slot += 1) {
-      const column = slot % columns;
-      const row = Math.floor(slot / columns);
-
-      const cellWidth = zone.width / (columns + 1);
-      const cellHeight = zone.height / (rows + 1);
-
-      const jitterX = (random() - 0.5) * cellWidth * 0.55;
-      const jitterY = (random() - 0.5) * cellHeight * 0.55;
-
-      const position = {
-        x: Math.round(
-          zone.x + cellWidth * (column + 1) + jitterX,
-        ),
-        y: Math.round(
-          zone.y + cellHeight * (row + 1) + jitterY,
-        ),
-      };
-
       const type = CREATURE_TYPES[types[slot]];
 
-      const level = Math.max(
-        1,
-        (type.level ?? 1) +
-          LEVEL_TIERS[
-            Math.floor(random() * LEVEL_TIERS.length)
-          ],
-      );
+      /**
+       * A POSICAO FIXA tem precedencia sobre a grade.
+       *
+       * A grade espalha por igual, e o campo de provas nao quer igual:
+       * o limo e o ogre tem que ficar nos lados pedidos — o limo junto
+       * do Brejo, o ogre junto da Cripta. A entrada escreve a posicao
+       * de cada tipo, e o que nao vier no grid
+       *
+       * `posicoes[tipo]` e uma LISTA, e o enésimo spot do tipo e o
+       * enésimo da lista. A ultima posição da lista repete, entao um
+       * mix com mais criaturas que pontos continua placing todas
+       */
+      const lista = entry.posicoes?.[types[slot]];
 
-      roster.push(
-        createCreature(
+      let position;
+
+      if (lista) {
+        const spots = Array.isArray(lista) ? lista : [lista];
+
+        const usada = entry.positionsUsadas ??= new Map();
+
+        const n = usada.get(types[slot]) ?? 0;
+
+        usada.set(types[slot], n + 1);
+
+        const spot = spots[Math.min(n, spots.length - 1)];
+
+        position = { x: spot.x, y: spot.y };
+      } else {
+        const column = slot % columns;
+        const row = Math.floor(slot / columns);
+
+        const cellWidth = zone.width / (columns + 1);
+        const cellHeight = zone.height / (rows + 1);
+
+        const jitterX = (random() - 0.5) * cellWidth * 0.55;
+        const jitterY = (random() - 0.5) * cellHeight * 0.55;
+
+        position = {
+          x: Math.round(
+            zone.x + cellWidth * (column + 1) + jitterX,
+          ),
+          y: Math.round(
+            zone.y + cellHeight * (row + 1) + jitterY,
+          ),
+        };
+      }
+
+const criatura = createCreature(
           types[slot],
           position,
           index,
-          level,
-        ),
-      );
+          nivelDaZona(entry, type, random),
+        );
 
-      index += 1;
+        /**
+         * O COMPORTAMENTO por tipo vem por cima do que a criatura
+         * herdou do seu tipo
+         *
+         * O campo de provas usa isto: um limo `semiPassive` em vez de
+         * `passive`. O `slime` do tipo foge do jogador a 100px, e um
+         * alvo que foge nunca serve para o auto de cacar perto
+         */
+        const comportamento = entry.behaviors?.[types[slot]];
+
+        if (comportamento) {
+          criatura.behavior = comportamento;
+        }
+
+        roster.push(criatura);
+
+        index += 1;
     }
   }
 
@@ -809,7 +1424,7 @@ const DUEL_DUMMY = {
   evasion: 0,
 };
 
-/** O boneco de madeira e o de duelo. Os outros seis sao alvos fixos. */
+/** O boneco de madeira e o de duelo. O reforcado e alvo fixo. */
 const DUEL_DUMMY_IDS = new Set(["dummy_warrior"]);
 
 export function createTrainingDummy(blueprint) {
@@ -838,7 +1453,7 @@ export function createTrainingDummy(blueprint) {
     typeId: blueprint.id,
 
     // `duelo` marca o boneco que revida. E o que a EnemyAI le para
-    // rodar nele a regra do duelo; os outros seis ficam com zero
+    // rodar nele a regra do duelo; o outro fica com zero
     // deste campo e continuam alvos fixos
     duelo: DUEL_DUMMY_IDS.has(blueprint.id)
       ? { ...DUEL_DUMMY }

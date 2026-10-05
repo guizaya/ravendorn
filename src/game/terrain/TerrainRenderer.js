@@ -823,6 +823,14 @@ export class TerrainRenderer {
         continue;
       }
 
+      /**
+       * Nenhuma zona e pulada aqui.
+       *
+       * Houve um tempo em que o campo de provas era a unica de fora, e o
+       * `draw` pulava ela para o chao do mapa aparecer. Agora as doze
+       * entram no mesmo `fillZone`, e o campo de provas usa o mesmo
+       * ladrilho de terra das onze areas de mob
+       */
       this.fillZone(context, zone);
     }
   }

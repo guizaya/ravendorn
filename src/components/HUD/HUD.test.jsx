@@ -4,6 +4,7 @@ import HUD from "./HUD.jsx";
 import { CHARACTER_CLASSES } from "../../data/characters/index.js";
 import { getCharacterDefinition } from "../../data/characters/index.js";
 import { Bestiary } from "../../game/bestiary/Bestiary.js";
+import { getBestiaryEntry } from "../../data/bestiary/index.js";
 import { Craft } from "../../game/craft/Craft.js";
 import { Inventory } from "../../game/inventory/Inventory.js";
 
@@ -362,7 +363,21 @@ describe("bestiary menu", () => {
 
   it("shows the closed hunt count as a badge", () => {
     const bestiary = new Bestiary();
-    bestiary.onKill("slime", 5);
+
+    /**
+     * A QUANTIDADE VEM DO CATALOGO, e nao um numero escrito aqui.
+     *
+     * A primeira cacada de limo e `2x` a base da missao principal, e a
+     * base sobe com o nivel do degrau. Escrever `5` aqui travava o
+     * teste no numero antigo: quando a conta mudou para 20, o teste
+     * matava 5 limos, nao fechava nada e falhava — parecendo que o
+     * badge tinha quebrado, quando o que tinha mudado era a cacada
+     *
+     * Ler do catalogo faz o teste valer para a conta que existir
+     */
+    const primeira = getBestiaryEntry("slime").hunts[0];
+
+    bestiary.onKill("slime", primeira.count);
 
     const html = render({
       snapshot: snapshot({ bestiary: bestiary.snapshot() }),

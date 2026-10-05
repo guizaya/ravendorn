@@ -414,6 +414,119 @@ describe("menu de acao do item", () => {
     expect(html).not.toContain("inv-menu__backdrop");
   });
 
+  /**
+   * O BOTAO DE USAR, que existe por causa do `use` do catalogo.
+   *
+   * E o que separa a pocao de um material comum no menu do slot. O
+   * `ItemSlot` recebe um item e nao sabe o que e pocao: ele so olha o
+   * `use`, e um item novo com efeito ganha o botao sem tocar nele
+   */
+  it("a pocao abre com usar, e sem equipar", () => {
+    const html = renderToStaticMarkup(
+      <ItemSlot
+        entry={{ uid: "pocao#1", itemId: "pocao_cura", count: 2 }}
+        onEquip={() => {}}
+        onUseItem={() => {}}
+        onDiscardItem={() => {}}
+        menuOpen
+        onToggleMenu={() => {}}
+      />,
+    );
+
+    expect(html).toContain("is-menu");
+
+    /**
+     * O rotulo mostra QUANTO cura.
+     *
+     * E o que o jogador le antes de gastar a pocao. Com um rotulo
+     * generico de "Usar", ele descobriria o valor so depois de perder
+     * o item — e a Mochila cheia aqui seria o ultimo lugar para
+     * descobrir
+     */
+    expect(html).toContain(">Usar · 120 de vida<");
+
+    /**
+     * Nao ha "Equipar" na pocao.
+     *
+     * `isEquippable` olha os slots do tipo, e `potion` nao tem nenhum.
+     * Se a regra passasse a considerar `ITEM_TYPE.POTION` equipavel, a
+     * pocao apareceria com "Equipar · Mao principal" e o clique
+     * falharia em silencio
+     */
+    expect(html).not.toContain(">Equipar");
+  });
+
+  it("usar vem ANTES de excluir", () => {
+    const html = renderToStaticMarkup(
+      <ItemSlot
+        entry={{ uid: "pocao#1", itemId: "pocao_cura", count: 2 }}
+        onEquip={() => {}}
+        onUseItem={() => {}}
+        onDiscardItem={() => {}}
+        menuOpen
+        onToggleMenu={() => {}}
+      />,
+    );
+
+    /**
+     * A ordem do menu e o que decide se o jogador encontra o uso.
+     *
+     * "Excluir" primeiro com "Usar" embaixo faz o jogador procurar a
+     * acao que ele quer no meio de um menu que comeca pela acao que ele
+     * nao quer. E o `is-danger` do excluir ja os separa visualmente, o
+     * que nao tira o problema da ordem
+     */
+    const usar = html.indexOf(">Usar");
+    const excluir = html.indexOf(">Excluir");
+
+    expect(usar).toBeGreaterThan(-1);
+    expect(excluir).toBeGreaterThan(-1);
+    expect(usar).toBeLessThan(excluir);
+  });
+
+  it("um item sem `use` NAO ganha o botao de usar", () => {
+    const html = renderToStaticMarkup(
+      <ItemSlot
+        entry={{ uid: "slime#1", itemId: "slime_gel", count: 3 }}
+        onEquip={() => {}}
+        onUseItem={() => {}}
+        onDiscardItem={() => {}}
+        menuOpen
+        onToggleMenu={() => {}}
+      />,
+    );
+
+    /**
+     * O gel de slime e material, e nao tem `use`.
+     *
+     * O botao de usar eachegado por `item.use`, e nao pelo tipo. Um
+     * material que ganhasse o botao por ser empilhavel daria ao
+     * jogador uma acao que nao faz nada — e o motor recusaria o uso
+     * com um `false` silencioso
+     */
+    expect(html).not.toContain(">Usar");
+  });
+
+  it("sem o handler, o botao de usar nao aparece", () => {
+    const html = renderToStaticMarkup(
+      <ItemSlot
+        entry={{ uid: "pocao#1", itemId: "pocao_cura", count: 2 }}
+        onEquip={() => {}}
+        onDiscardItem={() => {}}
+        menuOpen
+        onToggleMenu={() => {}}
+      />,
+    );
+
+    /**
+     * O `onUseItem` e opcional, e o item TEM `use`.
+     *
+     * Sem o handler nao ha para quem mandar o pedido, e um botao que
+     * aparece e nao faz nada e pior do que um botao que nao aparece
+     */
+    expect(html).not.toContain(">Usar");
+  });
+
   it("abre com equipar e excluir em item equipavel", () => {
     const html = renderToStaticMarkup(
       <ItemSlot

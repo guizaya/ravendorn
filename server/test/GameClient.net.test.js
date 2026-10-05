@@ -371,9 +371,13 @@ describe("dois clientes no mesmo mundo", () => {
 
     await esperar(200);
 
-    const alvo = jogo.engine.world.enemies.find(
-      (e) => e.kind !== "training" && e.hp > 0,
-    );
+    const alvo = jogo.engine.world.enemies
+      .filter((e) => e.isCreature && e.hp > 0)
+      .sort(
+        (a, b) =>
+          Math.hypot(a.x - 3000, a.y - 2100) -
+          Math.hypot(b.x - 3000, b.y - 2100),
+      )[0];
 
     jogo.engine.withPlayer(ana.cliente.playerId, () => {
       jogo.engine.damage.applyDamage(
@@ -444,7 +448,7 @@ describe("dois clientes no mesmo mundo", () => {
     sessao.inventory.capacity = 0;
 
     const mob = jogo.engine.world.enemies.find(
-      (e) => e.kind !== "training" && e.hp > 0,
+      (e) => e.isCreature && e.hp > 0,
     );
 
     jogo.engine.withPlayer(ana.cliente.playerId, () => {

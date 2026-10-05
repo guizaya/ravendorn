@@ -9,7 +9,6 @@ import {
 
 import { TerrainRenderer } from "./TerrainRenderer.js";
 import {
-  BASE_TERRAIN,
   GROUND_TILES,
   GROUND_TILE_SIZE,
   GROUND_USES_TILE,
@@ -507,44 +506,79 @@ describe("as areas dos mobs continuam como estavam", () => {
       image: ladrilho(renderer),
     });
   });
-
-  it("uma zona de grama NAO usa o tile de grama", () => {
+  it("o campo de provas ladrilha COMO as onze areas de mob", () => {
     /**
-     * Este e o ponto que costuma dar errado.
+     * A REGRA FINAL: as doze usam o `terra.jpg`.
      *
-     * A zona de treino tem `terrain: "grass"`, igual ao
-     * `BASE_TERRAIN`. Se o `fillZone` pegasse o tile pelo terreno, a
-     * zona viraria a mesma textura do chao e perderia a leitura de area
-     * reservada — e o jogador deixaria de saber onde comeca o combate
+     * Este teste ja afirmou o contrario duas vezes — primeiro que o
+     * campo nao podia se parecer com o chao, para o jogador saber onde
+     * comeca o combate; depois que ele devia usar o chao padrao do
+     * mapa. As duas deixavam o campo como o unico retangulo do vale com
+     * outra textura, o que aparecia como um degrau de estilo na borda
+     *
+     * O que este teste trava agora e o ponto que importa: o campo de
+     * provas usa o MESMO padrao de ladrilho que as areas de mob, e nao
+     * uma grade de patches nem o chao de fora
      */
     const renderer = rendererCom();
+
     const ctx = contextQueConta();
 
     const treino = MAP_1_META.zones.find(
-      (zone) => zone.terrain === BASE_TERRAIN,
+      (zone) => zone.kind === "training",
     );
 
-    expect(treino, "nenhuma zona usa o terreno base").toBeTruthy();
+    expect(treino, "o campo de provas sumiu").toBeTruthy();
 
     renderer.draw(ctx, MAP_1, [treino], VIEW);
 
-    expect(ctx.preenchimentos.length).toBeGreaterThanOrEqual(2);
+    // o ladrilho de terra foi construido
+    expect(renderer.zonePattern).not.toBe(null);
 
+    // e ele foi o que preencheu a zona
+    expect(
+      ctx.preenchimentos.some(
+        (p) => p.fillStyle === renderer.zonePattern,
+      ),
+      "o campo de provas nao ladrilhou com o terra.jpg",
+    ).toBe(true);
+
+    // nenhuma grade de patches, que era o caminho antigo dele
+    expect(renderer.zoneGrids.size).toBe(0);
+
+    expect(renderer.patches.size).toBe(0);
+  });
+
+  it("o ladrilho do campo e o MESMO das onze areas de mob", () => {
     /**
-     * O tile de 128px entra em UM padrao so: o do chao. A zona usa um
-     * patch de 256px montado de tiles de 32px
+     * O `terra.jpg` e um so, e as doze usam.
+     *
+     * `zonePattern` e um unico padrao compartilhado: se o campo de
+     * provas tivesse o seu, seriam dois ladrilhos para a mesma arte, e
+     * a diferenca de escala apareceria na borda entre as duas zonas
      */
-    expect(
-      ctx.imagensDePadrao.filter(
-        (p) => p.image === ladrilho(renderer),
-      ).length,
-    ).toBe(1);
+    const renderer = rendererCom();
 
-    expect(
-      ctx.imagensDePadrao.filter(
-        (p) => p.image !== ladrilho(renderer),
-      ).length,
-    ).toBeGreaterThan(0);
+    const ctx = contextQueConta();
+
+    const treino = MAP_1_META.zones.find(
+      (zone) => zone.kind === "training",
+    );
+
+    const mobs = MAP_1_META.zones.filter(
+      (zone) => zone.kind !== "training",
+    );
+
+    renderer.draw(ctx, MAP_1, [treino, ...mobs], VIEW);
+
+    const ladrilhos = new Set(
+      ctx.preenchimentos
+        .map((p) => p.fillStyle)
+        .filter((f) => f && f.padrao),
+    );
+
+    // o chao do mapa e o ladrilho de terra: dois, e nao tres
+    expect(ladrilhos.size).toBe(2);
   });
 });
 

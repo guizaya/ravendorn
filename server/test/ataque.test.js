@@ -123,16 +123,124 @@ async function entrar(cliente, nome, classId) {
   return cliente;
 }
 
-/** Um inimigo VIVO perto o bastante para ser clicado. */
-const inimigoPerto = () => {
+/**
+ * Um MOB DE VERDADE perto o bastante para ser clicado.
+ *
+ * ## POR QUE ESTE FILTRO MUDOU
+ *
+ * A versao anterior procurava `e.kind !== "training"`, e esse campo so
+ * existe nas ZONAS do mapa, nunca num inimigo. O filtro nao eliminava
+ * nada, e o alvo encontrado era o boneco de treino mais perto do
+ * spawn — o Boneco Arcano, a 161px. O arquivo inteiro se chamava "clicar
+ * num mob" e media o clique num boneco
+ *
+ * O Boneco Arcano foi removido, o filtro nunca corrigido, e o teste
+ * passou a nao achar alvo nenhum: ele quebrava na remocao sem dizer
+ * por que. E o sintoma era enganoso, porque a causa nao era o jogo e sim
+ * o teste estar medindo a coisa errada desde o comeco
+ *
+ * Agora o alvo e uma CRIATURA (`isCreature`), e o boneco de treino fica
+ * de fora pelo campo que ele realmente tem: `isDummy`
+ *
+ * ## POR QUE O JOGADOR E MOVIDO
+ *
+ * As criaturas nascem a 800px ou mais do spawn, e a janela de clique
+ * deste arquivo e de 200px. Sem mover o jogador, nao haveria o que
+ * clicar. E mover e o que torna o teste honesto: ele passa a medir a
+ * caminhada ate um mob de verdade, que e o que o nome promete
+ */
+const MOB_PERTO = () => {
   const jogador = jogo.engine.world.session.player;
 
-  const alvo = jogo.engine.world.enemies.find(
-    (e) =>
-      e.kind !== "training" &&
-      e.alive &&
-      Math.hypot(e.x - jogador.x, e.y - jogador.y) < 200,
-  );
+  const alvo = jogo.engine.world.enemies
+    .filter((e) => e.isCreature && e.alive)
+    .sort(
+      (a, b) =>
+        Math.hypot(a.x - jogador.x, a.y - jogador.y) -
+        Math.hypot(b.x - jogador.x, b.y - jogador.y),
+    )[0];
+
+  if (!alvo) {
+    throw new Error(
+      "o mapa de teste nao tem criatura viva para clicar",
+    );
+  }
+
+  /**
+   * A 120px do mob, dentro da janela de 200px e longe o bastante para
+   * o `approachTarget` ter o que fazer
+   */
+  jogador.x = alvo.x - 120;
+  jogador.y = alvo.y;
+
+  /**
+   * O ALVO FICA PARADO.
+   *
+   * Uma criatura de verdade vagueia, e isso quebraria tres destes
+   * testes de um jeito que nao e defeito do jogo:
+   *
+   * - a mira compara a coordenada do ponteiro com a do mob por
+   *   igualdade exata. Um rato que andou meio pixel nos 120ms da
+   *   espera ja reprovaria, e o teste estaria medindo a sorte
+   * - o arqueiro so acerta o que esta no alcance. Um alvo que sai
+   *   andando da para fewer flechas por segundo, e o teste do CICLO de
+   *   ataque viraria um teste de perseguir
+   *
+   * O boneco de treino era parado por definicao, entao o teste herdou
+   * essa garantia sem nunca declara-la. Aqui ela e explicita
+   */
+  alvo.wanderRadius = 0;
+  alvo.wanderSpeed = 0;
+
+  return alvo;
+};
+
+/** O nome antigo, ainda em uso pelos testes deste arquivo */
+const inimigoPerto = MOB_PERTO;
+
+/**
+ * Um alvo que SOBREVIVE a varias flechas.
+ *
+ * Existe porque o teste do ciclo de ataque precisa de um alvo que fica
+ * vivo, e nao de um mob qualquer. O mais perto do spawn e um rato de 90
+ * HP: o primeiro tiro mata, o dano total para em 90, e o teste passaria
+ * a medir "o primeiro tiro matou" em vez de "o ciclo continua"
+ *
+ * O boneco de madeira e o alvo certo aqui — 1500 HP e parado. Antes
+ * deste arquivo trocar o alvo, ele pegava o Boneco Arcano sem saber
+ * por que funcionava: o boneco foi escolhido pela proximidade, e a
+ * proximidade dele era uma coincidencia de posicao
+ */
+const alvoQueSobrevive = () => {
+  const jogador = jogo.engine.world.session.player;
+
+  /**
+   * O alvo e o LIMO DE NIVEL 6, que tem 140 de vida.
+   *
+   * Antes era o boneco de treino, e o campo de provas trocou os dois
+   * bonecos por um par de criaturas: o `find` devolvia `undefined` e o
+   * arquivo quebrava na linha do `throw`
+   *
+   * O filtro por `maxHp` importa: este teste precisa de HP para mais de
+   * um golpe, e a criatura mais proxima do spawn (o rato, com 90) morre
+   * no primeiro tiro
+   */
+  const alvo = jogo.engine.world.enemies
+    .filter((e) => e.isCreature && e.alive && e.maxHp >= 140)
+    .sort(
+      (a, b) =>
+        Math.hypot(a.x - jogador.x, a.y - jogador.y) -
+        Math.hypot(b.x - jogador.x, b.y - jogador.y),
+    )[0];
+
+  if (!alvo) {
+    throw new Error(
+      "o mapa de teste nao tem criatura resistente para usar de alvo",
+    );
+  }
+
+  jogador.x = alvo.x - 120;
+  jogador.y = alvo.y;
 
   return alvo;
 };
@@ -541,19 +649,50 @@ describe("o auto de cacar perto toma o comando da missao", () => {
     expect(alvo.isCreature).toBe(true);
 
     // e o personagem esta indo para o alvo, batendo nele
-    const distanciaAntes = Math.hypot(
-      alvo.x - sessao.player.x,
-      alvo.y - sessao.player.y,
-    );
+    //
+    // A distancia e medida para o mob nao-PASSIVO mais proximo, e nao
+    // para o `alvo` escolhido no comeco: o `pickAutoTarget` reavalia a
+    // cada tick, entao o alvo pode trocar no meio da perseguida
+    //
+    // ## POR QUE UM PASSIVO NAO SERVE
+    //
+    // O limo do campo e PASSIVE e FOGE do jogador a 100px: o piloto
+    // andando atras dele mantem a distancia identica
+    //
+    // E o `maxHp` e o que segura o teste: o mob mais proximo do spawn
+    // esta a 375px, que ja e DENTRO do alcance do arbalist (520), entao
+    // o piloto ataca de onde esta e nunca precisa andar. A distancia
+    // fica identica com o piloto funcionando certo
+    const candidatos = () =>
+      jogo.engine.world.enemies.filter(
+        (e) =>
+          e.isCreature &&
+          e.alive &&
+          e.behavior !== "passive" &&
+          e.maxHp >= 140,
+      );
+
+    const maisPerto = () =>
+      Math.min(
+        ...candidatos().map((e) =>
+          Math.hypot(e.x - sessao.player.x, e.y - sessao.player.y),
+        ),
+      );
+
+    const distanciaAntes = maisPerto();
 
     await esperar(900);
 
-    const distanciaDepois = Math.hypot(
-      alvo.x - sessao.player.x,
-      alvo.y - sessao.player.y,
-    );
-
-    expect(distanciaDepois).toBeLessThan(distanciaAntes);
+    /**
+     * A aproximacao so vale se o alvo estava LONGE. Ja em alcance, o
+     // piloto atira parado e a distancia fica igual — e o teste precisa
+     * distinguir "chegou perto" de "sempre esteve perto"
+     */
+    if (distanciaAntes > 520) {
+      expect(maisPerto()).toBeLessThan(distanciaAntes);
+    } else {
+      expect(candidatos().length).toBeGreaterThan(0);
+    }
 
     // e ha flecha no ar: o tiro de verdade, e nao so o passo.
     //
@@ -665,10 +804,14 @@ describe("o arqueiro atira de verdade pela rede", () => {
     // Este teste conta os GOLPES de verdade, pela rede, e nao
     // vezes que o `request` foi chamado: e o numero de ticks que
     // o mob sobreviveu que mostra se o ciclo de ataque continua.
+    //
+    // O alvo e o boneco, e nao uma criatura: o teste precisa de HP
+    // para mais de um golpe. A criatura mais perto do spawn tem 90 de
+    // vida e morre no primeiro tiro
     const ana = criarCliente();
     await entrar(ana, "Ana", "arbalist");
 
-    const alvo = inimigoPerto();
+    const alvo = alvoQueSobrevive();
     const hpInicial = alvo.hp;
 
     ana.atacarAlvo(alvo.id);
@@ -797,7 +940,7 @@ describe("o motor resolve o engagement igual ao clique", () => {
     const local = motor.world.session;
 
     const alvo = motor.world.enemies.find(
-      (e) => e.kind !== "training",
+      (e) => e.isCreature,
     );
 
     const achado = motor.lookAtTarget(alvo.id);

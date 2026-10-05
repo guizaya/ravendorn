@@ -60,6 +60,16 @@ export default function useGameClient({
   const onDanoRef = useRef(onDano);
   onDanoRef.current = onDano;
 
+  /**
+   * O CONVITE DE PARTY que chegou.
+   *
+   * Vive num `useState` e nao dentro do `snapshot` porque o convite e um
+   * EVENTO addressed so a este jogador: se viesse no painel, a caixa
+   * dependeria do proximo pacote de alguns segundos, e o jogador clicaria
+   * em aceitar uma caixa que ainda nao apareceu
+   */
+  const [conviteParty, setConviteParty] = useState(null);
+
   useEffect(() => {
     const cliente = new GameClient({
       url: urlDoServidor(),
@@ -77,6 +87,18 @@ export default function useGameClient({
 
       // o golpe resolvido que o servidor so mandou para este jogador
       onDano: (dano) => onDanoRef.current(dano),
+
+      /**
+       * O CONVITE DE PARTY.
+       *
+       * E um evento separado do `onState` de proposito: a caixa de cinco
+       * segundos nao pode esperar o proximo painel, que so vem em alguns
+       * segundos — o jogador clica em aceitar e a caixa nao estava la
+       *
+       * O `payload` de `null` e o convite fechando, e e o que faz a
+       * caixa sair quando ele expira ou e recusado
+       */
+      onConviteParty: (convite) => setConviteParty(convite),
     });
 
     clienteRef.current = cliente;
@@ -341,6 +363,25 @@ export default function useGameClient({
     [comCliente],
   );
 
+  /**
+   * BEBER um consumivel, e COMPRAR na loja do mercador.
+   *
+   * Nenhuma das duas decide nada. Quem cura, quem gasta o item da
+   * mochila, quem cobra e quem recusa a vida cheia e o SERVIDOR. Um
+   * `usarItem` local curaria o boneco da tela e o servidor nunca
+   * saberia, que e o furo que a op existe para fechar
+   */
+  const usarItem = useCallback(
+    (uid) => comCliente((c) => c.usarItem(uid)),
+    [comCliente],
+  );
+
+  const comprarPocao = useCallback(
+    (itemId, count) =>
+      comCliente((c) => c.comprarPocao(itemId, count)),
+    [comCliente],
+  );
+
   /** Desiste da cacada em andamento. */
   const pararCacada = useCallback(
     () => comCliente((c) => c.pararCacada()),
@@ -388,28 +429,75 @@ export default function useGameClient({
     [comCliente],
   );
 
-  const negarGuilda = useCallback(
-    (guildaId, alvoId) =>
-      comCliente((c) => c.negarGuilda(guildaId, alvoId)),
-    [comCliente],
-  );
+const negarGuilda = useCallback(
+  (guildaId, alvoId) =>
+    comCliente((c) => c.negarGuilda(guildaId, alvoId)),
+  [comCliente],
+);
+
+/**
+ * A PARTY.
+ *
+ * Os quatro vao pelo mesmo `comCliente` das gualdas: se nao ha socket,
+ * nao ha ninguem para convidar, e o pedido morre aqui em vez de virar
+ * um erro no console
+ */
+const criarParty = useCallback(
+  () => comCliente((c) => c.criarParty()),
+  [comCliente],
+);
+
+const convidarParty = useCallback(
+  (alvoId) => comCliente((c) => c.convidarParty(alvoId)),
+  [comCliente],
+);
+
+const convidarPartyPorNome = useCallback(
+  (nome) => comCliente((c) => c.convidarPartyPorNome(nome)),
+  [comCliente],
+);
+
+const aceitarConviteParty = useCallback(
+  () => comCliente((c) => c.aceitarConviteParty()),
+  [comCliente],
+);
+
+const sairDaParty = useCallback(
+  () => comCliente((c) => c.sairDaParty()),
+  [comCliente],
+);
+
+const expulsarDaParty = useCallback(
+  (alvoId) => comCliente((c) => c.expulsarDaParty(alvoId)),
+  [comCliente],
+);
+
+const seguirPartyMember = useCallback(
+  (alvoId) => comCliente((c) => c.seguirPartyMember(alvoId)),
+  [comCliente],
+);
+
+const focarAlvoDoLider = useCallback(
+  (ligado) => comCliente((c) => c.focarAlvoDoLider(ligado)),
+  [comCliente],
+);
+
+const passarLideranca = useCallback(
+  (alvoId) => comCliente((c) => c.passarLiderancaDaParty(alvoId)),
+  [comCliente],
+);
 
   const sairDaGuilda = useCallback(
     () => comCliente((c) => c.sairDaGuilda()),
     [comCliente],
   );
 
-  const destravarTalent = useCallback(
-    (talentId) => comCliente((c) => c.destravarTalent(talentId)),
-    [comCliente],
-  );
+const destravarTalent = useCallback(
+  (talentId) => comCliente((c) => c.destravarTalent(talentId)),
+  [comCliente],
+);
 
-  const passarLideranca = useCallback(
-    (alvoId) => comCliente((c) => c.passarLideranca(alvoId)),
-    [comCliente],
-  );
-
-  const mexerNoCofre = useCallback(
+const mexerNoCofre = useCallback(
     (guildaId, acao) =>
       comCliente((c) => c.mexerNoCofre(guildaId, acao)),
     [comCliente],
@@ -419,6 +507,16 @@ export default function useGameClient({
     status,
     erro,
     recusa,
+
+    /**
+     * O CONVITE DE PARTY pendente, ou `null`.
+     *
+     * Sai do hook para a tela porque a caixa de cinco segundos e um
+     * ESTADO DE INTERFACE, e nao dado do mundo: ela conta o tempo, aceita
+     * e fecha sozinha
+     */
+    conviteParty,
+
     jogando: status === STATUS.JOGANDO,
     mensagem: MENSAGEM[status] ?? "",
     cliente: clienteRef,
@@ -446,9 +544,18 @@ export default function useGameClient({
   pedirGuilda,
   aceitarGuilda,
   negarGuilda,
+
+    criarParty,
+    convidarParty,
+    convidarPartyPorNome,
+    aceitarConviteParty,
+    sairDaParty,
+    expulsarDaParty,
+    seguirPartyMember,
+    focarAlvoDoLider,
+    passarLideranca,
   sairDaGuilda,
   destravarTalent,
-  passarLideranca,
   mexerNoCofre,
 
     alternarAutoPlay,
@@ -464,6 +571,8 @@ export default function useGameClient({
   listarNoMarket,
   comprarNoMarket,
   cancelarNoMarket,
+    usarItem,
+    comprarPocao,
     pararCacada,
   };
 }

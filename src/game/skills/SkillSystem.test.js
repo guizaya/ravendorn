@@ -45,6 +45,77 @@ const TEST_CLASS = {
   },
 };
 
+/**
+ * O ALVO de teste, escrito aqui.
+ *
+ * Antes vinha de `createTrainingDummies()[0]`, e o campo de provas trocou
+ * os dois bonecos por um par de criaturas: a lista ficou vazia e o
+ * harness montava um alvo com `undefined` espalhado, sem raio nem
+ * posicao — os testes de tiro mediam uma criatura inexistente
+ *
+ * O que estes testes medem e o SkillSystem: quantos acertos, pra quem o
+ * sprite vira, se o alvo e guardado. Nada disso depende de a criatura
+ * ser um boneco de treino, entao o alvo tem o mesmo shape que
+ * `createTrainingDummy` produzia
+ */
+const ALVO = {
+  id: "alvo_0",
+  typeId: "alvo",
+  name: "Alvo",
+  behavior: "passive",
+  isCreature: true,
+  isDummy: false,
+
+  level: 6,
+  baseLevel: 6,
+
+  x: 50,
+  y: 0,
+  spawnX: 50,
+  spawnY: 0,
+
+  radius: 25,
+  maxHp: 1e9,
+  hp: 1e9,
+  alive: true,
+
+  defense: 2,
+  speed: 0,
+  damage: 0,
+  attackRange: 0,
+  aggroRange: 0,
+  leash: 0,
+  attackCooldown: 0,
+  wanderRadius: 0,
+  wanderSpeed: 0,
+
+  duelo: null,
+
+  spriteOffset: 0,
+  facing: { x: 0, y: 1 },
+  hitFlash: 0,
+  attackAnimation: 0,
+
+  pushVelocity: { x: 0, y: 0 },
+  statusEffects: [],
+  statusTickTimer: 0,
+
+  loot: { coins: 0, items: [] },
+
+  respawnTimer: 0,
+
+  aiState: "idle",
+  aiTimer: 0,
+  provoked: false,
+  alerted: false,
+  attackCooldownRemaining: 0,
+
+  targetId: null,
+  lastHitById: null,
+
+  damage() {},
+};
+
 function createHarness() {
   const statuses = new StatusSystem();
   const effects = new EffectSystem();
@@ -68,18 +139,7 @@ function createHarness() {
     },
   };
 
-  const dummies = createTrainingDummies();
-
-  world.enemies = [
-    {
-      ...dummies[0],
-      id: "dummy_0",
-      x: 50,
-      y: 0,
-      maxHp: 1e9,
-      hp: 1e9,
-    },
-  ];
+  world.enemies = [{ ...ALVO }];
 
   const system = new SkillSystem(world, () => {});
 
@@ -274,12 +334,12 @@ describe("SkillSystem alvo de tiro", () => {
     system.request(
       ENEMY_ACTION,
       { x: 50, y: 0 },
-      "dummy_0",
+      ALVO.id,
     );
 
     // o id, e nao um booleano: o engine usa isso para achar o
     // alvo e virar o arqueiro durante a animacao de tiro
-    expect(world.player.firingTargetId).toBe("dummy_0");
+    expect(world.player.firingTargetId).toBe(ALVO.id);
     expect(world.player.attackAnimation).toBeGreaterThan(0);
   });
 
@@ -298,7 +358,7 @@ describe("SkillSystem alvo de tiro", () => {
     system.request(
       SELF_ACTION,
       { x: 0, y: 0 },
-      "dummy_0",
+      ALVO.id,
     );
 
     expect(world.player.firingTargetId).toBe(null);
@@ -310,7 +370,7 @@ describe("SkillSystem alvo de tiro", () => {
 
     // o que o engine le para achar o inimigo
     expect(
-      world.enemies.some((enemy) => enemy.id === "dummy_0"),
+      world.enemies.some((enemy) => enemy.id === ALVO.id),
     ).toBe(true);
   });
 });
@@ -349,18 +409,5 @@ describe("EffectSystem", () => {
     }
 
     expect(effects.effects.length).toBeLessThanOrEqual(400);
-  });
-});
-
-describe("createTrainingDummies", () => {
-  it("creates independent instances", () => {
-    const first = createTrainingDummies();
-    const second = createTrainingDummies();
-
-    first[0].statusEffects.push({ type: "poison" });
-    first[0].pushVelocity.x = 99;
-
-    expect(second[0].statusEffects).toHaveLength(0);
-    expect(second[0].pushVelocity.x).toBe(0);
   });
 });

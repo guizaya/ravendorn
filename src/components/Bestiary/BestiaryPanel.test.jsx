@@ -54,8 +54,26 @@ describe("BestiaryPanel", () => {
     const html = render(snapshotWith());
 
     expect(html).toContain("Nv.1");
-    expect(html).toContain("Brejo Lento");
-    expect(html).toContain("Pedreira do Ogro");
+
+    /**
+     * O LIMO aparece no Pantano Profundo, o degrau mais facil.
+     *
+     * Este texto e o mesmo dado que o motor le quando o jogador clica
+     * "ir matar", entao ele nao pode divergir do `Bestiary.test.js`.
+     * A zona vem da de menor nivel medio, com o peso como desempate —
+     * as quatro zonas de limo empatam em peso, entao so o nivel separa
+     */
+    expect(html).toContain("Pântano Profundo");
+
+    /**
+     * O ogre foi para a Cripta.
+     *
+     * O Vale das Cinzas era o lugar de maior peso dele (60) e virou o
+     * quarto degrau de limo. As Cinzas continuam no painel, mas nao pelo
+     * ogre — e este texto esta aqui para travar o nome certo, ja que as
+     * duas zonas aparecem na tela
+     */
+    expect(html).toContain("Cripta Esquelética");
   });
 
   it("traduz o comportamento", () => {

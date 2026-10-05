@@ -73,6 +73,14 @@ export default function TestMapScene({
         // offline montava, entao o HUD nao mudou: so mudou de onde
         // os numeros vem
         snapshot={estado?.painel ?? null}
+        /**
+         * O CONVITE DE PARTY vai por fora do `estado`.
+         *
+         * E um evento, e nao parte do painel: o servidor o manda na hora
+         * em que o convite sai, e o painel so no proximo pacote. Se viesse
+         * no `estado`, a caixa de cinco segundos dependeria do painel
+         */
+        conviteParty={rede.conviteParty}
         engineRef={engineRef}
         onBack={onBack}
         intencao={rede}

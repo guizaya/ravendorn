@@ -25,9 +25,64 @@ function mundo() {
 const BOTA_ARBALIST = "botas_arbalist";
 const CACA_ARBALIST = "capuz_arbalist";
 const GELO = "slime_gel";
-const CAUDA = "rat_tail";
-const PELLE = "rat_pelt";
+const NUCLEO = "slime_core";
 
+
+
+/**
+ * A QUANTIDADE que a colecao exige de um material.
+ *
+ * ## POR QUE O NUMERO SAI DO CATALOGO
+ *
+ * A entrega e a missao principal da zona repetida em `2x` e `4x`, e a
+ * base sobe com o nivel do degrau. Escrever `5` nos testes travava o
+ * numero antigo: quando a conta passou a ser derivada, `inventory.add`
+ * com 5 nao fechava mais nada, e dezenove testes caíam de uma vez com a
+ * mensagem de "faltando 15" — parecendo que o sistema de entrega tinha
+ * quebrado, quando o que tinha mudado era a meta
+ *
+ * Ler do catalogo faz o teste valer para a conta que existir
+ */
+const exige = (colecaoId, itemId) =>
+  getCollection(colecaoId).requirements.find(
+    (r) => r.type === REQUIREMENT_TYPE.MATERIAL && r.itemId === itemId,
+  ).count;
+
+/** O MATERIAL da PRIMEIRA exigencia de uma colecao. */
+const primeiroMaterial = (colecaoId) =>
+  getCollection(colecaoId).requirements.find(
+    (r) => r.type === REQUIREMENT_TYPE.MATERIAL,
+  ).itemId;
+
+/** A RECOMPENSA de uma colecao, para o teste nao escrever os stats. */
+const recompensa = (colecaoId) => getCollection(colecaoId).rewards;
+
+/**
+ * A SOMA de varias recompensas, como o `Collection` faz.
+ *
+ * Um spread NAO serve: `col_cacos` da `vit: 2` e `col_ossario` da
+ * `vit: 4`, e `{ ...a, ...b }` daria 4 — o valor da segunda apagando o
+ * da primeira. E apagar o que ja foi ganho e exatamente o defeito que
+ * o teste existe para caçar
+ */
+const somaRecompensas = (...ids) =>
+  ids.reduce((total, id) => {
+    for (const [stat, valor] of Object.entries(recompensa(id))) {
+      total[stat] = (total[stat] ?? 0) + valor;
+    }
+
+    return total;
+  }, {});
+
+/**
+ * OS MATERIAIS que a colecao do ossuario exige.
+ *
+ * Eram os do rato — `rat_tail` e `rat_pelt` — e a colecao do ninho saiu
+ * junto com ele do catalogo. Osso e cranio sao da sentinela, que dropped
+ * os dois, entao o par continua existindo e com dois materiais
+ */
+const OSSO = "skeleton_bone";
+const CRANIO = "skeleton_skull";
 describe("os dados das colecoes", () => {
   it("todo requisito declara exatamente um dos dois tipos", () => {
     // A lista de requisito e dado escrito a mao, e um campo trocado
@@ -101,7 +156,7 @@ describe("Collection: o que falta", () => {
   it("uma colecao com um material só conta esse material", () => {
     const { inventory, equipment, collection } = mundo();
 
-    inventory.add(GELO, 5);
+    inventory.add(GELO, exige("col_cacos", GELO));
 
     expect(
       collection.canDeliver("col_cacos", inventory, equipment),
@@ -115,12 +170,12 @@ describe("Collection: o que falta", () => {
 
     inventory.add(GELO, 2);
     inventory.add(GELO, 2);
-    inventory.add(GELO, 1);
+    inventory.add(GELO, exige("col_cacos", GELO) - 4);
 
     expect(
       inventory.countAt(GELO),
       "o inventario nao somou as pilhas",
-    ).toBe(5);
+    ).toBe(exige("col_cacos", GELO));
 
     expect(
       collection.canDeliver("col_cacos", inventory, equipment),
@@ -133,22 +188,22 @@ describe("Collection: o que falta", () => {
     // entregue
     const { inventory, equipment, collection } = mundo();
 
-    inventory.add(CAUDA, 5);
+    inventory.add(OSSO, exige("col_ossario", OSSO));
 
     expect(
-      collection.canDeliver("col_ninho", inventory, equipment),
+      collection.canDeliver("col_ossario", inventory, equipment),
     ).toBe(false);
 
-    inventory.add(PELLE, 2);
+    inventory.add(CRANIO, 2);
 
     expect(
-      collection.canDeliver("col_ninho", inventory, equipment),
+      collection.canDeliver("col_ossario", inventory, equipment),
     ).toBe(false);
 
-    inventory.add(PELLE, 1);
+    inventory.add(CRANIO, exige("col_ossario", CRANIO));
 
     expect(
-      collection.canDeliver("col_ninho", inventory, equipment),
+      collection.canDeliver("col_ossario", inventory, equipment),
     ).toBe(true);
   });
 
@@ -157,7 +212,7 @@ describe("Collection: o que falta", () => {
     // raridade X E um material. Falta um dos dois e nao entrega
     const { inventory, equipment, collection } = mundo();
 
-    inventory.add("goblin_cloth", 5);
+    inventory.add(NUCLEO, exige("col_primeira_ferra", NUCLEO));
     inventory.add(BOTA_ARBALIST, 1, RARITY.RARE);
 
     expect(
@@ -169,7 +224,7 @@ describe("Collection: o que falta", () => {
     ).toBe(true);
 
     // tira o material: nao pode mais
-    inventory.remove("goblin_cloth", 5);
+    inventory.remove(NUCLEO, exige("col_primeira_ferra", NUCLEO));
 
     expect(
       collection.canDeliver(
@@ -180,7 +235,7 @@ describe("Collection: o que falta", () => {
     ).toBe(false);
 
     // devolve o material e tira o equipamento: tambem nao
-    inventory.add("goblin_cloth", 5);
+    inventory.add(NUCLEO, exige("col_primeira_ferra", NUCLEO));
     inventory.remove(BOTA_ARBALIST, 1, RARITY.RARE);
 
     expect(
@@ -200,7 +255,7 @@ describe("Collection: entrega de equipamento", () => {
     // possivel do painel
     const { inventory, equipment, collection } = mundo();
 
-    inventory.add("goblin_cloth", 5);
+    inventory.add(NUCLEO, exige("col_primeira_ferra", NUCLEO));
     inventory.add(CACA_ARBALIST, 1, RARITY.EPIC);
 
     expect(
@@ -257,7 +312,7 @@ describe("Collection: entrega de equipamento", () => {
     // que tirar a mao do equipamento para completa a colecao
     const { inventory, equipment, collection } = mundo();
 
-    inventory.add("goblin_cloth", 5);
+    inventory.add(NUCLEO, exige("col_primeira_ferra", NUCLEO));
     inventory.add(BOTA_ARBALIST, 1, RARITY.RARE);
 
     const slot = equipment.slotForItem(BOTA_ARBALIST);
@@ -326,7 +381,7 @@ describe("Collection: entregar", () => {
   it("consome o material e paga a recompensa", () => {
     const { inventory, equipment, collection } = mundo();
 
-    inventory.add(GELO, 5);
+    inventory.add(GELO, exige("col_cacos", GELO));
 
     const resultado = collection.deliver(
       "col_cacos",
@@ -347,11 +402,17 @@ describe("Collection: entregar", () => {
     // antes de qualquer remocao, pelo mesmo motivo do craft
     const { inventory, equipment, collection } = mundo();
 
-    inventory.add(CAUDA, 5);
-    inventory.add(PELLE, 1);
+    /**
+     * SO O OSSO, e o cranio nao.
+     *
+     * Entregar os dois fecharia a colecao, e o teste viraria "a entrega
+     * funciona" — que e outro teste. Este quer o caminho da recusa: um
+     * requisito presente e o outro ausente
+     */
+    inventory.add(OSSO, exige("col_ossario", OSSO));
 
     const resultado = collection.deliver(
-      "col_ninho",
+      "col_ossario",
       inventory,
       equipment,
     );
@@ -359,10 +420,12 @@ describe("Collection: entregar", () => {
     expect(resultado.ok).toBe(false);
     expect(resultado.reason).toBe(DELIVER_RESULT.MISSING);
 
-    // o cauda continua inteiro
-    expect(inventory.countAt(CAUDA)).toBe(5);
-    expect(inventory.countAt(PELLE)).toBe(1);
-    expect(collection.isDone("col_ninho")).toBe(false);
+    // o material que deu certo continua inteiro
+    expect(inventory.countAt(OSSO)).toBe(exige("col_ossario", OSSO));
+
+    // e o que faltava segue intacto: nao foi criado nem consumido
+    expect(inventory.countAt(CRANIO)).toBe(0);
+    expect(collection.isDone("col_ossario")).toBe(false);
   });
 
   it("devolve o motivo UNKNOWN para colecao que nao existe", () => {
@@ -382,13 +445,13 @@ describe("Collection: entregar", () => {
     // o material volta, e o material nunca mais acaba de ser util
     const { inventory, equipment, collection } = mundo();
 
-    inventory.add(GELO, 5);
+    inventory.add(GELO, exige("col_cacos", GELO));
 
     expect(
       collection.deliver("col_cacos", inventory, equipment).ok,
     ).toBe(true);
 
-    inventory.add(GELO, 5);
+    inventory.add(GELO, exige("col_cacos", GELO));
 
     const segunda = collection.deliver(
       "col_cacos",
@@ -398,7 +461,9 @@ describe("Collection: entregar", () => {
 
     expect(segunda.ok).toBe(false);
     expect(segunda.reason).toBe(DELIVER_RESULT.DONE);
-    expect(inventory.countAt(GELO), "gastou material na segunda").toBe(5);
+    expect(inventory.countAt(GELO), "gastou material na segunda").toBe(
+      exige("col_cacos", GELO),
+    );
   });
 
   it("a entrega nao sai pela metade mesmo com material repetido", () => {
@@ -431,6 +496,10 @@ describe("Collection: entregar", () => {
     COLLECTIONS.push(mesmaPeca);
 
     try {
+      /**
+       * O `col_dup` tem DOIS requisitos do MESMO material, de 3 cada.
+       * Uma pilha so satisfaz um deles: 5 unidades precisam virar 6
+       */
       inventory.add(GELO, 5);
 
       expect(
@@ -474,7 +543,7 @@ describe("Collection: recompensa", () => {
   it("a entrega soma o bonus de stat", () => {
     const { inventory, equipment, collection } = mundo();
 
-    inventory.add(GELO, 5);
+    inventory.add(GELO, exige("col_cacos", GELO));
 
     const resultado = collection.deliver(
       "col_cacos",
@@ -483,8 +552,8 @@ describe("Collection: recompensa", () => {
     );
 
     expect(resultado.ok).toBe(true);
-    expect(resultado.reward).toEqual({ vit: 2, maxHp: 40 });
-    expect(collection.bonuses()).toEqual({ vit: 2, maxHp: 40 });
+    expect(resultado.reward).toEqual(recompensa("col_cacos"));
+    expect(collection.bonuses()).toEqual(recompensa("col_cacos"));
   });
 
   it("nao paga moeda, xp nem item", () => {
@@ -493,7 +562,7 @@ describe("Collection: recompensa", () => {
     // terminava com a mochila igual e nenhum ganho
     const { inventory, equipment, collection } = mundo();
 
-    inventory.add(GELO, 5);
+    inventory.add(GELO, exige("col_cacos", GELO));
 
     const moedasAntes = inventory.coins;
     const slotsAntes = inventory.stacks.length;
@@ -505,21 +574,23 @@ describe("Collection: recompensa", () => {
   });
 
   it("cada colecao soma em vez de substituir", () => {
-    // `col_cacos` e `col_ossada` dao as duas `vit`. Substituir faria a
+    // `col_cacos` e `col_ossario` dao as duas `vit`. Substituir faria a
     // segunda entrega apagar o bonus da primeira, e o jogador perderia
     // o que ja tinha ganhado
     const { inventory, equipment, collection } = mundo();
 
-    inventory.add(GELO, 5);
+    inventory.add(GELO, exige("col_cacos", GELO));
     collection.deliver("col_cacos", inventory, equipment);
 
-    inventory.add("skeleton_bone", 5);
-    inventory.add("skeleton_skull", 2);
-    collection.deliver("col_ossada", inventory, equipment);
+    inventory.add(OSSO, exige("col_ossario", OSSO));
+    inventory.add(CRANIO, exige("col_ossario", CRANIO));
+    collection.deliver("col_ossario", inventory, equipment);
 
     const bonus = collection.bonuses();
 
-    expect(bonus.vit, "a segunda entrega apagou a primeira").toBe(6);
+    expect(bonus.vit, "a segunda entrega apagou a primeira").toBe(
+      (recompensa("col_cacos").vit ?? 0) + (recompensa("col_ossario").vit ?? 0),
+    );
     expect(bonus.maxHp).toBe(40);
     expect(bonus.defense).toBe(8);
     expect(bonus.magicDefense).toBe(5);
@@ -534,13 +605,13 @@ describe("Collection: recompensa", () => {
     const equipment = new Equipment();
     const collection = new Collection();
 
-    inventory.add(GELO, 5);
+    inventory.add(GELO, exige("col_cacos", GELO));
 
     expect(
       collection.deliver("col_cacos", inventory, equipment).ok,
     ).toBe(true);
 
-    expect(collection.bonus).toEqual({ vit: 2, maxHp: 40 });
+    expect(collection.bonus).toEqual(recompensa("col_cacos"));
     expect(collection.pendingCount).toBe(undefined);
     expect(collection.drainRewards).toBe(undefined);
 
@@ -551,10 +622,10 @@ describe("Collection: recompensa", () => {
   it("a entrega da duas vezes nao soma duas vezes", () => {
     const { inventory, equipment, collection } = mundo();
 
-    inventory.add(GELO, 5);
+    inventory.add(GELO, exige("col_cacos", GELO));
     collection.deliver("col_cacos", inventory, equipment);
 
-    inventory.add(GELO, 5);
+    inventory.add(GELO, exige("col_cacos", GELO));
 
     const segunda = collection.deliver(
       "col_cacos",
@@ -564,7 +635,7 @@ describe("Collection: recompensa", () => {
 
     expect(segunda.ok).toBe(false);
     expect(segunda.reason).toBe(DELIVER_RESULT.DONE);
-    expect(collection.bonuses()).toEqual({ vit: 2, maxHp: 40 });
+    expect(collection.bonuses()).toEqual(recompensa("col_cacos"));
   });
 
   it("o bonus e uma copia, e nao o estado interno", () => {
@@ -572,7 +643,7 @@ describe("Collection: recompensa", () => {
     // personagem sem passar pela entrega
     const { inventory, equipment, collection } = mundo();
 
-    inventory.add(GELO, 5);
+    inventory.add(GELO, exige("col_cacos", GELO));
     collection.deliver("col_cacos", inventory, equipment);
 
     const copia = collection.bonuses();
@@ -601,7 +672,9 @@ describe("Collection: snapshot e save", () => {
 
     expect(primeira.pronta).toBe(false);
     expect(primeira.faltam).toHaveLength(1);
-    expect(primeira.faltam[0].falta).toBe(2);
+    expect(primeira.faltam[0].falta).toBe(
+      exige("col_cacos", GELO) - 3,
+    );
     expect(primeira.faltam[0].have).toBe(3);
     expect(primeira.faltam[0].label).toContain("Gelo");
   });
@@ -609,7 +682,7 @@ describe("Collection: snapshot e save", () => {
   it("colecao entregue aparece pronta, sem lista de faltantes", () => {
     const { inventory, equipment, collection } = mundo();
 
-    inventory.add(GELO, 5);
+    inventory.add(GELO, exige("col_cacos", GELO));
     collection.deliver("col_cacos", inventory, equipment);
 
     const entrada = collection
@@ -625,12 +698,12 @@ describe("Collection: snapshot e save", () => {
     // jogador tem. Sao iguais ate ele rebalancear uma colecao
     const { inventory, equipment, collection } = mundo();
 
-    inventory.add(GELO, 5);
+    inventory.add(GELO, exige("col_cacos", GELO));
     collection.deliver("col_cacos", inventory, equipment);
 
     const dados = collection.snapshot(inventory, equipment);
 
-    expect(dados.bonuses).toEqual({ vit: 2, maxHp: 40 });
+    expect(dados.bonuses).toEqual(recompensa("col_cacos"));
     expect(dados.entries[0].rewards).toEqual({
       vit: 2,
       maxHp: 40,
@@ -642,7 +715,7 @@ describe("Collection: snapshot e save", () => {
     // ao catalogo
     const { inventory, equipment, collection } = mundo();
 
-    inventory.add(GELO, 5);
+    inventory.add(GELO, exige("col_cacos", GELO));
     collection.deliver("col_cacos", inventory, equipment);
 
     const outra = new Collection();
@@ -650,7 +723,7 @@ describe("Collection: snapshot e save", () => {
     outra.fromSave(collection.toSave());
 
     expect(outra.isDone("col_cacos")).toBe(true);
-    expect(outra.bonuses()).toEqual({ vit: 2, maxHp: 40 });
+    expect(outra.bonuses()).toEqual(recompensa("col_cacos"));
   });
 
   it("reconstroi o bonus de um save antigo, sem o campo", () => {
@@ -659,17 +732,18 @@ describe("Collection: snapshot e save", () => {
     // perderia o bonus inteiro so por ter jogado antes da mudanca
     const collection = new Collection();
 
-    collection.fromSave({ done: ["col_cacos", "col_ninho"] });
+    collection.fromSave({ done: ["col_cacos", "col_ossario"] });
 
-    expect(collection.bonuses()).toEqual({
-      vit: 2,
-      maxHp: 40,
-      dex: 3,
-      movementSpeed: 20,
-      evasion: 0.02,
-      critRate: 0.01,
-      attackSpeed: 0.05,
-    });
+    /**
+     * As DUAS colecoes somam os bonus delas.
+     *
+     * Ler do catalogo evita que uma recompensa nova vire um numero
+     * escrito errado aqui — que e o que aconteceu quando a colecao do
+     * rato saiu e a do ossuario entrou com outros stats
+     */
+    expect(collection.bonuses()).toEqual(
+      somaRecompensas("col_cacos", "col_ossario"),
+    );
   });
 
   it("descarta bonus forjado no save", () => {

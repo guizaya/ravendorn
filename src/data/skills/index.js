@@ -48,12 +48,39 @@ export function createAction(name, type, configuration = {}) {
   };
 }
 
+/**
+ * QUANTAS HABILIDADES CADA PERSONAGEM TEM.
+ *
+ * ## O LIMITE
+ *
+ * Cinco, e o `ultimate` NAO conta: ele fica no botao proprio e nao ocupa
+ * um dos slots de habilidade
+ *
+ * ## POR QUE O CORTE E AQUI E NAO NAS LISTAS
+ *
+ * As listas ainda escrevem todas as acoes, e o corte acontece em
+ * `slice(0, 5)` no `createPack`. Isso e deliberado:
+ *
+ * - o que fica e sempre a PRIMEIRA metade, na ordem em que foi escrita, e
+ *   o criterio "as cinco primeiras" fica visivel no dado
+ * - trocar a ordem de uma lista muda o que o jogador recebe, e isso nao
+ *   deve acontecer por acidente ao editar uma acao no meio do arquivo
+ *
+ * As acoes alem do limite continuam no arquivo. Elas nao viram habilidade,
+ * nao entram no save e nao aparecem na barra — mas ficam legiveis para
+ * uma classe nova, e apagar codigo que funciona e o jeito mais rapido de
+ * perder trabalho
+ */
+const MAX_SKILLS = 5;
+
 function createPack(prefix, actions, ultimateAction) {
-  const skills = actions.map((item, index) => ({
-    ...item,
-    id: `${prefix}_${item.id}`,
-    slot: index + 1,
-  }));
+  const skills = actions
+    .slice(0, MAX_SKILLS)
+    .map((item, index) => ({
+      ...item,
+      id: `${prefix}_${item.id}`,
+      slot: index + 1,
+    }));
 
   return {
     skills,

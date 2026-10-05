@@ -130,29 +130,36 @@ export const ZUMBI_SPRITE = {
  * O ogre da predeira: o segundo direcional, e o primeiro CORPO A
  * CORPO com arte de oito direcoes.
  *
- * A folha tem 16 linhas: 8 de caminhada e 8 de golpe. O nome da
- * pasta de origem e `shoot`, mas nao ha arco nenhum ali: e o
+ * A folha tem 17 linhas: 8 de caminhada, 1 de idle e 8 de golpe. O nome
+ * da pasta de origem e `shoot`, mas nao ha arco nenhum ali: e o
  * swinging do ogre, e ele precisa de andar ate o jogador.
  *
  * A celula e 68x68, a mesma do zumbi, e a ancora (33.5, 55) foi
  * medida pela ferramenta que monta a folha.
  *
- * NESTE sprite nao existe `row` de idle, e isso e proposital. O
- * `resolveFrameRect` cai em `animations.walk` quando a animacao
- * pedida nao existe, o que faria o ogre MARCHAR no lugar quando
- * estivesse parado. Por isso o idle existe aqui, com `length: 1` e
- * sem `row` nem `rowOffset`: um unico frame, na linha da
- * caminhada DA DIRECAO atual. E um pose de caminhada congelado,
- * que e o melhor que da para fazer sem arte de parado -- e pelo
- * menos fica virado para o lado certo, que um idle unico nao
- * faria.
+ * ## A LINHA DE IDLE EXISTE DE VERDADE
+ *
+ * Antes a folha saia sem ela, e o idle caia no frame 0 da caminhada da
+ * direcao: um pose de caminhada congelado, virado para o lado certo. O
+ * `idle.gif` de origem chegou e a linha 8 passou a ser o idle de
+ * verdade, entao o `idle` do layout aponta para ela
+ *
+ * Isso obriga o golpe a DESCER: com a linha de idle no meio, a
+ * caminhada vai de 0 a 7, o idle e a 8, e o golpe passa a comecar na 9.
+ * Um `rowOffset` de 8 aqui leria a linha do idle e o ogre brandiria o
+ * porrete parado no meio do golpe
  */
 const OGRE_PREDEIRA_CELL = 68;
 
 const OGRE_PREDEIRA_WALK_FRAMES = 8;
+const OGRE_PREDEIRA_IDLE_FRAMES = 8;
 const OGRE_PREDEIRA_GOLPE_FRAMES = 9;
-const OGRE_PREDEIRA_GOLPE_ROW = 8;
+
+const OGRE_PREDEIRA_IDLE_ROW = 8;
+const OGRE_PREDEIRA_GOLPE_ROW = 9;
+
 const OGRE_PREDEIRA_WALK_FPS = 12;
+const OGRE_PREDEIRA_IDLE_FPS = 6;
 const OGRE_PREDEIRA_GOLPE_FPS = 18;
 
 export const OGRE_PREDEIRA_SPRITE = {
@@ -163,10 +170,18 @@ export const OGRE_PREDEIRA_SPRITE = {
       directions: ARBALIST_DIRECTIONS,
       walkBob: { amplitude: 3, frequency: 1.1 },
       animations: {
-        // `length: 1` e o que segura o pose. o `fps` alto nao
-        // importa: com um frame so, `resolveFrame` sempre devolve
-        // a coluna 0
-        idle: { start: 0, length: 1, fps: 1 },
+        /**
+         * A linha do idle e uma linha INTEIRA da folha, entao o `row` e
+         * obrigatorio. Sem ele o `resolveFrameRect` usaria
+         * `rowOffset ?? 0` e leria a linha 0, que e a caminhada para
+         * leste — e o ogre voltaria a andar parado virado para o lado
+         */
+        idle: {
+          row: OGRE_PREDEIRA_IDLE_ROW,
+          start: 0,
+          length: OGRE_PREDEIRA_IDLE_FRAMES,
+          fps: OGRE_PREDEIRA_IDLE_FPS,
+        },
 
         walk: {
           start: 0,
@@ -389,42 +404,55 @@ export const RATO_DA_TOCA_SPRITE = {
  * que ATACA sem ter arte de golpe.
  *
  * A arte veio em `assets/sprites/sentinela`: oito direcoes de
- * caminhada e um `idle.gif`, todas em 68x68, e nada de golpe. E a arte
- * mais limpa do jogo — nenhum quadro truncado, nenhuma tela de tamanho
- * diferente, todas as oito direcoes presentes
+ * caminhada, um `idle.gif` e um `shoot/` com as oito direcoes de golpe,
+ * todas em 68x68. E a arte mais limpa do jogo — nenhum quadro truncado,
+ * nenhuma tela de tamanho diferente, todas as oito direcoes presentes
  *
  * Celula 68x68, ancora (33.5, 54) medida pela ferramenta.
  *
- * O ponto que merece atencao aqui e a AUSENCIA de `attack`, num bicho
- * que ataca o tempo todo:
+/**
+ * A FOLHA da sentinela: 17 linhas de 68px, 612 x 1156.
  *
- * - O `ghoul` e o `rato` tambem nao tem `attack`, e para os dois a
- *   diferenca e imperceptivel: sao passivos, com `aggroRange: 0`, e
- *   quase nunca esta no meio de um golpe
+ * Sao 8 de direcao (linhas 0 a 7), 1 de idle (linha 8) e 8 de golpe
+ * (linhas 9 a 16).
  *
- * - A sentinela e `ACTIVE`, com `aggroRange: 330`, `attackRange: 58` e
- *   `damage: 42`. O pedido de "attack" cai no reserva do
- *   `resolveFrameRect`, que prefere o `idle` (linha 8, arte de frente)
- *   a caminhada. O esqueleto vira de frente no instante da pancada e
- *   volta a andar na direcao certa no frame seguinte
+ * ## A ARTE DE GOLPE CHEGOU DEPOIS
  *
- * A alternativa seria declarar `attack` apontando para a linha da
- * caminhada da direcao, que manteria o corpo virado para o alvo sem
- * o salto — e por isso que nao foi feita: o `walk` de uma criatura
- * andando durante um golpe e o defeito que o comentario do `ghoul`
- * descreve, e o esqueleto e grande o bastante para o salto de direcao
- * chamar mais atencao do que as pernas mexendo
+ * A primeira montagem da folha encontrou a pasta com os GIFs de
+ * caminhada e o `idle`, e nada mais. O `attack` do layout apontava
+ * para a linha do idle — o reserva do `resolveFrameRect` — e a
+ * sentinela atirava na pose de parado, com a flecha saindo
  *
- * Se um dia chegar arte de golpe, e so declarar a linha e a contagem
- * aqui, como o guerreiro fez
+ * Quando as oito direcoes de `shoot/` apareceram, a folha passou a ter
+ * 17 linhas e o `attack` foi para a linha 9. Sem essa troca o golpe
+ * leria a linha do idle e a animacao nova nunca apareceria
+ *
+ * O `needsTarget` continua valendo: a arte de arco so entra com alvo
+ * de verdade, para o esqueleto nao dar as costas
  */
+
 const SENTINELA_ESQUELETICA_CELL = 68;
 
 const SENTINELA_ESQUELETICA_WALK_FRAMES = 8;
 const SENTINELA_ESQUELETICA_IDLE_FRAMES = 8;
 const SENTINELA_ESQUELETICA_IDLE_ROW = 8;
+
+/**
+ * O GOLPE TEM LINHA PROPRIA desde que a arte de `shoot/` chegou nas oito
+ * direcoes.
+ *
+ * A folha tem 17 linhas: 8 de caminhada, 1 de idle e 8 de golpe. Antes
+ * o ataque apontava para a linha do idle — o reserva do
+ * `resolveFrameRect` — e a sentinela atirava na pose de parado
+ */
+const SENTINELA_ESQUELETICA_SHOOT_FRAMES = 9;
+const SENTINELA_ESQUELETICA_SHOOT_ROW = 9;
+
 const SENTINELA_ESQUELETICA_WALK_FPS = 12;
 const SENTINELA_ESQUELETICA_IDLE_FPS = 6;
+
+/** o arco de uma sentinela usa o balanco do idle ate existir arte */
+const SENTINELA_ESQUELETICA_SHOOT_FPS = 6;
 
 export const SENTINELA_ESQUELETICA_SPRITE = {
   ...createDirectionalSpriteDefinition("skeleton", SEM_IMAGEM, {
@@ -455,6 +483,25 @@ export const SENTINELA_ESQUELETICA_SPRITE = {
         start: 0,
         length: SENTINELA_ESQUELETICA_WALK_FRAMES,
         fps: SENTINELA_ESQUELETICA_WALK_FPS,
+      },
+
+/**
+       * O GOLPE, na LINHA DELE.
+       *
+       * Antes apontava para a linha do idle, que era o reserva do
+       * `resolveFrameRect`: a folha acabava na linha 8 e nao havia arte
+       * de ataque. Agora as oito direcoes de `shoot/` existem e o golpe
+       * e a linha 9
+       *
+       * O `needsTarget` e o mesmo do zumbi: a arte de arco so entra
+       * com alvo de verdade, para o esqueleto nao dar as costas
+       */
+      attack: {
+        row: SENTINELA_ESQUELETICA_SHOOT_ROW,
+        start: 0,
+        length: SENTINELA_ESQUELETICA_SHOOT_FRAMES,
+        fps: SENTINELA_ESQUELETICA_SHOOT_FPS,
+        needsTarget: true,
       },
     },
   }),

@@ -483,6 +483,18 @@ describe("sprite draw rect", () => {
   });
 
   it("draws the directional gifs at the sheet size", () => {
+    /**
+     * O TAMANHO da caixa, e nao a posicao dela.
+     *
+     * A igualdade de retangulo inteiro valia enquanto o arquiro usava
+     * a ancora compartilhada (32/54). A arte nova foi remedida e o
+     * arquiro tem 31.5/51 — o que e CORRETO, porque sem isso ele
+     * andava 3px dentro do chao. Comparar a posicao com um fixture de
+     * ancora diferente mede a arte de um personagem contra a de outro
+     *
+     * O que precisa continuar igual e o tamanho: a conversao para
+     * folha direcional nao pode mudar o tamanho do desenho
+     */
     const sheetRect = resolveDrawRect(SHEET_SPRITE, {
       x: 300,
       y: 300,
@@ -493,7 +505,19 @@ describe("sprite draw rect", () => {
       y: 300,
     });
 
-    expect(gifRect).toEqual(sheetRect);
+    expect([gifRect.width, gifRect.height]).toEqual([
+      sheetRect.width,
+      sheetRect.height,
+    ]);
+
+    // e o arquiro continua no tamanho da celula da folha
+    expect([
+      gifRect.width,
+      gifRect.height,
+    ]).toEqual([
+      ARBALIST_SPRITE.frameWidth,
+      ARBALIST_SPRITE.frameHeight,
+    ]);
   });
 });
 

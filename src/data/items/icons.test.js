@@ -128,11 +128,12 @@ describe.each(ICON_ITEM_IDS)("a arte de %s", (itemId) => {
 });
 
 describe("a lista de itens com arte", () => {
-  it("sao as sete pecas do arbalist", () => {
+  it("sao as sete pecas do arbalist e a pocao de cura", () => {
     // A lista e o que decide se um item mostra imagem. Sao as sete
-    // pecas do arbalist - arco, aljava, e as cinco armaduras - e este
-    // teste deixa isso explicito para a lista crescer de proposito e
-    // nao por engano
+    // pecas do arbalist - arco, aljava, e as cinco armaduras - mais a
+    // pocao de cura, que e a primeira arte de um item de consumo.
+    // Este teste deixa isso explicito para a lista crescer de proposito
+    // e nao por engano
     expect(Object.keys(ITEM_ICON_ASSET)).toEqual([
       "willow_bow",
       "aljava_arbalist",
@@ -141,6 +142,7 @@ describe("a lista de itens com arte", () => {
       "capuz_arbalist",
       "luvas_arbalist",
       "peito_arbalist",
+      "pocao_cura",
     ]);
   });
 

@@ -9,13 +9,24 @@ const CELL_SIZE = 220;
 const CORNER_ESCAPE_TURN = 0.5;
 
 export class CollisionSystem {
-  constructor(map) {
+  /**
+   * @param {object} map    o mapa, com os seus solidos
+   * @param {object[]} [extraSolids]  retangulos solidos de OUTRA
+   *   origem — no jogo, a pegada dos NPCs
+   *
+   * Os NPCs viram solidos por parametro e nao por `map.solids` porque a
+   * pegada e DEDUZIDA da arte e da posicao: ela sai da escala e da
+   * ancora, que so o motor tem. Escrever o retangulo a mao no dado do
+   * mapa faria a barreira e a arte poderem divergir sem ninguem ver
+   */
+  constructor(map, extraSolids = []) {
     this.map = map;
 
     this.solids = [
       ...(map.solids ?? []),
       ...(map.walls ?? []),
       ...(map.obstacles ?? []),
+      ...extraSolids,
     ];
 
     this.cellSize = CELL_SIZE;

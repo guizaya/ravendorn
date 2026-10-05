@@ -50,6 +50,7 @@ import {
   getItem,
 } from "../items/index.js";
 import { STAT_BY_ID } from "../../game/stats/StatSheet.js";
+import { ESCADA_MAPA_1, ESCADA_MAPA_2 } from "../quests/index.js";
 
 /**
  * Os dois tipos de requisito.
@@ -140,6 +141,69 @@ const RARITY_RARITY_LABEL = {
  * tambem — a colecao existe para dar um destino ao material acumulado,
  * nao para ser mais uma trava de classe
  */
+/**
+ * A COLECAO E A MISSAO PRINCIPAL DA ZONA, REPETIDA.
+ *
+ * O jogador junta material do mesmo bicho que a missao cobra, e a
+ * quantidade e a da missao em doses maiores — a mesma conta do
+ * bestiario, com os mesmos multiplicadores
+ *
+ * ## POR QUE A COLECAO NAO TEM TIER
+ *
+ * A missao e a cacada tem degraus porque a recompensa cresce. A entrega
+ * e uma so por colecao, entao o que muda dentro dela e o material: a
+ * primeira exigencia e o dobro da base, a segunda o quadruplo, a
+ * terceira o sextuplo, na ordem em que aparecem
+ */
+const FATORES = [2, 4, 6];
+
+/**
+ * O DEGRAU da escada que pede esta criatura.
+ *
+ * O degrau da MISSAO, e nao o nivel do mob: o limo do campo e de nivel
+ * 6 e o da pedreira e de nivel 1, e as duas entregas saem com o mesmo
+ * total
+ *
+ * ## POR QUE AS DUAS ESCADAS
+ *
+ * A sentinela e o arqueiro zumbi so aparecem na escada do mapa 2. Ler so
+ * a do mapa 1 as faria cair no degrau 1 por falta de correspondencia, e
+ * uma entrega de material do bicho mais duro do jogo sairia com a meta
+ * do primeiro degrau do vale
+ */
+function degrauDaCriatura(criatura) {
+  const achado = [...ESCADA_MAPA_1, ...ESCADA_MAPA_2].find(
+    (degrau) => degrau.target === criatura,
+  );
+
+  return achado?.nivel ?? 1;
+}
+
+/** A MESMA CONTA da missao: 10 no primeiro degrau, mais 2 por nivel. */
+function baseDoDegrau(nivel) {
+  return 10 + (nivel - 1) * 2;
+}
+
+/**
+ * A EXIGENCIA de material, com a conta feita aqui.
+ *
+ * `criatura` e de quem vem o material — o limo daPantano e o ogre da
+ * Cripta medem base diferente, e e por isso que o parametro existe
+ */
+function entrega(criatura, itemId, indice = 0) {
+  const base = baseDoDegrau(degrauDaCriatura(criatura));
+
+  const fator = FATORES[indice % FATORES.length];
+
+  return {
+    type: REQUIREMENT_TYPE.MATERIAL,
+    itemId,
+    count: base * fator,
+    baseDaMissao: base,
+    fator,
+  };
+}
+
 export const COLLECTIONS = [
   {
     id: "col_cacos",
@@ -147,65 +211,28 @@ export const COLLECTIONS = [
     icon: "◍",
     summary: "Junte os restos do primeiro slime.",
     requirements: [
-      {
-        type: REQUIREMENT_TYPE.MATERIAL,
-        itemId: "slime_gel",
-        count: 5,
-      },
+      // 2x os 10 do degrau 1
+      entrega("slime", "slime_gel"),
     ],
     rewards: { vit: 2, maxHp: 40 },
   },
 
-  {
-    id: "col_ninho",
-    name: "Ninho de Rato",
-    icon: "◔",
-    summary: "O rato tambem deixa coisa para tras.",
-    requirements: [
-      {
-        type: REQUIREMENT_TYPE.MATERIAL,
-        itemId: "rat_tail",
-        count: 5,
-      },
-      {
-        type: REQUIREMENT_TYPE.MATERIAL,
-        itemId: "rat_pelt",
-        count: 3,
-      },
-    ],
-    rewards: {
-      dex: 3,
-      movementSpeed: 20,
-      evasion: 0.02,
-      critRate: 0.01,
-      attackSpeed: 0.05,
-    },
-  },
-
-  {
-    id: "col_ossada",
-    name: "Ossada Antiga",
-    icon: "☠",
-    summary: "O que sobra de um esqueleto nao serve para o craft.",
-    requirements: [
-      {
-        type: REQUIREMENT_TYPE.MATERIAL,
-        itemId: "skeleton_bone",
-        count: 5,
-      },
-      {
-        type: REQUIREMENT_TYPE.MATERIAL,
-        itemId: "skeleton_skull",
-        count: 2,
-      },
-    ],
-    rewards: {
-      vit: 4,
-      defense: 8,
-      magicDefense: 5,
-      hpRegen: 2,
-    },
-  },
+  /**
+   * A COLECAO DO RATO E DO ESQUELETO SAIRAM.
+   *
+   * As duas eram de material que o mapa 1 nao dropa mais: o rato e o
+   * esqueleto foram removidos do `ZONE_ROSTER` quando as cinco zonas do
+   * meio passaram a ser so de ogre
+   *
+   * Um material que ninguem dropa e uma entrega que nunca fecha. A
+   * colecao ficava na tela com a barra parada em zero e nenhuma
+   * explicacao — o jogador nao tinha como saber que aquilo era
+   * impossivel, so que nao estava="_indo"
+   *
+   * O `skeleton_bone` ainda aparece no loot do SLIME, com peso 1, entao
+   * sobrou material de osso no mundo. Ele virou materia de remendo na
+   * colecao do limo, abaixo, em vez de uma entrega impossivel
+   */
 
   {
     id: "col_primeira_ferra",
@@ -218,11 +245,13 @@ export const COLLECTIONS = [
         rarity: RARITY.RARE,
         count: 1,
       },
-      {
-        type: REQUIREMENT_TYPE.MATERIAL,
-        itemId: "goblin_cloth",
-        count: 5,
-      },
+
+      /**
+       * O `goblin_cloth` era o segundo material, e o goblin saiu do
+       * mapa. Trocado pelo `slime_core`, que o limo ainda dropa com
+       * peso 15
+       */
+      entrega("slime", "slime_core", 1),
     ],
     rewards: {
       str: 5,
@@ -238,16 +267,9 @@ export const COLLECTIONS = [
     icon: "◪",
     summary: "A ultima penca do material mais pesado do jogo.",
     requirements: [
-      {
-        type: REQUIREMENT_TYPE.MATERIAL,
-        itemId: "ogre_hide",
-        count: 5,
-      },
-      {
-        type: REQUIREMENT_TYPE.MATERIAL,
-        itemId: "ogre_pebble",
-        count: 8,
-      },
+      // o ogre so entra no degrau 8, onde a missao pede 24: 2x e 4x
+      entrega("ogre", "ogre_hide", 0),
+      entrega("ogre", "ogre_pebble", 1),
     ],
     rewards: {
       vit: 6,
@@ -257,22 +279,70 @@ export const COLLECTIONS = [
     },
   },
 
+  /**
+   * AS ENTREGAS DO MAPA 2.
+   *
+   * A sentinela e o arqueiro zumbi dropam osso, cranio, podre e garra.
+   * O cranio vem so dos dois: o limo e o ogre nao tem, entao e a entrega
+   * que so fecha no mapa 2
+   */
   {
-    id: "col_besta_do_ossario",
-    name: "Cacador do Ossario",
-    icon: "★",
-    summary: "A ultima entrega: um lendario e o que sobrou do ghoul.",
+    id: "col_ossario",
+    name: "Ossario Antigo",
+    icon: "☠",
+    summary: "O que sobra de um esqueleto nao serve para o craft.",
+    requirements: [
+      // a sentinela entra no degrau 13, onde a missao pede 34
+      entrega("skeleton", "skeleton_bone", 0),
+      entrega("skeleton", "skeleton_skull", 1),
+    ],
+    rewards: {
+      vit: 4,
+      defense: 8,
+      magicDefense: 5,
+      hpRegen: 2,
+    },
+  },
+
+  {
+    id: "col_flecha_podre",
+    name: "Flecha Podre",
+    icon: "➶",
+    summary: "O arqueiro zumbi atira coisa que nao se reutiliza.",
+    requirements: [
+      // o arqueiro so entra no degrau 18, onde a missao pede 44
+      entrega("zumbi_arbalist", "ghoul_rot", 0),
+      entrega("zumbi_arbalist", "ghoul_claw", 1),
+    ],
+    rewards: {
+      dex: 4,
+      attackSpeed: 0.06,
+      critRate: 0.02,
+      critDamage: 0.1,
+    },
+  },
+
+  {
+    id: "col_cacador_ocre",
+    name: "Cacador do Ocre",
+    icon: "🗡",
+    summary: "A ultima entrega: um lendario e couro da predeira.",
     requirements: [
       {
         type: REQUIREMENT_TYPE.EQUIPMENT,
         rarity: RARITY.LEGENDARY,
         count: 1,
       },
-      {
-        type: REQUIREMENT_TYPE.MATERIAL,
-        itemId: "ghoul_claw",
-        count: 5,
-      },
+
+      /**
+       * O `ghoul_claw` era o material de ca here, e o ghoul saiu do mapa 1
+       * quando as cinco zonas do meio passaram a ser so de ogre.
+       *
+       * Trocado pelo couro do ogre da PREDEIRA, que e o bicho mais duro
+       * do topo da campanha — o que mantem a entrega como a mais cara do
+       * jogo, que e o que a recompensa pedia
+       */
+      entrega("ogre_da_predeira", "ogre_hide", 1),
     ],
     rewards: {
       str: 7,
@@ -285,6 +355,7 @@ export const COLLECTIONS = [
       dropRate: 0.02,
     },
   },
+
 ];
 
 export const COLLECTION_IDS = COLLECTIONS.map(

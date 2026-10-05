@@ -47,6 +47,20 @@ export const ITEM_TYPE = {
   WEAPON: "weapon",
   ARMOR: "armor",
   TRINKET: "trinket",
+
+  /**
+   * O que se USA e deixa de existir.
+   *
+   * E o primeiro tipo com essa propriedade, e ele existe porque o
+   * mercador do hub vende pocao: sem um tipo que se consuma, a pocao
+   * seria um material comum que ocupa um slot inteiro por unidade e
+   * nunca faz nada
+   *
+   * A distinguishing e o campo `use`, e nao o type: e ele que diz o
+   * que acontece quando o jogador usa. Um item com `use: null` e um
+   * consumivel sem efeito nenhum, que e so um item que se perde
+   */
+  POTION: "potion",
 };
 
 export const ITEM_TYPE_LABEL = {
@@ -54,7 +68,20 @@ export const ITEM_TYPE_LABEL = {
   [ITEM_TYPE.WEAPON]: "Arma",
   [ITEM_TYPE.ARMOR]: "Armadura",
   [ITEM_TYPE.TRINKET]: "Relíquia",
+  [ITEM_TYPE.POTION]: "Poção",
 };
+
+/**
+ * Os tipos que EMPILHAM, e ate quanto.
+ *
+ * Material e pocao empilham porque os dois sao de consumo: um jogador
+ * com dez pocoes e duas receitas de craft nao pode gastar vinte slots
+ * da mochila em coisas que ele so vai usar
+ *
+ * Os outros nao empilham porque sao de equipar: duas espadas iguais
+ * no mesmo slot e um bug de inventario, nao uma economia
+ */
+const EMPILHAVEL = new Set([ITEM_TYPE.MATERIAL, ITEM_TYPE.POTION]);
 
 /**
  * ONDE a peca vai no corpo.
@@ -205,15 +232,29 @@ function createItem(config) {
   return {
     // material empilha por padrao: ele e ingrediente de craft e
     // ocuparia um slot inteiro por unidade, o que inviabiliza
-    // qualquer receita com quantidade
-    stackable: type === ITEM_TYPE.MATERIAL,
-    maxStack: type === ITEM_TYPE.MATERIAL ? 99 : 1,
+    // qualquer receita com quantidade. pocao empilha pelo mesmo motivo
+    stackable: EMPILHAVEL.has(type),
+    maxStack: EMPILHAVEL.has(type) ? 99 : 1,
     type,
     rarity: RARITY.COMMON,
     value: 10,
     tier: 0,
     quest: false,
     kind: null,
+
+    /**
+     * O que acontece quando o jogador USA o item, ou `null`.
+     *
+     * E o que separa um consumivel de um material: um material se
+     * guarda, um consumivel se gasta. O campo e `null` por padrao, e
+     * nao `{}`, porque um item sem efeito nao tem efeito — e um `{}`
+     * vazio diria que ele usa e nao acontece nada, que e pior
+     *
+     * Hoje so o `heal` existe. Quando aparecer pocao de recurso, de
+     * escudo ou de buff, entra um campo novo AQUI e o motor le o
+     * que achar — e nao um `if` por tipo de item
+     */
+    use: config.use ?? null,
 
     /**
      * As classes donas da peca, ou `null` quando ela e de todo mundo.
@@ -274,6 +315,34 @@ export const ITEMS = {
     quest: true,
   }),
 
+  /**
+   * A POCAO DE CURA, a primeira do mercador do hub.
+   *
+   * E o item que da sentido ao `ITEM_TYPE.POTION`: ela empilha, tem
+   * `use`, e some do slot quando o jogador a bebe. Sem os tres, ela
+   * seria um material que ocupa a mochila para sempre
+   *
+   * `heal: 120` e um quarto da vida de um jogador de nivel 1, e o
+   * suficiente para apagar dois golpes de slime. A `use` vai pelo
+   * `DamageSystem.heal`, que ja respeita o teto de vida e ja escreve o
+   * `+120` flutuante — a pocao reaproveita o feedback que a cura ja
+   * tinha, em vez de inventar um
+   *
+   * `value: 25` e o que o mercado entre jogadores paga por ela, e
+   * NAO o preco da loja. O preco de NPC fica no catalogo da loja
+   * (`data/potions`), porque ele e uma decisao do mercador e nao do
+   * item: mudando o preco da loja, o valor de mercado continua
+   * sendo o mesmo numero
+   */
+  pocao_cura: createItem({
+    id: "pocao_cura",
+    name: "Poção de Cura",
+    icon: "!",
+    rarity: RARITY.COMMON,
+    type: ITEM_TYPE.POTION,
+    value: 25,
+    use: { heal: 120 },
+  }),
 
   goblin_cloth: createItem({
     id: "goblin_cloth",

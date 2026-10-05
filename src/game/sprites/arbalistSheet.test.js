@@ -277,7 +277,62 @@ describe("arbalist sheet asset", () => {
     }
   });
 
+/**
+   * Quantos pixels OPACOS a celula tem.
+   *
+   * O `cellAt` devolve um array CHATO de RGBA, e nao um array de
+   * pixels: o alfa de um pixel esta em `[(y * CELL + x) * 4 + 3]`.
+   * Ler `p[3]` de cada elemento — a primeira versao deste teste — le
+   * um numero solto, dá `undefined`, e devolve zero para sempre. O
+   * teste passava sem nunca ter medido nada, que e o pior jeito de um
+   * teste falhar
+   */
+function opacosEm(column, row) {
+  const pixels = cellAt(column, row);
+
+  let total = 0;
+
+  for (let i = 3; i < pixels.length; i += 4) {
+    if (pixels[i] > 0) total += 1;
+  }
+
+  return total;
+}
+
+/**
+   * O `length` declarado tem que COBRIR a arte.
+   *
+   * Todos os testes deste arquivo medem a folha pelo `length` que a
+   * propria constante declara, entao um `length` curto demais passa
+   * despercebido: ele so leria os primeiros 7 quadros de uma lane com
+   * 8 e nao veria nada de errado. Foi assim que a troca de arte
+   * aumentou o idle de 7 para 8 sem que nenhuma checagem reclamasse
+   *
+   * Aqui a contagem e feita pela arte, e o `length` e que precisa
+   * chegar nela
+   */
+  it("nenhuma lane tem quadro alem do length declarado", () => {
+    for (const lane of lanes()) {
+      let ultimo = -1;
+
+      for (let column = 0; column < COLUMNS; column += 1) {
+        if (opacosEm(column, lane.row) > 0) ultimo = column;
+      }
+
+      const naArte = ultimo + 1;
+
+      expect(naArte, `${lane.name}: a arte tem ${naArte} quadros`).toBeGreaterThan(0);
+
+      expect(
+        lane.length,
+        `${lane.name}: o layout declara ${lane.length} e a arte tem ` +
+          `${naArte} — falta quadro na animacao`,
+      ).toBeGreaterThanOrEqual(naArte);
+    }
+  });
+
   it("animates: every row has several distinct frames", () => {
+
     for (const lane of lanes()) {
       const prints = new Set();
 

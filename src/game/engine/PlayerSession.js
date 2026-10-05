@@ -145,6 +145,147 @@ export function createPlayerSession(
     autoLeashRange: 1500,
 
     /**
+     * A VIAGEM: a fila de etapas para chegar no objetivo.
+     *
+     * ## POR QUE NAO CABE EM `autoWaypoint`
+     *
+     * `autoWaypoint` e um PONTO, e e reescrito a cada 0.25s pelo
+     * `autoPlayTarget`. Um destino em outro mapa nao cabe nele por dois
+     * motivos independentes:
+     *
+     * 1. `setMap` ZERA o campo (`GameEngine.setMap`), e trocar de mapa e
+     *    justamente o meio da viagem. O plano precisaria sobreviver ao
+     *    `setMap` que ele proprio provocou;
+     * 2. o ponto e resolvido no mapa em que o jogador ESTA. Apos
+     *    atravessar o portal, a mesma linha de codigo continuaria
+     *    apontando para a coordenada antiga, agora em outro mapa
+     *
+     * ## O FORMATO
+     *
+     * Cada etapa e `{ mapId, x, y, portalId, caminho }`:
+     *
+     * - `mapId` — o mapa em que a etapa acontece. E o que permite
+     *   perceber que o plano ficou velho;
+     * - `x`/`y` — o ponto a alcancar nesta etapa: o portal a atravessar,
+     *   ou o destino final;
+     * - `portalId` — o portal a atravessar ao chegar. `null` na ultima
+     *   etapa, que e a unica que termina numa zona em vez de noutro mapa;
+     * - `caminho` — os pontos do A* ate `x`/`y`, ja simplificados. Vem
+     *   preenchido na hora de comecar a etapa e vai sendo consumido
+     *
+     * Vive na sessao pelo mesmo motivo do resto: no servidor dois
+     * jogadores com planos diferentes nao podem compartilhar um campo
+     */
+    travelPlan: [],
+
+    /**
+     * O JOGADOR QUE ESTE ESTA SEGUINDO, ou `null`.
+     *
+     * E um id de SESSAO, e nao uma posicao: o seguido anda, e o plano
+     * precisa ser refeito a cada vez que ele muda de lugar. Guardar a
+     * coordenada faria o seguidor ir para o ponto onde ele estava e
+     * parar la
+     *
+     * Vive na sessao como o `travelPlan`, pelo mesmo motivo: dois
+     * jogadores podem estar seguindo gente diferente ao mesmo tempo
+     */
+    seguindoId: null,
+
+    /**
+     * O TEMPO ate o plano ser refeito enquanto se segue.
+     *
+     * O seguido se mexe varias vezes por segundo, e refazer o A* a cada
+     * quadro custaria um BFS e uma montagem de plano por quadro. Como o
+     * plano tambem tem de se atualizar logo apos uma travessia de portal,
+     * este e o piso: enquanto ele nao vence, o plano segue válido
+     */
+    seguindoRelogio: 0,
+
+    /**
+     * O SEGUIR LIGOU O AUTO, e nao o jogador.
+     *
+     * Sem este flag o `pararDeSeguir` desligaria um Auto que o jogador
+     * tinha ligado antes de pedir para seguir, e ele voltaria do
+     * primeiro passo para a cacada que tinha montado
+     */
+    seguindoAuto: false,
+
+    /**
+     * CHEGOU DO LADO E ESTA PARADO.
+     *
+     * Differe de "nao esta seguindo": o acompanhamento acabou, mas o
+     * piloto fica suspenso para o personagem NAO voltar a cacar o que
+     * esta em volta. E o que faz o pedido "seguir e ao chegar ficar
+     * parado no ponto final"
+     *
+     * Some quando o jogador aperta T ou liga a cacada de novo
+     */
+    seguindoParado: false,
+
+    /**
+     * O MAPA DESTE JOGADOR.
+     *
+     * E o que impede todo mundo de atravessar o portal junto. O mapa e
+     * um campo do MOTOR — `world.map`, `world.enemies`, `world.collision`
+     * — e nao da sessao, entao sem este campo o `setMap` de um jogador
+     * trocava o mapa de todo mundo: o outro recebia o snapshot com o id
+     * novo e o cliente dele desenhava o outro mapa
+     *
+     * Vive na sessao porque e o unico lugar que o motor nao troca
+     */
+    mapId: null,
+
+    /**
+     * FOCAR O MESMO INIMIGO DO LIDER.
+     *
+     * Quando ligado, o Auto deste jogador nao escolhe alvo proprio: ele
+     * ataca o que o lider esta batendo. E quando o lider nao esta
+     * batendo em ninguem, este tambem nao bate — que e o pedido, e o
+     * oposto de "cada um caça o mob mais perto"
+     *
+     * Vive na sessao porque e uma ESCOLHA do jogador, e nao uma regra
+     * do grupo: o lider nao precisa disso para ele mesmo, e cada
+     * membro liga e desliga na sua hora
+     */
+    focarLider: false,
+
+    /**
+     * O TEMPO que o jogador passou parado durante a viagem.
+     *
+     * O plano pode ficar velho sem ninguem tocar nele: um inimigo empurra
+     * o jogador, o `shoveEnemiesOffPlayer` resolve, ou o alvo sai do
+     * caminho no meio da etapa. Quando isso empurra o boneco para tras
+     * do ultimo ponto do A*, o piloto ficaria andando para um ponto que
+     * ele ja passou
+     *
+     * E o contador que faz o motor replanejar. Acima de um limite, o
+     * passo e refeito do zero e o numero volta a zero
+     */
+    travelParado: 0,
+
+    /**
+     * O CAMINHO de perseguicao, e ha quanto tempo ele foi calculado.
+     *
+     * ## A MESMA COISA QUE A VIAGEM, SO QUE PARA UM ALVO QUE ANDA
+     *
+     * O `approachTarget` apontava direto para o alvo e andava em linha
+     * reta. Com uma arvore no meio, o boneco empurrava contra o tronco e
+     * nunca chegava na distancia de tiro — o arqueiro (alcance 550) ficava
+     * olhando um limo a 800px sem disparar uma flecha so
+     *
+     * ## POR QUE FICA NA SESSAO E POR QUE TEM RELOGIO
+     *
+     * Na sessao pelo mesmo motivo do resto: no servidor dois jogadores
+     * perseguindo alvos diferentes nao podem compartilhar um caminho
+     *
+     * E o `cacadaRelogio` porque o alvo ANDA. Um caminho calculado uma
+     * vez so serve enquanto o alvo nao se moveu; recalcular a cada quadro
+     * custaria ate 80ms de A* por quadro por jogador
+     */
+    cacadaCaminho: null,
+    cacadaRelogio: 0,
+
+    /**
      * O aviso de tela ("+16 moedas", "missao concluida").
      *
      * Era um campo do MOTOR, e por isso TODO mundo connected via a

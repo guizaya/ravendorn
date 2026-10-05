@@ -21,6 +21,7 @@ import {
   snapshotMarket,
 } from "../../../src/game/market/MarketStore.js";
 import { GuildStore } from "../../../src/game/guild/GuildStore.js";
+import { PartyStore, PARTY_INVITE_TTL } from "./PartyStore.js";
 import {
   GUILD_CRIACAO_CUSTO,
   GUILD_MEMBROS_MAX,
@@ -34,6 +35,10 @@ import {
   describeAnuncioItem,
   podeListar,
 } from "../../../src/data/market/index.js";
+import {
+  POCAO_MAX_POR_COMPRA,
+  getPocao,
+} from "../../../src/data/potions/index.js";
 import {
   CLIENT_COMMANDS,
   PANEL_OPS,
@@ -168,6 +173,21 @@ export class GameServer {
     });
 
     /**
+     * A PARTY: o terceiro estado compartilhado.
+     *
+     * Mora no servidor e tem uma unica copia, pelo mesmo motivo da
+     * guilda: duas instancias dariam duas parties com o mesmo jogador,
+     * e o loot compartilhado passaria a contar duas vezes
+     *
+     * E o estado que decide QUEMganha o que. O cliente sabe que esta
+     * numa party e desenha a box, mas quem divide moeda, quem sorteia o
+     * item e quem recebe o abate na missao e este objeto
+     */
+    this.parties = new PartyStore({
+      agora: config.agora ?? (() => Date.now()),
+    });
+
+    /**
      * As duas filas do mercado que dependem de sessao viva.
      *
      * O `pagamentosPendentes` e dinheiro de vendedor OFFLINE: o item
@@ -198,6 +218,12 @@ export class GameServer {
         characterName: "Placeholder",
         marketStore: this.market,
         guildStore: this.guild,
+        /**
+         * A party entra no motor pelo mesmo caminho do market e da
+         * guilda: injetada, e so lida. Quem cria party e o `PartyStore`;
+         * o motor so pergunta quem mais esta no grupo
+         */
+        partyStore: this.parties,
       },
     );
 
@@ -243,6 +269,18 @@ export class GameServer {
      * pelo calcamento e apareceria no vale, ou ao contrario
      */
     this.engine.setMap(getMap(mapId));
+
+    /**
+     * O MAPA DE ENTRADA, e nao o mapa em que o `world` esta.
+     *
+     * Sao coisas diferentes agora que cada jogador tem o seu mapa: o
+     * `world` aponta para o mapa do ultimo jogador em foco, e um
+     * jogador que entra enquanto outro esta no vale leria `world.map` e
+     * nasceria no vale sem ter atravessado nada
+     *
+     * E o servidor que sabe em que mapa o mundo comeca
+     */
+    this.mapaInicial = getMap(mapId);
 
     this.placeholder = this.engine.world.session;
 
@@ -927,6 +965,92 @@ export class GameServer {
   }
 
   /**
+   * COMPRAR uma pocao na loja do mercador.
+   *
+   * ## POR QUE ESTA NAO E O `comprarNoMarket`
+   *
+   * O mercado entre jogadores move dinheiro entre DUAS sessoes, e por
+   * isso ele mora aqui e nao no motor. A loja do mercador move dinheiro
+   * para o jogo: uma sessao só, um preco que vem do catalogo, e
+   * nenhum outro jogador envolvido. E por isso que ela usa
+   * `showMessage` como o encantar e a guilda, em vez do
+   * `resultadoDoMarket` — aquele existe para reconciliar as duas telas
+   * do mercado ao mesmo tempo, e aqui nao ha segunda tela
+   *
+   * ## NADA DO PEDIDO E CONFIAVEL
+   *
+   * O `itemId` e procurado no catalogo da loja, e um id fora dele e
+   * recusado. O preco NUNCA vem do pedido: sai do catalogo, e e por
+   * isso que um cliente modificado nao consegue comprar por 1. A
+   * quantidade vem do pedido porque o jogador pode legitimamente
+   * comprar varias, e por isso ela tem teto de regra aqui, em vez de
+   * teto no transporte
+   *
+   * ## A ORDEM: COBRA, DEPOIS ENTREGA, E DESFAZ SE NAO COUBER
+   *
+   * E a mesma ordem do `comprarNoMarket`, e pelo mesmo motivo. E o
+   * espaco que falha depois da cobranca que obriga a devolver o
+   * dinheiro — e devolver junto com o que entrou na mochila, para o
+   * jogador ficar exatamente onde estava. Sem o `take`, ele perderia o
+   * preco E ficaria com parte das pocoes de graca
+   */
+  comprarPocao(sessao, pedido) {
+    const pocao = getPocao(pedido.itemId);
+
+    if (!pocao) {
+      this.engine.showMessage(
+        "O mercador não tem essa poção.",
+        true,
+      );
+
+      return;
+    }
+
+    /**
+     * A quantidade pedida, ou 1.
+     *
+     * `null` e o que o transporte devolve para um numero invalido, e
+     * `1` e a compra minima. O teto e o da LOJA e nao o do mercado
+     * entre jogadores: 99 pocoes num clique caberiam na mochila e
+     * esvaziariam a bolsa antes de o jogador confirmar o preco
+     */
+    const quantidade = Math.min(
+      Math.max(1, Math.floor(pedido.count ?? 1)),
+      POCAO_MAX_POR_COMPRA,
+    );
+
+    const preco = pocao.preco * quantidade;
+
+    if (!sessao.inventory.spendCoins(preco)) {
+      this.engine.showMessage(
+        `Moedas insuficientes: ${preco} são necessárias.`,
+        true,
+      );
+
+      return;
+    }
+
+    const entregue = sessao.inventory.add(pocao.id, quantidade);
+
+    if (entregue.added < quantidade) {
+      // a mochila lotou: o dinheiro volta e o que entrou sai de novo
+      sessao.inventory.addCoins(preco);
+
+      if (entregue.added > 0) {
+        sessao.inventory.take(pocao.id, entregue.added);
+      }
+
+      this.engine.showMessage("Mochila cheia.", true);
+
+      return;
+    }
+
+    this.engine.showMessage(
+      `${getItem(pocao.id)?.name ?? pocao.id} x${quantidade}.`,
+    );
+  }
+
+  /**
    * COMPRAR um anuncio.
    *
    * A ordem das tres checagens antes de qualquer transferencia:
@@ -1147,6 +1271,16 @@ export class GameServer {
         // nascer dentro de um mob
         ...this.entradaNoMapa(),
       }),
+      {
+        /**
+         * O MAPA DE ENTRADA, e nao `world.map`.
+         *
+         * O `world` aponta para o mapa do ultimo jogador em foco, e um
+         * jogador que entra enquanto outro esta no vale nasceria la sem
+         * ter atravessado nada
+         */
+        mapId: this.mapaInicial.id,
+      },
     );
 
     /**
@@ -1805,12 +1939,390 @@ criarGuilda(sessao, pedido) {
           this.cancelarNoMarket(sessao, pedido);
           break;
 
+        /**
+         * USAR um consumivel da mochila.
+         *
+         * O `usarItem` e do motor e devolve `false` quando nao fez
+         * nada — item que nao existe, item sem `use`, ou vida ja cheia.
+         * So o primeiro motivo e erro do jogador; os outros dois sao
+         * o jogo respondendo "agora nao", e uma mensagem de erro para
+         * eles seria o painel chamando de erro o que nao e
+         */
+        case PANEL_OPS.USE_ITEM: {
+          const usou = this.engine.usarItem(pedido.uid);
+
+          if (!usou && !pedido.uid) {
+            this.engine.showMessage(
+              "Escolha um item para usar.",
+              true,
+            );
+          }
+
+          break;
+        }
+
+        // a loja do mercador tambem e do motor, e nao do bloco do
+        // mercado acima: so uma sessao entra nesta conta
+        case PANEL_OPS.BUY_POTION:
+          this.comprarPocao(sessao, pedido);
+          break;
+
+        /**
+         * A PARTY.
+         *
+         * Quatro operacoes e um bloco so, porque todas precisam da MESMA
+         * coisa depois: reenviar o estado da party para todo mundo
+         * envolvido. Uma party que so atualiza quem pediu deixa os
+         * outros com a box velha na tela
+         */
+        case PANEL_OPS.PARTY_INVITE:
+        case PANEL_OPS.PARTY_CREATE:
+        case PANEL_OPS.PARTY_INVITE_BY_NAME:
+        case PANEL_OPS.PARTY_ACCEPT_INVITE:
+        case PANEL_OPS.PARTY_KICK:
+        case PANEL_OPS.PARTY_FOLLOW:
+        case PANEL_OPS.PARTY_FOCUS:
+        case PANEL_OPS.PARTY_TRANSFER:
+        case PANEL_OPS.PARTY_LEAVE:
+          this.tratarParty(sessao, pedido);
+          break;
+
         // um `op` de outra versao do cliente. o motor fica como esta:
         // e o servidor que decide o que existe
         default:
           break;
       }
     });
+  }
+
+  /**
+   * Uma operacao de PARTY.
+   *
+   * Todas as quatro caem aqui, e todas terminam em
+   * `reenviarPartyDe`: quem participa de uma party precisa ver a caixa
+   * nova, inclusive quem NAO pediu nada
+   */
+  tratarParty(sessao, pedido) {
+    const store = this.parties;
+
+    let resultado;
+
+    switch (pedido.op) {
+      case PANEL_OPS.PARTY_CREATE: {
+        /**
+         * A PARTY DE UM SO.
+         *
+         * E o que faz o campo do nick aparecer: sem estar numa party o
+         * jogador esta FORA de party, e a caixa mostra so [Criar party]
+         */
+        resultado = store.criar(sessao.id);
+
+        break;
+      }
+
+      case PANEL_OPS.PARTY_INVITE: {
+        /**
+         * O CONVITE PELO CLIQUE no personagem.
+         *
+         * O cliente manda o id do jogador mirado, e o servidor procura a
+         * sessao. Nao e confiavel: um id de sessao forjado cairia em
+         * `null` e o convite nao sairia
+         */
+        const alvo = pedido.alvoId
+          ? this.engine.world.players.get(pedido.alvoId)
+          : null;
+
+        if (!alvo) {
+          resultado = { ok: false, motivo: "Jogador não encontrado" };
+          break;
+        }
+
+        resultado = store.convidar(sessao.id, alvo, this.engine.world);
+
+        if (resultado.ok) {
+          this.enviarConvite(alvo.id, resultado.convite);
+        }
+
+        break;
+      }
+
+      case PANEL_OPS.PARTY_INVITE_BY_NAME: {
+        resultado = store.convidarPorNome(
+          sessao.id,
+          pedido.nome,
+          this.engine.world,
+        );
+
+        if (resultado.ok) {
+          const alvo = store.conviteRecebidoDe(resultado.convite);
+
+          if (alvo) this.enviarConvite(alvo, resultado.convite);
+        }
+
+        break;
+      }
+
+      case PANEL_OPS.PARTY_ACCEPT_INVITE: {
+        /**
+         * A LISTA DE QUEM VAI RECEBER.
+         *
+         * E montada ANTES do aceite, porque sair pode dissolver a party
+         * de alguem. Quem foi excluido do grupo nao recebe nada
+         */
+        resultado = store.aceitarConvite(sessao.id, this.engine.world);
+
+        if (resultado.ok) {
+          const ids = [...resultado.party.membros];
+
+          this.reenviarParty(ids);
+        }
+
+        this.enviarConviteFechado(sessao.id);
+
+        break;
+      }
+
+      case PANEL_OPS.PARTY_KICK: {
+        /**
+         * A EXPULSAO.
+         *
+         * O `alvoId` vem do cliente e nao e confiavel: quem valida e o
+         * `PartyStore`, que confere se quem pede e mesmo o lider
+         */
+        resultado = store.expulsar(sessao.id, pedido.alvoId);
+
+        if (resultado.ok) {
+          this.reenviarParty(resultado.avisar);
+        }
+
+        break;
+      }
+
+      case PANEL_OPS.PARTY_FOLLOW: {
+        /**
+         * SEGUIR UM MEMBRO.
+         *
+         * O `alvoId` so pode ser alguem da MINHA party: seguir um
+         * jogador qualquer pelo socket transformaria o botao em um
+         * rastreador, e o alvo nao receberia nem o pedido
+         */
+        const membros = store.membrosDe(sessao.id);
+
+        if (!membros.includes(pedido.alvoId)) {
+          resultado = { ok: false, motivo: "Ele não está na sua party" };
+          break;
+        }
+
+        // o mesmo botao desliga: clicar em quem ja se segue CANCELA
+        resultado =
+          sessao.seguindoId === pedido.alvoId
+            ? { ok: true, parou: true }
+            : { ok: true };
+
+        if (resultado.parou) {
+          this.engine.pararDeSeguir();
+        } else {
+          /**
+           * O `seguirJogador` liga o Auto por conta propria.
+           *
+           * O motor precisa saber que foi ele quem ligou, para
+           * desligar quando chegar do lado. Se o servidor ligasse aqui,
+           * o motor desligaria um Auto que ja estava ligado antes e o
+           * jogador perderia a cacada que tinha ligada
+           */
+          this.engine.seguirJogador(pedido.alvoId);
+        }
+
+        break;
+      }
+
+      case PANEL_OPS.PARTY_FOCUS: {
+        /**
+         * LIGAR OU DESLIGAR O FOCO DO LIDER.
+         *
+         * O pedido manda o estado (`ativo`), e nao um "inverter": com
+         * dois cliques rapidos no botao, um "inverter" acabaria no
+         * estado inicial — e o jogador teria clicado duas vezes para
+         * tentar desligar e descobrir que nao desligou
+         *
+         * O `ativo` chega como `null` quando o pedido nao traz, e `null`
+         * e diferente de `false`: `null` e "nao pedi nada", e por isso o
+         * estado NAO muda. Sem esta distincao, um pedido viria com o
+         * interruptor desligado sem ninguem ter clicado nele
+         *
+         * O `focarLider` mora na SESSAO porque e uma escolha de cada
+         * um. O motor e quem le, no `runAutoHunt`
+         */
+        if (!store.partyDe(sessao.id)) {
+          resultado = { ok: false, motivo: "Voce nao esta em party" };
+          break;
+        }
+
+        if (pedido.ativo === null || pedido.ativo === undefined) {
+          resultado = { ok: false, motivo: "Faltou o estado do foco" };
+          break;
+        }
+
+        sessao.focarLider = Boolean(pedido.ativo);
+
+        resultado = { ok: true, focarLider: sessao.focarLider };
+
+        break;
+      }
+
+      case PANEL_OPS.PARTY_TRANSFER: {
+        /**
+         * PASSAR A LIDERANCA.
+         *
+         * E o unico caso em que o pedido traz um `alvoId` que NAO e
+         * um convite nem uma expulsion: e o novo lider. O alvo tem que
+         * estar na party — passar a lideranca para quem esta fora da
+         * grupo nao faria sentido
+         */
+        const party = store.partyDe(sessao.id);
+
+        if (!party) {
+          resultado = { ok: false, motivo: "Voce nao esta em party" };
+          break;
+        }
+
+        if (party.lider !== sessao.id) {
+          resultado = { ok: false, motivo: "So o lider passa a lideranca" };
+          break;
+        }
+
+        const membros = store.membrosDe(sessao.id);
+
+        if (!membros.includes(pedido.alvoId)) {
+          resultado = { ok: false, motivo: "Ele nao esta na party" };
+          break;
+        }
+
+        if (pedido.alvoId === sessao.id) {
+          resultado = { ok: false, motivo: "Voce ja e o lider" };
+          break;
+        }
+
+        party.lider = pedido.alvoId;
+
+        this.engine.withPlayer(pedido.alvoId, () => {
+          this.engine.showMessage("Voce agora e o lider da party.");
+        });
+
+        resultado = { ok: true, lider: pedido.alvoId };
+
+        /**
+         * O GRUPO INTEIRO RECEBE A CAIXA NOVA.
+         *
+         * Sem isto, so a tela de quem pediu era atualizada — e quem
+         * acabara de virar lider continuaria vendo a etiqueta do lider
+         * antigo e sem nenhum botao `L`, que e exatamente "passar
+         * lideranca nao funciona" do ponto de vista de quem recebeu
+         */
+        this.reenviarParty(store.membrosDe(sessao.id));
+
+        break;
+      }
+
+      case PANEL_OPS.PARTY_LEAVE: {
+        const antes = store.membrosDe(sessao.id);
+
+        resultado = store.sair(sessao.id);
+
+        if (resultado.ok) {
+          /**
+           * O QUE SAI JUNTO COM A PARTY.
+           *
+           * Sair do grupo nao pode deixar o resto ligado: um `focarLider`
+           * apontando para o lider que nao existe mais e um `seguindoId`
+           * para alguem que acabou de sair. Sem esta limpeza, a sessao
+           * guarda as duas coisas e o jogador voltaria a cacar e a andar
+           * atras de ninguem quando entrasse em outra party
+           */
+          sessao.focarLider = false;
+          sessao.seguindoId = null;
+
+          const ids = new Set([...antes, ...(resultado.restantes ?? [])]);
+
+          this.reenviarParty([...ids]);
+        }
+
+        break;
+      }
+
+      default:
+        resultado = { ok: false };
+        break;
+    }
+
+    /**
+     * A CAIXA DE QUEM PEDIU.
+     *
+     * Vai no `PLAYER_STATE` e nao num evento separado: e estado do
+     * jogador, e o `snapshot` ja viaja a 20Hz para todo mundo
+     */
+    this.enviarPartyNoPainel(sessao.id);
+
+    if (!resultado?.ok && resultado?.motivo) {
+      this.engine.showMessage(resultado.motivo, true);
+    }
+  }
+
+  /** Manda o convite para QUEM foi convidado, e so para ele. */
+  enviarConvite(sessionId, convite) {
+    this.enviarPara(sessionId, SERVER_EVENTS.PARTY_INVITE_RECEIVED, {
+      de: {
+        id: convite.de,
+        nome: convite.nome,
+        classe: convite.classe,
+      },
+      partyId: convite.partyId,
+      expiraEm: convite.expiresAt,
+      ttl: PARTY_INVITE_TTL,
+    });
+  }
+
+  /** Fecha a caixa de convite de quem RECEBEU, aceitando ou expirando. */
+  enviarConviteFechado(sessionId) {
+    this.enviarPara(sessionId, SERVER_EVENTS.PARTY_INVITE_CLOSED, {});
+  }
+
+  /** Reenvia o estado da party para cada id envolvido. */
+  reenviarParty(sessionIds) {
+    for (const id of sessionIds) {
+      this.enviarPartyNoPainel(id);
+    }
+  }
+
+  /** Escreve o bloco `party` no painel de um jogador. */
+  enviarPartyNoPainel(sessionId) {
+    const sessao = this.engine.world.players.get(sessionId);
+
+    if (!sessao) return;
+
+    sessao.party = this.parties.snapshot(sessionId, this.engine.world);
+  }
+
+  /**
+   * Um pacote para UM jogador.
+   *
+   * E o que o convite usa: ele vai so para quem foi convidado, porque
+   * saber que alguem convidou alguem e informacao de terceiro
+   */
+  enviarPara(sessionId, evento, payload) {
+    /**
+     * Percorre as CHAVES do `clients`.
+     *
+     * O valor do Map e um booleano de "conectado", nao o cliente. Contar
+     * os valores contaria quantos `true` tem o mapa, e sempre errado
+     */
+    for (const client of this.clients.keys()) {
+      if (!client.joined) continue;
+
+      if (client.session?.id !== sessionId) continue;
+
+      client.enviar(evento, payload);
+    }
   }
 
   /**
@@ -1829,7 +2341,34 @@ criarGuilda(sessao, pedido) {
 
     const sessao = client.session;
 
+    /**
+     * O GOLPE NA BASE.
+     *
+     * A autoridade esta no servidor, entao a recusa mora aqui e nao no
+     * cliente. A checagem e DENTRO do `withPlayer` e nao antes dele: o
+     * `world.map` e o do jogador em FOCO, e o `withPlayer` de baixo e que
+     * troca esse foco. Contar pelo `sessao.mapId` aqui em cima daria a
+     * mesma resposta, mas o `emZonaDeCombate` do motor e a regra
+     * unica — duas copias da condicao divergem na primeira vez que uma
+     * delas for esquecida
+     *
+     * O aviso vai pelo `showMessage`, e nao por `SERVER_EVENTS.REJECTED`:
+     * o `REJECTED` muda o STATUS da conexao para recusado, e o status de
+     * quem ja esta jogando e `JOGANDO` — a recusa chegava e nao aparecia
+     * em lugar nenhum. O `showMessage` e o mesmo caminho do "Mochila
+     * cheia.", que o jogador le
+     */
     this.engine.withPlayer(sessao.id, () => {
+      const ehGolpe =
+        action === "BASIC_ATTACK" ||
+        (targetId !== null && targetId !== undefined);
+
+      if (!this.engine.emZonaDeCombate() && ehGolpe) {
+        this.engine.showMessage(REJECT.NO_COMBAT_IN_BASE, true);
+
+        return;
+      }
+
       // o limite de mira tambem e do cliente: sem ele, a mira fica
       // onde o jogador parou de mexer o mouse, e um golpe no vazio
       // parece um bug do servidor
@@ -1895,7 +2434,15 @@ criarGuilda(sessao, pedido) {
    * da base, que so vai ate (1640, 1136)
    */
   entradaNoMapa() {
-    const { spawn, bounds } = this.engine.world.map;
+    /**
+     * O MAPA DE ENTRADA, e nao `world.map`.
+     *
+     * Cada jogador tem o seu mapa agora, e o `world` so aponta para o
+     * do ultimo em foco. Um jogador que entra enquanto outro esta no
+     * vale nasceria no vale, do outro lado do portal, sem ter clicado em
+     * nada
+     */
+    const { spawn, bounds } = this.mapaInicial;
 
     return {
       spawn: { x: spawn.x, y: spawn.y },
@@ -1925,7 +2472,7 @@ criarGuilda(sessao, pedido) {
      * hub diz que nao, e o jogador entra sempre pelo meio do
      * calcamento. O vale diz que sim, e continua de onde parou
      */
-    if (!this.engine.world.map.resumeWhereLeftOff) {
+    if (!this.mapaInicial.resumeWhereLeftOff) {
       const { spawn } = this.entradaNoMapa();
 
       sessao.player.x = spawn.x;
@@ -1985,31 +2532,61 @@ criarGuilda(sessao, pedido) {
      */
     this.expirarAnuncios();
 
+    /**
+     * O PRAZO DOS CONVITES.
+     *
+     * Corre aqui pelo mesmo motivo dos anuncios: o jogador parado tambem
+     * precisa ver o convite sair de perto. Sem este `tick`, o convite
+     * ficaria na tela ate o jogador clicar em algo, e o aceite seria
+     * recusado pelo servidor com "o convite expirou" — a caixa ficaria
+     * morta na frente de quem nao fez nada de errado
+     */
+    const expirados = this.parties.tick(this.engine.world);
+
+    for (const alvo of expirados) {
+      this.enviarConviteFechado(alvo.sessionId);
+      this.enviarPartyNoPainel(alvo.sessionId);
+    }
+
     for (const client of this.clients.keys()) {
       if (!client.joined) continue;
 
-      client.enviar(SERVER_EVENTS.SNAPSHOT, {
-        seq: ++this.seq,
-        time: this.engine.world.time,
+      /**
+       * CADA PACOTE E MONTADO COM O DONO EM FOCO.
+       *
+       * O `world` do motor e um so, e ele aponta para o mapa de quem
+       * esta em foco. Montar o pacote de todos fora do `withPlayer`
+       * mandaria o elenco de inimigos, os drops e os projeteis do
+       * ultimo jogador processado para todo mundo
+       *
+       * E o `focusPlayer` que troca o `world` para o mapa de quem esta
+       * em foco. Sem esta linha, o jogador que NAO atravessou o portal
+       * veria os mobs do mapa do outro
+       */
+      this.engine.withPlayer(client.id, () => {
+        client.enviar(SERVER_EVENTS.SNAPSHOT, {
+          seq: ++this.seq,
+          time: this.engine.world.time,
 
-        /**
-         * EM QUE MAPA O MUNDO ESTA.
-         *
-         * E o que faz o cliente acompanhar uma travessia: quando o
-         * servidor troca o mapa, este id muda e o `NetworkWorld` troca
-         * o motor tambem. Sem ele, o servidor estaria no vale e o cliente
-         * desenhando o hub, cada um com o proprio elenco de inimigos
-         *
-         * O id viaja em TODOS os pacotes, e nao so na virada. Custa uma
-         * palavra a 20Hz e remove um estado de "o mapa ja mudou?" que
-         * teria de ser guardado dos dois lados
-         */
-        mapa: this.engine.world.map.id,
+          /**
+           * EM QUE MAPA ESTE JOGADOR.
+           *
+           * E o que faz o cliente acompanhar uma travessia: quando o
+           * servidor troca o mapa do jogador, este id muda e o
+           * `NetworkWorld` troca o motor tambem
+           *
+           * Sai da SESSAO e nao de `world.map`. O `world` e o mapa do
+           * jogador em foco, e ler dele aqui seria mandar o mapa do
+           * outro para quem nao atravessou — que e o bug de todo mundo
+           * atravessar o portal junto
+           */
+          mapa: client.session.mapId,
 
         players: this.estadoJogadores(),
-        enemies: this.estadoInimigos(client),
-        drops: this.estadoDrops(),
-        projectiles: this.estadoProjetis(client),
+          enemies: this.estadoInimigos(client),
+          drops: this.estadoDrops(),
+          projectiles: this.estadoProjetis(client),
+        });
       });
     }
 
@@ -2084,7 +2661,20 @@ criarGuilda(sessao, pedido) {
   estadoJogadores() {
     const lista = [];
 
+    /**
+     * SO QUEM ESTA NO MESMO MAPA.
+     *
+     * Cada jogador tem o seu mapa agora, e as coordenadas de um mapa
+     * nao significam nada no outro: mandar todo mundo faria o Bento
+     * aparecer no hub do Ana, no meio do calcamento, enquanto o Bento
+     * estava no vale. E o cliente nao tem como saber que o boneco dele
+     * esta em outro mapa — ele so recebe uma posicao
+     */
+    const meuMapa = this.engine.world.session?.mapId;
+
     for (const sessao of this.engine.world.players.values()) {
+      if (sessao.mapId !== meuMapa) continue;
+
       const p = sessao.player;
 
       lista.push({
@@ -2271,6 +2861,21 @@ criarGuilda(sessao, pedido) {
     // O save acontece ANTES de a sessao sair do mundo: depois do
     // `removePlayer` nao ha mais sessao para ler
     this.guardar(sessao);
+
+    /**
+     * A PARTY ANTES DE SAIR DO MUNDO.
+     *
+     * Sair limpa a party e reenvia o estado para quem sobrou. O
+     * `removePlayer` vem depois: se viesse antes, o `enviarPartyNoPainel`
+     * nao acharia mais a sessao de quem ficou
+     */
+    const antesDaParty = this.parties.membrosDe(sessao?.id ?? "");
+
+    this.parties.remover(sessao?.id);
+
+    if (antesDaParty.length > 0) {
+      this.reenviarParty(antesDaParty);
+    }
 
     this.engine.removePlayer(client.id);
     this.anunciar(client.id, false);

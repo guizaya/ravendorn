@@ -245,8 +245,13 @@ describe("todo mob do mapa tem sprite", () => {
     //
     // O `ogre` da pedreira NAO aparece: ele aponta para o MESMO
     // objeto de definicao do ogre da predeira, e o `Map` guarda um
-    // por id. O boneco entra porque e o terceiro direcional, e o
-    // ghoul porque e o quarto: tem idle de verdade e nenhum golpe.
+    // por id.
+    //
+    // O boneco SAIU da lista: o campo de provas trocou o boneco de
+    // madeira e o reforcado por um par de criaturas de verdade, entao
+    // `dummy_warrior` nao existe mais no mundo e nao tem arte
+    //
+    // O ghoul porque tem idle de verdade e nenhum golpe.
     // O `rat` e o quinto, e a unica PASSIVA com arte. O `skeleton` e
     // o sexto: a "Sentinela Esquelética" tambem nao tem arte de golpe,
     // e e a primeira criatura que ATACA sem ela.
@@ -259,8 +264,7 @@ describe("todo mob do mapa tem sprite", () => {
     // `SEMI_PASSIVE` com `aggroRange: 0` como o ghoul: passeia e nao
     // persegue, e nao tem arte de golpe. A pasta de arte dele se chama
     // `hulk`, e o `id` continua `goblin`
-    expect(direcionais).toEqual([
-      "dummy_warrior",
+expect(direcionais).toEqual([
       "ghoul",
       "goblin",
       "ogre_da_predeira",
@@ -398,18 +402,24 @@ describe("o arqueiro zumbi atira", () => {
     engine.destroy();
   });
 
-  it("os outros mobs continuam batendo de perto", () => {
+it("os outros mobs continuam batendo de perto", () => {
     const engine = createEngine();
 
     const player = engine.world.player;
 
-    // um esqueleto, que e ACTIVE. o slime nao serviria: e PASSIVE,
-    // com `aggroRange: 0`, entao nunca ataca ninguem
+    /**
+     * O `ogre`, e nao o esqueleto.
+     *
+     * A sentinela virou ATIRADORA, e um `ranged` dispara flecha em vez
+     * de encostar. Com o esqueleto aqui, a affirmacao de "sem flecha no
+     * ar" seria a prova de que o defeito do zumbi voltou — e nao do
+     * zumbi
+     */
     const esqueleto = createCreature(
-      "skeleton",
+      "ogre",
       { x: player.x + 30, y: player.y },
       997,
-      CREATURE_TYPES.skeleton.level,
+      CREATURE_TYPES.ogre.level,
     );
 
     engine.world.enemies.push(esqueleto);
@@ -420,7 +430,7 @@ describe("o arqueiro zumbi atira", () => {
       engine.update(1 / 60);
     }
 
-    // o esqueleto encosta e bate, sem flecha no ar
+    // o ogre encosta e bate, sem flecha no ar
     expect(player.hp).toBeLessThan(hpAntes);
     expect(
       engine.world.projectiles.filter((p) => p.hostile),
@@ -428,6 +438,66 @@ describe("o arqueiro zumbi atira", () => {
 
     engine.destroy();
   });
+
+  /**
+   * E o esqueleto, que e o outro atirador, faz o contrario.
+   *
+   * Este e o par do teste acima: se os dois usassem a mesma criatura,
+   * um deles estaria medindo a coisa errada e o outro passaria sem
+   * provar nada
+   */
+  it("a sentinela atira em vez de encostar", () => {
+    const engine = createEngine();
+
+    const player = engine.world.player;
+
+    /**
+     * A 250px, e nao a 30.
+     *
+     * A janela de tiro da sentinela e entre `keepDistance` (220) e
+     * `attackRange` (300). Perto demais ela recua e NAO atira: o
+     * `retreat` retorna antes do golpe, de proposito. Colocada colada
+     * no jogador, ela passaria o teste inteiro andando para tras sem
+     * disparar, e o teste diria "ela nao atira" — o contrario da
+     * verdade
+     */
+    const sentinela = createCreature(
+      "skeleton",
+      { x: player.x + 250, y: player.y },
+      997,
+      CREATURE_TYPES.skeleton.level,
+    );
+
+    engine.world.enemies.push(sentinela);
+
+    /**
+     * A contagem e feita A CADA QUADRO, e nao no fim.
+     *
+     * A flecha sai a 370px/s e o alvo esta a 250: ela chega em menos de
+     * um segundo e some no impacto. Olhar a lista no fim da simulacao
+     * veria zero flechas e o teste diria "a sentinela nao atira" — que
+     * e exatamente o oposto do que aconteceu
+     */
+    let maior = 0;
+
+    for (let frame = 0; frame < 300; frame += 1) {
+      engine.update(1 / 60);
+
+      const voando = engine.world.projectiles.filter(
+        (p) => p.hostile,
+      ).length;
+
+      if (voando > maior) maior = voando;
+    }
+
+    expect(
+      maior,
+      "a sentinela nunca deixou uma flecha no ar",
+    ).toBeGreaterThan(0);
+
+    engine.destroy();
+  });
+
 });
 
 describe("o zumbi se vira e atira", () => {

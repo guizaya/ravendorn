@@ -171,8 +171,20 @@ function Tela({ nome }) {
  * aparece com o painel e o tracker da missao.
  */
 async function esperarOPainel(container) {
+  /**
+   * A ESPERA e pela LINHA da missao, e nao pelo cabecalho da box.
+   *
+   * O cabecalho (`Nv.3` e a barra de XP) e o que primeiro chega do
+   * servidor: ele so depende do `player` do snapshot. A linha da missao
+   * depende do `quests`, que vem no mesmo pacote mas e o que este teste
+   * precisa
+   *
+   * Esperar pelo cabecalho funcionava por acaso, porque a box inteira
+   * so aparecia quando havia missao — a box nunca some agora, e esperar
+   * por ela deixaria o teste clicar antes do painel chegar
+   */
   for (let i = 0; i < 120; i += 1) {
-    if (container.querySelector(".qst-tracker__head")) return;
+    if (container.querySelector(".qst-tracker__row")) return;
     await esperar(50);
   }
 

@@ -34,7 +34,79 @@ export const ARVORE_SHEET = new URL(
   import.meta.url,
 ).href;
 
+/**
+ * A FOLHA DO ARBUSTO, que e a sebe do mapa 1.
+ *
+ * Mesma historia da arvore: uma arte pintada grande, reduzida pelo
+ * `tools/gerar-arbusto-prop.mjs` para 96x93. Fica em arquivo separado
+ * porque a `props.png` e de 32px e esticaria o arbusto para pixel art
+ *
+ * O nome do arquivo gerado tem o sufixo `_prop` de proposito: o
+ * `arbusto.png` de 1254px continua no lugar como a MATERIA PRIMA, e
+ * sobrescreve-lo com a versao reduzida destruiria a origem de quem
+ * quiser regerar em outro tamanho
+ */
+export const ARBUSTO_SHEET = new URL(
+  "../../assets/props/arbusto_prop.png",
+  import.meta.url,
+).href;
+
 export const PROP_TYPES = {
+  /**
+   * O ARBUSTO DA SEBE: a props que segura o jogador dentro dos campos.
+   *
+   * Este e o UNICO outro tipo que carrega folha propria, e a diferenca do
+   * `bush` antigo e a que importa: aquele e pixel art de 32px e tem
+   * `blocking: false`, ou seja, o jogador atravessava ele semuestr
+   *
+   * Aqui o `collider` e o que segura o jogador. O `radius` e a footprint
+   * para o sorteio e para o minimapa; o `collider` e a caixa de colisao
+   * de verdade, e e ela que fecha a passagem
+   */
+  arbusto: {
+    id: "arbusto",
+    row: 0,
+    blocking: true,
+    radius: 48,
+    collider: 14,
+    tint: "#2c4734",
+
+    /**
+     * `isTree` e falso de proposito: e verde no minimapa como pedra. A
+     * sebe e um obstaculo fixo e desenhado, e nao uma arvore que o
+     * jogador associaria a "lugar de madeira"
+     */
+    isTree: false,
+
+    sheet: ARBUSTO_SHEET,
+
+    /**
+     * 67x65 e a arte depois do corte e da reducao, e nao um numero
+     * redondo: o `gerar-arbusto-prop.mjs` calcula a altura pela proporcao
+     * da caixa opaca da origem, que e 633x613 — arredondar para 64 daria
+     * uma linha de corte a mais no rodape e o arbusto perderia a base
+     *
+     * O `collider` e `14` e NAO acompanha esta reducao, e e de proposito:
+     * ele e o que segura o jogador, e a arte e so o que se ve. Baixar o
+     * collider junto abriria a sebe — a folga passaria de 32 para 40px e
+     * o jogador passaria raspando
+     */
+    frameWidth: 67,
+    frameHeight: 65,
+    drawWidth: 67,
+    drawHeight: 65,
+    variants: 1,
+
+    /**
+     * A base e o PE do arbusto, e ele fica EM `y` — igual a arvore.
+     *
+     * A sebe e uma linha de y IGUAL para todas as copias, entao qualquer
+     * valor diferente de 1 desalinharia a fileira em degraus, e um muro
+     * com degraus vira uma escada por onde o jogador sobe
+     */
+    base: 1,
+  },
+
   /**
    * A ARVORE DO VALE: a unica prop que o mapa usa hoje.
    *
@@ -132,6 +204,7 @@ export const PROP_TYPES = {
 
 export const PROP_ORDER = [
   "arvore",
+  "arbusto",
   "treeSmall",
   "treeMedium",
   "treeLarge",

@@ -4,7 +4,7 @@ import { GameEngine } from "./GameEngine.js";
 import { CHARACTER_CLASSES } from "../../data/characters/index.js";
 import { BASE_MAP } from "../../data/maps/base.js";
 import { MAP_1, getMap } from "../../data/maps/index.js";
-import { BASE_PORTALS, PORTALS } from "../../data/portais/index.js";
+import { BASE_PORTALS, PORTALS, MAP_2_PORTALS } from "../../data/portais/index.js";
 import { worldToMinimap } from "../ui/minimap.js";
 
 /**
@@ -91,24 +91,53 @@ describe("o que o motor publish no painel", () => {
 
   it("um portal sem destino nao mostra box nenhuma", () => {
     /**
-     * O `portal_floresta` continua sem `destino`, e e por isso que
-     * atravessar um enfeite nao e possivel — nem pela box, nem pelo
-     * servidor
+     * A REGRA, com o cenario montado na mao.
+     *
+     * Este teste usava o `portal_floresta` como exemplo de portal sem
+     * destino, e ele parou de servir quando foi ligado no mapa 2. Nao
+     * sobrou nenhum portal real sem destino — todos os tres tem par — e
+     * a regra continuaria sem cobertura
+     *
+     * Por isso o mapa aqui declara um portal sem `destino`: e a regra que
+     * importa, e nao qual portal do catalogo esta ligado hoje
      */
-    const floresta = PORTALS.find(
-      (p) => p.id === "portal_floresta",
-    );
+    const semDestino = {
+      ...MAP_1,
+      portals: [
+        {
+          id: "portal_enfeite",
+          x: 178,
+          y: 180,
+          size: 192,
+          sheet: "floresta",
+        },
+      ],
+    };
 
-    expect(floresta.destino).toBe(undefined);
+    const engine = criar(semDestino);
 
-    const engine = criar(MAP_1);
+    engine.world.player.x = 178;
+    engine.world.player.y = 180;
 
-    engine.world.player.x = floresta.x;
-    engine.world.player.y = floresta.y;
-
+    // sem `destino` o portal e enfeite: nem a box, nem a travessia
     expect(engine.portalSobOsPes()).toBe(null);
 
     engine.destroy();
+  });
+
+  it("todo portal do catalogo tem destino depois do mapa 2", () => {
+    /**
+     * A CONTRAPARTIDA do teste de cima.
+     *
+     * Um portal sem destino e um enfeite, entao a regra so faz sentido
+     * enquanto existir pelo menos um. Ligar o mapa 2 eliminou o unico que
+     * restava, e este teste avisa quando outro aparecer por engano
+     */
+    const semDestino = [...PORTALS, ...BASE_PORTALS, ...MAP_2_PORTALS].filter(
+      (p) => !p.destino,
+    );
+
+    expect(semDestino.map((p) => p.id)).toEqual([]);
   });
 
   it("o portal do pantano ja traz a box do voltar para o hub", () => {

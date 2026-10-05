@@ -7,16 +7,105 @@ import {
   getBestiaryEntry,
   TOTAL_HUNTS,
 } from "../../data/bestiary/index.js";
-import { CREATURE_TYPES } from "../../data/enemies/index.js";
+import {
+  CREATURE_TYPES,
+  MAP_2_ROSTER,
+  ZONE_ROSTER,
+} from "../../data/enemies/index.js";
+
+/**
+ * AS CACADAS DE UMA CRIATURA, e as duas primeiras contagens.
+ *
+ * ## POR QUE O NUMERO VEM DO CATALOGO
+ *
+ * A cacada e a missao principal da zona repetida em `2x`, `4x` e `6x`, e
+ * a base sobe com o nivel do degrau. Escrever `5`, `15` e `40` nos
+ * testes travava o numero antigo: quando a conta passou a ser derivada,
+ * `onKill("slime", 5)` nao fechava mais nada e quinze testes caíam de
+ * uma vez, com a mensagem de "nenhum bonus"
+ *
+ * Ler do catalogo faz o teste valer para a conta que existir, e ainda
+ * trava a coisa que importa: que a cacada fecha no numero que o catalogo
+ * diz
+ */
+const cacadas = (typeId) => getBestiaryEntry(typeId).hunts;
+
+/** A PRIMEIRA cacada, a de `2x`. E a que os testes usam para fechar 1. */
+const meta = (typeId, indice = 0) => cacadas(typeId)[indice].count;
+
+/**
+ * A SEGUNDA criatura do teste.
+ *
+ * Era o `rat`, e ele saiu do mapa 1 quando as cinco zonas do meio
+ * passaram a ser so de ogre: um bestiary de `rat` testando um bestiario
+ * que nao tem `rat` nao testa nada
+ */
+const OUTRO = "ogre";
 
 describe("dados do bestiario", () => {
-  it("tem uma entrada por criatura", () => {
-    expect(BESTIARY.length).toBe(
-      Object.keys(CREATURE_TYPES).length,
+  it("tem uma entrada por criatura DELE, de qualquer mapa", () => {
+    /**
+     * A vitrine lista o que MORA, e nao tudo que existe como tipo.
+     *
+     * `CREATURE_TYPES` tem oito tipos e o JOGO tem cinco: limo, ogre da
+     * predeira e ogre da pedreira no mapa 1, mais a sentinela e o arqueiro
+     * zumbi no mapa 2. Listar os tres que nao moram em lugar nenhum dava
+     * uma vitrine que nao se fecha — sem zona, sem "ir matar", e sem
+     * nenhum aviso de que era impossivel
+     *
+     * O teste compara com os DOIS rosters, que sao a mesma fonte que a
+     * vitrine usa: se uma zona trocar de criatura, os dois acompanham
+     */
+    const doRoster = new Set(
+      [...ZONE_ROSTER, ...MAP_2_ROSTER].flatMap((row) =>
+        Object.keys(row.mix ?? {}),
+      ),
     );
+
+    expect(BESTIARY.length).toBe(doRoster.size);
 
     for (const entry of BESTIARY) {
       expect(CREATURE_TYPES[entry.creatureId], entry.id).toBeDefined();
+      expect(doRoster.has(entry.creatureId), entry.id).toBe(true);
+
+      // e toda entrada tem zona, que e o que faz o "ir matar" existir
+      expect(entry.zoneId, entry.id).toBeTruthy();
+    }
+  });
+
+  it("a zona de cada criatura fica no MAPO dela", () => {
+    /**
+     * O `zoneId` da sentinela e `m2_floresta`, e nao `floresta`.
+     *
+     * Os dois ids existem e os dois nomes tambem — as zonas do mapa 2 sao
+     * copia das do mapa 1. Um `floresta` aqui seria o "ir matar" da
+     * criatura do mapa 2 levando o jogador para o mapa 1, onde ela nem
+     * aparece
+     */
+    const mapaDe = (zoneId) =>
+      zoneId?.startsWith("m2_") ? "map_2" : "map_1";
+
+    const noMapa1 = ZONE_ROSTER.flatMap((row) =>
+      Object.keys(row.mix ?? {}),
+    );
+    const noMapa2 = MAP_2_ROSTER.flatMap((row) =>
+      Object.keys(row.mix ?? {}),
+    );
+
+    for (const tipo of new Set(noMapa1)) {
+      const entry = getBestiaryEntry(tipo);
+
+      expect(mapaDe(entry.zoneId), `${tipo} -> ${entry.zoneId}`).toBe(
+        "map_1",
+      );
+    }
+
+    for (const tipo of new Set(noMapa2)) {
+      const entry = getBestiaryEntry(tipo);
+
+      expect(mapaDe(entry.zoneId), `${tipo} -> ${entry.zoneId}`).toBe(
+        "map_2",
+      );
     }
   });
 
@@ -74,13 +163,73 @@ describe("dados do bestiario", () => {
     const slime = getBestiaryEntry("slime");
     const ogre = getBestiaryEntry("ogre");
 
-    expect(slime.zoneName).toBe("Brejo Lento");
-    expect(ogre.zoneName).toBe("Pedreira do Ogro");
+    /**
+     * O LIMO aponta para o PANTANO, o degrau mais facil.
+     *
+     * O `zoneOf` escolhe a zona de MENOR nivel medio onde a criatura
+     * aparece, com o peso do mix como desempate. As tres zonas de limo
+     * estao empatadas em `slime: 100`, entao o peso nao separava: o
+     * destino era decidido pela ordem do array e apontava para as Dunas
+     * (nivel 3), o degrau mais avancado da progressao
+     */
+    expect(slime.zoneName).toBe("Pântano Profundo");
+
+    /**
+     * O OGRE mudou de zona: Vale das Cinzas -> Cripta Esquelética.
+     *
+     * As Cinzas eram o lugar de maior peso dele (60). Com a zona virando
+     * o quarto degrau de limo, o que sobra e a Cripta (18), e o Ogre
+     * passa a dividir a zona do Esqueleto — as duas tem la, e o peso
+     * maior do esqueleto (62 contra 18) mantem os dois pontos uteis
+     *
+     * E a unica criatura que mudou de zona. As outras sete seguem na
+     * mesma, e a verificacao e uma a uma para que um "ninguem se mexeu"
+     * generico nao esconda uma troca
+     */
+    expect(ogre.zoneName).toBe("Cripta Esquelética");
+
+    /**
+     * O RATO mudou de zona DUAS vezes: Toca -> Brejo -> Acampamento.
+     *
+     * A Toca era o lugar de maior peso do rato (70). Virando degrau de
+     * limo, o que sobrou foi o Brejo (20) contra 18 do Acampamento. E
+     * quando o Brejo tambem virou degrau, restaram so DUAS zonas: o
+     * Acampamento (18) e a Floresta (12)
+     *
+     * ## O PRECO DE FICAR SEM CASA
+     *
+     * O mapa 1 perdeu cinco criaturas: o rato, o goblin, o ghoul, o
+     * esqueleto e o arqueiro zumbi saíram do roster quando as cinco zonas
+     * do meio passaram a ser so de ogre. O que resta divide oAcampamento
+     * entre o limo e o ogre, e o `zoneOf` escolhe pelo MENOR nivel medio
+     *
+     * Uma a uma, para que um "ninguem se mexeu" generico nao esconda
+     * uma troca
+     */
+    expect(getBestiaryEntry("slime").zoneName).toBe("Pântano Profundo");
+
+    expect(getBestiaryEntry(OUTRO).zoneName).toBe("Cripta Esquelética");
+
+    /**
+     * O OGRE DA PREDEIRA mudou de zona: Floresta -> Campo de Provas.
+     *
+     * Nao e accidento: o campo de provas ganhou um ogre de nivel 7, e o
+     * `zoneOf` escolhe a zona de MENOR nivel medio. Como 7 e menor que
+     * os 16 da Floresta, o "ir matar ogre da pedreira" passou a levar o
+     * jogador ao campo de provas, que e onde o ogre de nivel 7 esta
+     *
+     * E a unica criatura que mudou de zona nesta rodada. As outras sete
+     * seguem na mesma, e a verificacao e uma a uma para que um "ninguem
+     * se mexeu" generico nao esconda uma troca
+     */
+    expect(getBestiaryEntry("ogre_da_predeira").zoneName).toBe(
+      "Campo de Provas",
+    );
   });
 
   it("encontra entrada por id e devolve null no resto", () => {
-    expect(getBestiaryEntry("ghoul")?.name).toBe(
-      CREATURE_TYPES.ghoul.name,
+    expect(getBestiaryEntry(OUTRO)?.name).toBe(
+      CREATURE_TYPES[OUTRO].name,
     );
 
     expect(getBestiaryEntry("nao_existe")).toBe(null);
@@ -110,7 +259,7 @@ describe("progresso das cacadas", () => {
   it("fecha a cacada no numero certo", () => {
     const bestiary = new Bestiary();
 
-    const finished = bestiary.onKill("slime", 5);
+    const finished = bestiary.onKill("slime", meta("slime"));
 
     expect(finished).toHaveLength(1);
     expect(finished[0].id).toBe("slime_cacada_1");
@@ -130,7 +279,7 @@ describe("progresso das cacadas", () => {
     const bestiary = new Bestiary();
 
     // 15 abates de uma vez: a 1 e a 2 fecham, a 3 nao
-    const finished = bestiary.onKill("slime", 15);
+    const finished = bestiary.onKill("slime", meta("slime", 1));
 
     expect(finished.map((hunt) => hunt.tier)).toEqual([1, 2]);
     expect(bestiary.isDone("slime_cacada_3")).toBe(false);
@@ -139,7 +288,7 @@ describe("progresso das cacadas", () => {
   it("nao conta duas vezes a mesma cacada", () => {
     const bestiary = new Bestiary();
 
-    bestiary.onKill("slime", 5);
+    bestiary.onKill("slime", meta("slime"));
     const again = bestiary.onKill("slime", 100);
 
     expect(again.map((hunt) => hunt.tier)).toEqual([2, 3]);
@@ -169,12 +318,14 @@ describe("progresso das cacadas", () => {
   it("mantem as cacadas separadas por criatura", () => {
     const bestiary = new Bestiary();
 
-    bestiary.onKill("slime", 40);
-    bestiary.onKill("rat", 5);
+    bestiary.onKill("slime", meta("slime", 2));
+    bestiary.onKill(OUTRO, meta(OUTRO));
 
+    // o id da cacada leva o TIPO, e nao um indice: fechar a 3 do limo
+    // nao pode marcar a 1 do ogre
     expect(bestiary.isDone("slime_cacada_3")).toBe(true);
-    expect(bestiary.isDone("rat_cacada_1")).toBe(true);
-    expect(bestiary.isDone("rat_cacada_2")).toBe(false);
+    expect(bestiary.isDone(`${OUTRO}_cacada_1`)).toBe(true);
+    expect(bestiary.isDone(`${OUTRO}_cacada_2`)).toBe(false);
     expect(bestiary.completedCount).toBe(4);
   });
 });
@@ -188,7 +339,7 @@ describe("bonus permanentes", () => {
     const bestiary = new Bestiary();
 
     // 5 limos = +12 vida
-    bestiary.onKill("slime", 5);
+    bestiary.onKill("slime", meta("slime"));
 
     expect(bestiary.bonuses()).toEqual({ maxHp: 12 });
   });
@@ -196,19 +347,31 @@ describe("bonus permanentes", () => {
   it("acumula varias criaturas", () => {
     const bestiary = new Bestiary();
 
-    bestiary.onKill("slime", 5); // +12 vida
-    bestiary.onKill("rat", 5); // +6 velocidade
+    bestiary.onKill("slime", meta("slime"));
+    bestiary.onKill(OUTRO, meta(OUTRO));
 
-    expect(bestiary.bonuses()).toEqual({
-      maxHp: 12,
-      speed: 6,
-    });
+    /**
+     * O QUE CADA CACADA CONCEDE vem do catalogo.
+     *
+     * A segunda criatura era o rato, com `speed: 6` na primeira cacada.
+     * Trocada pelo ogre, que concede `maxHp` — e o numero escrito aqui
+     * passaria a verificar um bonus que nenhuma cacada da, o que e o
+     * pior jeito de testar: o teste verde e o jogo errado
+     *
+     * E as DUAS concedem `maxHp`, entao o esperado e a SOMA: um
+     * spread sobrescreveria a primeira pela segunda e o teste passaria
+     * com o valor errado
+     */
+    expect(bestiary.bonuses().maxHp).toBe(
+      cacadas("slime")[0].reward.maxHp +
+        cacadas(OUTRO)[0].reward.maxHp,
+    );
   });
 
   it("acumula varias cacadas da mesma criatura", () => {
     const bestiary = new Bestiary();
 
-    bestiary.onKill("slime", 15); // +12 vida, +4 velocidade
+    bestiary.onKill("slime", meta("slime", 1)); // +12 vida, +4 velocidade
 
     expect(bestiary.bonuses()).toEqual({
       maxHp: 12,
@@ -219,10 +382,15 @@ describe("bonus permanentes", () => {
   it("soma stats repetidos sem sobrescrever", () => {
     const bestiary = new Bestiary();
 
-    bestiary.onKill("slime", 5); // +12 vida
-    bestiary.onKill("ghoul", 5); // +45 vida
+    bestiary.onKill("slime", meta("slime"));
+    bestiary.onKill(OUTRO, meta(OUTRO));
 
-    expect(bestiary.bonuses().maxHp).toBe(57);
+    // as DUAS primeiras cacadas concedem `maxHp`, e a soma tem de ser as
+    // duas — nao o valor da segunda sobrescrevendo o da primeira
+    const esperado =
+      cacadas("slime")[0].reward.maxHp + cacadas(OUTRO)[0].reward.maxHp;
+
+    expect(bestiary.bonuses().maxHp).toBe(esperado);
   });
 
   it("nao concede bonus de cacada em andamento", () => {
@@ -236,7 +404,7 @@ describe("bonus permanentes", () => {
   it("descreve o total em texto", () => {
     const bestiary = new Bestiary();
 
-    bestiary.onKill("slime", 5);
+    bestiary.onKill("slime", meta("slime"));
 
     expect(bestiary.describeTotal()).toBe("+12 Vida");
   });
@@ -265,7 +433,7 @@ describe("estado do bestiario", () => {
   it("acha a cacada ativa de cada criatura", () => {
     const bestiary = new Bestiary();
 
-    bestiary.onKill("slime", 5);
+    bestiary.onKill("slime", meta("slime"));
 
     const active = bestiary.activeHunts;
 
@@ -277,7 +445,10 @@ describe("estado do bestiario", () => {
 
     // a 1 fechou, entao a ativa agora e a 2
     expect(slime.hunt.tier).toBe(2);
-    expect(slime.progress).toBe(5);
+
+    // o Bestiary conta o abate CONTRA a cacada ativa, e nao sobra do
+    // total: matar a meta da 1 inteira deixa a 2 com os 20 no visor
+    expect(slime.progress).toBe(meta("slime"));
   });
 });
 
@@ -305,7 +476,15 @@ describe("snapshot do bestiario", () => {
   it("marca a cacada concluida e trava o progresso na meta", () => {
     const bestiary = new Bestiary();
 
-    bestiary.onKill("slime", 20);
+    /**
+     * O BESTIARIO CONTA O TOTAL contra cada cacada, e nao consome uma
+     * por vez: uma cacada fecha quando o abate acumulado passa da meta
+     * dela. Por isso o total precisa ficar ENTRE a meta da 2 e a da 3 —
+     * 45 fecha a 1 e a 2 e deixa a 3 em andamento
+     */
+    const total = 45;
+
+    bestiary.onKill("slime", total);
 
     const entry = bestiary
       .snapshot()
@@ -314,12 +493,12 @@ describe("snapshot do bestiario", () => {
     const [first, second, third] = entry.hunts;
 
     expect(first.done).toBe(true);
-    expect(first.progress).toBe(5);
+    expect(first.progress).toBe(meta("slime"));
     expect(second.done).toBe(true);
-    expect(second.progress).toBe(15);
+    expect(second.progress).toBe(meta("slime", 1));
     expect(third.done).toBe(false);
     // mostra o abate real enquanto a meta nao fecha
-    expect(third.progress).toBe(20);
+    expect(third.progress).toBe(total);
   });
 
   it("trava o progresso no numero da meta", () => {
@@ -340,7 +519,7 @@ describe("snapshot do bestiario", () => {
   it("leva o bonus total no snapshot", () => {
     const bestiary = new Bestiary();
 
-    bestiary.onKill("slime", 15);
+    bestiary.onKill("slime", meta("slime", 1));
 
     const snapshot = bestiary.snapshot();
 

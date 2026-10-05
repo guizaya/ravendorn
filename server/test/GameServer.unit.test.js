@@ -403,7 +403,7 @@ describe("o tick e o mundo compartilhado", () => {
     const b = ana.ultimo(SERVER_EVENTS.SNAPSHOT);
 
     // o cliente usa este numero para descartar pacote fora de
-    // ordem. sem ele, um pacote atrasado家和 o jogador anda para
+    // ordem. sem ele, um pacote atrasado chega e o jogador anda para
     // tras
     expect(b.payload.seq).toBeGreaterThan(a.payload.seq);
   });
@@ -412,9 +412,13 @@ describe("o tick e o mundo compartilhado", () => {
     const { jogo, abrir } = montar();
     const ana = abrir("Ana");
 
-    const alvo = jogo.engine.world.enemies.find(
-      (e) => e.kind !== "training" && e.hp > 0,
-    );
+    const alvo = jogo.engine.world.enemies
+      .filter((e) => e.isCreature && e.hp > 0)
+      .sort(
+        (a, b) =>
+          Math.hypot(a.x - 3000, a.y - 2100) -
+          Math.hypot(b.x - 3000, b.y - 2100),
+      )[0];
 
     jogo.engine.withPlayer(ana.client.id, () => {
       jogo.engine.damage.applyDamage(
@@ -454,7 +458,7 @@ describe("o tick e o mundo compartilhado", () => {
     ana.client.session.inventory.capacity = 0;
 
     const mob = jogo.engine.world.enemies.find(
-      (e) => e.kind !== "training" && e.hp > 0,
+      (e) => e.isCreature && e.hp > 0,
     );
 
     jogo.engine.withPlayer(ana.client.id, () => {
@@ -481,7 +485,7 @@ describe("o tick e o mundo compartilhado", () => {
     });
 
     const mob = jogo.engine.world.enemies.find(
-      (e) => e.kind !== "training" && e.hp > 0,
+      (e) => e.isCreature && e.hp > 0,
     );
 
     jogo.engine.withPlayer(ana.client.id, () => {

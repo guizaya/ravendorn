@@ -66,30 +66,33 @@ describe("a folha da sentinela esqueletica", () => {
     ).toBe(undefined);
   });
 
-  it("declara sem golpe, e nao com pasta de golpe", () => {
+  it("declara COM golpe, que a arte passou a ter", () => {
     // a sentinela ATACA (`attackRange: 58`) e mesmo assim nao ha arte de
-    // ataque na pasta. `shootDir: "attack"` seria mentira
-    expect(SHEETS.sentinela_esqueletica.shoot).toBe(false);
+    // A pasta `shoot/` encheu com as oito direcoes. Sem `shootDir`, a
+    // ferramenta le o nome padrao, que e o da pasta
+    expect(SHEETS.sentinela_esqueletica.shoot).toBe(true);
     expect(SHEETS.sentinela_esqueletica.shootDir).toBe(undefined);
     expect(SHEETS.sentinela_esqueletica.idle).toBe(true);
   });
 
-  it("tem as oito direcoes e nenhuma de golpe", () => {
+  it("tem as oito direcoes de caminhada e as oito de golpe", () => {
     const resultado = build();
 
     expect(ROWS).toHaveLength(8);
-    expect(resultado.rows).toBe(9);
-    expect(resultado.shootRow).toBe(null);
-    expect(resultado.shootFrames).toBe(0);
+    expect(resultado.rows).toBe(17);
+    expect(resultado.shootRow).toBe(9);
+    expect(resultado.shootFrames).toBe(9);
   });
 
-  it("cabe 8 colunas e 9 linhas de 68px", () => {
+  it("cabe 9 colunas e 17 linhas de 68px", () => {
     const resultado = build();
 
     expect(resultado.frameSize).toBe(68);
-    expect(resultado.columns).toBe(8);
-    expect(resultado.width).toBe(8 * 68);
-    expect(resultado.height).toBe(9 * 68);
+    expect(resultado.columns).toBe(9);
+    expect(resultado.width).toBe(9 * 68);
+
+    // 8 de caminhada + 1 de idle + 8 de golpe
+    expect(resultado.height).toBe(17 * 68);
   });
 
   it("conta os quadros de cada ciclo", () => {

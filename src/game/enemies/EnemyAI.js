@@ -9,6 +9,123 @@ const RETURN_ARRIVE = 20;
 const RETURN_MARGIN = 20;
 const RETARGET_INTERVAL = 0.35;
 
+/**
+ * O VAO QUE UM MOB DEIXA PARA O OUTRO.
+ *
+ * ## O QUE ISTO RESOLVE
+ *
+ * O `isPositionFree` do colisor e uma parede DURA: o passo e bloqueado se
+ * a nova posicao cair dentro de `radius + radius` de outro mob. Com sete
+ * ogres correndo para o mesmo jogador, os seis de tras ficam presos no
+ * primeiro, empilham, e o desenho mostra a animacao de andar com o
+ * personagem parado
+ *
+ * O espaco extra de 34% abaixo da soma dos raios e o que vira a parede
+ * em "todos cabem". Nao deixa sobrepor, entao continua parecendo solido,
+ * mas da para um bicho contornar o outro em vez de ficar parado esperando
+ * ele morrer
+ *
+ * ## POR QUE 1.34 E NAO MAIS
+ *
+ * Acima de ~1.5 os mobes param de se encostar e a arena vira roda de
+ * bicho. Abaixo de ~1.2 eles voltam a empilhar. A janela e estreita de
+ * proposito: e o minimo que faz a multidao andar
+ */
+const SEPARATION_FACTOR = 1.34;
+
+/**
+ * ATE ONDE A SEPARACAO EMPURRA.
+ *
+ * Alem disso o mob ate o alvo empurra a multidao inteira na direcao
+ * errada: um ogre no fundo da sala giraria o grupo em vez de chegar
+ */
+const SEPARATION_RANGE = 120;
+
+/**
+ * O quanto a separacao pesa contra a direcao do alvo.
+ *
+ * O valor e grande de proposito. Com 0.4 o mob vencia a multidao e
+ * atravessava os outros; a separacao precisa ganhar do alvo, senao o
+ * primeiro da fila e o unico que chega
+ */
+const SEPARATION_WEIGHT = 1.15;
+
+/**
+ * O SETOR DE CADA MOB AO REDOR DO ALVO.
+ *
+ * ## POR QUE EXISTE
+ *
+ * Todo mundo mira no PONTO do jogador, entao sete ogres tentam ocupar a
+ * mesma circunferencia de raio `attackRange`. Seis ficam fora do alcance
+ * e ficam empurrando para sempre
+ *
+ * Cada mob recebe um angulo proprio, derivado do id, e persegue um ponto
+ * girado em torno do alvo. Com angulos diferentes, todos entram no
+ * alcance ao mesmo tempo e todos batem — o que e o que o jogador espera
+ * de uma briga contra um grupo
+ *
+ * O angulo nao e sorteado: e o hash do id. Dois ogres nunca pegam o
+ * mesmo setor, e a distribuicao nao muda entre quadros nem entre sessoes
+ */
+const SLOT_COUNT = 8;
+const SLOT_SWEEP = Math.PI * 2;
+
+/**
+ * A TOLERANCIA DE GOLPE NA MULTIDAO.
+ *
+ * ## A GEOMETRIA NAO DEIXA
+ *
+ * N criaturas de raio `r` em volta de um ponto ficam todas na mesma
+ * distancia `r_eq = 2r / (2 * sin(pi/N))`. Para oito ogres de raio 32 isso
+ * da 84px — e o alcance de golpe deles e 78. Nao ha posicao em que os
+ * oito alcancem: e area de circunferencia, nao opcao de tuning
+ *
+ * ## O QUE A TOLERANCIA FAZ
+ *
+ * Um mob que chegou na borda da multidao, travado pelos sete vizinhos e
+ * a 6px do alcance, bate em vez de esperar. A folga e metade do proprio
+ * raio: o bastante para o anel de oito caber, e pequenao ponto de um
+ * mob BATENDO de fora do alcance dele ficar absurdo
+ *
+ * E por isso que a tolerancia e do RAAIO e nao um numero solto: ela
+ * cresce com o bicho. Um ogre grande tolera mais que um limo, que e o que
+ * a leitura visual espera
+ */
+const TOLERANCIA_MULTIDAO = 0.5;
+
+/** o alcance de golpe, com a folga da multidao */
+function alcanceEfetivo(enemy) {
+  return (
+    (enemy.attackRange ?? 44) +
+    (enemy.radius ?? 20) * TOLERANCIA_MULTIDAO
+  );
+}
+
+/** o angulo de um mob em torno do alvo, derivado do id */
+function anguloDoSlot(enemy) {
+  let soma = 0;
+
+  const id = String(enemy.id ?? enemy.typeId ?? "?");
+
+  for (let i = 0; i < id.length; i += 1) {
+    soma = (soma * 31 + id.charCodeAt(i)) >>> 0;
+  }
+
+  return (soma % SLOT_COUNT) * (SLOT_SWEEP / SLOT_COUNT);
+}
+
+/** o ponto que o mob persegue: o alvo girado no angulo do seu setor */
+function pontoDoSetor(enemy, target) {
+  const angulo = anguloDoSlot(enemy);
+
+  const distancia = (enemy.attackRange ?? 44) * 0.72;
+
+  return {
+    x: target.x + Math.cos(angulo) * distancia,
+    y: target.y + Math.sin(angulo) * distancia,
+  };
+}
+
 export class EnemyAI {
   constructor(world, { onDamagePlayer, onShootPlayer } = {}) {
     this.world = world;
@@ -351,23 +468,37 @@ export class EnemyAI {
     // (`isAggressive`), entao nao ha como um atirador de passagem
     // andar para tras de quem passou perto sem ter notado.
     if (enemy.ranged && toPlayer < enemy.keepDistance) {
-      enemy.aiState = "retreat";
       enemy.facing = normalize(
         enemy.x - player.x,
         enemy.y - player.y,
       );
 
-      this.moveToward(
+      const andou = this.moveToward(
         enemy,
         { x: enemy.x * 2 - player.x, y: enemy.y * 2 - player.y },
         deltaTime,
         enemy.speed,
       );
 
+      /**
+       * `retreat` tambem esta no conjunto de andar, entao o mesmo defeito
+       * atingia o atirador: ele batia na multidao do jogador, o passo
+       * saia zero e a arte de andar tocava com o bicho parado
+       */
+      enemy.aiState = andou ? "retreat" : "idle";
+
       return;
     }
 
-    if (toPlayer <= enemy.attackRange) {
+    /**
+     * O ALCANCE QUE DECIDE O GOLPE tem a folga da multidao.
+     *
+     * O `tryAttack` ainda exige o alcance de verdade para acertar: ele
+     * recebe `toPlayer` e compara com `tuning.attackRange`. Aqui a
+     * comparacao e a do `alcanceEfetivo`, que e o mesmo alcance mais meia
+     * raio — o suficiente para o anel de oito ogres caber
+     */
+    if (toPlayer <= alcanceEfetivo(enemy)) {
       enemy.aiState = "attack";
       enemy.facing = normalize(
         player.x - enemy.x,
@@ -395,13 +526,42 @@ export class EnemyAI {
       return;
     }
 
-    enemy.aiState = "chase";
+    /**
+     * O ALVO E O SETOR, e nao o jogador.
+     *
+     * Perseguir o ponto do jogador faz todos tentarem a mesma
+     * circunferencia: um entra no alcance e seis ficam do lado de fora
+     * empurrando. Cada mob persegue o girado do seu setor, entao varios
+     * chegam a bater ao mesmo tempo
+     *
+     * A comparacao do `toPlayer` acima continua sendo com o jogador de
+     * verdade: e o alcance do golpe que conta, e nao o do setor
+     */
+    const andou = this.moveToward(
+      enemy,
+      pontoDoSetor(enemy, player),
+      deltaTime,
+      enemy.speed,
+    );
+
+    /**
+     * O ESTADO SO E `chase` SE O MOBO ANDOU.
+     *
+     * Era aqui que nascia a animacao travada: o `aiState` virava
+     * `chase` pela INTENCAO, e `chase` esta no conjunto de estados que
+     * tocam animacao de andar. Com o mob bloqueado por outro, o estado
+     * continuava `chase` e o desenho tocava andar com o bicho parado
+     *
+     * Sem passo, o estado volta a `idle`, que e o que o desenho sabe
+     * tocar parado. O proximo quadro em que ele destravar traz `chase`
+     * de volta sozinho
+     */
+    enemy.aiState = andou ? "chase" : "idle";
+
     enemy.facing = normalize(
       player.x - enemy.x,
       player.y - enemy.y,
     );
-
-    this.moveToward(enemy, player, deltaTime, enemy.speed);
   }
 
   updateReturn(enemy, deltaTime) {
@@ -444,7 +604,14 @@ export class EnemyAI {
       home.y - enemy.y,
     );
 
-    this.moveToward(enemy, home, deltaTime, enemy.speed);
+    const andou = this.moveToward(
+      enemy,
+      home,
+      deltaTime,
+      enemy.speed,
+    );
+
+    enemy.aiState = andou ? "return" : "idle";
   }
 
   updateIdle(enemy, deltaTime, restRadius = null) {
@@ -500,24 +667,37 @@ export class EnemyAI {
       return;
     }
 
-    enemy.aiState = "wander";
-    enemy.facing = normalize(
-      enemy.wanderTarget.x - enemy.x,
-      enemy.wanderTarget.y - enemy.y,
-    );
-
-    this.moveToward(
+    /**
+     * O `wander` so e `wander` SE ANDOU.
+     *
+     * E o caso mais comum do defeito: sete limos nao agressivos nascem
+     * perto um do outro, todos sorteiam o mesmo ponto de passeio e
+     * empilham. O primeiro chega e fica `idle`; os outros seis ficam
+     * com `wander` rodando sem sair do lugar, e sete bixos tocam
+     * animacao de caminhada parada
+     */
+    const andou = this.moveToward(
       enemy,
       enemy.wanderTarget,
       deltaTime,
       enemy.wanderSpeed ?? enemy.speed * 0.35,
     );
+
+    enemy.aiState = andou ? "wander" : "idle";
   }
 
   tryAttack(enemy, targetDistance, target, tuning = enemy) {
     if (enemy.attackCooldownRemaining > 0) return;
 
-    if (targetDistance > tuning.attackRange) return;
+    /**
+     * O alcance aqui e o EFETIVO, com a folga da multidao.
+     *
+     * E o que permite o mob travado na borda do anel acertar o golpe. Sem
+     * esta troca, o `updateCombat` o colocaria em `attack` (dentro da
+     * tolerancia) e o `tryAttack` recusaria de novo pelo alcance real —
+     * o bicho ficaria parado em `attack` para sempre
+     */
+    if (targetDistance > alcanceEfetivo(tuning)) return;
 
     enemy.attackCooldownRemaining = tuning.attackCooldown;
 
@@ -542,18 +722,147 @@ export class EnemyAI {
     this.onDamagePlayer(enemy, tuning.damage, target);
   }
 
+  /**
+   * A EMPURRAO ENTRE MOBES.
+   *
+   * ## POR QUE EXISTE
+   *
+   * O colisor so diz "este passo esta bloqueado". Isso e o suficiente
+   * para uma parede, e e exatamente o que forma a parede de mobes: cada um
+   * empurra o proximo, e o ultimo da fila nao sai do lugar
+   *
+   * Aqui a multidao se resolve ANTES do passo: cada mob soma um vetor que
+   * aponta PARA FORA de quem esta perto demais, e esse vetor entra na
+   * direcao final. O resultado e um circulo que se abre sozinho, sem
+   * nenhum mob precisar saber dos outros
+   *
+   * ## POR QUE SO ENTRE MOBES VIVOS
+   *
+   * O filtro e o mesmo do colisor (`alive !== false`), e por ele que um
+   * cadaver nao empurra ninguem e o jogador nao entra na conta. Um mob que
+   * se aproxima do jogador tem que atravessar a multidao dos aliados
+   *
+   * ## POR QUE A FORCA CAI COM A DISTANCIA
+   *
+   * `1 - distancia / (minimo * FATOR)`: dois mobes encostados empurram com
+   * forca 1 e dois que quase se tocam empurram com quase nada. E o que faz
+   * a multidao ceder espaco em vez de tremer
+   */
+  separacaoDe(thisEnemy) {
+    let x = 0;
+    let y = 0;
+
+    const vizinhos = this.world.enemies;
+
+    for (const outro of vizinhos) {
+      if (outro === thisEnemy) continue;
+      if (outro.alive === false) continue;
+      if (outro.isCreature !== true) continue;
+
+      const dx = thisEnemy.x - outro.x;
+      const dy = thisEnemy.y - outro.y;
+
+      const distancia = Math.hypot(dx, dy);
+
+      const minimo = (thisEnemy.radius ?? 20) + (outro.radius ?? 20);
+
+      // longe demais: nao ha por que empurrar
+      if (distancia >= SEPARATION_RANGE) continue;
+
+      /**
+       * `distancia` em 0 daria `NaN` na divisao. Dois corpos exatamente
+       * sobrepostos e o caso que a multidao produz, porque todos miram o
+       * mesmo ponto — e e o pior estado possivel do sistema
+       */
+      if (distancia < 0.0001) {
+        const ang = anguloDoSlot(thisEnemy);
+
+        x += Math.cos(ang);
+        y += Math.sin(ang);
+
+        continue;
+      }
+
+      const sobreposicao =
+        1 - distancia / (minimo * SEPARATION_FACTOR);
+
+      if (sobreposicao <= 0) continue;
+
+      const forca = sobreposicao * SEPARATION_WEIGHT;
+
+      x += (dx / distancia) * forca;
+      y += (dy / distancia) * forca;
+    }
+
+    return { x, y };
+  }
+
+  /**
+   * Anda na direcao de um ponto, somando a empurrao da multidao.
+   *
+   * ## POR QUE A DIRECAO FINAL NAO E O ALVO
+   *
+   * Ir direto no alvo e o que forma a parede de mobes. A separacao entra
+   * na MESMA soma da direcao do alvo, e nao como um passo a parte: dois
+   * passos depois do colisor produziriam um trem de allowances, em que a
+   * separacao sempre perde para o bloqueio do primeiro da fila
+   *
+   * ## O QUE VOLTA
+   *
+   * `true` quando o mob ANDOU. E o que o `updateCombat` usa para nao
+   * deixar a animacao de andar com o bicho parado: `chase` so continua
+   * se houve passo, e sem passo o estado volta a `idle`, que e o que o
+   * desenho sabe tocar
+   */
   moveToward(enemy, target, deltaTime, speed) {
-    const direction = normalize(
+    const rumo = normalize(
       target.x - enemy.x,
       target.y - enemy.y,
     );
 
-    if (direction.x === 0 && direction.y === 0) {
-      return;
+    const empurrao = this.separacaoDe(enemy);
+
+    /**
+     * A EMPURRAO SO TRABALHA DE LADO.
+     *
+     * ## O QUE ESTAVA ERRADO
+     *
+     * A primeira versao somava a empurrao inteira na direcao do alvo. Com
+     * oito ogres em volta do jogador, cada um empurrava o vizinho para
+     * FORA do centro, e o equilibrio era um anel a 84px — seis pixels
+     * fora do alcance de golpe de 78. O resultado era o pior dos dois:
+     * nenhum se sobrepunha e nenhum batia
+     *
+     * ## POR QUE SO A PARTE TANGENCIAL
+     *
+     * O que resolve a multidao e DESLIZAR: o mob que tem outro na frente
+     * contorna de lado ate a posicao estar livre. Empurrar para longe do
+     * alvo fights o objetivo em vez de servir a ele
+     *
+     * A projecao em `(perpendicular · empurrao)` joga fora a componente
+     * que aponta para tras e guarda a que corre ao longo do anel. Com
+     * isso o anel aperta o quanto precisar para todos caberem e o
+     * primeiro que chega bate
+     */
+    const lateral =
+      -rumo.y * empurrao.x + rumo.x * empurrao.y;
+
+    let dirX = rumo.x + -rumo.y * lateral;
+    let dirY = rumo.y + rumo.x * lateral;
+
+    const tamanho = Math.hypot(dirX, dirY);
+
+    if (tamanho > 0.0001) {
+      dirX /= tamanho;
+      dirY /= tamanho;
     }
 
-    const stepX = direction.x * speed * deltaTime;
-    const stepY = direction.y * speed * deltaTime;
+    if (dirX === 0 && dirY === 0) {
+      return false;
+    }
+
+    const stepX = dirX * speed * deltaTime;
+    const stepY = dirY * speed * deltaTime;
 
     const before = { x: enemy.x, y: enemy.y };
 
@@ -585,19 +894,21 @@ export class EnemyAI {
 
     if (enemy.sidestepTimer > 0) {
       const perpendicular = {
-        x: -direction.y * enemy.sidestepSign,
-        y: direction.x * enemy.sidestepSign,
+        x: -dirY * enemy.sidestepSign,
+        y: dirX * enemy.sidestepSign,
       };
 
       const sidestepSpeed = speed * 0.85;
 
       this.world.collision.moveEntity(
-        enemy,
-        perpendicular.x * sidestepSpeed * deltaTime,
-        perpendicular.y * sidestepSpeed * deltaTime,
-        this.world.enemies,
-      );
+          enemy,
+          perpendicular.x * sidestepSpeed * deltaTime,
+          perpendicular.y * sidestepSpeed * deltaTime,
+          this.world.enemies,
+        );
     }
+
+    return moved >= STUCK_THRESHOLD;
   }
 }
 

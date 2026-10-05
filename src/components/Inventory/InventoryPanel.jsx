@@ -132,6 +132,7 @@ export function ItemSlot({
   onUnequip,
   onDiscardItem,
   onDiscardEquipped,
+  onUseItem,
   compact = false,
   area,
   menuOpen = false,
@@ -198,6 +199,39 @@ export function ItemSlot({
         id: "equip",
         label: destino ? `Equipar · ${destino}` : "Equipar",
         run: () => onEquip(entry),
+      });
+    }
+
+    /**
+     * USAR, quando o item e consumivel.
+     *
+     * Vem ANTES do "Excluir" de proposito: e a acao principal de uma
+     * pocao, e o menu que lista "Excluir" primeiro faz o jogador
+     * procurar o uso. O `danger` do excluir ja o separa visualmente
+     *
+     * O que decide e o `use` do CATALOGO, e nao o tipo.
+     * `ITEM_TYPE.POTION` e um rotulo, e o que o motor sabe aplicar e o
+     * `use` — um item novo com `use` ganha o botao sem tocar neste
+     * arquivo
+     *
+     * O rotulo mostra QUANTO cura. O jogador decide se vale o espaco da
+     * mochila olhando o numero, e nao descobrindo depois de ter perdido
+     * a pocao
+     */
+    if (item.use && onUseItem) {
+      const partes = [];
+
+      if (item.use.heal) partes.push(`${item.use.heal} de vida`);
+      if (item.use.restoreResource) {
+        partes.push(`${item.use.restoreResource} de recurso`);
+      }
+
+      const efeito = partes.join(" e ");
+
+      actions.push({
+        id: "use",
+        label: efeito ? `Usar · ${efeito}` : "Usar",
+        run: () => onUseItem(entry),
       });
     }
 
@@ -461,6 +495,7 @@ export default function InventoryPanel({
   onDiscardItem,
   onDiscardEquipped,
   onAutoEquip,
+  onUseItem,
   onFilterChange,
   onFilterReset,
   onFilterPrune,
@@ -505,6 +540,19 @@ export default function InventoryPanel({
   const discardEquipped = (slotId) => {
     closeMenu();
     onDiscardEquipped?.(slotId);
+  };
+
+  /**
+   * USA um consumivel, e fecha o menu do slot.
+   *
+   * O `closeMenu` vem antes do pedido pelo mesmo motivo do descarte:
+   * o menu fica na tela ate a proxima resposta do servidor, e um menu
+   * aberto em cima da pocao que acabou de sumir mostra um slot vazio
+   * com acoes que nao valem mais nada
+   */
+  const useItem = (entry) => {
+    closeMenu();
+    onUseItem?.(entry);
   };
 
   const changeFilter = (key, value) => {
@@ -678,6 +726,7 @@ export default function InventoryPanel({
                     entry={entry}
                     onEquip={onEquip}
                     onDiscardItem={discardItem}
+                    onUseItem={useItem}
                     menuOpen={menu === entry.uid}
                     onToggleMenu={toggleMenu}
                   />

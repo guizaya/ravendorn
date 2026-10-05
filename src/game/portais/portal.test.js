@@ -321,12 +321,18 @@ describe("o catalogo de portais", () => {
   it("o portal do Pantano esta DENTRO do Pantano Profundo, como pedido", () => {
     /**
      * Este nao e um defeito que o teste esconde: e o aviso. O ponto
-     * pedido cai no meio de uma zona `active`, entao monstros daquela
+     * pedido cai no meio de uma zona de mob, entao criaturas daquela
      * zona andam em volta do portal
      *
      * O teste existe para que, se alguem mover o portal depois, a
      * mudanca de lugar apareca como diferenca neste arquivo e nao como
      * surpresa no jogo
+     *
+     * O `kind` passou de `active` para `passive`: a zona virou o lugar
+     * de entrada, com so limo de nivel 1 e 2 dentro. Verificar o `kind`
+     * aqui e o que amarra a mudanca da zona a mudanca do portal — sem
+     * esta linha, trocar o pantano de `passive` para `active` de novo
+     * nao apareceria em nenhum teste
      */
     const pantano = PORTALS.find((p) => p.id === "portal_pantano");
 
@@ -339,7 +345,7 @@ describe("o catalogo de portais", () => {
     );
 
     expect(dentro.map((z) => z.id)).toEqual(["pantano"]);
-    expect(dentro[0].kind).toBe("active");
+    expect(dentro[0].kind).toBe("passive");
   });
 
   it("o portal da Floresta esta DENTRO da Floresta Sombria", () => {

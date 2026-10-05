@@ -9,7 +9,7 @@ import { createPlayerSession } from "../../src/game/engine/PlayerSession.js";
 import { GameEngine } from "../../src/game/engine/GameEngine.js";
 import { CHARACTER_CLASSES } from "../../src/data/characters/index.js";
 import { BASE_MAP } from "../../src/data/maps/base.js";
-import { MAP_1 } from "../../src/data/maps/index.js";
+import { MAP_1, MAP_2 } from "../../src/data/maps/index.js";
 import { BASE_PORTALS } from "../../src/data/portais/index.js";
 
 const [PORTAL] = BASE_PORTALS;
@@ -517,10 +517,17 @@ describe("a travessia pelo portal, conferida no servidor", () => {
     jogo.stop();
   });
 
-  it("o portal da floresta continua sem destino", () => {
+  it("o portal da floresta leva para o mapa 2, e a volta funciona", () => {
     /**
-     * So o `portal_pantano` foi ligado. A floresta e o segundo portal
-     * do vale, e liga-lo e outra etapa
+     * O SEGUNDO portal do vale foi ligado.
+     *
+     * Antes ele era enfeite, e este teste affirms isso. Agora ele e o par
+     * do `portal_mapa2`: o mapa 1 tem dois caminhos saida, um para o hub
+     * e um para o mapa 2
+     *
+     * A ida E a volta sao o mesmo caminho visto dos dois lados, entao
+     * atravessar duas vezes tem que devolver o jogador ao mapa de
+     * origem — e nao a um terceiro lugar
      */
     const { jogo, sessao } = entrarNoHub();
 
@@ -528,7 +535,32 @@ describe("a travessia pelo portal, conferida no servidor", () => {
     sessao.player.x = 178;
     sessao.player.y = 180;
 
-    expect(jogo.travessarPortal("portal_floresta")).toBe(false);
+    expect(jogo.travessarPortal("portal_floresta")).toBe(true);
+    expect(jogo.engine.world.map.id).toBe("map_2");
+
+    // a chegada e o par do portal, e nao o spawn do mapa
+    expect(sessao.player.x).toBe(178);
+    expect(sessao.player.y).toBe(180);
+
+    jogo.stop();
+  });
+
+  it("quem chega no mapa 2 volta pelo portal de la", () => {
+    /**
+     * O par declarado pelos DOIS lados.
+     *
+     * `portal_floresta` diz para onde vai e onde chega; `portal_mapa2`
+     * faz o mesmo na volta. Se um dos dois declarasse o par errado, o
+     * jogador atravessaria para o lugar e voltaria para o portal sem o
+     * lado de la saber para onde devolve
+     */
+    const { jogo, sessao } = entrarNoHub();
+
+    jogo.engine.setMap(MAP_2);
+    sessao.player.x = 178;
+    sessao.player.y = 180;
+
+    expect(jogo.travessarPortal("portal_mapa2")).toBe(true);
     expect(jogo.engine.world.map.id).toBe("map_1");
 
     jogo.stop();

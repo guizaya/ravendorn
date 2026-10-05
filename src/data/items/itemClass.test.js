@@ -354,7 +354,20 @@ describe("stats dos itens", () => {
 
   it("todo item de equipamento tem algum stat", () => {
     for (const item of ITEM_LIST) {
-      if (item.type === ITEM_TYPE.MATERIAL) continue;
+      /**
+       * O que separa "equipamento" de "resto" e o SLOT, e nao o tipo.
+       *
+       * A versao anterior pulava `ITEM_TYPE.MATERIAL` pelo nome, e
+       * isso quebrou no primeiro item que nao e nem material nem
+       * equipamento: a pocao de cura tem tipo novo e nao tem stat
+       * nenhum — ela tem `use`. Um item sem `slot` nao vai para a
+       * roupa por definicao, entao e ele que decide o pulo
+       *
+       * Filtrar por tipo exigiria lembrar de acrescentar cada tipo novo
+       * aqui, e o esquecimento apareceria como um falso positivo neste
+       * teste
+       */
+      if (!item.slot) continue;
 
       expect(
         Object.keys(item.stats ?? {}).length,

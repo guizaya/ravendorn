@@ -490,9 +490,29 @@ describe("directional sprite drawing", () => {
       0,
     );
 
+    /**
+     * A origem da celula e o retangulo 64x64 dentro da folha.
+     *
+     * Este nao muda com a ancora: e a posicao do recorte, e a folha e a
+     * mesma para as duas direcoes
+     */
     expect([sx, sy, sw, sh]).toEqual([0, 128, 64, 64]);
-    expect([dx, dy]).toEqual([168, 258]);
     expect([dw, dh]).toEqual([64, 64]);
+
+    /**
+     * O DESTINO sai da ancora, e a ancora do arquiro foi remedida
+     * quando a arte mudou: 31.5 / 51, contra o padrao 32 / 54.
+     *
+     * Com o padrao antigo o arquiro andava 3px dentro do chao. A conta
+     * do `Y` tem o `footOffset` no meio — e ele que foi omitido na
+     * primeira versao deste teste, dando 249 em vez de 261
+     */
+    expect([dx, dy]).toEqual([
+      200 - ARBALIST_SPRITE.anchorX * ARBALIST_SPRITE.scale,
+      300 +
+        ARBALIST_SPRITE.footOffset -
+        ARBALIST_SPRITE.anchorY * ARBALIST_SPRITE.scale,
+    ]);
 
     sheet.destroy();
   });

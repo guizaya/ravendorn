@@ -28,6 +28,7 @@ const SENTINELA = getEnemySprite("skeleton");
 
 const CELL = SENTINELA.frameWidth;
 const IDLE_ROW = SENTINELA.animations.idle.row;
+const SHOOT_ROW = SENTINELA.animations.attack.row;
 const COLUMNS = Math.max(
   ...Object.values(SENTINELA.animations).map(
     (animation) => animation.length,
@@ -139,11 +140,20 @@ describe("a folha da sentinela esqueletica", () => {
     );
   });
 
-  it("tem uma linha por direcao, mais o idle na linha 8", () => {
+  it("tem uma linha por direcao, o idle na 8 e o golpe na 9", () => {
     expect(sheet.width).toBe(CELL * COLUMNS);
-    expect(sheet.height).toBe(CELL * (DIRECTION_KEYS.length + 1));
-    expect(COLUMNS).toBe(8);
+
+    /**
+     * A FOLHA tem 17 linhas: 8 de caminhada, 1 de idle e 8 de golpe.
+     *
+     * A altura vinha sendo `direcoes + 1`, que e o que a folha tinha
+     * quando o `shoot/` ainda nao existia. Com a arte de arco em todas
+     * as direcoes, a conta e `direcoes + 1 + direcoes`
+     */
+    expect(sheet.height).toBe(CELL * (DIRECTION_KEYS.length * 2 + 1));
+    expect(COLUMNS).toBe(9);
     expect(IDLE_ROW).toBe(8);
+    expect(SHOOT_ROW).toBe(9);
 
     for (const key of DIRECTION_KEYS) {
       expect(
@@ -341,20 +351,51 @@ describe("a sentinela esqueletica: o desenho", () => {
   });
 });
 
-describe("a sentinela esqueletica: o golpe sem arte de golpe", () => {
-  it("NAO declara bloco de ataque", () => {
+describe("a sentinela esqueletica: o golpe", () => {
+  it("declara o golpe na LINHA DELE, e nao na do idle", () => {
     /**
-     * A sentinela e `ACTIVE` e GOLPE DE VERDADE: `attackRange: 58`,
-     * `damage: 42`, `aggroRange: 330`. A pasta nao tem `attack/` nem
-     * `shoot/`, entao nao ha linha de golpe na folha
+     * O `attack` aponta para a linha 9, a do `shoot/`.
+     *
+     * Antes ele apontava para a linha 8 — o idle — porque a pasta nao
+     * tinha arte de arco e o golpe caia no reserva do `resolveFrameRect`.
+     * A sentinela atirava na pose de parado
+     *
+     * O `needsTarget` continua valendo, e e o que faz o esqueleto virar
+     * para o alvo no instante do arco: sem alvo declarado o
+     * `resolveFrameRect` aceitaria a arte virada para o lado
      */
     expect(
       SENTINELA.animations.attack,
-      "a pasta nao tem arte de golpe",
-    ).toBeUndefined();
+      "a sentinela atiradora precisa declarar a linha do golpe",
+    ).toBeDefined();
+
+    expect(SENTINELA.animations.attack.row).toBe(SHOOT_ROW);
+
+    // e a linha e DELE: reusar a do idle faria a animacao nunca aparecer
+    expect(SENTINELA.animations.attack.row).not.toBe(IDLE_ROW);
+
+    expect(SENTINELA.animations.attack.needsTarget).toBe(true);
   });
 
-  it("pedir golpe cai no idle, e nao numa caminhada", () => {
+  it("a pasta tem arte de arco nas oito direcoes", () => {
+    /**
+     * O QUE O TESTE DE CIMA ESTA DESCARTANDO.
+     *
+     * Se a arte de arco sumisse de novo, a linha do `attack` iria para 8
+     * e este teste avisa. Sem ele, apontar a animacao para a linha errada
+     * nao daria erro nenhum — a folha geraria do mesmo jeito e o golpe
+     * voltaria a ser o idle em silencio
+     */
+    expect(
+      SENTINELA.animations.attack.row,
+      "a linha do golpe voltou a ser a do idle: a arte de arco sumiu?",
+    ).toBe(SHOOT_ROW);
+
+    // e a folha tem de ter as 17 linhas, e nao 9
+    expect(sheet.height).toBe(CELL * 17);
+  });
+
+  it("pedir golpe cai na arte de arco, e nao numa caminhada", () => {
     /**
      * A ordem do reserva do `resolveFrameRect` e `idle` antes de
      * `walk`. Um pedido de golpe que caísse no `walk` poria o
@@ -382,11 +423,21 @@ describe("a sentinela esqueletica: o golpe sem arte de golpe", () => {
     const parado = retangulo("idle", 0, sentinela.facing);
     const andando = retangulo("walk", 0, sentinela.facing);
 
-    expect(pedido).toEqual(parado);
+    /**
+     * O GOLPE E A ARTE DE ARCO, e nao o idle nem a caminhada.
+     *
+     * Este teste afirmava `pedido === parado`, e era o defeito travado
+     * em forma de teste: sem arte de arco, o golpe caia no reserva do
+     * `resolveFrameRect` e sair igual ao idle era o comportamento
+     * "correto". Com a arte de `shoot/` na linha 9, acertar o golpe
+     * com o idle seria a REGRESSAO
+     */
+    expect(pedido).not.toEqual(parado);
     expect(pedido).not.toEqual(andando);
+    expect(pedido.y).toBe(SHOOT_ROW * CELL);
   });
 
-  it("o golpe mostra o idle de frente, e a caminhada e a da direcao", () => {
+  it("o golpe usa a linha de arco, e a caminhada e a da direcao", () => {
     /**
      * A consequencia de cair no idle: a linha do golpe e sempre a 8,
      * a arte de frente, e nao a linha da direcao que a criatura esta
@@ -405,8 +456,8 @@ describe("a sentinela esqueletica: o golpe sem arte de golpe", () => {
     // andando para o leste, a caminhada e a linha 0
     expect(andando.y).toBe(SENTINELA.directions.east * CELL);
 
-    // no golpe, e a linha de idle, que nao depende da direcao
-    expect(noGolpe.y).toBe(IDLE_ROW * CELL);
+    // no golpe, e a linha do `shoot/`, que tambem nao depende da direcao
+    expect(noGolpe.y).toBe(SHOOT_ROW * CELL);
     expect(noGolpe.y).not.toBe(andando.y);
   });
 

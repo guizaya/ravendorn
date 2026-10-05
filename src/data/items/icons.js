@@ -61,6 +61,7 @@ export const ICON_ITEM_IDS = [
   "capuz_arbalist",
   "luvas_arbalist",
   "peito_arbalist",
+  "pocao_cura",
 ];
 
 /**
@@ -284,6 +285,40 @@ const PEITO_ARBALIST = {
 };
 
 /**
+ * A pocao de cura: o frasco.
+ *
+ * Primeira arte deste arquivo que NAO e uma peca do arbalist, e por
+ * isso ela muda de regra em dois pontos:
+ *
+ * - o liquido e vermelho nas cinco, porque a pocao faz a mesma coisa
+ *   em todas. O que muda entre elas e o QUANTO enche, e nao a cor;
+ * - a pasta segue o id (`pocao_cura`), entao nao precisa da excecao
+ *   do arco nem de um mapa de pasta
+ */
+const POCAO_CURA = {
+  comum: new URL(
+    "../../assets/Items/pocao_cura/comum.png",
+    import.meta.url,
+  ).href,
+  incomun: new URL(
+    "../../assets/Items/pocao_cura/incomun.png",
+    import.meta.url,
+  ).href,
+  rare: new URL(
+    "../../assets/Items/pocao_cura/rare.png",
+    import.meta.url,
+  ).href,
+  epic: new URL(
+    "../../assets/Items/pocao_cura/epic.png",
+    import.meta.url,
+  ).href,
+  legendary: new URL(
+    "../../assets/Items/pocao_cura/legendary.png",
+    import.meta.url,
+  ).href,
+};
+
+/**
  * Item -> arte por raridade.
  *
  * Um item que NAO esta aqui continua usando o glifo do catalogo, e e
@@ -299,6 +334,7 @@ export const ITEM_ICON_ASSET = {
   [ICON_ITEM_IDS[4]]: CAPUZ_ARBALIST,
   [ICON_ITEM_IDS[5]]: LUVAS_ARBALIST,
   [ICON_ITEM_IDS[6]]: PEITO_ARBALIST,
+  [ICON_ITEM_IDS[7]]: POCAO_CURA,
 };
 
 /** O item tem arte desenhada? */

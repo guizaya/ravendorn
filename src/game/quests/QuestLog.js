@@ -10,6 +10,39 @@ import {
   SIDE_QUESTS,
 } from "../../data/quests/index.js";
 
+/**
+ * Um abate conta para esta missao?
+ *
+ * ## POR QUE O NIVEL E PARTE DA REGRA
+ *
+ * O `target` sozinho nao distingue os degraus da progressao: o mesmo
+ * `slime` nasce no nivel 1 no Pantano e no nivel 6 no Brejo. Uma missao
+ * de "matar 5 limos de nivel 1" que contasse qualquer limo seria cumprida
+ * no Brejo, e o jogador nunca precisaria descer ao Pantano
+ *
+ * `minLevel` e um PISO, e nao uma igualdade: a missao aceita o nivel 1 e
+ * tudo acima. E assim que o objetivo sobrevive a um mundo que subiu de
+ * nivel
+ */
+function contaPara(quest, typeId, level) {
+  if (quest.target !== typeId) return false;
+
+  // sem nivel informado, so o `target`: e o que mantem quem chama sem
+  // nivel — o painel e o auto — funcionando como antes
+  if (level === undefined || level === null) return true;
+
+  return level >= (quest.minLevel ?? 1);
+}
+
+/**
+ * O log de missoes: a campanha e a secundaria ativa.
+ *
+ * ## POR QUE A CAMPANIA E POR MAPA
+ *
+ * A campanha e uma lista sequencial, e o mapa entra pelo `location` da
+ * missao. O painel agrupa por mapa na lateral, e cada mapa tem a sua
+ * lista aqui
+ */
 export class QuestLog {
   constructor() {
     this.mainIndex = 0;
@@ -310,7 +343,13 @@ export class QuestLog {
     return true;
   }
 
-  onKill(typeId, amount = 1) {
+  /**
+   * Um abate conta para as missoes de cacada.
+   *
+   * O `level` e o que separa os degraus: e opcional, e sem ele o
+   * comportamento e o de sempre — so o `target`. Ver `contaPara`
+   */
+  onKill(typeId, amount = 1, level = null) {
     if (amount <= 0) return [];
 
     const quests = [];
@@ -328,7 +367,7 @@ export class QuestLog {
         continue;
       }
 
-      if (quest.target !== typeId) continue;
+      if (!contaPara(quest, typeId, level)) continue;
 
       const isSide = quest.id === this.sideId;
 
@@ -517,6 +556,17 @@ export class QuestLog {
           summary: quest.summary,
           type: quest.type,
           count: quest.count,
+
+          /**
+           * A ZONA do passo, e por ela que o painel sabe a qual mapa o
+           * passo pertence.
+           *
+           * Sem este campo a aba do mapa 2 nao teria o que mostrar: o
+           * painel so recebe os passos, e o `location` e o unico dado
+           * do passo que aponta para um mapa — o `id` da missao tem o
+           * mapa no texto, mas isso e ler string, e nao dado
+           */
+          location: quest.location,
           progress:
             index === this.mainIndex
               ? this.mainProgress

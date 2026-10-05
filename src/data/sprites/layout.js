@@ -31,8 +31,32 @@ const DIRECTIONAL_WALK_BOB = {
   frequency: 1.5,
 };
 
+/**
+ * As medidas do ARBALIST, medidas na folha gerada.
+ *
+ * `celula`, `ANCORA` e as contagens sao a saida de
+ * `node tools/gif-to-sheet.mjs arbalist`. A arte foi trocada e os
+ * numeros mudaram:
+ *
+ * - o idle foi de 7 para **8** quadros. O gif novo tem um quadro a
+ *   mais, e o `length: 7` antigo deixaria o ultimo frame fora do
+ *   balanco parado
+ * - a ancora foi de (32, 54) para **(31.5, 51)**: o pe da arte nova
+ *   esta 3px mais alto na celula. Sem isto o arquiro andaria 3px
+ *   dentro do chao em todas as direcoes — um erro pequeno e invisivel
+ *   num screenshot, e que faz o personagem parecer deslizar
+ *
+ * A ancora e declarada POR FOLHA, e nao no padrao compartilhado, pelo
+ * mesmo motivo que o guerreiro tem a dele: cada celula tem a sua, e
+ * `DIRECTIONAL_ANCHOR_Y` e o do arquiro ANTIGO
+ */
+const ARBALIST_FRAME_SIZE = 64;
+const ARBALIST_ANCHOR_X = 31.5;
+const ARBALIST_ANCHOR_Y = 51;
+const ARBALIST_COLUMNS = 9;
+
 const ARBALIST_FRAMES = 8;
-const ARBALIST_IDLE_FRAMES = 7;
+const ARBALIST_IDLE_FRAMES = 8;
 const ARBALIST_IDLE_ROW = 8;
 const ARBALIST_SHOOT_FRAMES = 9;
 const ARBALIST_SHOOT_ROW = 9;
@@ -215,6 +239,11 @@ export const ARBALIST_SPRITE = createDirectionalSpriteDefinition(
   SEM_IMAGEM,
   {
     directions: ARBALIST_DIRECTIONS,
+
+    frameWidth: ARBALIST_FRAME_SIZE,
+    frameHeight: ARBALIST_FRAME_SIZE,
+    anchorX: ARBALIST_ANCHOR_X,
+    anchorY: ARBALIST_ANCHOR_Y,
 
     walkBob: DIRECTIONAL_WALK_BOB,
 

@@ -146,6 +146,21 @@ export const ARBALIST_SPRITE = createDirectionalSpriteDefinition(
     walkBob: { amplitude: 4, frequency: 1.5 },
 
     /**
+     * A ancora da arte NOVA, medida na folha de 03/10.
+     *
+     * O padrao `DIRECTIONAL_ANCHOR_Y` e 54, e o pe do arquiro antigo
+     * estava a 54. O gif novo tem o pe a **51**: sem declarar isto, o
+     * arquiro andaria 3px dentro do chao em todas as direcoes. E um
+     * erro pequeno e invisivel num screenshot, e que faz o personagem
+     * parecer deslizar em vez de pisar
+     *
+     * A `X` tambem mudou, de 32 para 31.5 — o desenho novo ficou meio
+     * pixel a mais a esquerda
+     */
+    anchorX: 31.5,
+    anchorY: 51,
+
+    /**
      * A caixa do DESENHO dentro da celula de 64x64, medida do PNG.
      *
      * O arquiro ocupa 30x44: 17px de margem transparente de cada
@@ -155,13 +170,21 @@ export const ARBALIST_SPRITE = createDirectionalSpriteDefinition(
      *
      * A altura do desenho muda 1px entre os quadros do idle (43 a
      * 45), que e a propria animacao de respirar. A caixa e a maior
-     * das sete, e o quadro mais curto sai com uma linha transparente
-     * em cima, o que nao aparece
+     * dos quadros, e o mais curto sai com uma linha transparente em
+     * cima, o que nao aparece
      */
     contentBox: { x: 17, y: 7, width: 30, height: 45 },
 
     animations: {
-      idle: { row: 8, start: 0, length: 7, fps: 5 },
+      /**
+       * O idle tem **8** quadros, e nao 7.
+       *
+       * O gif novo trouxe um quadro a mais. Com `length: 7` o ultimo
+       * quadro ficava fora do balanco parado: o arquiro respirava em
+       * sete passos e o oitavo so aparecia quando a animacao voltava
+       * do tiro
+       */
+      idle: { row: 8, start: 0, length: 8, fps: 5 },
       walk: { start: 0, length: 8, fps: 12 },
       attack: {
         rowOffset: 9,

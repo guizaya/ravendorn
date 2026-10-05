@@ -2,6 +2,83 @@ import { useState } from "react";
 import ItemIcon from "../UI/ItemIcon.jsx";
 import { getItem } from "../../data/items/index.js";
 import { QUEST_SCOPE } from "../../data/quests/index.js";
+import { MAP_1, MAP_1_META, MAP_2, MAP_2_ZONES } from "../../data/maps/index.js";
+
+/**
+ * OS MAPAS QUE TEM MISSAO.
+ *
+ * ## A BASE FICA DE FORA
+ *
+ * O registro `MAPS` tem tres mapas: `base` (o hub), `map_1` (o vale) e
+ * `map_2`. A base fica de fora — e onde o jogador nasce, nao tem
+ * criatura e nao vai ter missao. Uma aba de mapa sem nada e um item de
+ * menu que so leva a uma tela vazia
+ *
+ * ## POR QUE MAPA 1 E MAPA 2 ESTAO JUNTOS NESTA LISTA
+ *
+ * A campanha e uma escada so: o `QuestLog` tem um `mainIndex` unico que
+ * caminha do degrau 1 ao 24. O mapa 2 nao e uma campanha separada que
+ * o jogador escolhe — e a continuacao, e a aba dele so existe para o
+ * jogador nao ter que rolar 24 degraus para achar o proximo
+ *
+ * Esta lista e a UNICA fonte de quais mapas aparecem
+ */
+const MAPAS_RAIL = [
+  {
+    id: MAP_1.id,
+    name: MAP_1.name,
+    cor: MAP_1_META.zones?.[0]?.terrain === "grass" ? "#5f8f4a" : "#6fbf8a",
+  },
+  {
+    id: MAP_2.id,
+    name: MAP_2.name,
+    cor: MAP_2_ZONES?.[0]?.terrain === "grass" ? "#5f8f4a" : "#6fbf8a",
+  },
+];
+
+/** O mapa que a barra abre: o primeiro da lista. */
+const MAPO_INICIAL = MAPAS_RAIL[0].id;
+
+/**
+ * O MAPA DE UMA ZONA.
+ *
+ * A aba do mapa e escolhida pelo `location` de cada passo, e o mapa de
+ * uma zona e o `mapId` que o registro dela carrega. As zonas do mapa 2
+ * tem o prefixo `m2_` no id, mas nao no `mapId` — e o `mapId` que decide
+ */
+function mapaDaZona(zoneId) {
+  return zoneId?.startsWith("m2_") ? MAP_2.id : MAP_1.id;
+}
+
+/**
+ * Quantas missoes do mapa ainda NAO foram concluidas.
+ *
+ * Some as duas abas: as pendentes da principal e as secundarias que
+ * faltam. Uma missao concluida some do numero, que e o que faz o
+ * contador cair conforme o jogador avanca
+ *
+ * O `mapaId` entra no filtro pelo `location` de cada missao, que e o id
+ * de zona. Uma missao de `treino` conta no mapa 1 e uma de `m2_treino`
+ * conta no mapa 2
+ */
+function contarPendentes(data, mapaId) {
+  if (!data) return 0;
+
+  const passosPendentes = (data.main?.steps ?? []).filter(
+    (step) =>
+      step.state !== "done" && mapaDaZona(step.location) === mapaId,
+  ).length;
+
+  const sidePendentes = [
+    ...(data.side?.available ?? []),
+    ...(data.side?.current ? [data.side.current] : []),
+  ].filter(
+    (quest) =>
+      !quest.done && mapaDaZona(quest.location) === mapaId,
+  ).length;
+
+  return passosPendentes + sidePendentes;
+}
 
 const TYPE_LABEL = {
   hunt: "Caçada",
@@ -240,6 +317,98 @@ function QuestRow({
   );
 }
 
+/**
+ * A COLUNA DE DIREITO: as abas de tipo e a lista.
+ *
+ * A barra lateral de mapas e irma desta. O painel virou uma linha com
+ * duas colunas — mapa a esquerda, trabalho a direita — em vez de uma
+ * coluna so
+ */
+function QuestColumn({ children }) {
+  return <div className="qst-panel__col">{children}</div>;
+}
+
+/**
+ * A BARRA LATERAL DE MAPAS.
+ *
+ * ## POR QUE SO O MAPA 1
+ *
+ * O registro `MAPS` tem dois mapas: `base` (o hub) e `map_1` (o vale).
+ * A base fica de fora de proposito — e onde o jogador spawna, nao tem
+ * criatura e nao vai ter missao. Uma aba de mapa sem missao nenhuma e
+ * um item de menu que so leva o jogador a uma tela vazia
+ *
+ * ## POR QUE MAPA 1 E NAO "VALE"
+ *
+ * O nome vem do proprio dado (`MAP_1.name`), e nao e escrito aqui. O
+ * dia que o vale ganhar outro nome o painel acompanha sozinho, e o que
+ * este arquivo nao faz e manter dois nomes do mesmo mapa
+ *
+ * ## O CONTADOR
+ *
+ * E o total de missoes que NAO estao concluidas naquele mapa: as duas
+ * abas somadas. E um numero derivado do que ja esta na tela, e nao um
+ * campo novo no snapshot
+ */
+function MapRail({ mapaAtivo, onSelect, quests }) {
+  const mapas = useMapRails(quests);
+
+  return (
+    <nav
+      className="qst-rail"
+      role="tablist"
+      aria-orientation="vertical"
+      aria-label="Mapa das missões"
+    >
+      <span className="qst-rail__label">Mapas</span>
+
+      {mapas.map((mapa) => (
+        <button
+          key={mapa.id}
+          type="button"
+          role="tab"
+          className={[
+            "qst-rail__tab",
+            mapaAtivo === mapa.id ? "is-active" : "",
+          ]
+            .filter(Boolean)
+            .join(" ")}
+          aria-selected={mapaAtivo === mapa.id}
+          onClick={() => onSelect(mapa.id)}
+          title={`${mapa.name} — ${mapa.pendentes} missão(ões) a fazer`}
+        >
+          <span
+            className="qst-rail__swatch"
+            style={{ background: mapa.cor }}
+            aria-hidden="true"
+          />
+          <small>{mapa.name}</small>
+          {mapa.pendentes > 0 && (
+            <i className="qst-rail__count">{mapa.pendentes}</i>
+          )}
+        </button>
+      ))}
+    </nav>
+  );
+}
+
+/**
+ * O QUE CADA MAPA DO PAINEL SABE.
+ *
+ * A lista vem do dado e o contador e derivado do `quests`, que ja chega
+ * no painel. Nada disso entra no snapshot: um contador por mapa no
+ * servidor seria estado duplicado do que o painel tem na mao
+ *
+ * A cor e a do chao que o jogador ve la fora, e nao uma cor inventada
+ * para o painel
+ */
+function useMapRails(quests) {
+  return MAPAS_RAIL.map((mapa) => ({
+    ...mapa,
+    pendentes: contarPendentes(quests, mapa.id),
+  }));
+}
+
 export default function QuestPanel({
   quests,
   onClose,
@@ -259,7 +428,23 @@ export default function QuestPanel({
   const side = data.side;
   const auto = data.auto ?? {};
 
-  const hasActiveSide = Boolean(side.current);
+  /**
+   * O MAPA aberto, na lateral esquerda.
+   *
+   * ## POR QUE COMECA NO PRIMEIRO E NAO EM NENHUM
+   *
+   * A lista tem so o mapa 1, entao qualquer escolha inicial seria
+   * equivalente — mas "nenhum" deixaria a coluna de direita sem dono e
+   * o painel apareceria quebrado. `null` aqui e um estado que o jogador
+   * nunca deve ver
+   *
+   * ## POR QUE O MAPA VIROU PARTE DO ESTADO
+   *
+   * E o que o jogador escolheu, e nao um detalhe do render: quando
+   * entrarem outros mapas com missoes, a coluna de direita tem de
+   * mostrar o mapa que esta marcado aqui, e nao a primeira lista
+   */
+  const [mapa, setMapa] = useState(MAPO_INICIAL);
 
   // a aba segue o trabalho do jogador: com uma side ativa e uma
   // principal em andamento, a principal tem prioridade, porque e
@@ -268,14 +453,40 @@ export default function QuestPanel({
     data.main?.current ? "main" : "side",
   );
 
+  /**
+   * O QUE PERTENCE A ABA ABERTA.
+   *
+   * A campanha e uma escada so, do degrau 1 ao 24, e as duas abas do
+   * painel sao o MESMO `steps` filtrado pelo mapa. Sem o filtro, a aba do
+   * mapa 2 mostraria os 24 degraus com o mapa 1 inteiro em cima
+   *
+   * O filtro e pelo `location` de cada passo, e nao pelo `id`: o `id` tem
+   * o mapa escrito no texto (`map2_main_13_...`) e ler string para saber
+   * de que mapa e um passo e o tipo de coisa que quebra quando alguem
+   * renomeia o prefixo
+   */
+  const passosDaAba = data.main.steps.filter(
+    (step) => mapaDaZona(step.location) === mapa,
+  );
+
+  const sideDaAba = side.available.filter(
+    (quest) => mapaDaZona(quest.location) === mapa,
+  );
+
+  const sideAtualDaAba =
+    side.current && mapaDaZona(side.current.location) === mapa
+      ? side.current
+      : null;
+
+  const hasActiveSide = Boolean(sideAtualDaAba);
+
   // A aba escolhida pode esvaziar do nada: a campanha termina e a
   // lista de passos some do snapshot. Marcar "Principal" com
   // nada dentro e pior que trocar de aba, porque o jogador fica
   // olhando para um vazio achando que quebrou. O desvio vai para
   // a aba que tem o que mostrar.
-  const mainTemAlgo = data.main.steps.length > 0;
-  const sideTemAlgo =
-    side.available.length > 0 || hasActiveSide;
+  const mainTemAlgo = passosDaAba.length > 0;
+  const sideTemAlgo = sideDaAba.length > 0 || hasActiveSide;
 
   const ativa =
     tab === "main"
@@ -306,7 +517,7 @@ export default function QuestPanel({
       id: "side",
       label: "Secundárias",
       icon: "◆",
-      count: side.available.filter((quest) => !quest.done)
+      count: sideDaAba.filter((quest) => !quest.done)
         .length,
     },
   ];
@@ -384,6 +595,14 @@ export default function QuestPanel({
         </button>
       </header>
 
+      <div className="qst-panel__split">
+        <MapRail
+          mapaAtivo={mapa}
+          onSelect={setMapa}
+          quests={data}
+        />
+
+        <QuestColumn>
       <nav
         className="qst-tabs"
         role="tablist"
@@ -442,7 +661,7 @@ export default function QuestPanel({
         {ativa === "main" ? (
           <section className="qst-group">
             <ul className="qst-list">
-              {data.main.steps.map((step) => {
+              {passosDaAba.map((step) => {
                 const current =
                   data.main.current?.id === step.id;
 
@@ -504,14 +723,14 @@ export default function QuestPanel({
           </section>
         ) : (
           <section className="qst-group">
-            {side.current && (
+            {sideAtualDaAba && (
               <ul className="qst-list">
                 <QuestRow
-                  quest={side.current}
+                  quest={sideAtualDaAba}
                   state="active"
                   auto={
                     auto.enabled &&
-                    auto.objectiveId === side.current.id
+                    auto.objectiveId === sideAtualDaAba.id
                   }
                   onAbandon={onAbandon}
                   onFocus={onFocus}
@@ -521,7 +740,7 @@ export default function QuestPanel({
             )}
 
             <ul className="qst-list">
-              {side.available.map((quest) => {
+              {sideDaAba.map((quest) => {
                 /**
                  * A missao ativa JA esta desenhada no bloco de
                  * cima, com o botao de abandonar e o de auto.
@@ -559,6 +778,8 @@ export default function QuestPanel({
             </ul>
           </section>
         )}
+      </div>
+        </QuestColumn>
       </div>
     </section>
   );

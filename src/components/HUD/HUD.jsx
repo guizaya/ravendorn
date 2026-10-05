@@ -3,6 +3,7 @@ import SkillSlot from "../Skills/SkillSlot.jsx";
 import HudIcon from "../UI/HudIcon.jsx";
 import InventoryPanel from "../Inventory/InventoryPanel.jsx";
 import QuestPanel from "../Quests/QuestPanel.jsx";
+import PartyBox from "./PartyBox.jsx";
 import BestiaryPanel from "../Bestiary/BestiaryPanel.jsx";
 import RankPanel from "../Rank/RankPanel.jsx";
 import CraftPanel from "../Craft/CraftPanel.jsx";
@@ -11,6 +12,7 @@ import CollectionPanel, {
 } from "../Collection/CollectionPanel.jsx";
 import EnchantPanel from "../Enchant/EnchantPanel.jsx";
 import MarketPanel from "../Market/MarketPanel.jsx";
+import PotionPanel from "../Potions/PotionPanel.jsx";
 import GuildPanel from "../Guild/GuildPanel.jsx";
 import PortalBox from "./PortalBox.jsx";
 import {
@@ -21,6 +23,7 @@ import {
 import { DEFAULT_LOOT_FILTER } from "../../game/loot/lootFilter.js";
 import { RANK_CRITERIO } from "../../game/ranking/rank.js";
 import { digitandoEm } from "../../game/ui/typing.js";
+import { NPC_ACAO } from "../../data/npc/index.js";
 
 /**
  * Os paineis da HUD, e UM so por vez.
@@ -53,6 +56,21 @@ const PAINEL = {
   ENCHANT: "enchant",
   MARKET: "market",
   GUILD: "guild",
+
+  /**
+   * A LOJA do mercador.
+   *
+   * Separate do `MARKET` de proposito. `MARKET` e o mercado entre
+   * jogadores, que e de oferta e proposta; a loja e um catalogo que o
+   * mercador vende. Sao dois paineis com dois sentidos, e um botao que
+   * abre o errado mostra o jogo inteiro vazio
+   *
+   * Nao tem tecla. A loja se abre pelo clique no NPC, e nao por atalho:
+   * nenhum outro painel do jogo depende de estar perto de uma coisa, e
+   * esta precisa. Um atalho abriria uma loja de um NPC que pode estar
+   * em outro mapa
+   */
+  POCOES: "pocoes",
 };
 
 /**
@@ -281,8 +299,26 @@ function QuestTracker({
   const autoObjectiveId = auto?.objectiveId ?? null;
   const autoOn = Boolean(auto?.enabled);
 
-  if (!main && !side) return null;
-
+  /**
+   * A BOX NUNCA SAI.
+   *
+   * Antes havia `if (!main && !side) return null`, e era a unica coisa
+   * da tela capaz de sumir sozinha. O sintoma era o jogador morrer e a
+   * box de missoes deixar de existir: o `return null` responde a um
+   * snapshot sem `quests`, e um snapshot momentaneamente sem quests
+   * acontece — no instante entre a morte e o proximo pacote do
+   * servidor, por exemplo
+   *
+   * E o pior tipo de sumir: a box e a unica pista de onde ir quando o
+   * jogador morre. Ele volta, olha a tela para se orientar, e a unica
+   * coisa que responderia "va para o Pantano" esta ausente
+   *
+   * ## POR QUE UM ESTADO VAZIO E MELHOR QUE NADA
+   *
+   * O cabecalho da box tem o nivel e a barra de XP, que valem sempre.
+   * So as linhas de missao dependem do snapshot, e elas entram com o
+   * que houver — inclusive nada, com o aviso embaixo
+   */
   return (
     <section className="qst-tracker">
       <button
@@ -377,6 +413,19 @@ function QuestTracker({
           )}
         </button>
       )}
+
+      {/*
+        O AVISO DE "SEM MISSAO", e nao um bloco vazio.
+
+        Uma box vazia parece quebrada. O aviso diz o que aconteceu: o
+        jogador esta no hub, a campanha acabou, ou o snapshot ainda nao
+        chegou — e o cabecalho com nivel e XP continua ali em cima
+      */}
+      {!main && !side && (
+        <p className="qst-tracker__vazio">
+          Nenhuma missão ativa
+        </p>
+      )}
     </section>
   );
 }
@@ -388,6 +437,14 @@ export default function HUD({
   engineRef,
   onBack = null,
   intencao = null,
+  /**
+   * O CONVITE DE PARTY que chegou pelo EVENTO do servidor.
+   *
+   * Vive aqui e nao dentro do `snapshot` porque e um instante: o painel
+   * chega alguns segundos depois, e a caixa de cinco segundos nao pode
+   * esperar por ele
+   */
+  conviteParty = null,
 }) {
   const skillPages = useMemo(
     () => chunk(classDefinition.skills, 8),
@@ -401,6 +458,15 @@ export default function HUD({
    * o `null` e "nenhum"
    */
   const [painelAberto, setPainelAberto] = useState(null);
+
+  /**
+   * O JOGADOR MIRADO, e o menu que aparece em cima dele.
+   *
+   * Vive aqui e nao no motor porque e estado de INTERFACE: o motor so
+   * entrega o id do que foi clicado, e quem decide mostrar um menu e o
+   * React
+   */
+  const [alvoConvite, setAlvoConvite] = useState(null);
 
   /**
    * Abre, ou fecha se ja era esse.
@@ -496,6 +562,96 @@ export default function HUD({
 
     alternarPainel(PAINEL.INVENTARIO);
   }, [engineRef, intencao, alternarPainel]);
+
+  /**
+   * O clique num NPC abre o painel que ELE vende.
+   *
+   * O motor entrega a entidade inteira e nao um id, porque o que o NPC
+   * faz viaja com ele: `acao` vem do catalogo do tipo. Passar so o id
+   * obrigaria a tela a voltar ao motor para perguntar de novo o que
+   * aquele NPC faz — e o motor nao sabe de painel, so tem o dado
+   *
+   * O hook e instalado AQUI, e nao no `GameCanvas`, porque quem tem o
+   * `painelAberto` e quem tem de reagir a ele. O `GameCanvas` cria o
+   * motor mas nao sabe o que existe dentro
+   */
+  const handleNpcClick = useCallback(
+    (npc) => {
+      /**
+       * A LOJA do mercador, e nao o mercado entre jogadores.
+       *
+       * Esta era a linha que abria `PAINEL.MARKET`: o mercador da base
+       * nao tem oferta nenhuma para propose, entao o jogador clicava
+       * nele e via um painel de mercado vazio, com o sentido errado e
+       * sem a pocão que ele foi comprar
+       *
+       * E `abrirPainel`, e nao `alternarPainel`: a loja e um lugar
+       * para onde se vai. Clicar no mercador com a loja aberta deve
+       * mostrar a loja de novo, e nao fechar o que o jogador acabou de
+       * abrir — ele pode ter clicado sem querer no boneco atras do
+       * painel
+       */
+      if (npc.acao === NPC_ACAO.POCOES) {
+        abrirPainel(PAINEL.POCOES);
+      }
+    },
+    [abrirPainel],
+  );
+
+  /**
+   * O CLIQUE EM CIMA DE OUTRO JOGADOR.
+   *
+   * Abre o MENU com a opcao de convidar. O menu e local do jogador que
+   * cliqueou: e uma intencao de um instante, e o convite em si so sai
+   * quando ele escolhe a opcao
+   */
+  const handlePlayerClick = useCallback(
+    (alvoId, jogador) => {
+      setAlvoConvite({
+        id: alvoId,
+        nome: jogador?.name ?? "?",
+        classe: jogador?.classId ?? null,
+      });
+    },
+    [],
+  );
+
+  /**
+   * FECHAR O MENU do jogador mirado.
+   *
+   * Fecha com o mesmo clique que abriu a barra de skills, e nao com o
+   * clique fora: um clique perdido no meio de uma briga nao pode
+   * custar o convite que o jogador acabou de mirar
+   */
+  const fecharAlvoConvite = useCallback(() => {
+    setAlvoConvite(null);
+  }, []);
+
+  useEffect(() => {
+    const engine = engineRef.current;
+
+    if (!engine) return undefined;
+
+    engine.onNpcClick = handleNpcClick;
+
+    /**
+     * O MESMO EFEITO para o clique em OUTRO JOGADOR.
+     *
+     * O motor e quem sabe converter tela para mundo, entao e ele quem
+     * entrega o id do jogador mirado. Aqui o id vira um pedido de
+     * convite — e nada mais: clicar num colega abre o menu, e nao um
+     * combate contra ele
+     */
+    engine.onPlayerClick = handlePlayerClick;
+
+    return () => {
+      // sem esta limpeza, o motor guardaria um callback de uma tela
+      // desmontada, e clicar no NPC de outra tela abriria um painel
+      // que nao existe mais
+      engine.onNpcClick = null;
+      engine.onPlayerClick = null;
+    };
+  }, [engineRef, handleNpcClick, handlePlayerClick]);
 
   /**
    * O rank de quem esta conectado.
@@ -678,6 +834,115 @@ const handleGuildCreate = useCallback(
     if (intencao) {
       intencao.criarGuilda(nome, tag);
     }
+  },
+  [intencao],
+);
+
+/**
+ * A PARTY.
+ *
+ * Os quatro pedidos sao guardas de `intencao`: sem rede nao ha ninguem
+ * para convidar, e o botao aparece desabilitado em vez de sumir — sumir
+ * faria o jogador procurar o botao e nao acha-lo
+ */
+const handlePartyCreate = useCallback(() => {
+  if (!intencao) return;
+
+  intencao.criarParty();
+}, [intencao]);
+
+const handlePartyInvite = useCallback(
+  (nome) => {
+    if (!intencao) return;
+
+    intencao.convidarPartyPorNome(nome);
+  },
+  [intencao],
+);
+
+const handlePartyAccept = useCallback(() => {
+  if (!intencao) return;
+
+  intencao.aceitarConviteParty();
+}, [intencao]);
+
+const handlePartyLeave = useCallback(() => {
+  if (!intencao) return;
+
+  intencao.sairDaParty();
+}, [intencao]);
+
+/**
+ * A EXPULSAO de um membro.
+ *
+ * E o mesmo pedido para qualquer alvo: quem pode expulsar e o servidor,
+ * e o `alvoId` e so "quem"
+ */
+const handlePartyKick = useCallback(
+  (alvoId) => {
+    if (!intencao) return;
+
+    intencao.expulsarDaParty(alvoId);
+  },
+  [intencao],
+);
+
+/**
+ * SEGUIR UM MEMBRO.
+ *
+ * O botao e um interruptor e o servidor e quem sabe: se o jogador ja
+ * esta seguindo alguem, o pedido CANCELA em vez de trocar de alvo
+ */
+const handlePartyFollow = useCallback(
+  (alvoId) => {
+    if (!intencao) return;
+
+    intencao.seguirPartyMember(alvoId);
+  },
+  [intencao],
+);
+
+/**
+ * LIGA OU DESLIGA O FOCO DO ALVO DO LIDER.
+ *
+ * Manda o estado contrario ao que esta na tela, e nao um "inverter": o
+ * botao e um interruptor, e a tela ja sabe o estado atual
+ */
+const handlePartyFocus = useCallback(
+  (ligado) => {
+    if (!intencao) return;
+
+    intencao.focarAlvoDoLider(ligado);
+  },
+  [intencao],
+);
+
+/**
+ * PASSAR A LIDERANCA.
+ *
+ * O servidor decide se o pedido vale: so o lider atual pode passar, e
+ * so para quem esta na party
+ */
+const handlePartyTransfer = useCallback(
+  (alvoId) => {
+    if (!intencao) return;
+
+    intencao.passarLideranca(alvoId);
+  },
+  [intencao],
+);
+
+/**
+ * O CONVITE PELO CLIQUE no personagem.
+ *
+ * O id do jogador mirado vem do canvas, que e o unico que sabe converter
+ * tela para mundo. Aqui so vira um pedido
+ */
+const handlePartyInviteByClick = useCallback(
+  (alvoId) => {
+    if (!intencao) return;
+
+    intencao.convidarParty(alvoId);
   },
   [intencao],
 );
@@ -1072,6 +1337,42 @@ const handleTravelPortal = useCallback(
       if (intencao) {
         intencao.cancelarNoMarket(listingId);
       }
+    },
+    [intencao],
+  );
+
+  /**
+   * COMPRA uma pocao na loja do mercador.
+   *
+   * So online. Offline nao ha `intencao`, e o painel aparece do mesmo
+   * jeito — o que significa que o botao fica sem efeito no offline.
+   * E o mesmo arranjo dos outros handlers acima, e pelo mesmo motivo:
+   * quem cobra e o servidor, e um motor local aqui inventaria uma
+   * compra que ninguem pagou
+   */
+  const handleBuyPotion = useCallback(
+    (itemId, count) => {
+      if (intencao) {
+        intencao.comprarPocao(itemId, count);
+      }
+    },
+    [intencao],
+  );
+
+  /**
+   * USA um consumivel da mochila: a pocao.
+   *
+   * O `uid` vem do slot, e nunca do item. Duas pocoes de raridades
+   * diferentes sao DUAS pilhas com o mesmo `itemId`, e um pedido
+   *mandando o id curaria a pilha errada
+   */
+  const handleUseItem = useCallback(
+    (entry) => {
+      const uid = entry?.uid ?? entry;
+
+      if (!uid || !intencao) return;
+
+      intencao.usarItem(uid);
     },
     [intencao],
   );
@@ -1621,10 +1922,76 @@ const handleTravelPortal = useCallback(
           onFocus={handleFocusQuest}
         />
 
+        {/*
+          A PARTY VEM DEPOIS DA MISSÃO, e a ordem é do pedido: a box
+          de party fica abaixo da de missões, na mesma coluna
+        */}
+        <PartyBox
+          party={snapshot?.party}
+          /**
+           * O CONVITE CHEGOU PELO EVENTO, e nao pelo painel.
+           *
+           * O servidor manda `PARTY_INVITE_RECEIVED` na hora, e o painel
+           * so no proximo pacote — que pode levar segundos. A caixa de
+           * cinco segundos esperando o painel perderia a maior parte do
+           * prazo, e o jogador nunca veria o convite
+           */
+          convite={conviteParty}
+          /**
+           * O ID DE QUEM ESTA OLHANDO.
+           *
+           * Sem ele a caixa nao sabe se quem ve e o lider, e o botao de
+           * expulsar apareceria para todo mundo
+           */
+          meuId={player?.id ?? null}
+          onCreate={handlePartyCreate}
+          onInvite={handlePartyInvite}
+          onAcceptInvite={handlePartyAccept}
+          onKick={handlePartyKick}
+          onFollow={handlePartyFollow}
+          onFocus={handlePartyFocus}
+          onTransfer={handlePartyTransfer}
+          onLeave={handlePartyLeave}
+        />
+
         <BestiaryAutoBox
           hunt={snapshot?.bestiaryAuto ?? null}
           onStop={handleStopBestiaryAuto}
         />
+
+        {/*
+          O MENU DO JOGADOR MIRADO.
+          *
+          * Fica dentro da coluna da esquerda, e nao sobre o personagem,
+          * porque o mundo se move sob o menu: um menu ancorado no sprite
+          * sai de lugar no primeiro quadro de caminhada. O nome do
+          * jogador vem do clique, e e ele que diz a quem o convite vai
+        */}
+        {alvoConvite && (
+          <div className="pty-target">
+            <strong>{alvoConvite.nome}</strong>
+
+            <button
+              type="button"
+              className="pty-btn pty-btn--invite-target"
+              onClick={() => {
+                handlePartyInviteByClick(alvoConvite.id);
+                fecharAlvoConvite();
+              }}
+              title="Convidar para a party"
+            >
+              Convidar para party
+            </button>
+
+            <button
+              type="button"
+              className="pty-btn pty-btn--close"
+              onClick={fecharAlvoConvite}
+            >
+              Fechar
+            </button>
+          </div>
+        )}
       </div>
 
       {painelAberto === PAINEL.MISSOES && (
@@ -1724,6 +2091,19 @@ const handleTravelPortal = useCallback(
         />
       )}
 
+      {/*
+        A LOJA. Fica depois do mercado por ordem de leitura do arquivo,
+        e nao por dependencia: os dois sao irmos, e nenhum monta o
+        outro
+      */}
+      {painelAberto === PAINEL.POCOES && (
+        <PotionPanel
+          coins={summary.coins}
+          onBuy={handleBuyPotion}
+          onClose={() => alternarPainel(PAINEL.POCOES)}
+        />
+      )}
+
       {painelAberto === PAINEL.INVENTARIO && (
         <InventoryPanel
           inventory={summary}
@@ -1736,6 +2116,7 @@ const handleTravelPortal = useCallback(
           onDiscardItem={handleDiscardItem}
           onDiscardEquipped={handleDiscardEquipped}
           onAutoEquip={handleAutoEquip}
+          onUseItem={handleUseItem}
           onFilterChange={handleFilterChange}
           onFilterReset={handleFilterReset}
           onFilterPrune={handleFilterPrune}

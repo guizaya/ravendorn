@@ -136,7 +136,7 @@ export const ENEMY_SPRITES = {
     ).href,
   },
 
-  // 16 linhas: 8 de caminhada e 8 de golpe, sem linha de idle
+  // 17 linhas: 8 de caminhada, 1 de idle e 8 de golpe
   ogre_da_predeira: {
     ...OGRE_PREDEIRA_SPRITE,
     src: new URL(

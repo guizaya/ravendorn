@@ -14,9 +14,11 @@ import {
  * 1. O golpe veio em 5 das 8 direcoes. A ferramenta copia a vizinha
  *    mais proxima em GRAU, e o mapa e declarado na folha: uma
  *    decisao sobre a arte, nao um palpite interno.
- * 2. Nao tem `idle.gif`. A folha sai sem a linha de idle, e o
- *    layout aponta o idle para o primeiro frame da caminhada DA
- *    DIRECAO, para o ogre nao marchar parado.
+ * 2. O `idle.gif` chegou depois de a folha estar montada. A folha
+ *    ganhou a linha de idle no MEIO, e o golpe teve de descer da linha
+ *    8 para a 9 — o `rowOffset` antigo leria a linha do idle e o ogre
+ *    brandiria o porrete parado no meio do golpe. O layout aponta o
+ *    idle para a linha dele, com `row` obrigatorio.
  * 3. Os gifs nao tem a mesma contagem de frames entre as direcoes
  *    (8 e 9 na caminhada, 9 e 10 no golpe). O corte e no menor do
  *    grupo, para o passo nao mudar de direcao para direcao.
@@ -109,32 +111,49 @@ describe("sheet do ogre da predeira", () => {
 
     // Cada linha copiada e a MESMA arte de outra linha. Isso e
     // esperado e foi pedido; o que nao pode e a folha inteira ter
-    // virado em tres linhas: 8 de caminhada e 8 de golpe sao 16
-    // linhas de conteudo, e o tool contaria menos
-    expect(resultado.rows).toBe(16);
+    // virado em menos linhas: 8 de caminhada, 1 de idle e 8 de golpe
+    // saem 17, e o tool contaria menos
+    expect(resultado.rows).toBe(17);
   });
 
-  it("sai sem linha de idle, e o layout aponta o idle para o walk", async () => {
+  it("usa a linha de idle de verdade, e o golpe desce para 9", async () => {
     const resultado = build();
 
-    // sem idle, a linha de golpe sobe de 9 para 8: e a unica coisa
-    // que a sheet do zumbi faz diferente, e o layout tem de bater
-    expect(resultado.idleRow).toBeNull();
-    expect(resultado.idleFrames).toBe(0);
-    expect(resultado.shootRow).toBe(8);
+    /**
+     * A folha mudou de forma quando o `idle.gif` chegou.
+     *
+     * Antes eram 16 linhas: 8 de caminhada e 8 de golpe, e o idle caia
+     * no frame 0 da caminhada. Agora a caminhada vai de 0 a 7, o idle
+     * e a linha 8, e o golpe COMECA na 9
+     *
+     * O `shootRow` sendo 8 era o bug silencioso: o golpe leria a linha do
+     * idle e o ogre brandiria o porrete parado no meio da animacao
+     */
+    expect(resultado.idleRow).toBe(8);
+    expect(resultado.idleFrames).toBe(8);
+    expect(resultado.shootRow).toBe(9);
 
     const { OGRE_PREDEIRA_SPRITE } = await import(
       "../src/data/sprites/enemyLayout.js"
     );
 
-    const { idle } = OGRE_PREDEIRA_SPRITE.animations;
+    const { idle, walk, attack } = OGRE_PREDEIRA_SPRITE.animations;
 
-    // sem `row` e sem `rowOffset`: o `resolveFrameRect` cai em
-    // `animations.walk` quando a animacao nao existe, e um idle de
-    // 8 frames faria o ogre MARCHAR parado
-    expect(idle.row).toBeUndefined();
-    expect(idle.rowOffset).toBeUndefined();
-    expect(idle.length).toBe(1);
+    /**
+     * O `row` do idle e OBRIGATORIO.
+     *
+     * Sem ele o `resolveFrameRect` usaria `rowOffset ?? 0` e leria a
+     * linha 0 — a caminhada para leste. O ogre voltaria a andar
+     * parado virado para o lado, que e o defeito que a linha de idle
+     * veio resolver
+     */
+    expect(idle.row).toBe(8);
+    expect(idle.length).toBe(8);
+
+    // e o golpe tem de ler a linha DELE, e nao a do idle
+    expect(attack.rowOffset).toBe(9);
+    expect(attack.rowOffset).not.toBe(idle.row);
+    expect(walk.rowOffset ?? 0).toBe(0);
   });
 
   it("corta o ciclo no menor numero de frames do grupo", () => {
@@ -145,6 +164,10 @@ describe("sheet do ogre da predeira", () => {
     expect(resultado.walkFrames).toBe(8);
     expect(resultado.shootFrames).toBe(9);
     expect(resultado.columns).toBe(9);
+
+    // o idle tem 8 frames, e e o ciclo mais curto da folha: e ele que
+    // dita a coluna, senao o idle leria uma coluna que nao existe
+    expect(resultado.idleFrames).toBe(8);
   });
 
   it("mede a ancora, e nao a chuta", () => {
@@ -156,11 +179,17 @@ describe("sheet do ogre da predeira", () => {
     expect(resultado.anchorY).toBe(55);
   });
 
-  it("cabe 136 celulas: 8 de caminhada e 8 de golpe", () => {
+  it("cabe 153 celulas: 8 de caminhada, 1 de idle e 8 de golpe", () => {
     const resultado = build();
 
     expect(resultado.width).toBe(612);
-    expect(resultado.height).toBe(1088);
+    expect(resultado.height).toBe(1156);
+
+    /**
+     * A ALTURA subiu de 1088 para 1156: sao 68px a mais, que e a linha
+     * de idle entrando no meio da folha
+     */
+    expect(resultado.height).toBe(resultado.rows * 68);
 
     // 8 direcoes, e em cada uma 8 frames de caminhada mais 9 de
     // golpe. A 9a coluna da sheet fica vazia na caminhada, que tem

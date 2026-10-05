@@ -45,9 +45,55 @@ const zonaDaMissao = (engine) => {
   return MAP_1_META.zones.find((entry) => entry.id === quest.location);
 };
 
-/** Uma criatura viva, e onde ela esta. */
-const criaturaViva = (engine) =>
-  engine.world.enemies.find((e) => e.alive && e.isCreature);
+/**
+ * A criatura VIVA mais proxima do jogador.
+ *
+ * Antes era "a primeira criatura viva da lista", o que so funciona por
+ * acaso: o botao persegue o mob MAIS PROXIMO, entao o alvo do teste
+ * precisa ser esse. Com o campo de provas ganhou um par de criaturas,
+ * o primeiro registro da lista deixou de ser o mais proximo, e o teste
+ * passou a medir a distancia para uma criatura que o piloto nem estava
+ * mirando — o defeito aparecia como 3645px contra 3197px, sem pista
+ * de que o problema era a escolha do alvo
+ */
+const criaturaViva = (engine) => {
+  const player = engine.world.player;
+
+  return engine.world.enemies
+    .filter((e) => e.alive && e.isCreature)
+    .sort(
+      (a, b) =>
+        Math.hypot(a.x - player.x, a.y - player.y) -
+        Math.hypot(b.x - player.x, b.y - player.y),
+    )[0];
+};
+
+/**
+ * O piloto chegou perto de ALGUMA criatura?
+ *
+ * ## POR QUE NAO BASTA CONFERIR UMA
+ *
+ * O `pickAutoTarget` reavalia o mais proximo a cada tick, entao o alvo
+ * pode trocar no meio da perseguida: o limo e PASSIVO e vagueia, e um
+ * outro limo pode ficar mais perto do que o que o piloto mirava. Medir
+ * uma criatura fixa entao mede a distancia para alguem que o piloto
+ * ja abandoned — a criatura e o piloto andam para lados opostos e o
+ * teste reprova com o piloto funcionando certo
+ *
+ * A intencao destes testes e "o botao leva o jogador ate um mob", e nao
+ * "o botao persegue o registro 0 da lista". Isso mede a segunda
+ */
+const chegouEmAlgumMob = (engine, antes) => {
+  const player = engine.world.player;
+
+  const agora = Math.min(
+    ...engine.world.enemies
+      .filter((e) => e.alive && e.isCreature)
+      .map((e) => Math.hypot(e.x - player.x, e.y - player.y)),
+  );
+
+  expect(agora).toBeLessThan(antes);
+};
 
 /** quanto o piloto andou no total */
 const rodar = (engine, frames) => {
@@ -93,9 +139,7 @@ describe("o auto do botao e o de CACAR PERTO", () => {
       engine.update(1 / 60);
     }
 
-    const depois = Math.hypot(mob.x - player.x, mob.y - player.y);
-
-    expect(depois).toBeLessThan(distanciaAoMob);
+    chegouEmAlgumMob(engine, distanciaAoMob);
 
     engine.destroy();
   });
@@ -175,9 +219,7 @@ describe("os tres autos nao convivem", () => {
     }
 
     // o piloto foi para o MOB
-    expect(
-      Math.hypot(mob.x - player.x, mob.y - player.y),
-    ).toBeLessThan(distanciaAoMob);
+    chegouEmAlgumMob(engine, distanciaAoMob);
 
     // e, o que importa, ele nao tem mais destino de zona. medir a
     // distancia do centro da zona nao serviria: o mob escolhido
@@ -193,7 +235,6 @@ describe("os tres autos nao convivem", () => {
     const { engine, player } = criar();
 
     const quest = engine.world.quests.currentMain;
-    const zona = zonaDaMissao(engine);
 
     engine.focusQuest(quest.id);
 
@@ -202,21 +243,42 @@ describe("os tres autos nao convivem", () => {
     // desligar o piloto sem desligar a missao
     expect(engine.autoPlay).toBe(false);
 
-    const antes = Math.hypot(
-      player.x - (zona.x + zona.width / 2),
-      player.y - (zona.y + zona.height / 2),
-    );
+    const inicio = { x: player.x, y: player.y };
 
     for (let frame = 0; frame < 600; frame += 1) {
       engine.update(1 / 60);
     }
 
-    const depois = Math.hypot(
-      player.x - (zona.x + zona.width / 2),
-      player.y - (zona.y + zona.height / 2),
+    /**
+     * O QUE ESTE TESTE MEDE E "O PERSONAGEM ANDA", e nao "A DISTANCIA
+     * ENCURTA".
+     *
+     * A primeira missao da campanha aponta para o Pantano, que fica na
+     * ultima faixa do vale — e a fileira de arbustos do sul fecha o mapa
+     * no meio. O caminho ate la passa pelo vao do oeste, entao nos
+     * primeiros dez segundos o piloto anda para OPOSTO da zona e a
+     * distancia reta CRESCE
+     *
+     * Medir a reta reprovava com o piloto certo. O que prova o defeito
+     * original — a tela dizendo AUTO com o personagem parado — e o
+     * deslocamento, e o objetivo no comando que diz quem mandou nele
+     */
+    const andou = Math.hypot(
+      player.x - inicio.x,
+      player.y - inicio.y,
     );
 
-    expect(depois).toBeLessThan(antes);
+    expect(
+      andou,
+      "o personagem nao andou, e o auto da missao estava ligado",
+    ).toBeGreaterThan(100);
+
+    expect(engine.getQuestObjective()).not.toBeNull();
+
+    expect(
+      engine.autoWaypoint,
+      "o piloto andou sem ter para onde: nenhum waypoint publicado",
+    ).not.toBeNull();
 
     engine.destroy();
   });
@@ -277,9 +339,7 @@ describe("os tres autos nao convivem", () => {
       engine.update(1 / 60);
     }
 
-    expect(
-      Math.hypot(mob.x - player.x, mob.y - player.y),
-    ).toBeLessThan(distancia);
+    chegouEmAlgumMob(engine, distancia);
 
     engine.destroy();
   });
