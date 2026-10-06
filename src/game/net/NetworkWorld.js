@@ -308,7 +308,21 @@ export class NetworkWorld {  /**
       remoto.maxHp = dado.maxHp ?? remoto.maxHp;
       remoto.name = dado.name;
       remoto.classId = dado.classId ?? remoto.classId;
-      remoto.alive = true;
+
+      /**
+       * `alive` vem do HP que o servidor mandou, e nao e `true` fixo.
+       *
+       * Quando este jogador MORREU, quem ve a cena precisa ver o
+       * boneco no chao. Com `alive = true` fixo, o corpo de um jogador
+       * morto continuava andando pela tela dos outros — ele morria, o
+       * painel aparecia nele, e ele ia em frente como se nada
+       *
+       * E a mesma regra que o inimigo usa duas funcoes acima:
+       * `dado.state !== "dead" && dado.hp > 0`. Aqui nao ha `state`
+       * para jogador, entao o HP e a unica fonte
+       */
+      remoto.alive = (dado.hp ?? remoto.hp) > 0;
+
       remoto.aiState = "idle";
 
       // a reacao ao dano do OUTRO jogador. o valor ja chega

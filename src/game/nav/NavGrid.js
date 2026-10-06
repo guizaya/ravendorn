@@ -188,10 +188,22 @@ class Heap {
       const pai = (i - 1) >> 1;
 
       if (menorQue(this.itens[i], this.itens[pai])) {
-        [this.itens[i], this.itens[pai]] = [
-          this.itens[pai],
-          this.itens[i],
-        ];
+        /**
+         * A TROCA POR DESTRUCTURING ALOCAVA UM ARRAY POR PASSO.
+         *
+         * `[a, b] = [b, a]` cria um array temporario quando os dois
+         * lados leem indices recalculados do mesmo array. Como este
+         * `while` pode dar dezenas de passos por `push`, vezes as
+         * centenas de celulas que o A* expande, a alocacao sao
+         * milhares de arrays por chamada de caminho
+         *
+         * O `const` e um cache de slot: zero alocacao, semantica
+         * identica
+         */
+        const temporario = this.itens[i];
+
+        this.itens[i] = this.itens[pai];
+        this.itens[pai] = temporario;
 
         i = pai;
       } else {
@@ -232,10 +244,11 @@ class Heap {
 
         if (menor === i) break;
 
-        [this.itens[i], this.itens[menor]] = [
-          this.itens[menor],
-          this.itens[i],
-        ];
+        // mesma troca sem array temporario do destructuring
+        const temporario = this.itens[i];
+
+        this.itens[i] = this.itens[menor];
+        this.itens[menor] = temporario;
 
         i = menor;
       }
@@ -425,23 +438,41 @@ export class NavGrid {
     anterior.fill(-1);
     fechado.fill(0);
 
-    const heuristica = (linha, coluna) =>
-      Math.hypot(
-        linha - celulaFim.linha,
-        coluna - celulaFim.coluna,
-      );
+    /**
+     * A DISTANCIA EM CELULAS.
+     *
+     * `Math.hypot` e varias vezes mais lento que `Math.sqrt(dx*dx+dy*dy)`
+     * — ele existe para nao estourar o expoente, e os dois numeros aqui
+     * sao indices de grade, no maximo ~150. Isso roda uma vez por celula
+     * expandida, e o A* expande centenas
+     */
+    const heuristica = (linha, coluna) => {
+      const dl = linha - celulaFim.linha;
+      const dc = coluna - celulaFim.coluna;
+
+      return Math.sqrt(dl * dl + dc * dc);
+    };
 
     const heap = new Heap();
 
     custo[inicioId] = 0;
+
+    /**
+     * A HEURISTICA DA ORIGEM, CALCULADA UMA VEZ.
+     *
+     * Eram duas chamadas com os mesmos argumentos, uma para o `h` e
+     * outra para o `f`. Na origem `g` e zero, entao `f` e `h` por
+     * definicao
+     */
+    const hInicio = heuristica(inicio.linha, inicio.coluna);
 
     heap.push({
       id: inicioId,
       linha: inicio.linha,
       coluna: inicio.coluna,
       g: 0,
-      h: heuristica(inicio.linha, inicio.coluna),
-      f: heuristica(inicio.linha, inicio.coluna),
+      h: hInicio,
+      f: hInicio,
     });
 
     while (heap.tamanho > 0) {

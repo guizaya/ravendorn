@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
 
 import ItemIcon from "../UI/ItemIcon.jsx";
+import ItemCard from "../UI/ItemCard.jsx";
 import {
   canEnchantItem,
   describeEnchant,
@@ -54,7 +55,25 @@ const VAZIO = {
  * e nao o `uid` da pilha de onde a peca veio. E por isso que a chave
  * do corpo usa o `slotId`, e nao um `uid` inventado
  */
-const chave = (pecado) =>
+/**
+ * A CHAVE DE UMA PECA, e ela que identifica a peca na selecao.
+ *
+ * ## POR QUE ESTA SAI PARA FORA
+ *
+ * E o formato que o `HUD` precisa montar para abrir este painel ja com
+ * uma peca escolhida. Antes desta exportacao o `HUD` tinha duas
+ * possibilidades, e as duas ruins: reescrever o `slot:`/`mochila:` aqui
+ * (duas copias do mesmo formato, que divergem no primeiro dia em que
+ * alguem mudar) ou repassar a peca inteira e deixar este painel
+ * descobrir a chave (aí o `HUD` conheceria um detalhe deste componente)
+ *
+ * ## O `uid` SO EXISTE NA MOCHILA
+ *
+ * O slot do corpo guarda `itemId` e `raridade`, e nao o `uid` da pilha de
+ * onde a peca veio — e por isso que a chave do corpo usa o `slotId`, e
+ * nao um `uid` inventado
+ */
+export const chave = (pecado) =>
   pecado.slotId ? `slot:${pecado.slotId}` : `mochila:${pecado.uid}`;
 
 /** o texto do afixo de uma peca, ou "" */
@@ -200,19 +219,28 @@ const Chances = () => (
   <div className="enc-odds">
     <span className="eyebrow">Chances</span>
 
-    <ul>
-      {enchantOdds().map((chance) => (
-        <li key={chance.rarity}>
-          <span style={{ color: chance.color }}>
-            {chance.label}
-          </span>
+<ul>
+        {enchantOdds().map((linha) => (
+          <li key={linha.rarity}>
+            <span style={{ color: linha.color }}>
+              {linha.label}
+            </span>
 
-          <span>
-            +{chance.percent}%
-          </span>
-        </li>
-      ))}
-    </ul>
+            {/*
+              A CHANCE, e nao o valor do afixo.
+
+              As duas coisas viviam no mesmo campo `percent`: o quanto o
+              afixo vale e a chance de ele sair. O painel rotulava a
+              coluna de "Chances" e mostrava o valor — o jogador lia
+              "Lendario 6%" e podia crer que tinha 6% de chance de sair
+              um lendario
+
+              E a chance e a soma de todas as linhas fechar em 100
+            */}
+            <span>{linha.chance}%</span>
+          </li>
+        ))}
+      </ul>
   </div>
 );
 
@@ -240,53 +268,50 @@ function Grupo({
         {titulo} · {itens.length}
       </span>
 
-      <div className="inv-grid">
+      {/*
+        O MESMO CARDO DA MOCHILA, e nao um `inv-cell` proprio.
+        *
+        * ## POR QUE MUDAR
+        *
+        * O painel de encantar e a tela onde o jogador COMPARA pecas, e
+        * ele mostrava menos do que a mochila: nome e afixo, sem raridade.
+        * Duas pecas do mesmo item em raridades diferentes apareciam
+        * identicas ao lado uma da outra — que e justo o caso que o
+        * jogador abre este painel para resolver
+        *
+        * E sao dois paineis do mesmo jogo: o mesmo arco aparece com duas
+        * aparencias dependendo de onde o jogador abriu. Um cartao
+        * compartilhado (`ItemCard`) garante que um ajuste de largura ou de
+        * cor chegue aos dois
+      */}
+      <div className="inv-grid-modern">
         {itens.map((item) => {
           const id = chave(item);
-          const definição = getItem(item.itemId);
+          const escolhido = id === selecionado;
 
           return (
-            <button
+            <ItemCard
               key={id}
-              type="button"
-              className={[
-                "inv-cell",
-                "inv-cell--btn",
-                id === selecionado ? "is-selected" : "",
-              ]
-                .filter(Boolean)
-                .join(" ")}
-              onClick={() =>
-                onSelect(id === selecionado ? null : id)
-              }
-              /**
-               * O `title` diz de ONDE a peca vem, e nao so o que ela
-               * faz. Com dois arcos de mesmo nome na tela, o rotulo do
-               * item precisa carregar o grupo junto — senao o jogador
-               * passa o mouse e nao descobre qual deles esta no corpo
-               */
-              title={[
-                item.rotuloDoSlot
-                  ? `${item.rotuloDoSlot} — vestida`
-                  : "Na mochila",
-                item.enchant
-                  ? "encantada"
-                  : "sem afixo",
-                "clique para encantar",
-              ].join(" · ")}
+              entry={item}
+              className={escolhido ? "is-selected" : ""}
+              slotProps={{
+                selected: escolhido,
+
+                /**
+                 * O CLIQUE MARCA, E NAO ABRE A CAIXA DE OPCOES.
+                 *
+                 * Aqui o clique e a propria selecao da peca a encantar.
+                 * A caixa de opcoes (equipar, excluir, encantar) e do
+                 * inventario e ficaria duplicada no painel de encantar,
+                 * onde nao teria o que fazer: tudo o que se pode fazer com
+                 * a peca e escolher qual afixo testar nela
+                 */
+                onSelect: () =>
+                  onSelect(escolhido ? null : id),
+              }}
             >
-              <ItemIcon
-                item={definição}
-                itemId={item.itemId}
-                rarity={item.rarity}
-              />
-
-              <span className="inv-cell__name">
-                {definição?.name}
-              </span>
-
               <Afixo enchant={item.enchant} />
-            </button>
+            </ItemCard>
           );
         })}
       </div>
@@ -299,6 +324,21 @@ export default function EnchantPanel({
   equipment,
   onEnchant,
   onClose,
+
+  /**
+   * A PECA QUE JA ENTRA SELECIONADA, ou `null`.
+   *
+   * E o pedido que vem do "Encantar" da caixa do item: em vez de abrir
+   * este painel com a lista inteira e o jogador ter que procurar a peca
+   * de novo, ele abre com a peca ja escolhida e a CAJA DE AFIXO ja
+   * mostrando o preco
+   *
+   * E a chave, e nao a peca: a chave e o que a selecao interna guarda,
+   * e o que sobrevive ao snapshot seguinte. Passar o objeto inteiro
+   * obrigaria este painel a descobrir a chave de algo que ja vem em
+   * outro formato
+   */
+  selecaoInicial = null,
 }) {
   const data = inventory ?? VAZIO;
 
@@ -387,6 +427,36 @@ export default function EnchantPanel({
       setSelecionado(null);
     }
   }, [todas, selecionado]);
+
+  /**
+   * A PECA PEDIDA, quando o painel abre.
+   *
+   * ## POR QUE UM `useEffect` E NAO O `useState` INICIAL
+   *
+   * O `useState(selecaoInicial)` so valeria na primeira montagem deste
+   * componente. O `HUD` mantem o painel na tela e troca a peca pedida
+   * depois: o jogador clica "Encantar" numa peca, fecha, abre o painel
+   * de novo na OUTRA — e o painel nem desmontou, entao o estado inicial
+   * nem seria lido de novo e a peca antiga continuaria escolhida
+   *
+   * ## E POR QUE SO APLICA QUANDO A PECA EXISTE
+   *
+   * A chave vem do `HUD`, que a montou a partir de uma peca que estava
+   * na mochila do ultimo painel. Entre o clique e a abertura pode ter
+   * vindo um snapshot novo, e a peca pode ter sumido. Aplicar a chave
+   * sem conferir deixaria o painel aberto com o campo de afixo vazio e
+   * o jogador sem entender por que — entao ela so entra se a lista a
+   * reconhece, e o resto da tela segue o caminho de sempre
+   */
+  useEffect(() => {
+    if (!selecaoInicial) return;
+
+    if (!todas.some((item) => chave(item) === selecaoInicial)) {
+      return;
+    }
+
+    setSelecionado(selecaoInicial);
+  }, [selecaoInicial, todas]);
 
   /**
    * O que vai para o pedido.

@@ -4,10 +4,13 @@ import { PARTY_MAX } from "../../shared/protocol.js";
 import { EnemyAI } from "../enemies/EnemyAI.js";
 import {
   grantXp,
+  loseXp,
   statsForLevel,
   xpForKill,
+  xpPerdidoNaMorte,
   xpToNext,
 } from "../progression/Levels.js";
+import { reviveCost, BALANCE } from "../balance.js";
 import { CRAFT_RESULT } from "../craft/Craft.js";
 import { DELIVER_RESULT as COLLECTION_RESULT } from "../collection/Collection.js";
 import { isAutoCompletable } from "../../data/quests/index.js";
@@ -40,6 +43,10 @@ import { NpcRenderer } from "../npc/NpcRenderer.js";
 import { getNpcType } from "../../data/npc/index.js";
 import { PortalRenderer } from "../portais/PortalRenderer.js";
 import { portalsOf } from "../../data/portais/index.js";
+import {
+  dadosDaTrava,
+  portalLiberado,
+} from "../../data/quests/index.js";
 import { findMap, getMap } from "../../data/maps/index.js";
 import {
   getItem,
@@ -47,6 +54,10 @@ import {
   rarityOf,
   valueAt,
 } from "../../data/items/index.js";
+import {
+  ULTIMATE_NIVEL,
+  ultimateLiberada,
+} from "../../data/skills/index.js";
 import {
   describeBonus,
   getBestiaryEntry,
@@ -140,22 +151,28 @@ const EMPTY_GUILD_SNAPSHOT = {
   pontosMax: GUILD_PONTOS_MAX,
   cofre: null,
   busca: [],
-  arvore: GUILD_TALENTS.map((node) => ({
-    id: node.id,
-    nome: node.nome,
-    custo: node.custo,
-    tier: node.tier,
-    exige: node.exige,
-    descricao: node.descricao,
-    destravado: false,
-    disponivel: true,
-  })),
+
+  /**
+   * A ARVORE de quem nao tem guilda: sete nos no Nv. 0.
+   *
+   * Montada com `talentProgresso` e um `Map` vazio, e nao com um objeto
+   * escrito a mao como era antes. A lista de campos do no mudou (saiu
+   * `custo` e `tier`, entraram `nivel`, `percentual`, `coluna`), e um
+   * objeto escrito a mao passaria em tudo que so olha o `nome` enquanto
+   * o painel quebraria no primeiro no que ele desenha de verdade
+   *
+   * O `percentual` e 0 porque o jogador nao tem guilda e logo nao tem
+   * pontos de guilda para comparar — o `pontos` deste snapshot e 0
+   */
+  arvore: GUILD_TALENTS.map((node) =>
+    talentProgresso(node.id, new Map(), 0)),
 };
 
 import {
   GUILD_PONTOS_MAX,
   GUILD_TALENTS,
   talentBonuses,
+  talentProgresso,
 } from "../../data/guild/index.js";
 import { SpriteSheet } from "../sprites/SpriteSheet.js";
 import { resolveHurtShake } from "../sprites/animation.js";
@@ -177,8 +194,67 @@ import { NavGrid } from "../nav/NavGrid.js";
 import { rotaDeMapas } from "../nav/rotaDeViagem.js";
 import {
   BEHAVIOR,
+  createCreature,
   createCreatureRoster,
 } from "../../data/enemies/index.js";
+
+/**
+ * OS CHEFES DE UM MAPA, na posicao que o mapa escreveu.
+ *
+ * Cada entrada de `map.bosses` e `{ creature, x, y }`, e o que sai dela
+ * e uma criatura no `createCreature` — o MESMO construtor do roster, e
+ * nao um objeto montado a mao
+ *
+ * ## POR QUE REUSAR O `createCreature`
+ *
+ * E o que garante que um chefe tenha o mesmo formato de qualquer mob:
+ * `maxHp` escalado, `loot`, `xp`, `spriteScale`, `alive`. Um objeto
+ * escrito a mao no mapa esqueceria um desses campos e o chefe quebraria
+ * em algum canto do motor — o `onKill` leria um `undefined` e a
+ * recompensa nunca sairia
+ *
+ * O `index` comeca em 9000 e nao em 0: o `id` final e
+ * `<tipo>_<index>`, e o roster do mesmo mapa ja usou os indices
+ * baixos. Um chefe com indice baixo poderia receber o mesmo id de um
+ * mob comum da arena, e os dois entrariam no `world.enemies` com o
+ * mesmo nome
+ *
+ * O `level` nao e passado: o chefe usa o `level` do catalogo. Passar
+ * `boss.level` aqui faria o `scaleForLevel` crescer o numero de novo em
+ * cima do que ja foi escalado
+ */
+function createBosses(map) {
+  const entradas = map.bosses ?? [];
+
+  return entradas
+    .map((chefe, ordem) => {
+      try {
+        return createCreature(
+          chefe.creature,
+          { x: chefe.x, y: chefe.y },
+          9000 + ordem,
+          null,
+        );
+      } catch {
+        /**
+         * UM CHEFE COM NOME ERRADO NAO DERRUBA O MAPA.
+         *
+         * O resto do `montarContexto` tambem engole entrada invalida (e
+         * os NPCs que nao existem sao filtrados em silencio). Um `throw`
+         * aqui derrubaria o `setMap` do jogador e ele cairia na tela
+         * preta — o pior jeito de avisar que um id esta errado no
+         * catalogo
+         */
+        console.warn(
+          `chefe ignorado em ${map.id}: ` +
+            `${chefe.creature} nao existe no catalogo`,
+        );
+
+        return null;
+      }
+    })
+    .filter(Boolean);
+}
 
 const AUTO_RETARGET_INTERVAL = 0.25;
 const AUTO_LEASH_RANGE = 1500;
@@ -267,6 +343,53 @@ const TRAVEL_TRAVADO_LIMITE = 3;
 const TRAVEL_TRAVADO_EPSILON = 4;
 
 /**
+ * O ID DO PERGAMINHO, e uma constante porque o motor usa em tres lugares.
+ *
+ * A contagem que desliga o botao, o gasto que paga o teleporte e a
+ * recusa quando o jogador nao tem. Tres lugares lendo a mesma string
+ * e um lugar para trocar o id
+ *
+ * O id em si e o do catalogo de itens, e nao um enum: a loja do
+ * mercador tambem o nomeia, e um enum aqui seria uma segunda fonte que
+ * so o motor conhece
+ */
+const PERGAMINHO_TELEPORTE_ID = "pergaminho_teleporte";
+
+/**
+ * O RAIO DO JOGADOR, e a margem da conferida de borda.
+ *
+ * A mesma conta que o `GameServer.moverParaMapa` faz antes de entrar em
+ * um mapa: o ponto de chegada precisa caber INTEIRO, e nao so o centro.
+ * Um destino no ultimo pixel do mapa aceitaria um jogador cuja metade
+ * ficaria fora da borda
+ *
+ * E o `16` que o servidor tambem usa. Aqui esta em copia, e nao
+ * importado de la: o `GameServer` importa o motor, e o motor nao pode
+ * importar o servidor. Sao duas linhas com o mesmo numero em dois
+ * lugares, e um comentario em cada uma apontando para a outra
+ */
+const RAIO_DO_JOGADOR = 16;
+
+/**
+ * A DISTANCIA PERTO DA QUAL A BOX SAI.
+ *
+ * ## O UNICO MOTIVO DE A BOX SUMIR
+ *
+ * O jogador chegou. E a unica condicao que esconde a box: enquanto o
+ * deslocamento automatico estiver ligado e o destino nao estiver logo ali,
+ * ela aparece — inclusive com o auto recem-ligado e com o destino do
+ * outro lado de um portal
+ *
+ * ## POR QUE 600, E NAO O `TRAVEL_CHEGADA` DE 24
+ *
+ * `TRAVEL_CHEGADA` e o raio de chegada de UMA etapa, e a pergunta aqui
+ * e outra: "o jogador ja esta vendo o destino". Quem abriu o pergaminho
+ * a 500px do ponto final gastaria o item para atravessar o comprimento
+ * de uma arvore
+ */
+const TELEPORTE_PERTO = 600;
+
+/**
  * DE QUANDO EM QUANDO o caminho de perseguicao e refeito.
  *
  * Meio segundo e o compromise entre "o alvo andou" e "o A* custa ate
@@ -339,6 +462,65 @@ const STATUS_COLORS = {
 const SKILL_CODE_PATTERN = /^Digit([1-8])$/;
 
 const ACTIVE_RANGE = 1700;
+
+/**
+ * A DISTANCIA QUE AINDA CONTA COMO "MESMO CAMPO".
+ *
+ * E menor que o `ACTIVE_RANGE` de proposito. O `ACTIVE_RANGE` e o
+ * alcance do AGRO: e a distancia em que o mob ainda repara no jogador,
+ * e por isso ele e generoso. Para dividir loot — e para o last hit
+ * valer — o criterio e outro, mais apertado: quem esta a mais de um km
+ * do mob nao esta na sua luta, por mais que o mob fosse capaz de
+ * persegui-lo ate la
+ */
+const ALCANCE_DIVISAO_LOOT = 1100;
+
+/**
+ * QUANTO TEMPO UM GOLPE CONTINUA SENDO O "ULTIMO GOLPE".
+ *
+ * O `lastHitBy` e um campo que o DamageSystem grava a CADA dano e que
+ * NINGUEM limpa. Sem esta janela, um jogador que acertou um mob ha dez
+ * minutos continua sendo o dono do abate dele: o rastro do servidor
+ * mostrava `killer=teste | auto=0 | alvo=- | dist=971` — um "last hit"
+ * de alguem que estava com o autoplay DESLIGADO, sem alvo nenhum, a
+ * quase mil pixels do mob
+ *
+ * O prazo e generoso de proposito: um DoT de veneno leva segundos para
+ * matar e o abate por veneno e do envenenador. Passou disso, o abate
+ * nao paga ninguem — perder um drop e melhor do que um jogador que foi
+ * para a base receber o loot de quem ficou
+ */
+const JANELA_DO_LAST_HIT_MS = 10_000;
+
+/**
+ * A DISTANCIA EM QUE UM GOLPE ANTIGO AINDA CONTA COMO LAST HIT.
+ *
+ * ## POR QUE NAO E O `ALCANCE_DIVISAO_LOOT`
+ *
+ * Sao duas perguntas diferentes e a confusao entre elas e o que deixou
+ * o bug passar:
+ *
+ * - `ALCANCE_DIVISAO_LOOT` (1100) responde "esse parceiro ainda conta
+ *   como quem esta comigo na caca?". E generoso de proposito: numa
+ *   party grande, o mateiro fica um pouco para tras e mesmo assim e
+ *   companion
+ *
+ * - Esta e "esse jogador ainda esta BATENDO neste mob?". E apertada,
+ *   porque o alcance de ataque das classes do projeto fica em 105-115px
+ *   (`CHARACTER_CLASSES`): um golpe nao chega a mil pixels
+ *
+ * Usar o numero generoso aqui dava o seguinte no rastro:
+ *
+ *     killer=teste | auto=0 | alvo=- | eng=- | dist=971
+ *
+ * O jogador estava a 971px do mob, com o autoplay DESLIGADO e sem alvo
+ * nenhum — e passava nos dois filtros, porque 971 < 1100. O
+ * `lastHitBy` era um golpe antigo de quando ele ainda caçava ali
+ *
+ * 320 e tres vezes o alcance de melee: sobra para o jogador estar
+ * correndo ou lungando, e nao sobra para alguem que foi embora
+ */
+const ALCANCE_CREDITO_ABATE = 320;
 const EMPTY_LIST = [];
 
 const BEHAVIOR_COLORS = {
@@ -382,7 +564,7 @@ function descreverRecompensa(reward) {
     );
   }
 
-  return partes.length > 0 ? partes.join(" · ") : "nada";
+  return partes.length > 0 ? partes.join(" — ") : "nada";
 }
 
 export class GameEngine {
@@ -763,7 +945,7 @@ export class GameEngine {
     /**
      * A PARTY: estado compartilhado, injetado pelo servidor.
      *
-     * O motor so LÊ. Ele pergunta "quem mais esta na party deste
+     * O motor so Lá. Ele pergunta "quem mais esta na party deste
      * jogador" e divide o abate; quem cria, quem entra e quem sai e o
      * `PartyStore`, no servidor
      *
@@ -771,6 +953,19 @@ export class GameEngine {
      * o que ja acontecia antes de a party existir
      */
     this.partyStore = opcoes.partyStore ?? null;
+
+    /**
+     * OS PERSONAGENS EM DISCO, para o rank.
+     *
+     * Uma funcao e nao a lista: o painel e montado varias vezes por
+     * segundo para cada jogador, e o motor nao pode ler o disco nesse
+     * intervalo. Quem abre a pasta e o SERVIDOR; o motor so recebe os
+     * dados ja prontos
+     *
+     * `null` no single player, onde nao existe pasta de saves — e o
+     * rank fica so com quem esta na partida, como antes
+     */
+    this.personagensSalvos = opcoes.personagensSalvos ?? null;
 
     // No modo rede o motor vira so DESENHO. `GameEngine` continua
     // sendo a unica fonte de layout de sprites, terreno, props e
@@ -841,6 +1036,15 @@ export class GameEngine {
       : null;
     this.classDefinition = classDefinition;
     this.onSnapshot = onSnapshot;
+
+  /**
+   * QUANDO UM CHEFE CAI, quem reage.
+   *
+   * `null` por padrao: o motor roda igual nos dois lugares, e quem tem a
+   * arena — so o servidor — e que liga. Um motor sem arena nunca dispara
+   * isto, porque o mapa dele nao declara nenhum `bosses`
+   */
+  this.onChefeDerrotado = null;
 
     // identidade do personagem. `playerId` precisa ser unico por
     // sessao: no single player o id da classe bastava, mas com
@@ -926,6 +1130,38 @@ export class GameEngine {
     this.destroyed = false;
     this.lastTime = performance.now();
     this.snapshotAccumulator = 0;
+
+    /**
+     * `true` quando QUEM DISPARA o painel e o dono do motor, e nao o
+     * timer de 10Hz do `update`.
+     *
+     * O offline precisa do timer: e o proprio motor que monta o painel
+     * da HUD. O servidor nao — la quem monta e `GameServer.enviarPainel`,
+     * que sabe de QUE CLIENTE e o painel. Com o timer ligado no servidor,
+     * `update()` montava o painel inteiro 10 vezes por segundo fora de
+     * qualquer jogador em foco, e o `onSnapshot` jogava fora por nao ter
+     * dono (`GameServer.js:287`)
+     *
+     * O que essa wasted work custava, por segundo, com 50 saves em disco:
+     * 10 paineis de ~154KB remontados do zero, mais 10 `readdirSync` e
+     * 500 `readFileSync`+`JSON.parse` **sincronos** dentro do event loop
+     * do `setInterval` de 20Hz. Isso segura o servidor inteiro: HTTP,
+     * WebSocket e o proprio tick
+     *
+     * O jogo online REAIS usa isto, entao o desperdicio era real e nao
+     * uma otimizacao preventiva
+     */
+    this.painelExterno = false;
+
+    /**
+     * `true` SO durante a chamada que o dono do painel fez de proposito.
+     *
+     * E o que separa "monta porque algacao aconteceu" de "monta porque
+     * alguem vai ler". Sem ele, `painelExterno` sozinho nao daria para
+     * distinguir o painel que o `enviarPainel` quer do painel que uma
+     * acao de combate dispara por efeito colateral
+     */
+    this.painelSolicitado = false;
     this.canvasRect = null;
 
     this.world = {
@@ -1053,6 +1289,22 @@ export class GameEngine {
         }
       },
       onDeath: (attacker, target) => {
+        /**
+         * A MORTE DE UM JOGADOR NAO E UM ABATE.
+         *
+         * O `DamageSystem` dispara `onDeath` para qualquer alvo que
+         * zera a vida, e o jogador e um alvo como qualquer outro. Sem
+         * este desvio, matar um jogador rodava `killEnemy` nele: o
+         * motor marcava `rewardGranted`, botava `respawnTimer = 5` e
+         * chamava o `handleKill` — que credita loot, XP, missao e
+         * bestiario para quem "matou". Um guild killing outro par de
+         * jogadores passaria a receber recompensa de abate
+         *
+         * A morte do jogador tem dono proprio: e o `updatePlayer` que
+         * ve o `hp <= 0` e abre o painel, no tick seguinte
+         */
+        if (target.isPlayer) return;
+
         // passa o atacante: `handleKill` usa este para saber de
         // quem e o loot. antes o parametro chegava aqui e era
         // descartado
@@ -1133,6 +1385,26 @@ export class GameEngine {
     }
 
     this.enemySprites = new Map();
+
+    /**
+     * O CONTEXTO CUJAS FOLHAS ESTAO EM `enemySprites`.
+     *
+     * `null` e o estado inicial de proposito: o construtor chama
+     * `buildEnemySprites` direto, para o elenco do mapa inicial, e assim
+     * a primeira `aplicarContexto` tem `null` para comparar e constroi as
+     * folhas do mapa certo
+     */
+    this.contextoAplicado = null;
+
+    /**
+     * O INDICE POR ID do contexto aplicado, e `null` antes do primeiro.
+     *
+     * `null` e o que faz o `findEnemyById` cair na varredura da lista —
+     * que e o comportamento antigo, e o correto enquanto nao ha contexto.
+     * Declarar aqui em vez de deixar `undefined` deixa essa distincao
+     * explícita em vez de depender de `?.`
+     */
+    this.indiceInimigos = null;
 
     // Os sprites de CLASSE dos OUTROS jogadores, por `classId`.
     //
@@ -1299,16 +1571,63 @@ export class GameEngine {
       npcs.filter((npc) => npc.blocking).map((npc) => this.npcs.blockBoxOf(npc)),
     );
 
+    /**
+     * O ELENCO vai para uma variavel so porque ele e usado duas vezes:
+     * na lista que o `world` le e no indice por id. A alternativa era
+     * percorrer `contexto.enemies` depois de montado, e ai o indice
+     * seria um segundo O(E) sempre que um mapa aparecesse
+     */
+    const inimigos = [
+      ...createTrainingDummies(map),
+      ...createCreatureRoster(map, map.seed),
+
+      /**
+       * Os CHEFES, que nao vem do roster.
+       *
+       * O roster espalha criaturas numa GRADE dentro de cada zona, e
+       * ele serve para o campo de mob — sete bichos por zona, todos
+       * iguais. Um chefe nao cabe nesse desenho: ele e UM, em um
+       * PONTO, e o lugar dele e o centro da arena
+       *
+       * Por isso `bosses` e um campo separado do mapa, com uma posicao
+       * escrita a mao. O `index` e um numero separador por tipo para
+       * que dois chefes do mesmo tipo em mapas diferentes nao
+       * colidissem no id
+       */
+      ...createBosses(map),
+    ];
+
     return {
       map,
       collision,
       npcs,
       props: map.props ?? [],
       portals: portalsOf(map),
-      enemies: [
-        ...createTrainingDummies(map),
-        ...createCreatureRoster(map, map.seed),
-      ],
+      enemies: inimigos,
+
+      /**
+       * O MESMO ELENCO, POR ID.
+       *
+       * `findEnemyById` e `getLiveTarget` procuravam por id com um
+       * `Array.find` sobre os ~93 inimigos do mapa, e sao chamados varias
+       * vezes por jogador por tick — o `updatePlayer` resolve o alvo do
+       * tiro, o auto-hunt e o engaged chamam, e o `getLiveTarget` roda
+       * uma vez por montagem de painel. Com n jogadores, isso e O(n x E):
+       * 50 x 93 = 4650 comparacoes por tick, so para descobrir o que ja
+       * estava no indice
+       *
+       * O indice vive no CONTEXTO, e nao no motor, pelo mesmo motivo da
+       * grade: a lista e do mapa. Um indice global seria consultado com
+       * o `world` virado para o mapa errado e devolveria o chefe de outro
+       * mapa
+       *
+       * Nao precisa de manutencao: o elenco de um contexto e fixo e o
+       * respawn ressuscita o mesmo objeto. Por isso e um `Map` construido
+       * uma vez e nunca reescrito
+       */
+      indiceInimigos: new Map(
+        inimigos.map((inimigo) => [inimigo.id, inimigo]),
+      ),
 
       /**
        * O que esta NO CHAO tambem e do mapa.
@@ -1348,6 +1667,15 @@ export class GameEngine {
     this.world.props = contexto.props;
     this.world.portals = contexto.portals;
     this.world.enemies = contexto.enemies;
+
+    /**
+     * O INDICE POR ID viaja com a lista.
+     *
+     * Sem esta linha o `findEnemyById` cairia no `Array.find` de sempre
+     * quando o contexto ainda nao foi aplicado, e o primeiro `withPlayer`
+     * do tick pagaria o preco de O(E) duas vezes
+     */
+    this.indiceInimigos = contexto.indiceInimigos ?? null;
     this.world.drops = contexto.drops;
     this.world.projectiles = contexto.projectiles;
     this.world.pendingPulses = contexto.pendingPulses;
@@ -1355,7 +1683,29 @@ export class GameEngine {
 
     this.navGrid = contexto.navGrid;
 
-    // as folhas andam com o elenco
+    /**
+     * AS FOLHAS ANDAM COM O ELENCO, E O ELENCO NAO MUDA.
+     *
+     * O `focusPlayer` roda `aplicarContexto` a CADA jogador em foco, o
+     * que no servidor sao tres vezes por jogador por tick: uma na
+     * simulacao, uma no broadcast e uma no painel. Cada uma chamava
+     * `buildEnemySprites` e realocava uma folha para cada um dos ~93
+     * inimigos do mapa, mesmo com o contexto ja aplicado
+     *
+     * A guarda e pela IDENTIDADE do contexto, e funciona porque o elenco
+     * de um contexto e fixo: `montarContexto` cria os inimigos uma vez e
+     * nada entra na lista depois. O respawn nao quebra isso — `reviveEnemy`
+     * ressuscita o MESMO objeto, com o mesmo id, e nao cria inimigo novo
+     *
+     * E por isso que o `clear` vem junto: trocando de contexto, as folhas
+     * do anterior nao servem para o novo, e ficar com elas era um vazamento
+     * que so cresceva conforme o servidor visited mapas
+     */
+    if (this.contextoAplicado === contexto) return;
+
+    this.contextoAplicado = contexto;
+
+    this.enemySprites.clear();
     this.buildEnemySprites();
   }
 
@@ -2144,7 +2494,7 @@ screenToWorld(clientX, clientY) {
 
     if (!isAutoCompletable(quest)) {
       this.showMessage(
-        "Esta missÃ£o precisa ser feita manualmente.",
+        "Esta missão precisa ser feita manualmente.",
         true,
       );
 
@@ -2195,7 +2545,7 @@ screenToWorld(clientX, clientY) {
       if (!objective) {
         quests.setAuto(false);
         this.showMessage(
-          "Nenhuma missÃ£o automÃ¡tica disponÃ­vel.",
+          "Nenhuma missão automática disponível.",
           true,
         );
 
@@ -2268,7 +2618,7 @@ screenToWorld(clientX, clientY) {
 
     if (!accepted) {
       this.showMessage(
-        "Termine a missÃ£o secundÃ¡ria atual primeiro.",
+        "Termine a missão secundária atual primeiro.",
         true,
       );
 
@@ -2276,7 +2626,7 @@ screenToWorld(clientX, clientY) {
     }
 
     this.showMessage(
-      "MissÃ£o secundÃ¡ria aceita.",
+      "Missão secundária aceita.",
     );
 
     this.sendSnapshot();
@@ -2289,7 +2639,7 @@ screenToWorld(clientX, clientY) {
 
     if (dropped) {
       this.showMessage(
-        "MissÃ£o secundÃ¡ria abandonada.",
+        "Missão secundária abandonada.",
       );
     }
 
@@ -2322,13 +2672,31 @@ screenToWorld(clientX, clientY) {
 
     if (!stack) return false;
 
-    if (!equipment.canEquip(stack.itemId, slotId)) {
+    /**
+     * SEM SLOT NO PEDIDO, O MOTOR ESCOLHE.
+     *
+     * O `slotId` chega nulo quando o pedido veio do "Equipar" da caixa de
+     * opcoes do inventario: quem montou o pedido tem o `itemId` mas nao
+     * tem um `Equipment` para perguntar, e adivinhar o slot no cliente
+     * seria duplicar a regra do catalogo aqui
+     *
+     * E o `slotForItem` que e a MESMA funcao que decide a posicao em todo
+     * o resto do jogo — o item manda no slot quando declara, e o
+     * `canEquip` abaixo continua conferindo. Um `slotId` forjado num
+     * pedido continua sendo recusado pelo `canEquip`
+     */
+    const destino =
+      slotId ?? equipment.slotForItem(stack.itemId);
+
+    if (!destino) return false;
+
+    if (!equipment.canEquip(stack.itemId, destino)) {
       return false;
     }
 
     const previous = equipment.equip(
       stack.itemId,
-      slotId,
+      destino,
       stack.rarity,
 
       /**
@@ -2448,6 +2816,33 @@ screenToWorld(clientX, clientY) {
         const curado = this.damage.heal(jogador, valor);
 
         if (curado > 0) aplicou = true;
+      } else if (efeito === "teachSkill") {
+        /**
+         * O LIVRO ENSINA A HABILIDADE.
+         *
+         * E o unico caminho pelo qual o jogador ganha skill: o
+         * personagem nasce com zero, e o `useSkillSlot` recusa tudo que
+         * nao estiver no `habilidadesAprendidas` da sessao
+         *
+         * As tres recusas sao o que impede o item virado de container:
+         *
+         * - a skill tem que ser DA CLASSE do jogador. Sem esta conferida
+         *   um livro de Arbalist ensinaria a um Guerreiro, e o
+         *   `useSkillSlot` dele nao acharia o slot — o livro sumia e
+         *   nada aparecia
+         * - a skill tem que EXISTIR. Um id escrito errado no catalogo de
+         *   itens viraria um livro que se consome sem ensinar
+         * - a skill nao pode ja estar aprendida. Sem esta, o jogador
+         *   gasta moedas e um livro para nada, e o `Set` nao cresceria
+         *   — o dinheiro sumiria sem troca
+         *
+         * As tres conferem e devolvem `false`, e o `aplicou` fica falso,
+         * o que faz o item NAO ser consumido. E o que o jogador espera:
+         * um livro recusado continua na mochila
+         */
+        const aprendida = this.aprenderHabilidade(valor);
+
+        if (aprendida) aplicou = true;
       } else {
         /**
          * Efeito declarado e nao implementado.
@@ -2471,6 +2866,91 @@ screenToWorld(clientX, clientY) {
     this.sendSnapshot();
 
     return true;
+  }
+
+  /**
+   * ENSINA UMA HABILIDADE AO JOGADOR EM FOCO.
+   *
+   * Devolve `true` so quando a skill foi de fato aprendida. O
+   * `usarItem` usa este booleano para decidir se gasta o livro, entao
+   * um `false` aqui significa "o livro continua na mochila"
+   *
+   * ## POR QUE ISTO VIVE NO MOTOR E NAO NO CATALOGO
+   *
+   * Porque a regra e do SERVIDOR: quem decide o que o jogador pode
+   * aprender e a mesma autoridade que decide o dano, e as duas mora no
+   * motor. Se a conferida de classe estivesse no `books.js`, ela rodaria
+   * no cliente tambem, e um cliente modificado ensinaria qualquer skill
+   * a qualquer classe
+   */
+  aprenderHabilidade(skillId) {
+    const sessao = this.sessaoDeJogador;
+
+    const jogador = this.world.player;
+
+    if (!sessao || !jogador) return false;
+
+    /**
+     * A SKILL PRECISA SER DESTA CLASSE.
+     *
+     * E o `classeDoJogador` e nao o `classDefinition` do motor: em rede
+     * o motor e um so e cada sessao tem a sua classe. Usar a do motor
+     * faria um Arbalist no servidor aprender pelas skills do Warrior
+     */
+    const classeDoJogador = this.classeDoJogador;
+
+    const skill = classeDoJogador?.skills?.find(
+      (item) => item.id === skillId,
+    );
+
+    if (!skill) {
+      /**
+       * O id existe, mas nao nesta classe. A mensagem distingue os dois
+       * casos de proposito: "nao e sua skill" e "esse livro nao existe"
+       * sao defeitos de escrita diferentes, e o jogador nao pode
+       * consertar nenhum dos dois
+       */
+      this.showMessage(
+        "Esse livro nao ensina nada para a sua classe.",
+        true,
+      );
+
+      return false;
+    }
+
+    if (sessao.habilidadesAprendidas.has(skillId)) {
+      this.showMessage(`Voce ja sabe ${skill.name}.`, true);
+
+      return false;
+    }
+
+    sessao.habilidadesAprendidas.add(skillId);
+
+    this.showMessage(`Voce aprendeu ${skill.name}!`);
+
+    /**
+     * O `sendSnapshot` aqui e o que a tela ve.
+     *
+     * O `usarItem` chama `sendSnapshot` no fim de novo, entao este e
+     * redundante para o SERVIDOR — mas o motor tambem roda sozinho no
+     * navegador, e sem ele o jogador usaria o livro e a barra so
+     * atualizaria no proximo painel
+     */
+    return true;
+  }
+
+  /**
+   * ESTE JOGADOR JA APRENDEU ESTA HABILIDADE?
+   *
+   * E o portao do servidor. A HUD tem a mesma pergunta com uma tranca
+   * visual, e as duas leem ESTE metodo — se a tela decidisse sozinha, um
+   * jogador digitaria o numero da skill na barra e o motor usaria o que
+   * ele nao deveria
+   */
+  habilidadeAprendida(skillId) {
+    return Boolean(
+      this.sessaoDeJogador?.habilidadesAprendidas?.has(skillId),
+    );
   }
 
   unequipItem(slotId) {
@@ -2694,7 +3174,7 @@ screenToWorld(clientX, clientY) {
     return movidos;
   }
 
-  /** remove a peÃ§a do inventÃ¡rio sem qualquer contrapartida */
+  /** remove a peça do inventário sem qualquer contrapartida */
   discardItem(uid, count = Number.POSITIVE_INFINITY) {
     const taken = this.world.inventory.takeUid(uid, count);
 
@@ -3009,6 +3489,28 @@ guildBonuses() {
 
     if (!action) return false;
 
+    /**
+     * A TRANCA DO SERVIDOR.
+     *
+     * O personagem nasce sem nenhuma habilidade e so ganha com o livro.
+     * A HUD mostra as trancadas, entao parece decorativo: e por isso que
+     * esta conferida esta AQUI e nao so na tela. Um jogador pode digitar
+     * o numero da skill, ou um cliente modificado pode pedir o slot direto
+     * pelo protocolo, sem passar por nenhum botao
+     *
+     * Sem esta linha, o trinco visual seria a UNICA trava, e ela estaria
+     * no cliente — que e exatamente onde nao se pode colocar trava de
+     * coisa que o cliente decide
+     */
+    if (!this.habilidadeAprendida(action.id)) {
+      this.showMessage(
+        `Voce ainda nao aprendeu ${action.name}.`,
+        true,
+      );
+
+      return false;
+    }
+
     return this.skillSystem.request(
       action,
       this.input.pointer,
@@ -3021,6 +3523,23 @@ guildBonuses() {
   }
 
   useUltimate() {
+    /**
+     * A ULTIMATE LIBERA POR NIVEL, e nao por livro.
+     *
+     * Ver `ULTIMATE_NIVEL` em `data/skills/index.js`. A tela usa o mesmo
+     * numero para pintar o botao, e aqui e a copia que vale: se so a
+     * tela conferisse, um jogador de nivel 1 usaria a ultimate o quanto
+     * quisesse
+     */
+    if (!ultimateLiberada(this.world.player?.level)) {
+      this.showMessage(
+        `A ultimate libera no nivel ${ULTIMATE_NIVEL}.`,
+        true,
+      );
+
+      return false;
+    }
+
     return this.skillSystem.request(
       this.classeDoJogador.ultimate,
       this.input.pointer,
@@ -3042,8 +3561,24 @@ guildBonuses() {
    * basico destravado justamente no mapa onde ele nao tem para quem
    * acertar
    */
+  /**
+ * O MAPA ATUAL E DE COMBATE?
+ *
+ * ## POR QUE `combat` E NAO O ID
+ *
+ * A versao anterior era `this.world.map?.id !== "base"`: o motor sabia o
+ * nome de um mapa especifico e tratava todo o resto como de combate por
+ * padrao. Funcionava, mas a regra estava no lugar errado — e o jeito de
+ * um mapa NAO ter briga era ter o id certo, que nao e uma coisa que se
+ * possa ler de um mapa
+ *
+ * `combat` e declarado pelo mapa: o hub tem `false`, a arena tem `true`,
+ * e um mapa novo que esquecer o campo e peaceful por padrao. Esse e o
+ * lado certo de errar — um mapa sem `combat` nao derruba o jogador no
+ * meio de uma briga que ninguem pediu
+ */
   emZonaDeCombate() {
-    return this.world.map?.id !== "base";
+    return this.world.map?.combat !== false;
   }
 
   useBasicAttack() {
@@ -3093,7 +3628,7 @@ guildBonuses() {
     // aconteceram
     if (sessao.message && sessao.messageTick === agora) {
       sessao.message = {
-        text: `${sessao.message.text}  ·  ${text}`,
+        text: `${sessao.message.text}  —  ${text}`,
         bad: sessao.message.bad || bad,
       };
     } else {
@@ -3264,6 +3799,423 @@ guildBonuses() {
     return "Faltam materiais para essa receita.";
   }
 
+  /* ------------------------------------------------------------------
+     A MORTE DO JOGADOR
+     ------------------------------------------------------------------
+     Duas saidas, e as duas cobram alguma coisa: reviver na hora custa
+     ouro, voltar para a base custa XP. Mais um prazo de 20s, e o prazo
+     e o MOTOR que conta — um cliente que calculasse o tempo dele
+     mostraria "5s" com os botoes liberados enquanto o servidor ja
+     tinha puxado o jogador para o acampamento. */
+
+  /**
+   * O JOGADOR ESTA MORTO?
+   *
+   * E o unico estado que decide se o `DeathPanel` existe, e ele vem do
+   * SERVIDOR pelo painel, nunca de um `hp === 0` lido no componente. Um
+   * painel que decidisse sozinho teria uma segunda fonte da verdade, e
+   * ela divergiria do servidor assim que um dos dois numeros mudasse
+   */
+  jogadorMorto() {
+    return this.world.session?.morte?.ativo === true;
+  }
+
+  /**
+   * ABRE A MORTE: painel na tela e o prazo rodando.
+   *
+   * E chamado no tick em que a vida zera, e nao no `DamageSystem`: o
+   * mesmo golpe pode matar de dano direto, de veneno, de reflexo ou de
+   * qualquer combinacao, e o `hp <= 0` e o unico sinal que todos esses
+   * caminhos compartilham
+   *
+   * A guarda `ativo` evita que o prazo recomece a cada quadro. Sem ela,
+   * o jogador nunca sairia do painel: o contador zeraria, o automatico
+   * devolveria o jogador a base, e o proximo `updatePlayer` veria
+   * `hp <= 0` de novo e abriria uma segunda morte em cima da primeira
+   */
+  registrarMorte() {
+    const sessao = this.world.session;
+
+    if (!sessao || sessao.morte.ativo) return;
+
+    sessao.morte.ativo = true;
+    sessao.morte.restante = BALANCE.morte.prazoSegundos;
+
+    /**
+     * A CACADA PARA.
+     *
+     * O auto e ligado com um alvo vivo. Sem derrubar o alvo junto, o
+     * auto continuaria andando o boneco morto pelo mapa — e o
+     * `updatePlayer` ja retorna cedo com `hp <= 0`, entao o jogador
+     * ficaria PARADO, mas ainda marcado como "auto ligado" num alvo
+     * que nao existe. Ao reviver, ele voltaria cacando o fantasma
+     */
+    this.engagedTargetId = null;
+    this.autoWaypoint = null;
+    this.travelPlan = [];
+    this.seguindoId = null;
+  }
+
+  /**
+   * CONTA O PRAZO, e volta para a base quando ele acaba.
+   *
+   * O relogio vive na sessao e anda no `update` de cada jogador. E o
+   * motor que decide o fim, e nao o painel: quando o prazo zera, a
+   * saida padrao acontece sozinha e o `morte.ativo` vai para o proximo
+   * pacote, o que fecha o `DeathPanel` pelo caminho normal
+   */
+  atualizarMorteDoJogador(deltaTime) {
+    const sessao = this.world.session;
+
+    if (!sessao || !sessao.morte.ativo) return;
+
+    sessao.morte.restante -= deltaTime;
+
+    if (sessao.morte.restante > 0) return;
+
+    sessao.morte.restante = 0;
+
+    this.voltarParaBase();
+  }
+
+  /**
+   * REVIVER NA HORA, pagando ouro.
+   *
+   * ## O PRECO E O DO SERVIDOR, NAO O DO PAINEL
+   *
+   * O painel mostra `reviveCost(level)` porque o jogador precisa saber
+   * antes de clicar, mas quem COBRA e este metodo, contra a mochila de
+   * quem pediu. Se o painel mandasse o preco, um cliente modificado
+   * pagaria zero — e o ouro do jogo inteiro nao valeria mais nada
+   *
+   * ## SEM OURO, O BOTAO JA ESTAVA DESLIGADO
+   *
+   * O `DeathPanel` desliga o botao quando o preco e 0 ou nao ha prazo.
+   * Aqui a recusa e silenciosa pelo mesmo motivo do servidor: um painel
+   * que sumisse sozinho ensinaria o jogador com a animação do botao, e
+   * ele perderia o preco no meio da tela
+   *
+   * ## FICA ONDE ESTA, E E O QUE DIFERENCA DAS DUAS SAIDAS
+   *
+   * O revive NAO troca de mapa. O jogador volta a levantar no mesmo
+   * ponto onde caiu, com a vida cheia e a luta continuando — que e
+   * exatamente o que o painel promete no botao ("Volta aqui mesmo, com
+   * vida cheia") e o motivo de ele custar ouro
+   *
+   * A outra saida, `voltarParaBase`, e a que teleporta: ela troca o mapa
+   * e tira o XP. Se as duas fossem para o acampamento, a escolha do
+   * jogador seria entre dois precos para o mesmo destino, e pagar ouro
+   * nao valeria nada
+   *
+   * A posicao nao e restaurada a mao porque ela nunca saiu: o
+   * `setMap` nao roda, entao `player.x`/`player.y` continuam onde a
+   * morte os deixou
+   */
+  reviverComOuro() {
+    const sessao = this.world.session;
+
+    if (!sessao || !sessao.morte.ativo) return false;
+
+    const player = this.world.player;
+    const custo = reviveCost(player.level);
+
+    if (custo <= 0) return false;
+
+    if (!this.world.inventory.spendCoins(custo)) {
+      return false;
+    }
+
+    this.encerrarMorte();
+
+    player.hp = player.maxHp;
+    player.alive = true;
+    player.hitFlash = 0;
+    player.pushVelocity = { x: 0, y: 0 };
+    player.statusEffects = [];
+
+    /**
+     * SEM `voltarParaAcampamento` AQUI, de proposito.
+     *
+     * O revive levanta o jogador no MESMO lugar. Chamar o `setMap`
+     * teleportava para o acampamento e devolvia o jogador ao meio de um
+     * mapa onde ele nunca esteve — e ainda pagava por isso. Ver o
+     * comentario do metodo
+     */
+
+    this.showMessage(`Revivido por ${custo} moedas.`);
+
+    return true;
+  }
+
+  /**
+   * VOLTAR PARA A BASE, perdendo XP.
+   *
+   * E a saida de quem nao tem ouro, e a que o prazo vence sozinho. A
+   * perda sai pelo `loseXp`, que e o unico lugar do projeto que
+   * DIMINUI `player.xp` — e ele nunca derruba de nivel: a perda e um
+   * valor fixo, nao o necessario para descer
+   */
+  voltarParaBase() {
+    const sessao = this.world.session;
+
+    if (!sessao || !sessao.morte.ativo) return false;
+
+    const player = this.world.player;
+
+    const perdido = loseXp(player, xpPerdidoNaMorte(player));
+
+    this.encerrarMorte();
+
+    player.hp = player.maxHp;
+    player.alive = true;
+    player.hitFlash = 0;
+    player.pushVelocity = { x: 0, y: 0 };
+    player.statusEffects = [];
+
+    this.voltarParaAcampamento();
+
+    this.showMessage(
+      perdido > 0
+        ? `Voltou para o acampamento. Perdeu ${perdido} de XP.`
+        : "Voltou para o acampamento.",
+    );
+
+    return true;
+  }
+
+  /**
+   * O QUE AS DUAS SAIDAS COMUM TEM: a morte acabou.
+   *
+   * O `morte.ativo` e a chave do painel, e esta e a unica coisa que
+   * fecha o `DeathPanel` — ele nao tem botao de fechar. Se o
+   * `restante` fosse zerado sem virar o `ativo` para falso, o painel
+   * continuaria aberto mostrando "Voltando para a base..." para sempre
+   */
+  encerrarMorte() {
+    const sessao = this.world.session;
+
+    if (!sessao) return;
+
+    sessao.morte.ativo = false;
+    sessao.morte.restante = 0;
+  }
+
+  /**
+   * O JOGADOR VOLTA PARA O ACAMPAMENTO.
+   *
+   * Separate de `voltarParaBase` porque reviver tambem usa, e as duas
+   * differem so no que cobrar. O `setMap` e o do proprio motor: e ele
+   * que troca o `world` de mapa, recria o contexto e posiciona o
+   * jogador no spawn do destino, e um `player.x = ...` depois dele
+   * deixaria o jogador no mapa novo com a posicao do mapa antigo
+   *
+   * E o hub pelo id, e nao por `world.map`: quando o jogador morre no
+   * meio da arena, o mapa em foco e `boss_1`, e e para o acampamento
+   * que ele volta
+   */
+  voltarParaAcampamento() {
+    const acampamento = findMap("base");
+
+    if (!acampamento) return;
+
+    this.setMap(acampamento);
+  }
+
+  /**
+   * O CAMPO `morte` DO PAINEL.
+   *
+   * Vai no `sendSnapshot` pelo mesmo motivo do `portal`: e uma leitura
+   * de TELA, e nao estado de mundo. Sai reduzido a quatro campos porque
+   * o painel vai por JSON no socket — mandar o objeto inteiro arrastaria
+   * referencias que o cliente nao tem como usar
+   *
+   * O preco vem das MESMAS funcoes que a cobranca usa: `reviveCost` e
+   * `xpPerdidoNaMorte`. Um painel que calculasse o preco mostraria um
+   * numero e o servidor cobraria outro
+   *
+   * ## O `restante` E CEIL, E O QUE TEM
+   *
+   * O painel mostra o tempo que o jogador TEM, e nao o que sobrou no
+   * relogio. Sem o `ceil`, o contador passaria de "1s" direto para
+   * "Voltando para a base..." um quadro antes do fim, e o jogador
+   * perderia o segundo em que ainda dava para clicar
+   */
+  morteSnapshot() {
+    const sessao = this.world.session;
+
+    if (!sessao?.morte?.ativo) return null;
+
+    const player = this.world.player;
+
+    return {
+      morto: true,
+      custoReviver: reviveCost(player.level),
+      custoVoltar: xpPerdidoNaMorte(player),
+      restante: Math.max(0, Math.ceil(sessao.morte.restante)),
+    };
+  }
+
+  /**
+   * O CAMPO `teleporte` DO PAINEL, ou `null`.
+   *
+   * E o que faz a box aparecer embaixo do minimapa. Sai reduzido porque
+   * o painel vai por JSON no socket a 20Hz
+   *
+   * ## A FONTE E O OBJETIVO, E NAO O PLANO
+   *
+   * Ler a etapa `travelPlan[0]` foi o primeiro erro, e ele custou tres
+   * bugs de tela. O `travelPlan` e um CACHE: ele e rebuilado as vezes e
+   * fica vazio entre uma??agem e outra. ligar e desligar o auto
+   * esvazia o plano, e a box sumia com ele mesmo com o auto ligado
+   *
+   * Quem responde "para onde este auto esta indo" e o
+   * `destinoDoObjetivo`, que e a FONTE de que o plano e feito. Ele
+   * responde a hora que o objetivo muda, com o plano velho ou sem plano
+   *
+   * ## POR QUE A DISTANCIA VAI ATE UM `Infinity`
+   *
+   * A distancia so existe entre duas coordenadas do MESMO mapa. Com o
+   * destino do outro lado de um portal, `(5230, 3470)` no vale nao tem
+   * nada a ver com `(840, 588)` no hub, e a distancia entre os dois
+   * numeros e uma mentira que so serve para enganar a comparacao
+   *
+   * Entao ela e `Infinity`: nao ha distancia alguma, o que e a mesma
+   * coisa que "longe demais para estar perto", que e a unica coisa que
+   * esta comparacao decide. E o `distancia` que SAI no painel e `null`,
+   * para a box nao mostrar um numero de pixel inventado
+   *
+   * ## SO A CHEGADA ESCONDE A BOX
+   *
+   * A unica condicao que apaga a box e o jogador estar perto do destino
+   * final. Nao ha piso de distancia, nem exige que o destino esteja
+   * neste mapa: enquanto o deslocamento automatico estiver ligado e o
+   * jogador nao tiver chegado, a box existe
+   *
+   * ## O `pergaminhos` VEM DO INVENTARIO, E E POR JOGADOR
+   *
+   * E o que desliga o botao com o motivo escrito na tela. A contagem e
+   * do `world.inventory` do jogador em foco, e nao de um campo do motor:
+   * o pergaminho e item de alguem, e dois jogadores com mochilas
+   * diferentes nao podem ver o mesmo numero
+   */
+  teleporteSnapshot() {
+    const sessao = this.world.session;
+    const player = this.world.player;
+
+    if (!sessao || !this.isAutoActive()) return null;
+
+    const destino = this.destinoDoObjetivo();
+
+    if (!destino) return null;
+
+    const mesmoMapa = destino.mapId === this.world.map.id;
+
+    const distancia = mesmoMapa
+      ? Math.hypot(destino.x - player.x, destino.y - player.y)
+      : Infinity;
+
+    if (distancia <= TELEPORTE_PERTO) return null;
+
+    return {
+      x: destino.x,
+      y: destino.y,
+      mapa: destino.mapId,
+      distancia: mesmoMapa ? Math.round(distancia) : null,
+      pergaminhos: this.world.inventory.count(
+        PERGAMINHO_TELEPORTE_ID,
+      ),
+    };
+  }
+
+/**
+   * TELEPORTA PARA O FIM DO DESLOCAMENTO, gastando um pergaminho.
+   *
+   * ## O DESTINO E O OBJETIVO, NOSSO MAPAS
+   *
+   * O mesmo do `teleporteSnapshot`, e pelo mesmo motivo: o `travelPlan`
+   * e um cache e o objetivo e a fonte. Ler o plano aqui faria o
+   * teleporte falhar exatamente nos casos em que a box aparece — logo
+   * apos ligar o auto, quando o plano ainda esta vazio
+   *
+   * ## ATRAVESSAR MAPA E TROCAR DE MAPA DE VERDADE
+   *
+   * Com o destino do outro lado de um portal, isto chama `setMap` como
+   * qualquer outra viagem: nao e um salto de coordenada, e uma entrada
+   * de verdade no mapa de destino, com o `sessao.mapId` trocado e o
+   * mundo remontado
+   *
+   * ## O PONTO FINAL E CONFERIDO ANTES
+   *
+   * `isInsideBounds` no contexto do mapa de DESTINO, e nao do atual. Um
+   * teleporte para fora do mapa colocaria o jogador em um limbo: dentro
+   * do `world`, sem chao e sem colisor, e o proximo passo do simulador
+   * o empurraria para fora do mundo sem ninguem saber onde ele foi
+   *
+   * ## O GASTO VEM ANTES DO SALTO, E NESSE ORDEM
+   *
+   * Contar, tirar, e so entao mover. Se o salto falhasse e o pergaminho
+   * ja tivesse saido da mochila, o jogador perderia o item sem ganhar
+   * nada — e o `setMap` aqui tem como falhar, na conferida de borda
+   */
+  teleportarParaOFim() {
+    const sessao = this.world.session;
+
+    if (!sessao || !this.isAutoActive()) return false;
+
+    const destino = this.destinoDoObjetivo();
+
+    if (!destino) return false;
+
+    if (!this.world.inventory.has(PERGAMINHO_TELEPORTE_ID)) {
+      this.showMessage(
+        "Voce nao tem pergaminho de teleporte.",
+        true,
+      );
+
+      return false;
+    }
+
+    const mapa = findMap(destino.mapId);
+
+    if (!mapa) return false;
+
+    const contexto = this.contextoDoMapa(mapa);
+
+    if (
+      !contexto.collision.isInsideBounds(
+        { x: destino.x, y: destino.y },
+        RAIO_DO_JOGADOR,
+      )
+    ) {
+      return false;
+    }
+
+    this.world.inventory.take(PERGAMINHO_TELEPORTE_ID);
+
+    /**
+     * O `setMap` RECEBE a chegada, e nao o spawn.
+     *
+     * Sem o `chegada`, um teleporte para o vale colocaria o jogador no
+     * meio do mapa — a tres mil pixels da zona que ele pagou para pular
+     */
+    this.setMap(mapa, { chegada: { x: destino.x, y: destino.y } });
+
+    /**
+     * O PLANO ACABOU, e e ele que some.
+     *
+     * Sem isto o piloto continuaria andando: o `runTravelPlan` leria a
+     * etapa, veria que o jogador esta em cima do destino e a concluiria
+     * sozinho no proximo quadro. Funcionaria, mas deixaria o auto ligado
+     * com a etapa seguinte ja montada — e o jogador que teleportou para
+     * terminar a viagem receberia a proxima cacada na cara
+     */
+    this.travelPlan = [];
+    this.travelParado = 0;
+    this.autoWaypoint = null;
+
+    return true;
+  }
+
   /**
    * Devolve um inimigo morto a vida.
    *
@@ -3295,9 +4247,35 @@ guildBonuses() {
     return enemy;
   }
 
+  /**
+   * Um inimigo VIVO pelo id, ou `null`.
+   *
+   * O caminho rapido e o indice do contexto, que responde direto. O
+   * indice so conhece o ELENCO do mapa, e o `alive` continua sendo
+   * conferido aqui: o indice sabe que o slime 7 existe, nao que ele esta
+   * de pe
+   *
+   * A RESERVA no `world.enemies` nao e redundancia. No cliente online,
+   * `NetworkWorld` empurra os OUTROS jogadores dentro de
+   * `world.enemies` — e e assim que o desenho deles reaproveita o
+   * caminho de codigo dos mobs. Se alvo de jogador e uma coisa que o
+   * jogo aceita, o indice do roster nunca acha esse id e a reserva e o
+   * que impede o alvo selecionado de sumir
+   *
+   * Sem a reserva o comportamento mudaria em silencio: o alvo continuaria
+   * selecionado, mas o painel e a barra de vida parariam de aparecer. E
+   * um bug que so se ve com duas pessoas na tela
+   */
   findEnemyById(id) {
     if (id === null || id === undefined) {
       return null;
+    }
+
+    const indice = this.indiceInimigos;
+    const peloIndice = indice?.get(id) ?? null;
+
+    if (peloIndice) {
+      return peloIndice.alive ? peloIndice : null;
     }
 
     return (
@@ -3344,6 +4322,17 @@ guildBonuses() {
       const dy = enemy.y - player.y;
       const squared = dx * dx + dy * dy;
 
+      /**
+       * O MOB DE OUTRA PESSOA NAO ENTRA NA CONTA.
+       *
+       * Sem esta linha, o auto de um jogador subia no mob que o outro
+       * estava batendo e o loot do abate acabava com quem clicasse por
+       * ultimo. O `pickNearestCreature` tem a mesma guarda: os dois
+       * caminhos precisam dela, porque um passa pelo objetivo da
+       * missao e o outro nao
+       */
+      if (this.mobDeOutroJogador(enemy)) continue;
+
       if (zone) {
         const inside =
           enemy.x >= zone.x &&
@@ -3369,6 +4358,57 @@ guildBonuses() {
     return this.pickNearestCreature();
   }
 
+  /**
+   * ESTE MOB JA ESTA SENDO BATIDO POR ALGUEM QUE NAO SOU EU?
+   *
+   * E a pergunta que o autoplay tinha de responder e nao respondia.
+   *
+   * ## O QUE ACONTECIA
+   *
+   * O `pickAutoTarget` pegava o mob mais proximo do MAPA, sem perguntar
+   * a quem ele pertencia. Com dois jogadores na mesma regiao, o auto do
+   * segundo ia direto no mob que o primeiro estava batendo: os dois no
+   * mesmo bicho, e o loot do abate ia para quem desse o ultimo golpe.
+   * O sintoma era "o jogador parado ficou com o loot" — ele nao estava
+   * parado, o auto dele simplesmente tinha subido no mob do outro
+   *
+   * Isso so aparecia enquanto os dois estavam no mesmo mapa. Separados
+   * por um portal, cada um tinha a sua lista de mobs e o auto nao tinha
+   * o que invadir. Voltar para a base "consertava" o loot sem consertar
+   * nada: so tirava o alvo de alcance
+   *
+   * ## A REGRA
+   *
+   * O mob e de quem JA LEVOU DANO nele, e o dano diz de quem: o
+   * `lastHitBy`. Se for o proprio dono, o mob e dele. Se for um membro
+   * da MINHA party, o mob e do meu grupo e o party hunting continua
+   * funcionando: dois na party de proposito no mesmo bicho e a co-op
+   * que existe. Fora dos dois casos, o mob pertence a outra pessoa e o
+   * auto nao encosta
+   */
+  mobDeOutroJogador(enemy) {
+    const dono = this.world.player;
+
+    if (!dono) return false;
+
+    const quemPegou = enemy.lastHitBy;
+
+    // mob sem ninguem batendo ainda: e o primeiro a chegar nele
+    if (!quemPegou) return false;
+
+    // o proprio dono, ou o mob que EU ja estou batendo
+    if (quemPegou.id === dono.id) return false;
+
+    // companheiro de party: o mesmo grupo cacando junto e o certo
+    const partyDele = this.partyStore?.partyDe(quemPegou.id);
+    const minha = this.partyStore?.partyDe(dono.id);
+
+    if (partyDele && minha && partyDele.id === minha.id) return false;
+
+    // fora da party, ou em party diferente: o mob e dele
+    return true;
+  }
+
   pickNearestCreature() {
     const player = this.world.player;
     const leash = this.autoLeashRange;
@@ -3378,6 +4418,9 @@ guildBonuses() {
 
     for (const enemy of this.world.enemies) {
       if (!enemy.alive) continue;
+
+      // o mob de outra pessoa nao entra na conta
+      if (this.mobDeOutroJogador(enemy)) continue;
 
       const dx = enemy.x - player.x;
       const dy = enemy.y - player.y;
@@ -4767,11 +5810,32 @@ const alvo = this.world.players.get(id);
 
     this.effects.update(deltaTime);
 
-    this.snapshotAccumulator += deltaTime;
+    /**
+     * O PAINEL SO SAI DAQUI SE O MOTOR FOR O DONO DELE.
+     *
+     * Este e o ramo da simulacao, e por isso o ramo do SERVIDOR: la quem
+     * monta o painel e o `enviarPainel`, com um cliente em foco. O timer
+     * de 10Hz deste bloco e o do single player, e aqui acrescentava 10
+     * paineis de ~154KB por segundo ao desperdicio das acoes
+     *
+     * A guarda e `painelExterno` e nao `networked`: o cliente online
+     * TAMBEM e `networked`, e la o painel do timer e o que alimenta a
+     * HUD. Sao dois papeis diferentes e a flag precisa dizer "quem
+     * dispara", nao "quem simula"
+     *
+     * Este bloco e a PRIMEIRA das duas formas de pedir painel; a segunda
+     * sao as ~35 chamadas diretas de `sendSnapshot`. Ambas passam pela
+     * guarda de dentro de `sendSnapshot`, que e a unica que importa: e
+     * ela que cobre as 35. Manter a guarda aqui tambem evita que o
+     * `snapshotAccumulator` fique crescendo quando ninguem esta lendo
+     */
+    if (!this.painelExterno) {
+      this.snapshotAccumulator += deltaTime;
 
-    if (this.snapshotAccumulator >= 0.1) {
-      this.snapshotAccumulator = 0;
-      this.sendSnapshot();
+      if (this.snapshotAccumulator >= 0.1) {
+        this.snapshotAccumulator = 0;
+        this.sendSnapshot();
+      }
     }
   }
 
@@ -4819,7 +5883,22 @@ const alvo = this.world.players.get(id);
   updatePlayer(deltaTime) {
     const player = this.world.player;
 
+    /**
+     * A MORTE PRIMEIRO, e antes do `return` de `hp <= 0`.
+     *
+     * E o que faz o painel aparecer: o golpe que zera a vida vem do
+     * `DamageSystem`, e o `hp <= 0` logo abaixo e o unico sinal que
+     * dano direto, veneno e reflexo compartilham. Se a morte fosse
+     * registrada depois do `return`, o jogador morto nunca passaria por
+     * aqui de novo — e o prazo jamais comecaria
+     *
+     * O `atualizarMorte` e quem conta os 20s e dispara o retorno
+     * automatico quando eles acabam
+     */
     if (player.hp <= 0) {
+      this.registrarMorte();
+      this.atualizarMorteDoJogador(deltaTime);
+
       player.isMoving = false;
       return;
     }
@@ -5037,11 +6116,24 @@ const alvo = this.world.players.get(id);
         2,
       );
 
+      /**
+     * O `push` JA ESTA ZERO, e nao um objeto novo.
+     *
+     * Este if e o que segura a alocacao: sem ele, todo inimigo cujo
+     * empurrao estabilizou recebia um `{ x: 0, y: 0 }` novo a cada
+     * tique. Sao ~93 inimigos por mapa, ou 1860 objetos por segundo por
+     * mapa povoado, jogados fora so para o `pushVelocity` voltar a zero
+     *
+     * Escrever os dois campos e o mesmo efeito, e nao troca a referencia:
+     * `pushVelocity` nao e comparedo por identidade em lugar nenhum, e o
+     * damping acima ja os deixou abaixo de 0.5
+     */
       if (
         Math.abs(enemy.pushVelocity.x) < 0.5 &&
         Math.abs(enemy.pushVelocity.y) < 0.5
       ) {
-        enemy.pushVelocity = { x: 0, y: 0 };
+        enemy.pushVelocity.x = 0;
+        enemy.pushVelocity.y = 0;
       }
 
       if (enemy.hp <= 0) {
@@ -5132,7 +6224,7 @@ const alvo = this.world.players.get(id);
    * por ultimo: com dois jogadores batendo no mesmo mob, o loot
    * e de quem aplicou o golpe que zerou o HP. O `lastHitBy` e
    * gravado pelo DamageSystem a cada dano e sobrevive a quem
-   * estiver longe no momento da morte.
+   * estiver longe no momento da morte
    */
   killEnemy(enemy, killer = null) {
     if (!enemy) return;
@@ -5155,7 +6247,168 @@ const alvo = this.world.players.get(id);
     enemy.stuckTimer = 0;
     enemy.sidestepTimer = 0;
 
-    this.handleKill(enemy, killer ?? enemy.lastHitBy);
+    /**
+     * O DONO DO ABATE, E O `killer` E O `lastHitBy` QUE SAO COISAS
+     * DIFERENTES AQUI.
+     *
+     * O `killer` explicito vem do `onDeath` do DamageSystem, que so
+     * dispara no tick em que o HP zera: o golpe e do agora, e o jogador
+     * pode estar a mil pixels — um arco longo, uma animacao, um mob que
+     * morreu depois de levar o golpe. Esse passa direto.
+     *
+     * O `lastHitBy` e o caminho do DoT e da morte por status, e e um
+     * campo que NINGUEM limpa. Passa pelo `donoDoAbate`.
+     *
+     * Antes de resolver, cada um passa pela sua regra, e e essa
+     * separacao que impede o bug de voltar pelo outro lado
+     */
+    const dono = this.donoDoAbate(
+      enemy,
+      killer ?? enemy.lastHitBy,
+      killer !== null,
+    );
+
+    /**
+     * A MORTE DE UM CHEFE, e so dela.
+     *
+     * Quem reage a uma Vitoria por chefe e o SERVIDOR: ele tem que tirar
+     * todo mundo da arena, e o motor nao sabe da arena
+     *
+     * O gancho e por MAPA e nao por criatura: um mapa novo com um chefe
+     * nao precisa declarar mais nada aqui, e um mob comum nao dispara
+     * nada porque o mapa dele nao lista nenhum
+     */
+    if (this.world.map?.bosses?.some((b) => b.creature === enemy.typeId)) {
+      this.onChefeDerrotado?.({
+        enemy,
+        dono,
+        map: this.world.map,
+      });
+    }
+
+    this.handleKill(enemy, dono);
+  }
+
+  /**
+   * O DONO DO ABATE, se ainda valer a pena creditar.
+   *
+   * ## POR QUE ISTO EXISTE
+   *
+   * `lastHitBy` responde QUEM deu o ultimo golpe, e nao QUEM esta
+   * dando o ultimo golpe AGORA. O campo e gravado a cada dano e nunca
+   * limpo: um mob que levou um golpe, cujo jogador foi caçar outro, e
+   * morreu de DoT quatro minutos depois continua apontando para ele
+   *
+   * No rastro do servidor isso apareceu assim:
+   *
+   *     killer=teste | auto=0 | alvo=- | eng=- | dist=971
+   *
+   * O jogador com o autoplay DESLIGADO, sem alvo nenhum, a quase mil
+   * pixels do mob — e o loot foi para ele e dividiu com a party. Ele
+   * nao estava farmando ali: so tinha acertado aquele mob uma vez
+   *
+   * ## O QUE O `lastHitBy` PRECISA PASSAR
+   *
+   * 1. **TEM SESSAO.** Precisa estar no mundo. Um desconectado nao tem
+   *    inventario para receber
+   *
+   * 2. **O GOLPE E RECENTE.** O `lastHitAt` dentro da janela. E o que
+   *    separa "acertou esse mob agora" de "acertou esse mob quando
+   *    passou aqui"
+   *
+    * 3. **ESTA BATENDO NESSE MOB AGORA.** E o filtro que fecha o relato.
+   *    Nao basta estar perto: o jogador precisa estar com o autoplay
+   *    ligado ou com alvo travado, e dentro do alcance de golpe
+   *
+   *    Sem o item 3, um jogador com o auto DESLIGADO, sem alvo nenhum e
+   *    a 971px do mob — parado, so esperando — continuava sendo o dono
+   *    do abate, porque o `lastHitBy` guardava o golpe que ele deu
+   *    quando ainda estava caçando ali. No rastro:
+   *
+   *        killer=teste | auto=0 | alvo=- | eng=- | dist=971
+   *
+   *    O `auto=0` e o `alvo=-` dizem que ele nao estava atacando nada.
+   *    Estar perto nao e estar batendo
+   *
+   * O `killer` explicito pula tudo: ele so existe porque o DamageSystem
+ * acabou de resolver o golpe neste tick
+   */
+  donoDoAbate(enemy, killer, explicito) {
+    const sessao = killer ? this.world.players.get(killer.id) : null;
+
+    if (!sessao) return null;
+
+    if (explicito) return sessao;
+
+    // o golpe e velho: o dono de antes nao e o dono de agora
+    const recente = Date.now() - (enemy.lastHitAt ?? 0);
+
+    if (recente > JANELA_DO_LAST_HIT_MS) return null;
+
+  /**
+   * O ABATE ESTA SENDO MATO POR VENENO? Entao o dono e o autor.
+   *
+   * Este e o caso que o filtro de "esta batendo agora" NAO pode
+   * cobrir. Quem envenenou o mob aplicou o golpe, e muitas vezes foi
+   * embora no meio: o last hit e dele mesmo assim, e o
+   * `lastHit.test.js` exige isso — "o loot do DoT vai para quem
+   * aplicou o veneno"
+   *
+   * A diferenca para o `lastHitBy` solto e que aqui nao ha nada velho:
+   * o `lastHitPorDoT` foi marcado pelo `StatusSystem` no mesmo tick
+   * em que o veneno tirou o HP, entao o abate e de quem esta queimando
+   * o mob AGORA
+   *
+   * A flag precisa existir porque o `StatusSystem` remove o efeito do
+   * `statusEffects` assim que o HP zera — dentro do `update`, antes do
+   * `killEnemy`. Ler o array no abate não encontraria mais o veneno
+   */
+  if (enemy.lastHitPorDoT) {
+    const autor = enemy.lastHitBy
+      ? this.world.players.get(enemy.lastHitBy.id)
+      : null;
+
+    if (autor) return autor;
+  }
+
+  /**
+     * ESTE JOGADOR ESTA BATENDO EM ALGUMA COISA?
+     *
+     * E a pergunta que faltava. O auto ligado e o auto de cacar: o
+     * jogador esta atirando em mob. O alvo travado e o clique dele. Sem
+     * nenhum dos dois, ele nao esta atacando — e um jogador que nao
+     * ataca nao pode ser o last hit de nada
+     *
+     * Isto e o que separa "esta na mesma caca" de "esta na mesma
+     * regiao". O `dist` sozinho nao separava: 971px passa em
+     * qualquer limite generoso, e era exatamente o que o rastro
+     * mostrava
+     */
+    if (!sessao.autoPlay && !sessao.selectedTargetId && !sessao.engagedTargetId) {
+      return null;
+    }
+
+    // e o alvo dele e ESTE mob, ou o auto e que disparou o golpe
+    if (
+      sessao.selectedTargetId &&
+      sessao.selectedTargetId !== enemy.id
+    ) {
+      const mesmoTipo =
+        sessao.selectedTargetId.replace(/_\d+$/, "") ===
+        enemy.id.replace(/_\d+$/, "");
+
+      if (!mesmoTipo) return null;
+    }
+
+    // dentro do alcance de golpe, que e onde um golpe de verdade chega
+    const dx = sessao.player.x - enemy.x;
+    const dy = sessao.player.y - enemy.y;
+
+    if (dx * dx + dy * dy > ALCANCE_CREDITO_ABATE * ALCANCE_CREDITO_ABATE) {
+      return null;
+    }
+
+    return sessao;
   }
 
   handleKill(enemy, killer = null) {
@@ -5167,9 +6420,9 @@ const alvo = this.world.players.get(id);
     // entrou, entao a missao, o bestiario, o xp e a recompensa iam
     // para quem nao matou - e a secundaria hunt nunca contava.
     //
-    // O id da sessao e o id do jogador (`createPlayerSession` cria
-    // o player com o id da sessao), entao o dono se localiza direto
-    const owner = killer ?? enemy.lastHitBy ?? null;
+    // O `killer` que chega aqui ja passou pelo `donoDoAbate`: e a
+    // SESSAO do dono, ja validada. Sem dono, nao ha o que creditar
+    const owner = killer;
     const sessao = owner?.id
       ? this.world.players.get(owner.id)
       : null;
@@ -5204,26 +6457,42 @@ const alvo = this.world.players.get(id);
      * cheio ao dono e mais uma parte: o unico membro de uma party de
      * tres recebia 1/3 a mais do que o mob tinha
      */
-    const membrosDaParty = this.partnersDe(sessao.id);
+    /**
+     * A LISTA DE QUEM DIVIDE E `parceirosDeLoot`, e nao `partnersDe`.
+     *
+     * A party e o grupo; quem divide o loot e o grupo FILTRADO pelo
+     * mesmo campo, pela distancia e pela vida. Um parceiro a 4km ou em
+     * outro mapa fica na party — ele continua no `PartyBox`, ainda
+     * recebe convite — mas nao entra na divisao
+     *
+     * Quando o filtro deixa a lista vazia, o comportamento e o de quem
+     * esta sozinho: o dono fica com o total inteiro
+     */
+    const membrosDaParty = this.parceirosDeLoot(
+      sessao.id,
+      enemy,
+    );
 
     const temParty = membrosDaParty.length > 0;
 
     /**
-     * O ITEM VAI PARA UM SO, e por isso o sorteio do loot tem de ser o
-     * mesmo com e sem party.
+     * TUDO ACONTECE COM O DONO EM FOCO.
      *
-     * Sem party, o dono recebe tudo. Com party, o lote completo e o que
-     * sera dividido — o item sai para um membro sorteado, e o ouro pela
-     * divisao
+     * O sorteio, a entrega e a missao do dono rodam dentro do
+     * `withPlayer` dele. Antes eles rodavam fora, e "fora" aqui e o
+     * jogador em foco do fim do tick — que no servidor e o ultimo da
+     * fila. Era essa janela que fazia o loot aparecer na pessoa errada
+     *
+     * `collected` e declarado fora porque o `repartirAbatePorParty` o
+     * usa depois, e ele ja faz o `withPlayer` de cada membro
      */
-    const collected = temParty
-      ? this.loot.roll(enemy, sessao?.lootFilter ?? this.loot.filter)
-      : this.loot.collectFrom(enemy, sessao);
+    let collected = null;
 
-this.withPlayer(sessao.id, () => {
-      // dentro do bloco, e nao antes: o "+16 moedas" e um aviso da]
-      // SESSAO, e escrito fora daqui ele cairia no jogador que]
-      // estivesse em foco no fim do tick]
+    this.withPlayer(sessao.id, () => {
+      collected = temParty
+        ? this.loot.roll(enemy, sessao.lootFilter ?? this.loot.filter)
+        : this.loot.collectFrom(enemy, sessao);
+
       if (!temParty) {
         this.announceLoot(collected);
 
@@ -5235,9 +6504,6 @@ this.withPlayer(sessao.id, () => {
          * Rodar os dois creditaria o dono DUAS vezes: um slime abatido
          * contava 2 na missao dele, o bestiario subia duas vezes, e o XP
          * era o inteiro mais uma fração
-         *
-         * Era o loot que ja ficava sem duplicar (o `collected` completo
-         * so entrava sem party) e a missao que escapou
          */
         this.concederAbate(enemy, owner);
       }
@@ -5287,7 +6553,129 @@ this.withPlayer(sessao.id, () => {
   }
 
   /**
-   * O MESMO ABATE PARA TODOS OS MEMBROS DA PARTY.
+   * QUEM DIVIDE O LOOT COM O DONO: o mesmo campo, perto, e vivo.
+   *
+   * ## POR QUE ISTO EXISTE
+   *
+   * Ser da mesma party NAO e o bastante para receber uma fração. A
+   * party atravessa mapa: um parceiro no Pantano e outro na Cripta
+   * Esquelética estao no mesmo grupo e nao se veem. Sem esta lista, o
+   * abate no Pantano dava metade do loot para quem estava na Cripta, a
+   * 4000px e em outro mapa — o jogador que nem estava vendo o mob
+   * ganhava metade do ouro dele
+   *
+   * Sao quatro filtros, e cada um e uma regra do MMO:
+   *
+   * 1. **MESMO MAPA.** Sem excecao. Um parceiro em outro mapa nao
+   *    divide, nem que esteja a dois pixels da fronteira
+   *
+   * 2. **O MESMO CAMPO DE MOBS.** E o filtro que resolve o pedido
+   *    literal: "para compartilhar os ganhos tem que estar no mesmo
+   *    campo de inimigos de quem esta matando". O campo e a `zone` do
+   *    mapa — o Brejo, o Pantano, a Cripta — e nao um circulo em volta
+   *    do mob. Dois jogadores no mesmo mapa, a 900px um do outro e com
+   *    o Brejo entre os dois, NAO estao no mesmo campo
+   *
+   * 3. **DENTRO DO ALCANCE.** A zona define o campo, e a distancia
+   *    aperta: uma zona e um retangulo grande, e as pontas opostas
+   *    dela podem estar a 3km
+   *
+   * 4. **VIVO.** Um parceiro que morreu no meio da luta nao pode
+   *    receber a fração dele: ele esta vendo o painel de morte
+   *
+   * As zonas vem do mapa do DONO, resolvido pelo `mapId` da sessao, e
+   * nao do `this.world.map`: o `world` aponta para o mapa do jogador EM
+   * FOCO, e o abate chega aqui de dentro do laco de inimigos, que roda
+   * com o foco de algum jogador daquele mapa
+   */
+  parceirosDeLoot(sessionId, enemy) {
+    const candidatos = this.partnersDe(sessionId);
+
+    if (candidatos.length === 0) return [];
+
+    const dono = this.world.players.get(sessionId);
+
+    if (!dono) return [];
+
+    const mapaDoAbate = getMap(dono.mapId);
+
+    const zonasDoMob = this.zonasDoPonto(mapaDoAbate, enemy.x, enemy.y);
+
+    const alcance = ALCANCE_DIVISAO_LOOT;
+    const alcanceQuadrado = alcance * alcance;
+
+    const perto = [];
+
+    for (const id of candidatos) {
+      const sessao = this.world.players.get(id);
+
+      if (!sessao) continue;
+
+      // 1. o mesmo mapa, obrigatorio
+      if (sessao.mapId !== dono.mapId) continue;
+
+      // 4. vivo. o painel de morte nao conta como presenca
+      if (sessao.player.hp <= 0) continue;
+
+      // 2. o mesmo campo de mobs do abate
+      if (zonasDoMob.length > 0) {
+        const zonasDele = this.zonasDoPonto(
+          mapaDoAbate,
+          sessao.player.x,
+          sessao.player.y,
+        );
+
+        const mesmoCampo = zonasDele.some((zona) =>
+          zonasDoMob.some((doMob) => doMob.id === zona.id),
+        );
+
+        if (!mesmoCampo) continue;
+      }
+
+      // 3. dentro do alcance, que e o que aperta as pontas da zona
+      const dx = sessao.player.x - enemy.x;
+      const dy = sessao.player.y - enemy.y;
+
+      if (dx * dx + dy * dy > alcanceQuadrado) continue;
+
+      perto.push(id);
+    }
+
+    return perto;
+  }
+
+  /**
+   * As `zones` do mapa que contem o ponto.
+   *
+   * Uma zona e um retangulo (`x`, `y`, `width`, `height`) e as zonas
+   * podem se SOBREPOR: o campo de provas fica dentro do Brejo, e um
+   * ponto ali pertence as duas. Por isso isto devolve uma lista e nao
+   * um id — a comparacao de "mesmo campo" pergunta se as duas listas
+   * tem alguma zona em comum
+   */
+  zonasDoPonto(mapa, x, y) {
+    const zonas = mapa?.zones;
+
+    if (!Array.isArray(zonas) || zonas.length === 0) return EMPTY_LIST;
+
+    const dentro = [];
+
+    for (const zona of zonas) {
+      if (x < zona.x || x > zona.x + zona.width) continue;
+      if (y < zona.y || y > zona.y + zona.height) continue;
+
+      dentro.push(zona);
+    }
+
+    return dentro;
+  }
+
+  /**
+   * O MESMO ABATE PARA TODOS OS MEMBROS QUE ESTAO NO CAMPO.
+   *
+   * Quem entra na divisao ja passou por `parceirosDeLoot`: e o mesmo
+   * mapa, a mesma zona de mobs, dentro do alcance e vivo. A lista que
+   * chega aqui nao e a party inteira, e a party que estava vendo o mob
    *
    * ## AS TRES DIVISAS
    *
@@ -5300,9 +6688,10 @@ this.withPlayer(sessao.id, () => {
    *   sobra vai para o dono. E o que faz a party ser comparavel a jogar
    *   sozinho em numero de recurso
    *
-   * - ITEM vai para UM so, sorteado. Um item por abate, e o dono do
-   *   sorteio e quem pegou — quem matou entra no sorteio com o mesmo
-   *   peso de quem nao matou
+   * - ITEM e MATERIAL vao para o DONO do abate, sem sorteio. Quem deu o
+   *   last hit fica com o drop e quem nao deu fica sem nada: e a regra
+   *   que da sentido ao last hit, e o item sorteado entre o grupo
+   *   deixaria o dono poder perder o loot que ele mesmo matou
    */
   repartirAbatePorParty(
     enemy,
@@ -5335,27 +6724,7 @@ this.withPlayer(sessao.id, () => {
 
     const sobraXp = xpTotal - xp * idsUnicos.length;
 
-    /* -------------------------------------------------------------- */
-    /* ITEM: SORTEADO PARA UM SO                                       */
-    /* -------------------------------------------------------------- */
-
-    /**
-     * O ITEM VAI PARA UM MEMBRO SO.
-     *
-     * O sorteio e sobre o INDICE, e nao sobre a sessao: distribuir o item
-     * para o dono e "sortear" seria o item ir sempre para quem matou, e
-     * a party nao valeria nada
-     *
-     * O indice sai do mesmo sorteio que o `scatter` usa. E o `Math.random` que
-     * sorteou o resto do loot, entao um teste com semente fixa continua
-     * reproduzivel
-     */
     const itens = collected.items ?? [];
-
-    const destinoDoItem =
-      itens.length > 0
-        ? Math.floor(Math.random() * idsUnicos.length)
-        : -1;
 
     /* -------------------------------------------------------------- */
     /* APLICANDO                                                      */
@@ -5415,13 +6784,28 @@ this.withPlayer(sessao.id, () => {
           }
         }
 
-        const itensDele =
-          i === destinoDoItem ? itens : [];
+        /**
+         * O ITEM ENTRA NA MOCHILA DO DONO DO LAST HIT.
+         *
+         * Os itens ja foram sorteados uma vez, no `handleKill`, com o
+         * filtro do dono. Aqui eles vao para a mochila DELE, e o que
+         * sobra cai no chao tambem com o `ownerId` dele
+         */
+        const ehDono = sessionId === owner?.id;
 
-        if (itensDele.length > 0 || moedasDele > 0 || xpDele > 0) {
+        const dados = ehDono
+          ? this.loot.grantItems(enemy, sessao, itens)
+          : { items: [], dropped: 0 };
+
+        if (
+          dados.items.length > 0 ||
+          moedasDele > 0 ||
+          xpDele > 0
+        ) {
           this.announceLoot({
             coins: moedasDele,
-            items: itensDele,
+            items: dados.items,
+            dropped: dados.dropped,
             party: idsUnicos.length > 1,
           });
         }
@@ -5592,7 +6976,7 @@ this.withPlayer(sessao.id, () => {
   }
 
   announceLevelUp(level) {
-    this.showMessage(`NÃ­vel ${level} alcanÃ§ado!`);
+    this.showMessage(`Nível ${level} alcançado!`);
   }
 
   announceLoot(collected) {
@@ -5615,12 +6999,12 @@ this.withPlayer(sessao.id, () => {
     }
 
     if (parts.length > 0) {
-      this.showMessage(parts.join(" Â· "));
+      this.showMessage(parts.join(" · "));
     }
 
     if (collected.dropped > 0) {
       this.showMessage(
-        "InventÃ¡rio cheio: o excedente ficou no chÃ£o.",
+        "Inventário cheio: o excedente ficou no chão.",
         true,
       );
     }
@@ -5683,7 +7067,7 @@ this.withPlayer(sessao.id, () => {
     }
 
     if (parts.length > 0) {
-      this.showMessage(parts.join(" � "));
+      this.showMessage(parts.join(" ? "));
     }
 
     if (collected.rejected > 0) {
@@ -5703,6 +7087,28 @@ this.withPlayer(sessao.id, () => {
     // servidor inteiro congelava e nao voltava nem com jogador
     // novo.
     if (!this.world.session) return;
+
+    /**
+     * QUEM OUV ESTE PAINEL?
+     *
+     * Com `painelExterno`, o dono do painel e quem CHAMOU, e nao o motor:
+     * no servidor, so o `GameServer.enviarPainel` sabe de qual cliente
+     * o painel e, e ele levanta `painelSolicitado` em volta da chamada
+     *
+     * Sem esta guarda, cada uma das ~35 chamadas diretas de
+     * `sendSnapshot` — uma por acao de combate, loot, missao, level up —
+     * montava o painel INTEIRO de ~154KB e o `onSnapshot` jogava fora,
+     * porque `clienteAtual` so existe dentro do `enviarPainel`
+     *
+     * O custo era por ACAO, e nao por tique: num servidor com gente
+     * lutando, eram centenas de paineis de 154KB montados e descartados
+     * por segundo. Este e o motivo de a flag existir, e o timer de 10Hz
+     * do `update` era so uma das varias fontes
+     *
+     * A guarda esta AQUI e nao em cada chamada porque e a unica forma de
+     * cobrir as 35 sem depender de ninguem lembrar
+     */
+    if (this.painelExterno && !this.painelSolicitado) return;
 
     const player = this.world.player;
     const selectedTarget = this.getLiveTarget();
@@ -5732,6 +7138,34 @@ this.withPlayer(sessao.id, () => {
        * destino — que o cliente nao tem como usar e nao deve conhecer
        */
       portal: this.dadosDoPortalNoPe(),
+
+      /**
+       * A MORTE, ou `null`.
+       *
+       * E o unico campo que decide se o `DeathPanel` existe. Sem ele o
+       * componente vivia fechado sem erro nenhum — o arquivo estava no
+       * disco e o HUD o renderizava, mas o motor nunca produziu o
+       * estado que ele le
+       *
+       * Sai por aqui e nao pelo snapshot do mundo pelo mesmo motivo do
+       * portal: e uma leitura de tela, e o painel ja e por jogador
+       */
+      morte: this.morteSnapshot(),
+
+      /**
+       * A BOX DO TELEPORTE, ou `null`.
+       *
+       * Aparece quando o jogador esta no meio de uma caminhada longa e
+       * some quando ele ja chegou perto. O motor decide as tres coisas
+       * que a box mostra: se ela existe, para ONDE, e se ha pergaminho
+       *
+       * O botao da box nao decide nada disso — ele so avisa que foi
+       * apertado. Um componente que calculasse a distancia leria uma
+       * posicao que ele nao tem, e mostraria um atalho para um lugar que
+       * o jogador ja tinha alcancado
+       */
+      teleporte: this.teleporteSnapshot(),
+
       lootFilter: this.lootFilterSummary(),
       bestiary: this.world.bestiary.snapshot(),
       quests: this.world.quests.snapshot(),
@@ -5766,6 +7200,17 @@ market: this.marketStore
               viewerKey: this.world.session?.donoKey ?? null,
               viewerName: player.name,
               coins: this.world.inventory.coins,
+
+              /**
+               * OS SLOCATS LIVRES DA MOCHILA, para o painel do mercado
+               * avisar que um anuncio nao cabe ANTES de o jogador
+               * clicar. E o mesmo `freeSlots` que o servidor usa na
+               * compra, entao o numero da tela e o numero que vale
+               */
+              mochila: {
+                livres: this.world.inventory.freeSlots,
+                capacity: this.world.inventory.capacity,
+              },
             })
           : EMPTY_MARKET,
 
@@ -5779,7 +7224,10 @@ market: this.marketStore
        * que recebesse a lista cru e ordenasse no navegador
        * mostraria a posicao que quisesse.
        */
-      rank: montarRank([...this.world.players.values()]),
+      rank: montarRank(
+        [...this.world.players.values()],
+        this.personagensSalvos?.() ?? [],
+      ),
 
       /**
        * A GUILDA, do jeito que ESTE jogador a ve.
@@ -5800,11 +7248,16 @@ market: this.marketStore
          * caminho do resto. Sem este campo o painel mostraria a lista
          * do ultimo pedido de outro jogador
          *
-         * A lista vem do servidor por `searchResults`, e nao de um
+         * A lista vem do servidor por `sessao.guildaBusca`, e nao de um
          * `buscar()` local: as guildas sao do servidor, e refazer a
          * busca no cliente mostraria um mundo que so existe na tela
+         *
+         * E da SESSAO, e nao deste motor. No `searchResults` do motor a
+         * busca da Ana aparecia no painel do Bento: o motor e
+         * compartilhado por todo mundo conectado, entao um campo dele e
+         * a ultima busca que alguem fez
          */
-        busca: this.searchResults ?? [],
+        busca: this.sessaoDeJogador?.guildaBusca ?? [],
       },
 
       player: {
@@ -5868,6 +7321,24 @@ market: this.marketStore
       // acender o `AUTO`; sem o campo, arrastar a skill funcionava
       // e nao sinalizava nada
       skillAuto: [...(this.sessaoDeJogador?.skillAuto ?? [])],
+
+      /**
+       * AS HABILIDADES APRENDIDAS, e o nivel que abre a ultimate.
+       *
+       * A HUD usa os dois para pintar a tranca da barra: o slot mostra o
+       * nome da habilidade mesmo quando ela ainda nao foi aprendida, e e
+       * a tranca que diz que falta o livro
+       *
+       * O `nivelDaUltimate` vai separado do `ULTIMATE_NIVEL` do catalogo
+       * porque a tela precisa saber se LIBEROU, e nao qual e o numero.
+       * Comprimir a conta no servidor, o painel vira um numero que
+       * ninguem precisa recalcular no cliente — e assim nenhum dos dois
+       * lados pode discordar sobre o estado da ultimate
+       */
+      habilidadesAprendidas: [
+        ...(this.sessaoDeJogador?.habilidadesAprendidas ?? []),
+      ],
+      ultimateLiberada: ultimateLiberada(player.level),
 
       selectedTarget: selectedTarget
         ? {
@@ -5974,7 +7445,7 @@ market: this.marketStore
       /**
        * O relogio do golpe do MOB, e nao so do jogador.
        *
-       * Quem põe o `attackAnimation` do mob e o pacote do servidor,
+       * Quem pé o `attackAnimation` do mob e o pacote do servidor,
        * com o aviso `acting`. Se o valor fosse setado aqui e nunca
        * contido, ele ficaria em 0.28 para sempre e o mob
        * seguraria o arco permanentemente, que e o mesmo defeito que
@@ -6239,8 +7710,9 @@ market: this.marketStore
 
     for (const entry of list) {
       if (entry.kind === 1) {
-        this.props.drawShadow(context, entry.ref);
-        this.props.drawProp(context, entry.ref);
+        // o mapa decide a folha da prop e se ela tem sombra
+        this.props.drawShadow(context, entry.ref, this.world.map);
+        this.props.drawProp(context, entry.ref, this.world.map);
         continue;
       }
 
@@ -6426,19 +7898,36 @@ chegadaDe(portal, destino) {
 }
 
 travessarPortal() {
-  const emCima = this.portalSobOsPes();
+    const emCima = this.portalSobOsPes();
 
-  if (!emCima) return false;
+    if (!emCima) return false;
 
-  const chegada = this.chegadaDe(
-    emCima.portal,
-    emCima.destino,
-  );
+    /**
+     * A TRAVA, conferida aqui tambem.
+     *
+     * O `GameServer` ja recusou antes de chegar aqui na rede, mas este
+     * metodo tambem e o caminho do SINGLE PLAYER, e ele nao tem o
+     * `GameServer` para perguntar. Sem esta conferida, o jogo offline
+     * atravessaria a Floresta Sombria no minuto um — a trava existiria
+     * so no online, que e o jeito de uma regra parecer implementada e
+     * nao estar
+     */
+    const trava = portalLiberado(
+      emCima.portal.exigeMissaoDe,
+      this.world.quests?.mainIndex ?? 0,
+    );
 
-  this.setMap(emCima.destino, { chegada });
+    if (!trava.ok) return false;
 
-  return true;
-}
+    const chegada = this.chegadaDe(
+      emCima.portal,
+      emCima.destino,
+    );
+
+    this.setMap(emCima.destino, { chegada });
+
+    return true;
+  }
 
 /**
  * O PORTAL EM BAIXO DO JOGADOR, no formato do PAINEL.
@@ -6452,16 +7941,29 @@ travessarPortal() {
  * como usar um mapa do servidor. O que cruza o socket e este objeto
  */
 dadosDoPortalNoPe() {
-  const emCima = this.portalSobOsPes();
+    const emCima = this.portalSobOsPes();
 
-  if (!emCima) return null;
+    if (!emCima) return null;
 
-  return {
-    id: emCima.portal.id,
-    destino: emCima.portal.destino,
-    nome: emCima.nome,
-  };
-}
+    return {
+      id: emCima.portal.id,
+      destino: emCima.portal.destino,
+      nome: emCima.nome,
+
+      /**
+       * A TRAVA, no painel.
+       *
+       * Vem do mesmo `dadosDaTrava` que decide a travessia, entao a box
+       * nao pode prometer uma viagem que o servidor vai recusar. E o
+       * `mainIndex` do log de missoes do jogador em foco — o unico
+       * estado que a trava consulta
+       */
+      ...dadosDaTrava(
+        emCima.portal.exigeMissaoDe,
+        this.world.quests?.mainIndex ?? 0,
+      ),
+    };
+  }
 
 /**
  * A VISTA DE GUILDA do jogador em foco.
@@ -6506,18 +8008,21 @@ guildaSnapshot() {
   );
 }
 
-getLiveTarget() {
+/**
+   * O alvo SELECIONADO, vivo, ou `null`.
+   *
+   * E o `selectedTargetId` resolvido pelo mesmo indice de
+   * `findEnemyById`. Antes era um `Array.find` proprio, e esta funcao
+   * roda uma vez por montagem de painel — que sao 4 por segundo por
+   * jogador online. Com 50 jogadores, eram 200 varreduras de 93 inimigos
+   * por segundo para descobrir o alvo que ja estava indexado
+   */
+  getLiveTarget() {
     if (this.selectedTargetId === null) {
       return null;
     }
 
-    return (
-      this.world.enemies.find(
-        (enemy) =>
-          enemy.id === this.selectedTargetId &&
-          enemy.alive,
-      ) ?? null
-    );
+    return this.findEnemyById(this.selectedTargetId);
   }
 
   hasLiveTarget() {
@@ -6580,6 +8085,40 @@ getLiveTarget() {
     );
   }
 
+  /**
+   * OS INIMIGOS QUE O MINIMAPA DESENHA.
+   *
+   * O minimapa existe para achar o que esta longe, entao o chefe fica de
+   * fora: ele esta no centro de uma arena que o jogador esta vendo, e o
+   * marcador dele — do tamanho do raio, o maior do jogo — virava uma
+   * mancha vermelha do tamanho de um boneco
+   *
+   * ## POR QUE O CHEFE E O UNICO QUE SAI
+   *
+   * Nao e estetica de mob grande: e que o `radius` do chefe e 46 e o
+   * marcador cresce com ele. Um slime de raio 21 e um ponto util; um
+   * chefe de 46 e um quadrado que tapa o centro do mapa
+   *
+   * E o filtro e pelo `bosses` do MAPA, e nao por criatura. Quem e chefe
+   * e uma propriedade do mapa, entao um chefe novo em um mapa novo
+   * desaparece do minimapa sem ninguem mexer aqui
+   *
+   * ## A LISTA ORIGINAL, NO CASO DE NAO HAVER CHEFE
+   *
+   * Sem o `early return`, o mapa sem chefe pagaria um `filter` a cada
+   * quadro (60 no navegador, 20 no servidor) para devolver exatamente a
+   * lista que ja estava la. Nos mapas do vale, essa e a lista inteira
+   */
+  inimigosDoMinimapa() {
+    const bosses = this.world.map?.bosses;
+
+    if (!bosses?.length) return this.world.enemies;
+
+    return this.world.enemies.filter(
+      (enemy) => !bosses.some((b) => b.creature === enemy.typeId),
+    );
+  }
+
   drawMinimap(context, width, height) {
     if (!this.world.map) return;
 
@@ -6627,7 +8166,24 @@ getLiveTarget() {
        */
       zones: this.world.map.zones ?? [],
       player: this.world.player,
-      enemies: this.world.enemies,
+
+      /**
+       * OS INIMIGOS DO MINIMAPA, SEM O CHEFE.
+       *
+       * O marcador do chefe e um quadradinho vermelho do tamanho do
+       * RAIO dele — e o raio do chefe e o maior do jogo, entao o que
+       * aparecia era uma mancha vermelha de 46px no meio da arena, do
+       * tamanho de um personagem inteiro. Nao ajudava a ninguem: o
+       * jogador esta DENTRO da arena, o chefe esta no centro, e os dois
+       * se vendo. O minimapa serves para achar o que esta longe, e o
+       * chefe nunca esta longe
+       *
+       * O filtro e por MAPA, e nao por criatura: e o proprio mapa que
+       * diz quem e chefe (o `bosses`), entao um chefe novo em um mapa
+       * novo nao precisa deste codigo saber o nome dele
+       */
+      enemies: this.inimigosDoMinimapa(),
+
       /**
        * A FAIXA QUE A CAMERA VE, no minimapa.
        *
@@ -6891,7 +8447,7 @@ getMinimapTransform(panelWidth, panelHeight) {
     context.fillText(
       drop.kind === "coins"
         ? String(drop.coins)
-        : (getItem(drop.itemId)?.icon ?? "â€¢"),
+        : (getItem(drop.itemId)?.icon ?? "•"),
       drop.x,
       drop.y + bob,
     );

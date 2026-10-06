@@ -22,6 +22,101 @@
    ============================================================================ */
 
 /**
+ * O NOME DE CADA BONUS, para o no da arvore mostrar.
+ *
+ * ## POR QUE ESTA TABELA E NAO O `STAT_DEFS`
+ *
+ * As chaves de bonus do motor e os ids do catalogo de stats NAO sao os
+ * mesmos, e a diferenca e do motor:
+ *
+ *   bonus do motor   id no STAT_DEFS
+ *   speed            movementSpeed
+ *   resource         maxResource
+ *
+ * O `applyEquipment` soma `bonus.speed` em `player.speed` e
+ * `bonus.resource` em `player.maxResource`, entao e com esses nomes que o
+ * no da arvore tem que entregar o bonus. O rotulo e o que o jogador le
+ * na folha de stats, e por isso os dois nomes convivem aqui
+ *
+ * ## POR QUE ESTA TABELA VIVE NO `data/guild`
+ *
+ * Porque e dado da guilda: e o nome que o bonus do talento tem quando
+ * mostrado no no. Importar o `STAT_DEFS` de `game/stats` aqui viraria um
+ * `data` dependendo de `game`, e este arquivo hoje nao importa nada — e
+ * essa e a garantia de que ele pode ser lido por qualquer um, inclusive
+ * pelo painel, sem puxar o resto do jogo
+ *
+ * O `sigla` e o que aparece no no (curto, para caber em tres colunas) e o
+ * `nome` e o que entra no `title`, que o jogador le com o mouse parado
+ * em cima. Um numero sem sigla nao diz se e vida, defesa ou velocidade —
+ * o erro mais facil de cometer numa tela cheia de numeros
+ */
+export const GUILD_BONUS_ROTULO = Object.freeze({
+  attack: { sigla: "ATK", nome: "Ataque fisico" },
+  defense: { sigla: "DEF", nome: "Defesa fisica" },
+  maxHp: { sigla: "HP", nome: "Vida maxima" },
+  speed: { sigla: "MSPD", nome: "Velocidade de movimento" },
+  resource: { sigla: "MP", nome: "Recurso maximo" },
+  resourceRegen: { sigla: "MPRG", nome: "Regeneracao de recurso" },
+  attackSpeed: { sigla: "ASPD", nome: "Velocidade de ataque" },
+});
+
+/**
+ * O NOME DE UM BONUS, ou `null` se a chave nao for conhecida.
+ *
+ * O `null` e o que impede um no de mostrar `+2 undefined`: um stat novo
+ * acrescentado ao catalogo de talentos sem passar por aqui apareceria com
+ * a sigla crua, que e pior do que nao aparecer
+ */
+export function rotuloDoBonus(stat) {
+  return GUILD_BONUS_ROTULO[stat] ?? null;
+}
+
+/**
+ * Os STATS de um no, no nivel pedido, ja com o rotulo.
+ *
+ * ## POR QUE Some E NAO MULTIPLICA
+ *
+ * O bonus do no e a soma dos degraus ate o nivel — o mesmo de
+ * `talentBonuses`, que e o que o motor aplica no personagem. Se o no
+ * mostrasse o valor de um degrau e o motor aplicasse a soma, a tela
+ * mentiria: o painel de status diria "+6 ATK" e o personagem teria
+ * outro numero
+ *
+ * E o que o jogador compara com a propria folha: o no diz o quanto a
+ * guilda esta dando, e a folha diz o quanto ele tem
+ */
+export function bonusDoNo(talentId, talentos, nivelAlvo = null) {
+  const node = getTalent(talentId);
+
+  if (!node) return [];
+
+  const nivel =
+    nivelAlvo === null ? talentNivel(talentId, talentos) : nivelAlvo;
+
+  const total = {};
+
+  for (const degrau of node.niveis.slice(0, nivel)) {
+    for (const [stat, valor] of Object.entries(degrau)) {
+      total[stat] = (total[stat] ?? 0) + valor;
+    }
+  }
+
+  return Object.entries(total)
+    .filter(([, valor]) => valor > 0)
+    .map(([stat, valor]) => {
+      const rotulo = rotuloDoBonus(stat);
+
+      return {
+        stat,
+        valor,
+        sigla: rotulo?.sigla ?? stat,
+        nome: rotulo?.nome ?? stat,
+      };
+    });
+}
+
+/**
  * Os tres papeis.
  *
  * A ordem importa: `podeGerenciar` e o que compara o indice, e o
@@ -76,6 +171,20 @@ export const GUILD_TAG_MAX = 4;
  */
 export const GUILD_MEMBROS_MAX = 40;
 export const GUILD_PEDIDOS_MAX = 30;
+
+/**
+ * QUANTOS ITENS DISTINTOS O COFRE AGUENTA.
+ *
+ * E em PILHAS, como a mochila: um material de 40 e um de 200 ocupam a
+ * mesma pilha, porque e o que a fusao do cofre faz. O que limita e o
+ * numero de slots, e nao o volume — que e o que permite o cofre guardar
+ * uma coleta inteira sem estourar
+ *
+ * O teto e generoso de proposito: um cofre que enche sozinho trava a
+ * diretoria no meio de uma campanha, e a recusa ("cofre cheio") e pior
+ * do que o item voltar para a mochila
+ */
+export const GUILD_COFRE_SLOTS_MAX = 40;
 
 /**
  * O PRECO de fundar uma guilda: **10 moedas**.
@@ -181,180 +290,542 @@ export function pontosDesde(
   };
 }
 
+
 /* ============================================================================
    3. A ARVORE DE TALENTOS
    ============================================================================ */
 
 /**
- * Os NODES da arvore.
+ * A ARVORE, em tres colunas e sete nos.
  *
- * Cada node declara o que custa, o que DA e o que exige antes. O
- * `exige` e o ID do node pai: e ele que faz a arvore ser uma arvore e
- * nao uma lista. Um node sem `exige` e a raiz do seu tier
+ * ## POR QUE UMA ARVORE E NAO UM NIVEL
  *
- * A soma dos custos e **24** — o mesmo numero do teto de pontos. E o
- * que fecha o desenho: a arvore inteira cabe nos pontos que um membro
- * junta em um dia offline, e ninguem precisa jogar 24 horas seguidas
- * para unlockar tudo
+ * Cada no e um NODULO que sobe de Nv. 0 a Nv. 5, e cada degrau paga em
+ * pontos do jogador. O no e o que da nome a progressao; o degrau e o que
+ * da ritmo
  *
- * Os bonuses sao somados como os de qualquer outra fonte, em
- * `mergeBonuses`. Um node de `attack` e um `attack` a mais para todo
- * membro, e nao para quem comprou
+ * A arvore tem TRES colunas porque e a profundidade que o desenho pede:
+ * as quatro raizes na esquerda, dois nós que dependem de DUAS raizes no
+ * meio, e um topo que depende dos dois do meio
+ *
+ * ## POR QUE UM NO EXIGE VARIOS PAIS
+ *
+ * E o que separa uma arvore de uma lista. `exige` e uma LISTA de ids, e
+ * o no so destrava quando TODOS subiram pelo menos um degrau
+ *
+ * Com um pai so, as colunas seriam quatro trilhos paralelos e o topo
+ * seria a ponta de cada um deles — quatro arvores fingindo ser uma, e o
+ * jogador escolheria um ramo e ignoraria o resto. Exigir os dois pais
+ * obriga o silencio a andar pelos dois lados, e e isso que faz a coluna
+ * do meio valer o investimento
+ *
+ * ## OS PONTOS SAO DO JOGADOR, E ISSO E O JOGO
+ *
+ * O `GUILD_PONTO_INTERVALO_MS` continua dando 1 ponto por hora a cada
+ * membro, com o teto de 24 do saldo. O gasto e do jogador que sobe o
+ * degrau, e o bonus e da guilda
+ *
+ * E por isso que um no alto custa mais caro que um baixo: o jogador
+ * escolhe onde investir primeiro, e a arvore obriga a escolher em varios
+ * lugares antes de chegar em qualquer um deles
  */
+export const GUILD_TALENT_NIVEL_MAX = 5;
+
+/**
+ * AS MARCAS de cada nivel, e elas sao ACUMULADAS.
+ *
+ * O indice e o nivel que a marca destrava: `4` e o total de pontos que
+ * o no precisa ter RECEBIDO para chegar ao Nv. 1, `10` para o Nv. 2, e
+ * assim por diante. Nao sao custos de degrau — sa a cumulo
+ *
+ * ## POR QUE UM PONTO POR CLIQUE, E NAO UM PRECO POR DEGRAU
+ *
+ * E o que foi pedido, e muda o que a barra significa. Com um preco por
+ * degrau, o clique e uma compra: o jogador precisa ter o saldo inteiro,
+ * ve um numero secreto e decide. Com um ponto por clique, o clique e uma
+ * contribuicao: o no enche um ponto de cada vez, e a barra sobe junto
+ *
+ * Isso e o que torna a barra HONESTA. Antes ela comparava o saldo do
+ * jogador com o custo do degrau — e com 24 pontos e um degrau de 4, os
+ * sete nos mostravam 100% ao mesmo tempo, sem nada considerado
+ *
+ * ## POR QUE ACUMULADO E NAO ZERADO A CADA NIVEL
+ *
+ * Se o no zerasse ao subir de nivel, o jogador veria a barra pular de
+ * 100% para 0% e comecar de novo, e a leitura seria "falta tudo de novo"
+ * logo depois de ter conquistado alguma coisa
+ *
+ * Com a marca acumulada, o no guarda o que ele recebeu e a barra sobe de
+ * onde parou. O Nv. 2 e a MESMA barra que ja estava quase cheia, e nao
+ * uma barra nova
+ *
+ * ## POR QUE A CURVA
+ *
+ * `4, 10, 18, 28, 40` sao degraus de 4, 6, 8, 10 e 12 pontos. O
+ * primeiro nivel chega rapido — dois cliques e o jogador ve bonus no
+ * personagem —, e o ultimo custa mais que a arvore inteira de uma raiz
+ * custava antes. E o que faz o topo da Expedicao ser uma meta de dias,
+ * e nao um item de um fim de semana
+ */
+export const GUILD_TALENT_MARCAS = Object.freeze([4, 10, 18, 28, 40]);
+
+/**
+ * O CUSTO DE UM CLIQUE, e ele e SEMPRE 1.
+ *
+ * Named para o servidor nao repetir o numero magico em tres lugares: o
+ * que o painel manda, o que o store desconta e o que a mensagem de
+ * recusa promete tem de ser o mesmo numero
+ */
+export const GUILD_TALENT_POR_CLIQUE = 1;
+
+/**
+ * Os nos da arvore, em ordem de leitura: coluna, e dentro dela de cima
+ * para baixo
+ *
+ * Cada `niveis` traz o bonus do DEGRAU, e nao o total: o bonus de um no
+ * e a soma dos degraus ate ele. Assim subir e somar, e nao reescrever o
+ * numero inteiro do no — que e o que faz o nivel 3 valer 18 e nao 18
+ * de novo
+ *
+ * Todo stat aqui e um que o `applyEquipment` consome de verdade: `attack`,
+ * `defense`, `speed`, `maxHp`, `resource` e `resourceRegen`. Um stat
+ * inventado seria um no que sobe, brilha e nao muda nada
+ *
+ * ## SEM `custo` E SEM `exige` DE NUMERO
+ *
+ * O custo de um no esta em `GUILD_TALENT_MARCAS` e e o mesmo para todos:
+ * e o accumulate que diferencia, nao a tabela. O que cada no declara de
+ * diferente e so `exige`, a lista de pais, que e o que faz a arvore ser
+ * uma arvore
+ */
+
 export const GUILD_TALENTS = Object.freeze([
-  /* --- tier 1: as raizes. Um ponto cada, e os quatro sao faceis --- */
+  /* ---------------- coluna 1: as quatro raizes ---------------- */
+
   {
-    id: "mao_leve",
-    nome: "Mao Leve",
-    custo: 1,
-    tier: 1,
-    exige: null,
-    descricao: "+3 de ataque",
-    bonus: { attack: 3 },
+    id: "salao_artes_marcais",
+    nome: "Salao das Artes Marciais",
+    coluna: 1,
+    exige: [],
+    descricao: "Treino dos lutadores da clã",
+    icone: "⚔",
+
+    /**
+     * O ADEQUAMENTO de ataque, e nao um ataque de valor fixo.
+     *
+     * Sobe mais nas bordas do que no meio (2, 4, 7, 10, 14) porque o
+     * primeiro degrau compra "o grupo ja treina", e o quinto compra "o
+     * grupo treina melhor que os outros". A curva diz o que o degrau
+     * comprou, e o flat nao diria
+     */
+    niveis: [
+      { attack: 2 },
+      { attack: 4 },
+      { attack: 7 },
+      { attack: 10 },
+      { attack: 14 },
+    ],
   },
   {
-    id: "pele_dura",
-    nome: "Pele Dura",
-    custo: 1,
-    tier: 1,
-    exige: null,
-    descricao: "+6 de defesa",
-    bonus: { defense: 6 },
+    id: "cofre_clan",
+    nome: "Cofre da Clan",
+    coluna: 1,
+    exige: [],
+    descricao: "O tesouro que a clan guarda",
+    icone: "◈",
+
+    /**
+     * A `resource` e o MANTER do recurso da classe, e nao a bolsa grande:
+     * o cofre enche o que o guerreiro carrega. `resourceRegen` entra
+     * junto nos degraus altos, porque um cofre cheio que nao se repõe
+     * e um cofre que seca
+     */
+    niveis: [
+      { resource: 4 },
+      { resource: 8, resourceRegen: 1 },
+      { resource: 13, resourceRegen: 2 },
+      { resource: 19, resourceRegen: 3 },
+      { resource: 26, resourceRegen: 5 },
+    ],
   },
   {
-    id: "passo_leve",
-    nome: "Passo Leve",
-    custo: 1,
-    tier: 1,
-    exige: null,
-    descricao: "+3 de velocidade",
-    bonus: { speed: 3 },
+    id: "acumulo_energia",
+    nome: "Acumulo de Energia",
+    coluna: 1,
+    exige: [],
+    descricao: "A forca que a clan junta e guarda",
+    icone: "◉",
+
+    /**
+     * A REGENERACAO, e e o no de ritmo: ele nao aumenta o quanto o
+     * jogador tem, e o quao depressa volta. Por isso e a raiz que mais
+     * rende no primeiro degrau — quem so joga de longe sente a diferenca
+     * antes de qualquer outro
+     */
+    niveis: [
+      { resourceRegen: 2 },
+      { resourceRegen: 4 },
+      { resourceRegen: 7, speed: 2 },
+      { resourceRegen: 10, speed: 4 },
+      { resourceRegen: 14, speed: 7 },
+    ],
   },
   {
-    id: "folego",
-    nome: "Folego",
-    custo: 1,
-    tier: 1,
-    exige: null,
-    descricao: "+20 de vida",
-    bonus: { maxHp: 20 },
+    id: "armazem_clan",
+    nome: "Armazem da Clan",
+    coluna: 1,
+    exige: [],
+    descricao: "A guarda que sustenta o Lager",
+    icone: "▤",
+
+    niveis: [
+      { defense: 3 },
+      { defense: 6 },
+      { defense: 10 },
+      { defense: 15 },
+      { defense: 21 },
+    ],
   },
 
-  /* --- tier 2: depends de uma raiz. Tres pontos cada --- */
+  /* ---------------- coluna 2: os dois do meio ---------------- */
+
   {
-    id: "golpe_duplo",
-    nome: "Golpe Duplo",
-    custo: 3,
-    tier: 2,
-    exige: "mao_leve",
-    descricao: "+9 de ataque",
-    bonus: { attack: 9 },
+    id: "rejuvenescimento_guerreiro",
+    nome: "Rejuvenescimento do Guerreiro",
+    coluna: 2,
+
+    /**
+     * DOIS PAIS, e nao um.
+     *
+     * E o no que faz a coluna do meio valer o investimento: ele so
+     * existe para quem subiu o Salao E o Cofre. Quem investe so num
+     * ramo chega no meio e trava, e o jogo diz que a vida depende do
+     * ataque e do recurso de uma vez
+     */
+    exige: ["salao_artes_marcais", "cofre_clan"],
+    descricao: "A vida do guerreiro se renova",
+    icone: "❤",
+
+    niveis: [
+      { maxHp: 20 },
+      { maxHp: 45 },
+      { maxHp: 75 },
+      { maxHp: 110 },
+      { maxHp: 150 },
+    ],
   },
   {
-    id: "couro_reforcado",
-    nome: "Couro Reforcado",
-    custo: 3,
-    tier: 2,
-    exige: "pele_dura",
-    descricao: "+18 de defesa",
-    bonus: { defense: 18 },
-  },
-  {
-    id: "corrida",
-    nome: "Corrida",
-    custo: 3,
-    tier: 2,
-    exige: "passo_leve",
-    descricao: "+9 de velocidade",
-    bonus: { speed: 9 },
-  },
-  {
-    id: "segunda_pele",
-    nome: "Segunda Pele",
-    custo: 3,
-    tier: 2,
-    exige: "folego",
-    descricao: "+60 de vida",
-    bonus: { maxHp: 60 },
+    id: "deposito_comercio",
+    nome: "Deposito de Comercio",
+    coluna: 2,
+    exige: ["acumulo_energia", "armazem_clan"],
+    descricao: "As compras da clan ficam mais baratas",
+    icone: "⇄",
+
+    niveis: [
+      { speed: 3 },
+      { speed: 6 },
+      { speed: 10, defense: 5 },
+      { speed: 15, defense: 9 },
+      { speed: 21, defense: 14 },
+    ],
   },
 
-  /* --- tier 3: o topo. Custa o que resta da arvore --- */
+  /* ---------------- coluna 3: o topo ---------------- */
+
   {
-    id: "lemao",
-    nome: "Leao",
-    custo: 4,
-    tier: 3,
-    exige: "golpe_duplo",
-    descricao: "+30 de ataque",
-    bonus: { attack: 30 },
-  },
-  {
-    id: "muralha",
-    nome: "Muralha",
-    custo: 4,
-    tier: 3,
-    exige: "couro_reforcado",
-    descricao: "+60 de defesa",
-    bonus: { defense: 60 },
+    id: "expedicao",
+    nome: "Expedicao",
+    coluna: 3,
+
+    /**
+     * O TOPO, e ele exige os DOIS nos do meio.
+     *
+     * E o no mais caro da arvore inteira e o unico que mexe em todo
+     * stat de uma vez. Quem chega ate aqui subiu as quatro raizes e os
+     * dois meios, e o bonus e a soma do caminho todo
+     */
+    exige: ["rejuvenescimento_guerreiro", "deposito_comercio"],
+    descricao: "A clan marcha para fora",
+    icone: "✦",
+
+    niveis: [
+      { attack: 8, defense: 8, maxHp: 40 },
+      { attack: 18, defense: 18, maxHp: 90 },
+      { attack: 31, defense: 31, maxHp: 150 },
+      { attack: 47, defense: 47, maxHp: 220 },
+      { attack: 66, defense: 66, maxHp: 300 },
+    ],
   },
 ]);
 
-/** o custo de destravar a arvore inteira */
-export const GUILD_TALENT_CUSTO_TOTAL = GUILD_TALENTS.reduce(
-  (total, node) => total + node.custo,
-  0,
-);
+/**
+ * OS PONTOS DE SUBIR A ARVORE INTEIRA.
+ *
+ * Sete nos, e a marca do topo de cada um: `40` por no, `280` no total.
+ * Nao e um orcamento que o jogador ve — ele nao sabe os numeros, e e
+ * esse o ponto. Fica aqui para quem quiser conferir o balanceamento sem
+ * abrir a tela
+ *
+ * E o total de CLIQUES, nao de pontos por hora: com um ponto por clique,
+ * subir a arvore toda sao 280 cliques. Com o saldo travado em 24, sao as
+ * horas de jogo do grupo — e nao um numero que o jogador possa gastar de
+ * uma vez
+ */
+export const GUILD_TALENT_CUSTO_TOTAL =
+  GUILD_TALENTS.length *
+  GUILD_TALENT_MARCAS[GUILD_TALENT_MARCAS.length - 1];
 
-const TALENT_POR_ID = new Map(
-  GUILD_TALENTS.map((node) => [node.id, node]),
-);
-
-/** o node de um id, ou `null` */
+/**
+ * O NO DE UM ID.
+ *
+ * Uma lista no lugar de um `Map` porque sao sete: sete nos e uma busca
+ * linear e mais rapida que montar o indice, e o `Map` custaria uma
+ * linha de estado a mais para nada
+ */
 export function getTalent(id) {
-  return TALENT_POR_ID.get(id) ?? null;
+  return GUILD_TALENTS.find((node) => node.id === id) ?? null;
 }
 
-/** o node pode ser destravado com os talents ja abertos? */
-export function talentDisponivel(talentId, TalentosAbertos) {
+/**
+ * OS PONTOS QUE UM NO JA RECEBEU.
+ *
+ * ## O QUE O MAP GUARDA AGORA
+ *
+ * O valor e o TOTAL de pontos atribuido ao no, e nao o nivel. Sao duas
+ * coisas que antes eram o mesmo numero e hoje nao podem ser:
+ *
+ *   - o nivel e DERIVADO dos pontos, pelas marcas
+ *   - os pontos nao voltam a zero quando o no sobe
+ *
+ * Guardar so o nivel perderia a barra: com o nivel no `Map`, a porcentagem
+ * teria de ser calculada a partir de uma diferenca entre nivel e nivel, e
+ * no nivel 0 nao haveria de onde tirar. Guardar so os pontos resolve, e
+ * deixa um numero por no em vez de um numero e uma regra
+ *
+ * Aceita o `Set` do desenho anterior (ids ligados) como 1 ponto, para uma
+ * guilda vinda do formato velho nao aparecer com a barra zerada depois de
+ * ter comprado algo. `undefined` nos dois formatos e zero
+ */
+export function talentPontos(talentId, talentos) {
+  const bruto = talentos instanceof Map
+    ? talentos.get(talentId)
+    : talentos?.has?.(talentId)
+      ? 1
+      : 0;
+
+  return Math.max(0, Number(bruto) || 0);
+}
+
+/**
+ * EM QUE NIVEL ESTA UM NO.
+ *
+ * A conta e "quantas marcas ja foram ultrapassadas": com 12 pontos e
+ * marcas 4, 10, 18, 28, 40, o no passou duas e esta no Nv. 2
+ *
+ * O `reduce` conta as marcas e nao faz `Math.floor(pontos / marca)` —
+ * dividir pela marca daria nivel 3 para quem tem 12 pontos, porque 12 / 4
+ * e 3, e quem tem 12 pontos so passou a marca do Nv. 1 e a do Nv. 2
+ */
+export function talentNivel(talentId, talentos) {
+  const pontos = talentPontos(talentId, talentos);
+
+  let nivel = 0;
+
+  for (const marca of GUILD_TALENT_MARCAS) {
+    if (pontos < marca) break;
+
+    nivel += 1;
+  }
+
+  return Math.min(nivel, GUILD_TALENT_NIVEL_MAX);
+}
+
+/**
+ * A MARCA DO PROXIMO NIVEL, ou `null` se o no ja esta no topo.
+ *
+ * O numero que a tela NAO mostra. A funcao e publica porque o store e o
+ * servidor precisam dela — esconder o valor no painel nao e o mesmo que
+ * esconder a regra
+ */
+export function talentMarcaDoProximo(talentId, talentos) {
+  const nivel = talentNivel(talentId, talentos);
+
+  if (nivel >= GUILD_TALENT_NIVEL_MAX) return null;
+
+  return GUILD_TALENT_MARCAS[nivel];
+}
+
+/**
+ * OS PAIS JA SUBIRAM?
+ *
+ * E o que trava um no do meio enquanto a raiz correspondente estiver no
+ * Nv. 0. Um degrau basta: subir a raiz UMA vez ja destrava o acesso ao
+ * filho, e o resto do investimento no filho e escolha de quem joga
+ */
+export function talentPodeSubir(talentId, talentos) {
   const node = getTalent(talentId);
 
   if (!node) return false;
 
-  if (TalentosAbertos.has(talentId)) return false;
-
-  if (!node.exige) return true;
-
-  return TalentosAbertos.has(node.exige);
+  return (node.exige ?? []).every(
+    (paiId) => talentNivel(paiId, talentos) > 0,
+  );
 }
 
 /**
- * Os bonuses somados dos talents abertos.
+ * O no esta no maximo? Nao da para atribuir nem para subir.
+ */
+export function talentNoMaximo(talentId, talentos) {
+  return talentNivel(talentId, talentos) >= GUILD_TALENT_NIVEL_MAX;
+}
+
+/**
+ * TUDO QUE A TELA PRECISA SABER DE UM NO, num objeto so.
+ *
+ * ## POR QUE NAO SAI DAQUI O NUMERO DA MARCA
+ *
+ * Porque o pedido e o numero ficar oculto. Esta funcao e o unico lugar
+ * que monta o que viaja no socket, entao e aqui que a marca e
+ * deliberadamente omitida: mandar `marca` seria o painel voltar a
+ * mostrar, e o `GameClient` guarda o payload inteiro no `amostra`
+ *
+ * ## A PORCENTAGEM E DO PROPRIO NO
+ *
+ * E o ponto que estava errado. A conta e `pontos DESTE no / marca do
+ * proximo nivel`, e nao `saldo do jogador / custo do degrau`. Com 24
+ * pontos no bolso e um degrau de 4, a conta antiga dava 600% — saturado,
+ * 100% — nos sete nos ao mesmo tempo, sem nada considerado
+ *
+ * Agora comeca em 0% e sobe um ponto por clique, que e o que o jogador
+ * ve happening
+ *
+ * E o `100` e o no MAXIMO, com a `marca` em `null`. O painel precisa
+ * distinguir "voce chegou" de "falta um clique", e e a unica coisa que
+ * os dois se confundem
+ */
+export function talentProgresso(talentId, talentos, pontos = 0) {
+  const node = getTalent(talentId);
+
+  if (!node) return null;
+
+  const doNo = talentPontos(talentId, talentos);
+
+  const nivel = talentNivel(talentId, talentos);
+
+  const marca = talentMarcaDoProximo(talentId, talentos);
+
+  const noMaximo = marca === null;
+
+  /**
+   * A PORCENTAGEM sobe por MARCA, e nao por ponto.
+   *
+   * Comparar `doNo / marca` daria 33% com 1 ponto e 50% com 2, quando o
+   * primeiro nivel so chega em 4. A divisao e pelo quanto falta para a
+   * marca inteira, que e o que a barra representa de verdade: um no a
+   * um ponto do Nv. 1 e um no a um ponto do Nv. 4 estao em posicoes
+   * diferentes, e a barra precisa mostrar isso
+   */
+  const anterior = nivel === 0 ? 0 : GUILD_TALENT_MARCAS[nivel - 1];
+
+  const percentual = noMaximo
+    ? 100
+    : Math.max(
+        0,
+        Math.min(
+          100,
+          Math.floor(((doNo - anterior) / (marca - anterior)) * 100),
+        ),
+      );
+
+  return {
+    id: node.id,
+    nome: node.nome,
+    icone: node.icone,
+    coluna: node.coluna,
+    exige: node.exige ?? [],
+    descricao: node.descricao,
+    nivel,
+    nivelMax: GUILD_TALENT_NIVEL_MAX,
+    noMaximo,
+    percentual,
+
+    /**
+     * O QUE O NO JA DA, e o QUE O PROXIMO NIVEL VAI SOMAR.
+     *
+     * Os dois vao no payload porque nenhum dos dois e o numero secreto:
+     * o segredo e a MARCA (quantos pontos faltam para subir), e nao o
+     * premio. Um jogador que descobre que o Nv. 3 da +30 ATK e leveling
+     *indo e subir o no — o que ele nao pode e escolher o caminho pelo
+     * menor numero de clique, e para isso o que some e a marca
+     *
+     * `bonus` e o TOTAL do nivel alcancado, que e o mesmo numero que o
+     * `applyEquipment` vai somar no personagem. `proximo` e o que
+     * aquele clique que vai subir o nivel entrega — e e a informacao que
+     * decide se vale a pena esperar aquele ponto
+     *
+     * Os dois vao vazios no Nv. 0, e e honesto: um no que ainda nao
+     * subiu nao da nada, e mostrar "+2 ATK" num no em 0% seria uma
+     * promessa que o painel de status nao confirmaria
+     */
+    bonus: bonusDoNo(talentId, talentos, nivel),
+    proximo: noMaximo
+      ? []
+      : bonusDoNo(talentId, talentos, nivel + 1).map((s) => {
+          const antes = bonusDoNo(talentId, talentos, nivel);
+
+          const base = antes.find((b) => b.stat === s.stat)?.valor ?? 0;
+
+          return { ...s, valor: s.valor - base };
+        }),
+
+    /**
+     * O `podeAtribuir` e o estado do TRANCAMENTO, e nao do saldo: e o que
+     * responde "falta subir o pai?". O saldo e `temPontos`, que e outra
+     * pergunta — o painel precisa das duas separadas, porque o no pode
+     * estar destravado e o jogador ainda assim nao ter ponto nenhum (caso
+     * em que o botao fica desligado sem o no parecer trancado)
+     */
+    podeAtribuir: talentPodeSubir(talentId, talentos),
+    temPontos: (pontos ?? 0) >= GUILD_TALENT_POR_CLIQUE,
+  };
+}
+
+/**
+ * Os BONUSES somados dos nos que a guilda subiu.
  *
  * A MESMA forma que `mergeBonuses` consome, e por isso que o motor
  * recebe como mais um termo, e nao um `if` so para guilda
  *
- * Nao ha estado aqui: quem guarda quais talents estao abertos e o
+ * ## POR QUE Some OS DEGRAUS E NAO MULTIPLICA PELO NIVEL
+ *
+ * O `Map` guarda os PONTOS de cada no, e o nivel sai das marcas. O bonus
+ * e a soma dos degraus ate o nivel alcancado — o mesmo de sempre, e a
+ * arvore inteira de bonus continua vindo do catalogo, nunca do disco
+ *
+ * Nao ha estado aqui: quem guarda quantos pontos cada no recebeu e o
  * store, porque essa lista e por guilda e muda no servidor
  */
-export function talentBonuses(talentIds) {
+export function talentBonuses(talentos) {
   const bonus = {};
 
-  for (const id of talentIds) {
-    const node = getTalent(id);
+  for (const [talentId, pontos] of talentos ?? []) {
+    const node = getTalent(talentId);
 
     if (!node) continue;
 
-    for (const [stat, valor] of Object.entries(node.bonus)) {
-      bonus[stat] = (bonus[stat] ?? 0) + valor;
+    const nivel = talentNivel(talentId, talentos);
+
+    for (const degrau of node.niveis.slice(0, nivel)) {
+      for (const [stat, valor] of Object.entries(degrau)) {
+        bonus[stat] = (bonus[stat] ?? 0) + valor;
+      }
     }
   }
 
   return bonus;
 }
 
-/* ============================================================================
-   5. OS MOTIVOS DE RECUSA
-   ============================================================================ */
 
 /**
  * As recusas, em portugues.
@@ -383,9 +854,37 @@ export const GUILD_MENSAGEM = Object.freeze({
   alvoEhLider: "O lider nao pode virar co-lider.",
   liderTemQuePassar: "Passe o cargo ou dissolva a guilda.",
   talentNaoExiste: "Esse talento nao existe.",
-  jaDestraulado: "Esse talento ja foi destravado.",
-  exigePai: "Destrave o talento anterior primeiro.",
-  pontosInsuficientes: "Voce nao tem pontos suficientes.",
+  talentNoMaximo: "Esse talento ja esta no nivel maximo.",
+  exigePai: "Suba o talento que vem antes primeiro.",
+
+  /**
+   * O JOGADOR NAO TEM PONTO NENHUM.
+   *
+   * A mensagem NAO diz quantos pontos o degrau custa — o numero e
+   * segredo, e recusa-lo aqui entregaria pela metade de tras do painel.
+   * O jogador ve a porcentagem no no e sabe que precisa esperar; o que
+   * ele precisa e a REGRA ("sem pontos"), nao a conta
+   *
+   * E o texto e curto de proposito: um clique custa 1 ponto, entao
+   * "pontos insuficientes" seria a mesma informacao em duas palavras
+   */
+  pontosInsuficientes: "Voce nao tem ponto para atribuir ainda.",
+
+  /**
+   * As recusas do COFRE.
+   *
+   * Cada uma diz o que fazer, e nao so o que deu errado. "Cofre cheio"
+   * sozinho deixa o jogador sem saber se ele precisa tirar algo antes ou
+   * se simplesmente nao cabe mais — e a diferenca entre uma acao e um
+   * beco sem saida
+   */
+  cofreInvalido: "O cofre nao aceitou esse pedido.",
+  cofreCheio:
+    "O cofre esta cheio de itens. Tire alguma coisa antes de guardar mais.",
+  cofreSemMoedas: "O cofre nao tem essa quantidade de moedas.",
+  cofreSemItem: "O cofre nao tem esse item.",
+  mocheiraCheia:
+    "Sua mochila esta cheia. Tire alguma coisa antes de retirar.",
 
   /**
    * Faltam moedas para a TAXA.
@@ -461,3 +960,4 @@ export function normalizarTag(tag) {
 export function chaveDeBusca(texto) {
   return normalizarNome(texto).replace(/\s+/g, "");
 }
+

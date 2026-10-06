@@ -51,6 +51,74 @@ export const ARBUSTO_SHEET = new URL(
   import.meta.url,
 ).href;
 
+/**
+ * O ARBUSTO DO MAPA 2, que e uma sebe de neve com folha vermelha.
+ *
+ * ## POR QUE EXISTE UM ARQUIVO REDUZIDO
+ *
+ * A arte original (`arbusto-vermelho-neve.png`, 1600x1600) e a MATERIA
+ * PRIMA, e nao pode ser desenhada direto: o `PROP_TYPES.arbusto` recorta
+ * uma celula de `frameWidth` x `frameHeight` a partir do canto superior
+ * esquerdo, e numa arte de 1600px esse canto e MARGEM TRANSPARENTE —
+ * o arbusto saia invisivel
+ *
+ * O mesmo caminho que o arbusto do vale e a arvore ja usavam: cortar a
+ * caixa opaca e reduzir para o tamanho do jogo. O original continua
+ * intacto para quem quiser regerar
+ *
+ * ## O MESMO TAMANHO DO ARBUSTO DO VALE
+ *
+ * 67x65, e nao o tamanho proprio da arte. A sebe e uma fileira de props
+ * com o mesmo `y`, e `base: 1` apoia o pe do arbusto nesse ponto: com
+ * dois tamanhos diferentes, a fileira do mapa 2 ficaria desalinhada da
+ * do mapa 1 e a silhueta da cerca mudaria de proporcao
+ */
+export const ARBUSTO_NEVE_SHEET = new URL(
+  "../../assets/props/arbusto_neve_prop.png",
+  import.meta.url,
+).href;
+
+/**
+ * A FOLHA DE CADA TIPO, POR MAPA.
+ *
+ * A chave e o mapa; o que nao estiver aqui usa a folha do `PROP_TYPES`.
+ * O arbusto e o unico tipo com duas artes no projeto — o do vale e o
+ * de neve — e o mapeamento fica no dado, junto do resto do catalogo
+ * de props, e nao espalhado no renderer
+ */
+export const PROP_SHEET_POR_MAPA = {
+  map_2: {
+    arbusto: ARBUSTO_NEVE_SHEET,
+  },
+};
+
+/** A folha deste tipo NESTE mapa. Cai na do catalogo sem declaracao. */
+export function propSheetFor(typeId, map) {
+  return (
+    PROP_SHEET_POR_MAPA[map?.id]?.[typeId] ??
+    PROP_TYPES[typeId]?.sheet ??
+    null
+  );
+}
+
+/**
+ * OS TIPOS QUE NAO DESENHAM SOMBRA NESTE MAPA.
+ *
+ * A sombra no chao e uma elipse preta fixa. Na neve ela vira uma mancha
+ * que nao segue a luz do cenario e denuncia o que e arte sobre o que e
+ * chao — o arbusto e a arvore do mapa 2 ficam sem ela
+ *
+ * E por TIPO e nao "o mapa inteiro sem sombra": pedra e toco continuam
+ * com a sombra, que e o que da assentamento ao resto do cenario
+ */
+export function propSemSombra(typeId, map) {
+  const semSombra = map?.propsSemSombra;
+
+  if (!Array.isArray(semSombra)) return false;
+
+  return semSombra.includes(typeId);
+}
+
 export const PROP_TYPES = {
   /**
    * O ARBUSTO DA SEBE: a props que segura o jogador dentro dos campos.

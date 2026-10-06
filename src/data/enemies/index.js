@@ -448,6 +448,158 @@ export const CREATURE_TYPES = {
       ],
     }),
   },
+
+  /**
+   * O HULK: o CHEFE DA ARENA.
+   *
+   * ## POR QUE ELE FICA LONGE DA ESCADA
+   *
+   * A `scaleForLevel` de todo bicho cresce com o nivel, e o `ogre` — o
+   * mais forte do vale — chega ao Nv. 12 com 260 de HP. Um `level: 20`
+   * aqui passaria por `steps = 20 - 8 = 12` degraus de crescimento, e o
+   * numero saeria de uma conta que nao foi feita para um chefe
+   *
+   * Por isso os numeros deste sao ESCOLHIDOS, e nao derivados: o `level`
+   * e 20 porque e o que o bestiario e a tela de status vao mostrar, e o
+   * `maxHp` e o que faz a luta do jeito que ela foi desenhada
+   *
+   * ## OS NUMEROS, E POR QUE CADA UM
+   *
+   * O `maxHp` de 9000 e o que faz o chefe ser uma luta e nao um
+   * obstaculo. Contra o HP do jogador no fim do mapa 2, sao ~200 golpes
+   * de um jogador sozinho — e o numero de um alvo que a PARTY precisa
+   * derrubar em conjunto, que e para isso que o botao da arena e livre
+   * e o jogo empurra todo mundo para dentro
+   *
+   * O `defense` de 60 e a metade do que o golpe mais forte da campanha
+   * tira depois da mitigacao. Sem ele, qualquer golpe positivo do Nv. 1
+   * seria visivel no chefe e o numero "450 de dano" pareceria bug
+   *
+   * O `damage` de 260 e o que dá peso ao golpe: mata um jogador de
+   * Nv. 20 em tres golpes sem armadura. E de proposito que a arena seja
+   * perigosa — ela e o lugar mais difícil do jogo
+   */
+  hulk: {
+    id: "hulk",
+    name: "Hulk",
+    behavior: BEHAVIOR.ACTIVE,
+
+    /**
+     * O NIVEL E 20, que e o topo do jogo hoje.
+     *
+     * O topo do mapa 2 e o degrau 24, e um chefe de Nv. 20 fica abaixo
+     * dele de proposito: ele e para ser facedo por quem chegou ate la, e
+     * nao para ser o ultima coisa que um jogador novo encontra
+     */
+    level: 20,
+    maxHp: 9000,
+    defense: 60,
+
+    /**
+     * O RAIO E 46, e nao 32 do ogre.
+     *
+     * E o maior do jogo e precisa ocupar o chao. O `radius` e o que o
+     * colisor usa para barrar o jogador e o que o golpe dele mede, e um
+     * chefe com raio de bicho pequeno pareceria um mob grande — que e
+     * leitura de dificuldade errada
+     */
+    radius: 46,
+
+    /**
+     * A VELOCIDADE E 93, e a mais alta do jogo.
+     *
+     * Antes era 62, a mais baixa de um `ACTIVE`, escolhida para a luta
+     * ser de posicao. O pedido foi o oposto: 1,5x mais rapido, e 62 x 1,5
+     * da 93. Isso coloca o chefe acima do ogre, que corre a 92
+     *
+     * A consequencia e de design e vale saber: com o dobro do desenho
+     * (136px) e 93 de velocidade, o Hulk fecha a arena em poucos
+     * segundos e a fuga deixa de ser uma opcao tao boa quanto era. A
+     * `wanderRadius` curta e o `leash` curto continuam sendo o que segura
+     * ele perto do centro
+     */
+    speed: 93,
+
+    damage: 260,
+
+    /**
+     * O ALCANCE E 96, e nao os 78 do ogre.
+     *
+     * E maior que o ogre DE PROPÓSITO: com o `radius` de 46, o golpe tem
+     * que alcancar da borda do chefe, e nao do centro. Um alcance curto
+     * aqui faria o golpe passar "dentro" do desenho do chefe, e o dano
+     * sairia de um lugar que o jogador nao ve
+     */
+    attackRange: 96,
+
+    /**
+     * O AGGRO E 520, e o MAIOR do jogo.
+     *
+     * O jogador entra na arena pelo MEIO e o chefe esta no MEIO tambem:
+     * nao ha como entrar andando e chegar perto sem entrar na zona. Com
+     * um `aggroRange` pequeno o chefe ficaria parado ate o jogador ir
+     * ate ele, e uma arena sem ameaca e so um patio
+     */
+    aggroRange: 520,
+
+    /**
+     * O LEASH E DA ARENA INTEIRA.
+     *
+     * O limite do `clampToBounds` circular e mais apertado que os 1000 do
+     * ogre, e um `leash` de 1200 deixa o chefe percorrer a arena sem
+     * tentar sair dela — o que faria o `EnemyAI` puxa-lo de volta pelo
+     * mapa inteiro, atravessando o limite enquanto volta
+     */
+    leash: 1200,
+
+    attackCooldown: 2.2,
+
+    /**
+     * A ESCALA E 2, E ESTE CAMPO NAO E O QUE DESENHA.
+     *
+     * O desenho do chefe sai do `scale` do layout, em
+     * `src/data/sprites/enemyLayout.js` (`HULK_SCALE`), e nao deste
+     * numero. Este campo fica aqui como o valor DECLARADO do tamanho,
+     * para o catalogo e o layout contarem a mesma historia — mas se os
+     * dois divergirem, quem manda na tela e o layout
+     *
+     * Antes este numero era 2.6 e nao fazia nada: o chefe saia em 68px,
+     * metade do jogador. O 2 de agora e o que o desenho assume, e o
+     * dobro do goblin
+     */
+    spriteScale: 2,
+
+    /**
+     * O PASSEIO E CURTO E DEVAGAR.
+     *
+     * O chefe fica perto do centro: ele e o guardian de um lugar, e
+     * passear pela arena inteira seria o jogador o caçando, que e o
+     * inverso da luta
+     */
+    wanderRadius: 70,
+    wanderSpeed: 33,
+
+    /**
+     * A COR E O VERMELHO DE PERIGO.
+     *
+     * A mesma que o painel da morte e o botao de sair da arena usam. E
+     * a cor que o projeto ja reserva para "voce esta em perigo", e um
+     * chefe nao pode ser verde de "bicho comum" nem dourado de
+     * "recompensa"
+     */
+    color: "#c8403a",
+
+    loot: applyDropScaling({
+      coins: { min: 400, max: 900 },
+      itemChance: 1,
+      maxItems: 3,
+      items: [
+        { id: "ogre_hide", weight: 60 },
+        { id: "ogre_pebble", weight: 30 },
+        { id: "skeleton_bone", weight: 10 },
+      ],
+    }),
+  },
 };
 
 /**

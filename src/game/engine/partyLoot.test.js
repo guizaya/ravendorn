@@ -9,23 +9,31 @@ import { PartyStore } from "../../../server/src/domain/PartyStore.js";
 /**
  * A DIVISAO DE LOOT DA PARTY.
  *
- * ## AS TRES REGRAS QUE O PEDIDO FAZ
+ * ## AS REGRAS QUE O PEDIDO FAZ
  *
  * - MISSAO: o mob que um matou conta na missao do outro, INTEIRO
- * - OURO e XP: divididos entre quem esta na party
- * - ITEM: sorteado para UM so membro
+ * - OURO e XP: divididos entre quem esta na party E NO MESMO CAMPO
+ * - ITEM e MATERIAL: vao para quem deu o last hit, sem sorteio
+ *
+ * ## QUEM ENTRA NA DIVISAO
+ *
+ * Estar na party nao basta. O membro divide quando esta no mesmo mapa,
+ * dentro do alcance do agro (`ACTIVE_RANGE`) do mob e vivo. Um parceiro
+ * a 4km, ou em outro mapa, continua na party — aparece na caixa e
+ * recebe convite — mas nao divide o abate
  *
  * ## POR QUE A MISSAO NAO E DIVIDIDA
  *
  * Dividir a barra por dois faria a missao levar o dobro de tempo so por
- * estar acompanhado. O jogadorCompanheiro nao deveria ser um obstaculo
+ * estar acompanhado. O jogador companheiro nao deveria ser um obstaculo
  *
- * ## POR QUE O ITEM NAO E DIVIDIDO
+ * ## POR QUE O ITEM VAI PARA O DONO DO LAST HIT
  *
- * Um item por abate, sorteado entre os membros. Sortear um por membro
- * faria tres itens cairem em tres gente, e a party viraria uma maquina
- * de multiplicar loot
+ * Um item por abate, e para quem zerou o HP do mob. Sortear entre o
+ * grupo daria ao dono a chance de perder o loot que ele mesmo matou, e
+ * o "last hit" deixaria de valer alguma coisa
  */
+
 
 const classe = CHARACTER_CLASSES.find((c) => c.id === "warrior");
 
@@ -60,28 +68,56 @@ function montarParty(membros) {
   return { engine, store };
 }
 
+/**
+ * Um mob EM CIMA do jogador, e nao numa coordenada solta.
+ *
+ * A divisao e por proximity: o parceiro precisa estar no alcance do agro
+ * do mob. Um mob a 2000px do jogador e um mob que ninguem esta
+ * farmando, mesmo que o `handleKill` receba o|lastHit`
+ */
+function mobNoJogador(engine, tipo, nivel, sessionId = null) {
+  const sessao = sessionId
+    ? engine.world.players.get(sessionId)
+    : [...engine.world.players.values()][0];
+
+  const mob = createCreature(
+    tipo,
+    { x: sessao.player.x + 60, y: sessao.player.y },
+    0,
+    nivel,
+  );
+
+  mob.alive = true;
+
+  engine.world.enemies.push(mob);
+
+  return mob;
+}
+
+/** Liga os membros na mesma party, sem passar pelo convite. */
+function amarrar(store, partyId, nomes) {
+  const party = { id: partyId, membros: new Set(nomes.map((n) => `p_${n}`)) };
+
+  store.parties.set(party.id, party);
+
+  for (const nome of nomes) {
+    store.partyPorSessao.set(`p_${nome}`, party.id);
+  }
+
+  return party;
+}
+
 describe("o abate da party", () => {
   it("a missao conta para os DOIS, inteiro", () => {
     const { engine, store } = montarParty(["Ana", "Bento"]);
 
-    const party = {
-      id: "party_teste",
-      membros: new Set(["p_Ana", "p_Bento"]),
-    };
-
-    store.parties.set(party.id, party);
-    store.partyPorSessao.set("p_Ana", party.id);
-    store.partyPorSessao.set("p_Bento", party.id);
+    amarrar(store, "party_teste", ["Ana", "Bento"]);
 
     engine.partyStore = store;
 
     engine.world.enemies.length = 0;
 
-    const mob = createCreature("slime", { x: 3000, y: 2100 }, 0, 1);
-
-    mob.alive = true;
-
-    engine.world.enemies.push(mob);
+    const mob = mobNoJogador(engine, "slime", 1, "p_Bento");
 
     // Bento mata, e Ana e o segundo membro
     engine.withPlayer("p_Bento", () => {
@@ -114,11 +150,7 @@ describe("o abate da party", () => {
 
     engine.world.enemies.length = 0;
 
-    const mob = createCreature("ogre", { x: 3000, y: 2100 }, 0, 12);
-
-    mob.alive = true;
-
-    engine.world.enemies.push(mob);
+    const mob = mobNoJogador(engine, "ogre", 12, "p_Ana");
 
     const antes = ["Ana", "Bento", "Cora"].map(
       (n) => engine.world.players.get(`p_${n}`).inventory.coins,
@@ -173,11 +205,7 @@ describe("o abate da party", () => {
 
     engine.world.enemies.length = 0;
 
-    const mob = createCreature("slime", { x: 3000, y: 2100 }, 0, 1);
-
-    mob.alive = true;
-
-    engine.world.enemies.push(mob);
+    const mob = mobNoJogador(engine, "slime", 1, "p_Ana");
 
     const antes = engine.world.players.get("p_Ana").inventory.coins;
 
@@ -196,5 +224,109 @@ describe("o abate da party", () => {
     expect(depois - antes).toBeGreaterThanOrEqual(mob.loot.coins.min);
 
     expect(depois - antes).toBeLessThanOrEqual(mob.loot.coins.max);
+  });
+
+  it("o item e o material vao para quem deu o last hit", () => {
+    const { engine, store } = montarParty(["Ana", "Bento"]);
+
+    amarrar(store, "party_item", ["Ana", "Bento"]);
+
+    engine.partyStore = store;
+
+    engine.world.enemies.length = 0;
+
+    const mob = mobNoJogador(engine, "ogre", 12, "p_Bento");
+
+    // o item sai sempre: o teste nao pode depender da sorte
+    mob.loot.itemChance = 1;
+    mob.loot.maxItems = 1;
+
+    const itensDe = (nome) =>
+      engine.world.players
+        .get(`p_${nome}`)
+        .inventory.stacks.reduce((n, e) => n + e.count, 0);
+
+    engine.withPlayer("p_Bento", () => {
+      engine.handleKill(mob, engine.world.players.get("p_Bento").player);
+    });
+
+    expect(itensDe("Bento")).toBeGreaterThan(0);
+    expect(itensDe("Ana")).toBe(0);
+  });
+
+  it("quem esta LONGE do mob nao divide", () => {
+    const { engine, store } = montarParty(["Ana", "Bento"]);
+
+    amarrar(store, "party_dist", ["Ana", "Bento"]);
+
+    engine.partyStore = store;
+
+    engine.world.enemies.length = 0;
+
+    const mob = mobNoJogador(engine, "ogre", 12, "p_Ana");
+
+    const bento = engine.world.players.get("p_Bento");
+
+    // Bento esta do outro lado do mapa: nao ve a luta
+    bento.player.x = mob.x + 4000;
+    bento.player.y = mob.y + 4000;
+
+    const antes = bento.inventory.coins;
+
+    engine.withPlayer("p_Ana", () => {
+      engine.handleKill(mob, engine.world.players.get("p_Ana").player);
+    });
+
+    expect(bento.inventory.coins).toBe(antes);
+  });
+
+  it("quem esta em OUTRO MAPA nao divide", () => {
+    const { engine, store } = montarParty(["Ana", "Bento"]);
+
+    amarrar(store, "party_mapa", ["Ana", "Bento"]);
+
+    engine.partyStore = store;
+
+    engine.world.enemies.length = 0;
+
+    const mob = mobNoJogador(engine, "ogre", 12, "p_Ana");
+
+    const bento = engine.world.players.get("p_Bento");
+
+    // Bento atravessou para a base, mas continua na party
+    bento.mapId = "base";
+
+    const antes = bento.inventory.coins;
+
+    engine.withPlayer("p_Ana", () => {
+      engine.handleKill(mob, engine.world.players.get("p_Ana").player);
+    });
+
+    expect(bento.inventory.coins).toBe(antes);
+  });
+
+  it("quem esta MORTO nao divide", () => {
+    const { engine, store } = montarParty(["Ana", "Bento"]);
+
+    amarrar(store, "party_morto", ["Ana", "Bento"]);
+
+    engine.partyStore = store;
+
+    engine.world.enemies.length = 0;
+
+    const mob = mobNoJogador(engine, "ogre", 12, "p_Ana");
+
+    const bento = engine.world.players.get("p_Bento");
+
+    // no meio da luta o painel de morte abriu
+    bento.player.hp = 0;
+
+    const antes = bento.inventory.coins;
+
+    engine.withPlayer("p_Ana", () => {
+      engine.handleKill(mob, engine.world.players.get("p_Ana").player);
+    });
+
+    expect(bento.inventory.coins).toBe(antes);
   });
 });

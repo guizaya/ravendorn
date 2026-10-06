@@ -164,43 +164,68 @@ export class NpcRenderer {
     return candidatos[0];
   }
 
-  drawShadow(context, npc, hover = false) {
-    const { width } = this.sizeOf(npc);
+/**
+ * A SOMBRA NO CHAO, e ela MUDA COM O HOVER.
+ *
+ * ## POR QUE ELA ENCOLHE
+ *
+ * O comentario original dizia que a sombra encolhe junto com o balaanco
+ * porque um NPC que sobe tem o pe fora do chao — e uma sombra do mesmo
+ * tamanho diria que ele continua pisado nele
+ *
+ * ## E POR QUE ISSO CONTINUA VALENDO SEM O BALANCO
+ *
+ * O balaanco saiu do pedido, mas a sombra encolher nao foi o que se
+ * pediu para sair, e e um sinal de hover que o jogador reconhece — a
+ * sombra suave no chao e o unico aviso visual que sobrou, ja que o
+ * rebalanco e o contorno foram embora
+ *
+ * Nao e uma consequencia do balaanco que desapareceu: e o feedback de
+ * hover que sobrou depois que os outros dois sairam
+ */
+drawShadow(context, npc, hover = false) {
+  const { width } = this.sizeOf(npc);
 
-    context.save();
+  context.save();
 
-    context.fillStyle = "rgba(0, 0, 0, 0.3)";
+  context.fillStyle = "rgba(0, 0, 0, 0.3)";
 
-    context.beginPath();
-    context.ellipse(
-      npc.x,
-      npc.y,
-      // A sombra encolhe com o balanco: um NPC que sobe tem o pe fora do
-      // chao, e uma sombra do mesmo tamanho diria que ele continua
-      // pisado nele
-      width * (hover ? 0.3 : 0.34),
-      width * (hover ? 0.08 : 0.1),
-      0,
-      0,
-      Math.PI * 2,
-    );
-    context.fill();
+  context.beginPath();
+  context.ellipse(
+    npc.x,
+    npc.y,
+    // encolhe no hover: o pe do NPC esta fora do chao
+    width * (hover ? 0.3 : 0.34),
+    width * (hover ? 0.08 : 0.1),
+    0,
+    0,
+    Math.PI * 2,
+  );
+  context.fill();
 
-    context.restore();
-  }
+  context.restore();
+}
 
   /**
    * O quanto o NPC sobe quando o ponteiro esta em cima dele.
    *
-   * O `pico` e a altura do salto, e o ciclo e um vaivem. O `tempo` vem
-   * do relogio do motor, nao de um relogio proprio do renderer: dois
-   * relogios contariam o tempo duas vezes e o balanco entraria em camera
-   * lenta
+   * ## SEMPRE ZERO, E O PONTO
+   *
+   * O rebalco foi removido do pedido de hover do NPC. Antes o ponteiro
+   * em cima fazia o boneco subir e descer em vaivem — e o gesto fica
+   * estranho em cima de uma arte de 1000px: o NPC inteiro se desloca dois
+   * pixels e meio para o lado, e o que o jogador ve e um tranco, nao um
+   * "estou aqui"
+   *
+   * ## POR QUE O METODO CONTINUA, E NAO SAI UM `0`
+   *
+   * Porque ele e a REGRA de "o que o hover faz com o desenho", e essa
+   * regra agora vale zero. Deixar a funcao returning 0 e o comentario
+   * acima diz onde mexer se um dia o rebalco voltar: um numero solto
+   * escrito no `drawImage` seria invisivel para quem lesse so ali
    */
-  alturaDoHover(hover, tempo) {
-    if (hover !== true) return 0;
-
-    return Math.abs(Math.sin(tempo * 6)) * 6;
+  alturaDoHover() {
+    return 0;
   }
 
   drawNpc(context, npc, hover = false, tempo = 0) {
@@ -213,52 +238,32 @@ export class NpcRenderer {
     context.save();
 
     /**
-     * O REBALCO quando o ponteiro chega.
+     * SEM REBALCO E SEM QUADRADO NO HOVER.
      *
-     * E um vaivem pelo `sin`: o NPC sobe e desce em vez de tremer, que e
-     * o gesto de "estou aqui". Um `Math.random()` por quadro faria o
-     * NPC tremeluzir, e tremeluzir parece defeito, nao convite
+     * Os dois sairam do mesmo pedido: o boneco parado e a mao de cursor
+     * ja dizem que ali ha um clique. O contorno dourado era o que segurava
+     * a leitura de "isto abre alguma coisa" — mas ele desenhava um
+     * retangulo em volta de uma arte de 1300px, que nao tem a forma de um
+     * retangulo. O quadrado ficava no vazio em volta dos ombros do NPC,
+     * apontando para um desenho que ele nao continha
+     *
+     * O que sobra do hover e o CURSOR, e ele e do motor: o
+     * `atualizarHoverDeNpc` põe a classe `game-canvas--npc` no canvas, e
+     * o CSS troca o cursor para mao. O NPC nao sabe disso, e nao precisa
+     *
+     * O `sobe` continua sendo lido no `drawImage`, e vale 0 sempre. E o
+     * que mantem a arte ancorada pelo PE: sem ele, `npc.y - height` botaria
+     * a base da imagem no chao e o boneco flutuaria 100px acima
      */
     const sobe = this.alturaDoHover(hover, tempo);
 
-    /**
-     * A arte vai pelo CENTRO, e o PE fica em (x, y).
-     *
-     * E o inverso do `PropRenderer`, que desenha pelo centro da celula
-     * e deixa a prop pousada no chao sozinha. Um NPC tem perna e tem
-     * barra de pocoes, e o que toca o chao tem de ser o chao
-     *
-     * O `sobe` entra aqui e nao no desenho: o NPC sobe e a sombra encolhe,
-     * os dois juntos. Levantar so a arte deixaria o NPC boiando com o pe
-     * na mesma altura do chao
-     */    context.drawImage(
+    context.drawImage(
       image,
       npc.x - width / 2,
       npc.y - height - sobe,
       width,
       height,
     );
-
-    /**
-     * O brilho do contorno.
-     *
-     * O balanco sozinho some rapido demais quando o jogador passa o mouse
-     * por cima sem parar. O contorno fica enquanto o ponteiro estiver
-     * em cima, e e ele que segura a leitura de "isto abre alguma coisa"
-     */
-    if (hover === true) {
-      context.globalAlpha = 0.45 + Math.abs(Math.sin(tempo * 6)) * 0.3;
-
-      context.strokeStyle = "#ffd479";
-      context.lineWidth = 2;
-
-      context.strokeRect(
-        npc.x - width / 2 + 1,
-        npc.y - height - sobe + 1,
-        width - 2,
-        height - 2,
-      );
-    }
 
     context.restore();
   }

@@ -146,34 +146,50 @@ export const ARBALIST_SPRITE = createDirectionalSpriteDefinition(
     walkBob: { amplitude: 4, frequency: 1.5 },
 
     /**
-     * A ancora da arte NOVA, medida na folha de 03/10.
+     * A CELULA SUBIU DE 64 PARA 84.
      *
-     * O padrao `DIRECTIONAL_ANCHOR_Y` e 54, e o pe do arquiro antigo
-     * estava a 54. O gif novo tem o pe a **51**: sem declarar isto, o
-     * arquiro andaria 3px dentro do chao em todas as direcoes. E um
-     * erro pequeno e invisivel num screenshot, e que faz o personagem
-     * parecer deslizar em vez de pisar
+     * A arte de `new_arbalist_2` tem 84x84 em todas as 17 lanes, e a
+     * folha gerada sai 756x1428 (9 colunas x 17 linhas de 84) em vez de
+     * 576x1088. Sem declarar isto, o `resolveFrameRect` leria um pedaco
+     * de 64x64 de cada quadro de 84 e o boneco sairia cortado — e nao
+     * deslocado, que e o defeito mais enganoso: parece arte ruim e e
+     * numero velho
      *
-     * A `X` tambem mudou, de 32 para 31.5 — o desenho novo ficou meio
-     * pixel a mais a esquerda
+     * O `DIRECTIONAL_SCALE` continua 1. A celula maior NAO e personagem
+     * maior: o `scale` e que encolhe o desenho na tela, e o arquiro tem de
+     * continuar do mesmo tamanho que o guerreiro, do lancer e do sorcerer
      */
-    anchorX: 31.5,
-    anchorY: 51,
+    frameWidth: 84,
+    frameHeight: 84,
 
     /**
-     * A caixa do DESENHO dentro da celula de 64x64, medida do PNG.
+     * A ancora da arte NOVA, medida na folha gerada.
      *
-     * O arquiro ocupa 30x44: 17px de margem transparente de cada
-     * lado, 8 em cima e 12 embaixo. E o `contentBox` que deixa o
+     * Os numeros sao os que o `gif-to-sheet.mjs` mediu e imprimiu: o pe
+     * do arquiro esta a **68** na celula de 84, e nao a 51 como na arte de
+     * celula 64. Sem declarar isto, o arquiro andaria 17px dentro do chao
+     * em todas as direcoes — um erro grande e bem visivel, que faria o
+     * personagem parecer estar enterrado em vez de pisando
+     *
+     * A `X` tambem mudou, de 31.5 para 41.5: o mesmo motif do `pe`, com
+     * a celula 20px mais larga o desenho inteiro foi para a direita
+     */
+    anchorX: 41.5,
+    anchorY: 68,
+
+    /**
+     * A caixa do DESENHO dentro da celula de 84x84, medida na folha.
+     *
+     * O arquiro ocupa 47x61 no idle inteiro: 19px de margem transparente
+     * ate a arte, 8 em cima e 15 embaixo. E o `contentBox` que deixa o
      * retrato da tela de selecao com a arte preenchendo o quadrado e
      * centrada no PERSONAGEM, e nao na margem
      *
-     * A altura do desenho muda 1px entre os quadros do idle (43 a
-     * 45), que e a propria animacao de respirar. A caixa e a maior
-     * dos quadros, e o mais curto sai com uma linha transparente em
-     * cima, o que nao aparece
+     * A caixa e a MAIOR entre os quadros, e nao a medida num so: a arte
+     * muda de altura entre os quadros do idle, que e a propria animacao de
+     * respirar, e um quadro mais curto sai com uma linha transparente
      */
-    contentBox: { x: 17, y: 7, width: 30, height: 45 },
+    contentBox: { x: 19, y: 8, width: 47, height: 61 },
 
     animations: {
       /**

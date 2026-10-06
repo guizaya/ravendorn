@@ -187,6 +187,14 @@ export class SkillSystem {
 
       this.world.delayedEffects.splice(index, 1);
 
+      /**
+       * O PULSO ADIADO TAMBEM CARREGA O DONO.
+       *
+       * A detonação diferida pode durar segundos — e o tempo suficiente
+       * para o jogador em foco do motor ser outro quando ela estoura.
+       * Sem repassar o `ownerId`, o abate voltava a ser creditado a quem
+       * por acaso estivesse em foco
+       */
       this.applyArea(
         delayed.action,
         {
@@ -194,6 +202,8 @@ export class SkillSystem {
           direction: { x: 1, y: 0 },
         },
         delayed.center,
+        true,
+        this.donoDoProjetil(delayed),
       );
 
       this.world.effects.circle(
@@ -391,6 +401,7 @@ export class SkillSystem {
     aim,
     customOrigin = null,
     scheduleHits = true,
+    owner = null,
   ) {
     const origin = customOrigin ?? {
       x: this.player.x,
@@ -405,7 +416,7 @@ export class SkillSystem {
     );
 
     for (const target of targets) {
-      this.applyHit(action, target, aim);
+      this.applyHit(action, target, aim, owner);
     }
 
     if (scheduleHits && action.hits > 1) {
@@ -483,11 +494,25 @@ export class SkillSystem {
     return targets;
   }
 
-  applyHit(action, target, aim) {
+  applyHit(action, target, aim, owner = null) {
     if (!target.alive || target.hp <= 0) return;
 
+    /**
+     * QUEM LEVA A CULPA DO GOLPE.
+     *
+     * O `owner` e quem disparou o projétil, e ele chega nulo quando o
+     * golpe e do jogador em foco — o caso normal, de um golpe corpo a
+     * corpo ou de uma area que o jogador disparou agora
+     *
+     * Sem esta distinção, um projétil que explodisse longe creditava o
+     * abate ao jogador em foco do motor, e no online esse jogador era
+     * outro: o dono do projétil carrega o `owner`, e e ele que leva
+     */
+    const atacante =
+      owner ?? this.player;
+
     this.world.damage.applyDamage(
-      this.player,
+      atacante,
       target,
       action,
     );
@@ -727,11 +752,66 @@ export class SkillSystem {
         remaining: 3,
         homing: action.homing,
         impactMode: action.rain ? "ground" : "collision",
+
+        /**
+         * QUEM ATIROU, e nao quem explode.
+         *
+         * Este campo e a correcao de um bug que so aparecia no online.
+         *
+         * O projétil vivia no `world.projectiles`, que e COMPARTILHADO
+         * por todos os jogadores, e nao guardava de quem era. Quando
+         * ele explodia, o `applyArea` chamava o `applyHit`, que passa
+         * `this.player` como atacante — e `this.player` e o jogador em
+         * FOCO do motor, nao o dono do projétil
+         *
+         * O efeito no loot era grande: o teste2 atirava, o projétil
+         * viajava pelo mapa e explodia a seis mil pixels de distancia,
+         * e o abate do mob era creditado ao `teste`, que estava PARADO
+         * em cima de um portal sem atirar em nada. No rastro:
+         *
+         *     killer=teste | explicito=SIM | auto=0 | dist=5763
+         *     pilha=killEnemy > onDeath > applyDamage > applyHit
+         *          > applyArea > explodeProjectile
+         *
+         * A pilha foi o que nomeou o culpado. Sem ela, o sintoma era
+         * "o jogador parado recebe loot", e a unica pista era a
+         * distancia
+         *
+         * Guardar o atirador e o que faz o last hit voltar a ser do
+         * dono do golpe. Um projétil parado no ar e um projétil de
+         * quem disparou, e o abate e de quem disparou
+         */
+        ownerId: this.player?.id ?? null,
       });
     }
   }
 
+  /**
+   * O INDICE DE INIMIGOS POR ID.
+   *
+   * As flechas faziam `this.enemies.find(...)` duas vezes por projétil
+   * por tique: uma para o alvo do homing, outra para a colisão. Com 256
+   * projéteis e 93 inimigos, sao 47.712 buscas lineares por tique
+   *
+   * O indice e montado uma vez por tique e vale para todas as flechas
+   * dele. A colisão continua percorrendo a lista — ela e espacial, e
+   * qualquer projétil pode tocar qualquer inimigo, entao nao ha chave
+   * para isso. O que o indice resolve e o `find` por `targetId`, que e
+   * uma busca por chave disfarçada
+   */
+  #indiceDeInimigos() {
+    const indice = new Map();
+
+    for (const enemy of this.enemies) {
+      indice.set(enemy.id, enemy);
+    }
+
+    return indice;
+  }
+
   updateProjectiles(deltaTime) {
+    const indice = this.#indiceDeInimigos();
+
     for (
       let index = this.world.projectiles.length - 1;
       index >= 0;
@@ -742,10 +822,10 @@ export class SkillSystem {
       projectile.remaining -= deltaTime;
 
       if (projectile.homing) {
-        const target = this.enemies.find(
-          (enemy) =>
-            enemy.id === projectile.targetId && enemy.alive,
-        );
+        const alvo = indice.get(projectile.targetId);
+
+        const target =
+          alvo && alvo.alive ? alvo : undefined;
 
         if (target) {
           const direction = normalize(
@@ -784,15 +864,30 @@ export class SkillSystem {
         !exploded &&
         projectile.impactMode === "collision"
       ) {
-        const collisionTarget = this.enemies.find(
-          (enemy) =>
-            enemy.alive &&
-            distanceSquared(projectile, enemy) <=
-              (projectile.radius + enemy.radius) ** 2,
-        );
+        /**
+         * A COLISAO E ESPACIAL, entao nao ha indice que a evite.
+         *
+         * Uma flecha pode tocar qualquer inimigo, e qualquer inimigo
+         * pode estar no raio. O laco termina cedo: 93 inimigos a 600px
+         * de distancia somam 28 comparacoes de `>=` e sao mais barato
+         * que um `Map` com 93 entradas montado por tique
+         *
+         * O que mudou e que o teste e do quadrado ANTES do `** 2`, que
+         * era recalculado por inimigo dentro do comparador
+         */
+        const raio = projectile.radius;
 
-        if (collisionTarget) {
-          exploded = true;
+        for (const enemy of this.enemies) {
+          if (enemy.alive === false) continue;
+
+          const soma = raio + enemy.radius;
+
+          if (
+            distanceSquared(projectile, enemy) <= soma * soma
+          ) {
+            exploded = true;
+            break;
+          }
         }
       }
 
@@ -821,6 +916,36 @@ export class SkillSystem {
     }
   }
 
+  /**
+   * A ENTIDADE DE QUEM ATIROU O PROJETIL.
+   *
+   * O `ownerId` do projétil e o id da SESSAO de quem disparou. Aqui ele
+   * vira de novo a entidade do jogador, que e o que o `applyDamage`
+   * quer como atacante.
+   *
+   * Devolve `null` quando o atirador saiu do mundo entre o disparo e a
+   * explosão — e o honesto: um projétil órfão não tem dono, e o
+   * `applyDamage` com `null` não grava `lastHitBy` em ninguém
+   */
+  donoDoProjetil(projectile) {
+    const id = projectile?.ownerId;
+
+    if (!id) return null;
+
+    /**
+     * O `players` pode nao existir: os testes de skill montam um `world`
+     * minimo, so com o que a area precisa. Ler `.get` de `undefined`
+     * derrubava o teste de multi-hit
+     *
+     * E o `players` ser opcional nao e um accidento: o single player
+     * tambem roda sem multiplayer, e o fallback `this.player` abaixo
+     * e quem resolve o caso de sempre
+     */
+    const sessao = this.world.players?.get?.(id);
+
+    return sessao?.player ?? null;
+  }
+
   explodeProjectile(projectile) {
     const action = projectile.action;
     const center = {
@@ -842,6 +967,7 @@ export class SkillSystem {
         action,
         center,
         remaining: action.delayedDetonation,
+        ownerId: projectile.ownerId ?? null,
       });
       return;
     }
@@ -860,6 +986,8 @@ export class SkillSystem {
         },
       },
       center,
+      true,
+      this.donoDoProjetil(projectile),
     );
 
     this.world.effects.circle(

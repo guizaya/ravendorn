@@ -335,7 +335,13 @@ describe("o tick e o mundo compartilhado", () => {
 
       jogo.avancarTempo(SERVER_CONFIG.tickSeconds);
 
-      expect(jogo.errosDeTick).toBe(1);
+      // o contador ZERA, e nao fica em 1: ele conta erros SEGUIDOS. A
+      // intencao do numero antigo era "o erro foi registrado", e a de
+      // agora e "ha um erro rolando agora". Sao coisas diferentes, e a
+      // segunda e a que evita o congelamento: com o contador de vida
+      // inteira, tres excecoes isoladas ao longo de uma semana
+      // paravam o laco para sempre
+      expect(jogo.errosDeTick).toBe(0);
     } finally {
       console.error = original;
     }

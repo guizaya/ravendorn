@@ -14,6 +14,7 @@ import {
   ZONE_TILE,
   ZONE_TILE_SIZE,
   ZONES_USE_TILE,
+  zoneTileFor,
   zoneUsesTile,
 } from "../../data/terrain/index.js";
 import { MAP_1_META, MAP_1 } from "../../data/maps/index.js";
@@ -144,10 +145,21 @@ function rendererCom({
    * o hub pede o calcamento, cada um no seu tile
    */
   renderer.groundImages.set(groundTileFor(MAP_1), ground);
-  renderer.zone = zone;
+
+  /**
+   * A terra das zonas tambem entra pelo cache por FOLHA.
+   *
+   * O mapa 1 nao declara `zoneTile`, entao pede a folha do vale — e e
+   * por essa folha que o cache guarda, igual ao chao
+   */
+  renderer.zoneImages.set(zoneTileFor(MAP_1), zone);
 
   return renderer;
 }
+
+/** O ladrilhinho de terra do mapa 1, no cache por folha. */
+const zoneTileDoTeste = (renderer) =>
+  renderer.zoneTiles.get(zoneTileFor(MAP_1));
 
 const TREINO = MAP_1_META.zones.find(
   (zone) => zone.kind === "training",
@@ -200,13 +212,13 @@ describe("o tile de terra", () => {
 
     renderer.buildZoneTile();
 
-    expect(renderer.zoneTile).toBeTruthy();
+    expect(zoneTileDoTeste(renderer)).toBeTruthy();
 
-    expect(renderer.zoneTile).not.toBe(renderer.zone);
-    expect(renderer.zoneTile.tag).toBe("canvas");
+    expect(zoneTileDoTeste(renderer)).not.toBe(renderer.zoneImageFor(MAP_1));
+    expect(zoneTileDoTeste(renderer).tag).toBe("canvas");
 
-    expect(renderer.zoneTile.width).toBe(128);
-    expect(renderer.zoneTile.height).toBe(128);
+    expect(zoneTileDoTeste(renderer).width).toBe(128);
+    expect(zoneTileDoTeste(renderer).height).toBe(128);
   });
 
   it("reduz por METADES, como a grama", () => {
@@ -247,7 +259,7 @@ describe("o tile de terra", () => {
 
     renderer.buildZoneTile();
 
-    const primeiro = renderer.zoneTile;
+    const primeiro = zoneTileDoTeste(renderer);
 
     /**
      * O chao tambem vira tile no primeiro quadro, e ele entra na
@@ -262,7 +274,7 @@ describe("o tile de terra", () => {
       renderer.draw(contextQueConta(), MAP_1, [], VIEW);
     }
 
-    expect(renderer.zoneTile).toBe(primeiro);
+    expect(zoneTileDoTeste(renderer)).toBe(primeiro);
     expect(ctxDePatch.blits.length).toBe(blits);
   });
 });
@@ -306,7 +318,7 @@ describe("as onze areas de mob", () => {
     renderer.draw(ctx, MAP_1, [zona], VIEW);
 
     const comPadrao = ctx.preenchimentos.filter(
-      (p) => p.fillStyle?.image === renderer.zoneTile,
+      (p) => p.fillStyle?.image === zoneTileDoTeste(renderer),
     );
 
     expect(comPadrao.length).toBe(1);
@@ -416,7 +428,7 @@ describe("as onze areas de mob", () => {
     renderer.draw(ctx, MAP_1, zonas, VIEW);
 
     const daZona = ctx.preenchimentos.filter(
-      (p) => p.fillStyle?.image === renderer.zoneTile,
+      (p) => p.fillStyle?.image === zoneTileDoTeste(renderer),
     );
 
     expect(daZona.length).toBe(11);
@@ -464,11 +476,11 @@ describe("o terreno das areas nunca some", () => {
 
     renderer.draw(ctx, MAP_1, [mobVisivel()], VIEW);
 
-    expect(renderer.zoneTile).toBe(null);
+    expect(zoneTileDoTeste(renderer)).toBe(null);
 
     expect(
       ctx.imagensDePadrao.filter(
-        (p) => p.image === renderer.zone,
+        (p) => p.image === renderer.zoneImageFor(MAP_1),
       ).length,
     ).toBe(1);
   });
@@ -491,7 +503,7 @@ describe("o terreno das areas nunca some", () => {
     const renderer = rendererCom();
 
     const ctx = contextQueConta({
-      lancaEm: renderer.zone,
+      lancaEm: renderer.zoneImageFor(MAP_1),
     });
 
     expect(() =>
@@ -500,7 +512,7 @@ describe("o terreno das areas nunca some", () => {
 
     expect(
       ctx.preenchimentos.filter(
-        (p) => p.fillStyle?.image === renderer.zone,
+        (p) => p.fillStyle?.image === renderer.zoneImageFor(MAP_1),
       ).length,
     ).toBe(0);
 

@@ -14,6 +14,67 @@ function nextInstanceId(itemId, rarity) {
   return `${itemId}#${rarity}#${instanceSequence}`;
 }
 
+/**
+ * QUANTOS SLOTS UM ITEM PRECISA, sem colocar nada.
+ *
+ * E a MESMA conta que o `add` faz — funde nas pilhas que ja existem e
+ * sobe o numero de pilhas novas — so que respondendo "quantas" em vez
+ * de "quantas couberam". Sem isto, a unica forma de saber se o item
+ * cabe e tentar, e o Tentar ja custou a moeda
+ *
+ * Considera a MESMA raridade que o `add` consideraria, porque funde so
+ * com pilhas de raridade igual. E por isso que 200 unidades de um
+ * material que voce nao tem precisam de 3 slots (99 por pilha) e as
+ * mesmas 200 de um material que voce ja tem cabem em 0
+ *
+ * E uma funcao PURA, e nao um metodo, porque os dois lados precisam da
+ * mesma conta: o servidor para recusar a compra e o painel para
+ * desabilitar o botao. Duas copias desta conta divergem na primeira
+ * regra que alguem afrouxar
+ */
+export function slotsNecessarios(
+  stacks,
+  itemId,
+  count = 1,
+  rarity = null,
+) {
+  const item = getItem(itemId);
+
+  if (!item || count <= 0) return 0;
+
+  const target = rarity ?? baseRarityOf(itemId);
+  const stackable = isStackable(item);
+  const maxStack = item.maxStack ?? 1;
+
+  let remaining = Math.floor(count);
+
+  if (stackable) {
+    for (const stack of stacks) {
+      if (remaining <= 0) break;
+
+      if (stack.itemId !== itemId) continue;
+      if ((stack.rarity ?? baseRarityOf(itemId)) !== target) {
+        continue;
+      }
+
+      const room = maxStack - stack.count;
+
+      if (room <= 0) continue;
+
+      remaining -= Math.min(room, remaining);
+    }
+  }
+
+  let slots = 0;
+
+  while (remaining > 0) {
+    remaining -= stackable ? Math.min(maxStack, remaining) : 1;
+    slots += 1;
+  }
+
+  return slots;
+}
+
 export class Inventory {
   constructor(capacity = INVENTORY_CAPACITY) {
     this.capacity = capacity;
@@ -32,6 +93,36 @@ export class Inventory {
 
   get freeSlots() {
     return Math.max(0, this.capacity - this.stacks.length);
+  }
+
+  /**
+   * QUANTOS SLOTS UM ITEM PRECISA, sem colocar nada na mochila.
+   *
+   * E a MESMA conta que o `add` faz — funde nas pilhas que ja tem e
+   * sobe o numero de pilhas novas — so que respondendo "quantas" em vez
+   * de "quantas couberam". Sem isto, a unica forma de saber se o item
+   * cabe e tentar: o dinheiro ja tinha sido gasto, o `add` tinha
+   * devolvido metade no `overflow`, e o jogador recebia um "mochila
+   * cheia" sem nunca ter visto o numero que explicaria
+   *
+   * Considera a MESMA raridade que o `add` consideraria, porque funde
+   * so com pilhas de raridade igual. E por isso que 5 unidades de um
+   * material novo podem precisar de 1 slot e as mesmas 5 de um material
+   * que voce ja tem cabem em 0
+   */
+  slotsNeeded(itemId, count = 1, rarity = null) {
+    return slotsNecessarios(this.stacks, itemId, count, rarity);
+  }
+
+  /**
+   * ESTE ITEM CABE NA MOCHILA AGORA?
+   *
+   * O `slotsNeeded` e o `freeSlots` juntos. E o que a compra do mercado
+   * pergunta ANTES de gastar a moeda, para o "mochila cheia" chegar
+   * com o numero que explica em vez de uma negativa seca
+   */
+  cabe(itemId, count = 1, rarity = null) {
+    return this.slotsNeeded(itemId, count, rarity) <= this.freeSlots;
   }
 
   addCoins(amount) {

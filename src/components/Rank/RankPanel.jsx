@@ -45,6 +45,9 @@ function RankRow({ jogador, criterio, ehVoce }) {
       className={[
         "rnk-row",
         ehVoce ? "is-you" : "",
+        // quem esta offline entra na lista, mas sem o mesmo peso
+        // visual: existe no rank e nao esta no mapa agora
+        jogador.online === false ? "is-offline" : "",
       ]
         .filter(Boolean)
         .join(" ")}
@@ -60,6 +63,22 @@ function RankRow({ jogador, criterio, ehVoce }) {
         {jogador.name}
 
         {ehVoce && <small className="rnk-row__you">voce</small>}
+
+        {/*
+          O PONTO DE OFFLINE.
+
+          Sem um sinal, a lista parece a mesma para quem esta logado e
+          para quem nao esta, e nao ha como saber se alguem que voce
+          procura no rank ainda esta no mundo
+        */}
+        {jogador.online === false && (
+          <small
+            className="rnk-row__off"
+            title="Jogador offline"
+          >
+            offline
+          </small>
+        )}
       </strong>
 
       <span className="rnk-row__lvl" title="Nivel">

@@ -9,6 +9,7 @@ import {
   BONECO_MADEIRA_SPRITE,
   GHOUL_FAMINTO_SPRITE,
   GOBLIN_SAQUEADOR_SPRITE,
+  HULK_SPRITE,
   OGRE_PREDEIRA_SPRITE,
   RATO_DA_TOCA_SPRITE,
   SENTINELA_ESQUELETICA_SPRITE,
@@ -145,12 +146,53 @@ export const ENEMY_SPRITES = {
     ).href,
   },
 
-  // 8 linhas so: o boneco de madeira tem as oito direcoes e mais
-  // nada. Sem golpe, sem idle
+/**
+   * 8 linhas so: o boneco de madeira tem as oito direcoes e mais
+   * nada. Sem golpe, sem idle
+   *
+   * O caminho e `../../assets` e nao `../assets`: este arquivo vive em
+   * `src/data/sprites/`, entao um nivel de `..` aponta para
+   * `src/data/`, e `src/data/assets/` nao existe. Com o caminho errado
+   * o `new URL` nao falha — ele resolve para uma URL que simplesmente
+   * devolve 404 quando o `Image` tenta carregar, e o boneco de treino
+   * aparecia invisivel
+   */
   dummy_warrior: {
     ...BONECO_MADEIRA_SPRITE,
     src: new URL(
       "../../assets/sprites/boneco_de_madeira-sheet.png",
+      import.meta.url,
+    ).href,
+  },
+
+  /**
+   * O HULK, o chefe da arena.
+   *
+   * A arte de origem e a MESMA pasta do Goblin Saqueador
+   * (`src/assets/sprites/hulk`), e a folha e uma saida nova do mesmo
+   * material: `hulk-sheet.png`
+   *
+   * A diferenca que importa e que a folha DO HULK tem a linha de golpe
+   * (17 linhas: 8 de caminhada, 1 de idle e 8 de golpe), e a do goblin
+   * nao tem — o `goblin_saqueador` esta declarado com `shoot: false`
+   * acima. Sao duas folhas do mesmo par de gifs, com numeros de layout
+   * diferentes, e e por isso que as duas precisam do proprio `src`
+   */
+  hulk: {
+    ...HULK_SPRITE,
+    /**
+     * DOIS NIVEIS PARA CIMA, e nao um.
+     *
+     * Este arquivo mora em `src/data/sprites/`, entao `../assets` cai em
+     * `src/data/assets` — que nao existe — e o navegador pedia uma imagem
+     * que nunca existiu. O chefe aparecia sem sprite nenhum, e a folha
+     * nem chegava a ser copiada para o `dist`
+     *
+     * `../../assets` e o que leva de volta para `src/assets`, que e onde
+     * `hulk-sheet.png` esta. E o mesmo caminho das outras creature
+     */
+    src: new URL(
+      "../../assets/sprites/hulk-sheet.png",
       import.meta.url,
     ).href,
   },

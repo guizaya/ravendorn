@@ -13,6 +13,7 @@ import {
   GROUND_TILE_SIZE,
   GROUND_USES_TILE,
   groundTileFor,
+  zoneTileFor,
 } from "../../data/terrain/index.js";
 import { BASE_MAP, MAP_1_META, MAP_1 } from "../../data/maps/index.js";
 
@@ -163,6 +164,16 @@ function rendererCom(ground = fakeImage(1600), mapa = MAP_1) {
 
   renderer.terrain = fakeImage();
   renderer.groundImages.set(groundTileFor(mapa), ground);
+
+  /**
+   * A FOLHA DA ZONA TAMBEM ENTRA PRONTA.
+   *
+   * O `createPattern` do contexto falso aceita qualquer coisa e
+   * devolve um padrao valido — inclusive `null`. Sem esta folha injetada,
+   * o renderer recebia `null` no primeiro quadro e o teste confirmava
+   * que "existia um ladrilho" sem nunca ter havido imagem nenhuma
+   */
+  renderer.zoneImages.set(zoneTileFor(mapa), fakeImage(1600));
 
   return renderer;
 }
@@ -533,12 +544,14 @@ describe("as areas dos mobs continuam como estavam", () => {
     renderer.draw(ctx, MAP_1, [treino], VIEW);
 
     // o ladrilho de terra foi construido
-    expect(renderer.zonePattern).not.toBe(null);
+    expect(renderer.zonePatterns.get(zoneTileFor(MAP_1))).toBeTruthy();
 
     // e ele foi o que preencheu a zona
     expect(
       ctx.preenchimentos.some(
-        (p) => p.fillStyle === renderer.zonePattern,
+        (p) =>
+          p.fillStyle ===
+          renderer.zonePatterns.get(zoneTileFor(MAP_1)),
       ),
       "o campo de provas nao ladrilhou com o terra.jpg",
     ).toBe(true);

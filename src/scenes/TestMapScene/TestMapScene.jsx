@@ -73,6 +73,20 @@ export default function TestMapScene({
         // offline montava, entao o HUD nao mudou: so mudou de onde
         // os numeros vem
         snapshot={estado?.painel ?? null}
+
+        /**
+         * O MAPA EM QUE O JOGADOR ESTA.
+         *
+         * Vem por fora do `painel` porque e o unico dado do estado que o
+         * painel nao carrega: o `mapa` viaja no `SNAPSHOT` do mundo, ao
+         * lado dos jogadores e dos inimigos, e nao no painel privado
+         *
+         * O botao da arena precisa dele para saber se o proximo clique
+         * ENTRA ou SAI. Sem isso o HUD teria que adivinhar pelo conteudo
+         * do painel, e o botao ficaria errado logo apos a troca — que e
+         * quando o jogador mais olha para ele
+         */
+        mapa={estado?.mapa ?? null}
         /**
          * O CONVITE DE PARTY vai por fora do `estado`.
          *

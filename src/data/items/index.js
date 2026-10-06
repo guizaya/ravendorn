@@ -61,6 +61,16 @@ export const ITEM_TYPE = {
    * consumivel sem efeito nenhum, que e so um item que se perde
    */
   POTION: "potion",
+
+  /**
+   * O que se USA para APRENDER, e nao para recuperar.
+   *
+   * Um `BOOK` tem `use: { teachSkill: "..." }`. O efeito e diferente da
+   * pocao, e e por isso que ele e um `type`: o inventario trata o livro
+   * como consumo comum, e o motor olha o `use` para saber que o
+   * resultado nao e um numero de vida
+   */
+  BOOK: "book",
 };
 
 export const ITEM_TYPE_LABEL = {
@@ -69,6 +79,19 @@ export const ITEM_TYPE_LABEL = {
   [ITEM_TYPE.ARMOR]: "Armadura",
   [ITEM_TYPE.TRINKET]: "Relíquia",
   [ITEM_TYPE.POTION]: "Poção",
+
+  /**
+   * O LIVRO DE HABILIDADE, que se usa e ensina.
+   *
+   * Separate do `POTION` porque o efeito e completely diferente: a pocao
+   * cura, e o livro muda o repertorio do personagem para sempre. O
+   * inventario e o mesmo
+   *
+   * Ele EMPILHA, e por um motivo que e o mesmo da pocao: e um item de
+   * consumo, e um jogador com tres livros do mesmo tipo nao deve gastar
+   * tres slots da mochila
+   */
+  [ITEM_TYPE.BOOK]: "Livro",
 };
 
 /**
@@ -81,7 +104,11 @@ export const ITEM_TYPE_LABEL = {
  * Os outros nao empilham porque sao de equipar: duas espadas iguais
  * no mesmo slot e um bug de inventario, nao uma economia
  */
-const EMPILHAVEL = new Set([ITEM_TYPE.MATERIAL, ITEM_TYPE.POTION]);
+const EMPILHAVEL = new Set([
+  ITEM_TYPE.MATERIAL,
+  ITEM_TYPE.POTION,
+  ITEM_TYPE.BOOK,
+]);
 
 /**
  * ONDE a peca vai no corpo.
@@ -342,6 +369,81 @@ export const ITEMS = {
     type: ITEM_TYPE.POTION,
     value: 25,
     use: { heal: 120 },
+  }),
+
+  /**
+   * O PERGAMINHO DE TELEPORTE.
+   *
+   * ## POR QUE ELE E DO TIPO DA POCAO, E NAO UM MATERIAL
+   *
+   * O tipo `POTION` aqui quer dizer "consumivel que empilha", e nao
+   * "liquido". E o que faz o pergaminho ocupar UM slot com qualquer
+   * quantidade dentro, e nao um slot por unidade. Um material comum
+   * ocuparia um slot inteiro por pergaminho: um jogador na caça longa
+   * carregaria dez pergaminhos em dez slots, e a mochila lotaria antes
+   * da bolsa
+   *
+   * ## POR QUE `use` E `null`
+   *
+   * `use: { heal: 120 }` e o que a poçao faz quando o jogador clica em
+   * "usar" na mochila. O pergaminho NAO se usa assim: ele e lido pela
+   * box de teleporte que aparece durante o deslocamento automatico, e
+   * e o motor que decide se ele pode ser gasto
+   *
+   * Deixar `use` como `null` e o que impede o item de virar um
+   * consumivel sem efeito. Se fosse `{}`, o `USAR_ITEM` aceitaria o
+   * pedido e o pergaminho sumiria da mochila sem teleportar ninguem —
+   * um item que se perde sozinho e o pior resultado possivel
+   */
+  pergaminho_teleporte: createItem({
+    id: "pergaminho_teleporte",
+    name: "Pergaminho de Teleporte",
+    icon: "✦",
+    rarity: RARITY.COMMON,
+    type: ITEM_TYPE.POTION,
+    value: 40,
+  }),
+
+  /**
+   * O LIVRO DE HABILIDADE, e o primeiro: o do Arbalist.
+   *
+   * ## O QUE ELE FAZ
+   *
+   * `use: { teachSkill: "arbalist_quick_shot" }` ensina a Quick Shot
+   * para sempre. E o unico item do catalogo com este efeito, e o motor
+   * trata a chave `teachSkill` em `GameEngine.usarItem`
+   *
+   * ## POR QUE O ID DA SKILL ESTA AQUI E NAO SO NO CATALOGO DE LIVROS
+   *
+   * Porque e este objeto que o jogador USA. O `usarItem` recebe o item
+   * da mochila e nao sabe de catalogo nenhum: ele precisa do efeito em
+   * maos quando o jogador clica em "usar"
+   *
+   * E o catalogo de livros (`data/skills/books.js`) tem o mesmo par, mas
+   * do outro lado: ali e para o PRECO e para a loja. Sao dois lugares
+   * porque sao duas perguntas — "o que o livro faz" mora no item, e
+   * "quanto custa" mora no Mestre
+   *
+   * Se os dois divergirem, o motor ensina o que o ITEM diz e a loja
+   * vende o que o CATALOGO diz. Por isso `validarLivros`, no catalogo,
+   * confere que os dois ids batem ao carregar o arquivo
+   *
+   * ## POR QUE `value` E 0
+   *
+   * Um livro nao tem valor de mercado: ele nao deveria estar no mercado
+   * entre jogadores. O preco do Mestre fica no catalogo de livros, e o
+   * `value` existe so porque `createItem` exige o campo
+   */
+  livro_quick_shot: createItem({
+    id: "livro_quick_shot",
+    name: "Livro: Quick Shot",
+    description:
+      "Ensina a habilidade Quick Shot. Use o livro para aprender.",
+    icon: "§",
+    rarity: RARITY.RARE,
+    type: ITEM_TYPE.BOOK,
+    value: 0,
+    use: { teachSkill: "arbalist_quick_shot" },
   }),
 
   goblin_cloth: createItem({

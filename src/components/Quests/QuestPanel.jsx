@@ -80,6 +80,49 @@ function contarPendentes(data, mapaId) {
   return passosPendentes + sidePendentes;
 }
 
+/**
+ * O AVANCO DE CADA MAPA: quantas missoes ja foram feitas, de quantas.
+ *
+ * O mesmo par do `contarPendentes`, so que para o inverso: quantas
+ * faltam e quantas existem. E daqui que sai a largura da barra do
+ * trilho
+ *
+ * Duas fontes, porque a campanha e a secundaria contam separately:
+ * os `steps` da principal e as secundarias disponiveis/ativa
+ */
+function contarProgresso(data, mapaId) {
+  if (!data) return { feitas: 0, total: 0, percent: 0 };
+
+  const passos = (data.main?.steps ?? []).filter(
+    (step) => mapaDaZona(step.location) === mapaId,
+  );
+
+  const secundarias = [
+    ...(data.side?.available ?? []),
+    ...(data.side?.current ? [data.side.current] : []),
+  ].filter((quest) => mapaDaZona(quest.location) === mapaId);
+
+  const feitas =
+    passos.filter((step) => step.state === "done").length +
+    secundarias.filter((quest) => quest.done).length;
+
+  const total = passos.length + secundarias.length;
+
+  return {
+    feitas,
+    total,
+
+    /**
+     * A BARRA COMECA VAZIA.
+     *
+     * `total === 0` e 0 e nao 100: um mapa sem missao alguma nao esta
+     * "completo", esta vazio — e um trilho verde cheio diria o
+     * contrario
+     */
+    percent: total > 0 ? Math.round((feitas / total) * 100) : 0,
+  };
+}
+
 const TYPE_LABEL = {
   hunt: "Caçada",
   kill: "Extermínio",
@@ -377,15 +420,31 @@ function MapRail({ mapaAtivo, onSelect, quests }) {
           onClick={() => onSelect(mapa.id)}
           title={`${mapa.name} — ${mapa.pendentes} missão(ões) a fazer`}
         >
+          {/*
+            A BARRA DE AVANCO DO MAPA.
+
+            Antes esta barra era a cor do chao do mapa, sempre cheia:
+            uma barra de progresso que mostra 100% desde o primeiro
+            segundo mente sobre o quanto da campanha foi feito. Agora e
+            o quanto das missoes daquele mapa ja esta concluido, e
+            nasce vazia
+
+            O `cor` do mapa continua no `data-cor`: e a identidade do
+            mapa e quem vai tingir o preenchimento
+          */}
           <span
             className="qst-rail__swatch"
-            style={{ background: mapa.cor }}
-            aria-hidden="true"
-          />
+            style={{ "--cor-mapa": mapa.cor }}
+            role="progressbar"
+            aria-valuemin={0}
+            aria-valuemax={100}
+            aria-valuenow={mapa.percent}
+            aria-label={`Avanço em ${mapa.name}`}
+          >
+            <i style={{ width: `${mapa.percent}%` }} />
+          </span>
+
           <small>{mapa.name}</small>
-          {mapa.pendentes > 0 && (
-            <i className="qst-rail__count">{mapa.pendentes}</i>
-          )}
         </button>
       ))}
     </nav>
@@ -406,6 +465,7 @@ function useMapRails(quests) {
   return MAPAS_RAIL.map((mapa) => ({
     ...mapa,
     pendentes: contarPendentes(quests, mapa.id),
+    ...contarProgresso(quests, mapa.id),
   }));
 }
 

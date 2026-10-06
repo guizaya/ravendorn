@@ -4,6 +4,8 @@ import {
   PROP_SCALE,
   PROP_TYPES,
   PROP_VARIANTS,
+  propSemSombra,
+  propSheetFor,
 } from "../../data/props/index.js";
 
 const MARGIN = 80;
@@ -63,7 +65,17 @@ export class PropRenderer {
     );
   }
 
-  drawShadow(context, prop) {
+  drawShadow(context, prop, map = null) {
+    /**
+     * ESTA PROP NAO TEM SOMBRA NESTE MAPA.
+     *
+     * A lista vem do mapa (`propsSemSombra`), e nao daqui: e o cenario
+     * que decide, e o renderer so obedece. Sem este `return`, a
+     * elipse preta continuaria desenhada embaixo de arbusto e arvore
+     * na neve
+     */
+    if (propSemSombra(prop.type, map)) return;
+
     const scale = prop.radius / 26;
 
     context.save();
@@ -84,12 +96,19 @@ export class PropRenderer {
     context.restore();
   }
 
-  drawProp(context, prop) {
+  drawProp(context, prop, map = null) {
     const type = PROP_TYPES[prop.type];
 
     if (!type) return;
 
-    const image = this.imageFor(type.sheet);
+    /**
+     * A FOLHA VEM DO MAPA.
+     *
+     * `propSheetFor` troca a arte do arbusto no mapa 2 e devolve a do
+     * catalogo em todos os outros. O cache de imagens e por URL, entao
+     * as duas artes convivem sem uma piscar na outra ao trocar de mapa
+     */
+    const image = this.imageFor(propSheetFor(prop.type, map));
 
     /**
      * Sem imagem nao ha o que desenhar, e chamar `drawImage` com `null`
@@ -150,10 +169,10 @@ export class PropRenderer {
     return visible;
   }
 
-  draw(context, props, view) {
+  draw(context, props, view, map = null) {
     for (const prop of this.collectVisible(props, view)) {
-      this.drawShadow(context, prop);
-      this.drawProp(context, prop);
+      this.drawShadow(context, prop, map);
+      this.drawProp(context, prop, map);
     }
   }
 

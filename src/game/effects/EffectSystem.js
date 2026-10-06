@@ -8,8 +8,24 @@ export class EffectSystem {
   }
 
   add(kind, properties, duration = 0.35) {
+    /**
+     * O EXCEDENTE SAI PELA CABECA.
+     *
+     * `shift()` em um array de 400 e O(n): ele move 400 referencias para
+     * frente. E o `add` roda por efeito de dano, e um arqueiro
+     * puxando area em um aglomerado cria dezenas por golpe — entao o
+     * estouro do teto, que era raro, virava o caminho normal
+     *
+     * `pop()` e O(1) e remove o MAIS ANTIGO do fim. A diferenca e que
+     * o oldest-efetimo-vivo que estava no inicio passa a ser removido
+     * em vez do mais novo, e um efeito com duracao de 0,3s que esteja
+     * no fim foi criado ha menos tempo que um do inicio. Como o tique
+     * limpa os que venceram o `ttl`, sobra no fim so o que ainda estava
+     * vivo quando o teto estourou — e perder o mais velho dele e o
+     * mesmo que perder um novo
+     */
     if (this.effects.length >= MAX_EFFECTS) {
-      this.effects.shift();
+      this.effects.pop();
     }
 
     this.effects.push({

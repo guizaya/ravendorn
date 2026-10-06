@@ -618,6 +618,130 @@ export function getSideQuest(id) {
 }
 
 /**
+ * AS MISSOES PRINCIPAIS DE UM MAPA, na ordem da escada.
+ *
+ * A escada e UMA lista com os dois mapas concatenados, entao "as do
+ * mapa 1" e uma fatia: as primeiras doze. Cortar por mapa e o que
+ * permite falar da "ultima missao do mapa 1" sem escrever o indice 11
+ * em tres arquivos — um `11` solto vira errado no dia em que a escada
+ * ganhar um degrau
+ */
+export function mainQuestsDoMapa(mapa) {
+  const alvo = mapa === "map_1" ? "map1" : mapa === "map_2" ? "map2" : mapa;
+
+  return MAIN_QUESTS.filter((quest) =>
+    quest.id.startsWith(`${alvo}_main_`));
+}
+
+/**
+ * O INDICE da ultima missao principal de um mapa, ou `-1`.
+ *
+ * E o `-1` que faz a conta nao depender de a escada estar cheia: um mapa
+ * sem missao nao trava ninguem, porque "terminar a ultima missao de um
+ * mapa que nao tem missoes" e uma condicao que ja nasce satisfeita
+ *
+ * O indice e o que o `QuestLog.mainIndex` guarda. `>=` este numero e a
+ * porta estar aberta; `<` e a porta fechada com a campanha ainda
+ * correndo
+ */
+export function indiceDaUltimaMissao(mapa) {
+  const missoes = mainQuestsDoMapa(mapa);
+
+  if (missoes.length === 0) return -1;
+
+  return MAIN_QUESTS.indexOf(missoes[missoes.length - 1]);
+}
+
+/**
+ * O PORTAL QUE EXIGE A CAMPANHA ESTA ABERTO?
+ *
+ * ## POR QUE A REGRA VIVE AQUI E NAO NO PORTAL
+ *
+ * O portal declara a exigencia com `exigeMissaoDe: "map_1"`, mas quem
+ * sabe o que "terminar o mapa 1" significa e a escada — e a escada esta
+ * aqui. Se a funcao morasse em `data/portais`, aquele arquivo
+ * importaria este, e como `quests` alcanca `data/maps`, que alcanca
+ * `portais`, o ciclo voltaria a estourar em `Cannot access before
+ * initialization` — que e o erro que aparece em runtime e nao no
+ * build, entao passa reto
+ *
+ * ## POR QUE UM SO LUGAR
+ *
+ * Sao dois chamadores com papeis opostos: o `GameEngine`, que troca o
+ * mapa, e o `GameServer`, que precisa recusar ANTES de o motor saber.
+ * Eles tem que dar a mesma resposta, entao nao podem ter uma copia cada.
+ *
+ * Devolve `{ ok: true }` ou `{ ok: false, motivo }`, com o `motivo` ja
+ * na lingua do jogador: e ele que vai para a box e para o aviso, e um
+ * texto montado em cada um dos dois seria duas tradicoes do mesmo texto
+ *
+ * O `mainIndex` e o numero que o `QuestLog` ja guarda. Nao ha estado
+ * novo para sincronizar e nenhuma missao precisa ser consultada: a
+ * campanha e uma escada, e o indice diz ate onde o jogador chegou
+ */
+export function portalLiberado(exigeMissaoDe, mainIndex) {
+  // sem exigencia, o portal e um corredor
+  if (!exigeMissaoDe) return LIBERADO;
+
+  const indice = indiceDaUltimaMissao(exigeMissaoDe);
+
+  /**
+   * UM MAPA QUE NAO TEM MISSOES NAO TRAVA NINGUEM.
+   *
+   * `indiceDaUltimaMissao` devolve `-1` quando o mapa nao tem degrau, e
+   * `-1` e tambem o indice de "campanha nao comecou". Comparar
+   * `mainIndex >= -1` deixa a porta aberta, que e o que um mapa sem
+   * campanha deve fazer — e sem este tratamento, um mapa novo sem
+   * missoes seria um portal fechado para sempre
+   */
+  if (indice < 0) return LIBERADO;
+
+  if (mainIndex > indice) return LIBERADO;
+
+  /**
+   * A PORTA FECHADA, e a ultima missao que falta.
+   *
+   * O nome vai no motivo de proposito: sem ele o jogador ve "finalize a
+   * campanha" e nao sabe o que procurar. `indice` e a ultima do mapa, e
+   * o jogador parado nela e justamente o caso que o jogador mais
+   * encontra — ele fez onze e falta a decima segunda
+   */
+  const quest = MAIN_QUESTS[indice];
+
+  const doMapa = mainQuestsDoMapa(exigeMissaoDe).length;
+
+  const feitas = Math.max(0, Math.min(mainIndex + 1, doMapa));
+
+  return {
+    ok: false,
+    motivo: quest
+      ? `Termine "${quest.name}" para atravessar (${feitas}/${doMapa} da campanha).`
+      : "Termine a campanha deste mapa para atravessar.",
+    questId: quest?.id ?? null,
+  };
+}
+
+/** O mesmo "pode", so no formato curto do painel */
+export function dadosDaTrava(exigeMissaoDe, mainIndex) {
+  const veredito = portalLiberado(exigeMissaoDe, mainIndex);
+
+  return {
+    bloqueado: !veredito.ok,
+    motivo: veredito.motivo ?? null,
+  };
+}
+
+/**
+ * O VEREDITO DE "PORTAL ABERTO".
+ *
+ * Um objeto so, compartilhado, e nao um `{ ok: true }` novo a cada
+ * chamada: quem compara o resultado com `===` precisa que todos os
+ * abertos sejam o mesmo objeto. E `motivo` e `null` de proposito,
+ * porque o painel le `motivo` sem precisar testar `ok`
+ */
+const LIBERADO = Object.freeze({ ok: true, motivo: null });
+
+/**
  * De onde veio a missao: `main` ou `side`.
  *
  * O `scope` decide o que a tela mostra depois do resgate (a campanha

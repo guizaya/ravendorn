@@ -2,7 +2,6 @@ import { useMemo, useState } from "react";
 import {
   getItem,
   ITEM_TYPE,
-  ITEM_TYPE_LABEL,
   rarityOf,
   RARITY_ORDER,
   RARITY_STYLE,
@@ -11,14 +10,42 @@ import {
   isEquippable,
   slotNameFor,
 } from "../../game/equipment/Equipment.js";
-import ItemIcon from "../UI/ItemIcon.jsx";
+import { canEnchantItem } from "../../data/enchant/index.js";
+import { SKILL_PACKS } from "../../data/skills/index.js";
 import InvSlotView from "../UI/InvSlotView.jsx";
+import ItemCard from "../UI/ItemCard.jsx";
+import SlotMenuFloat from "../UI/SlotMenuFloat.jsx";
 import {
   DEFAULT_LOOT_FILTER,
   LOOT_CATEGORIES,
   LOOT_CATEGORY_LABEL,
   normalizeLootFilter,
 } from "../../game/loot/lootFilter.js";
+
+/**
+ * A SKILL DE UM ID, ou `null`.
+ *
+ * Percorre os packs das classes em vez de receber a classe como
+ * argumento: o inventario mostra item de qualquer origem — loot, mercado,
+ * loja — e nenhuma delas sabe a classe de quem esta olhando. Com o
+ * argumento, cada chamador teria de descobrir a classe primeiro para
+ * desenhar um rotulo
+ *
+ * Este arquivo so DESENHA. Quem decide se o livro ensina mesmo e o
+ * servidor, no `aprenderHabilidade`, e este `null` serve para o rotulo
+ * cair em "ensina a habilidade" em vez de quebrar
+ */
+function skillPeloId(skillId) {
+  if (!skillId) return null;
+
+  for (const pack of Object.values(SKILL_PACKS)) {
+    const achada = pack.skills?.find((skill) => skill.id === skillId);
+
+    if (achada) return achada;
+  }
+
+  return null;
+}
 
 /**
  * As abas da mochila.
@@ -50,18 +77,37 @@ export const TABS = [
     label: "Runas",
     // `ᚱ` e uma letra runica, e nao um emoji: nao ha variation
     // selector depois dela, entao o navegador desenha como glifo de
-    // TEXTO e ela herda a cor da aba. Um emoji aqui sairia colorido
-    // ao lado das outras tres, que sao todas glifos
+    // TEXTO e ela herda a cor da aba
     icon: "ᚱ",
-    // `types` vazio, e nao `null`: e a aba que ainda nao mostra nada.
-    // Com `null` o filtro devolve TUDO, e a aba de runas viraria uma
-    // copia da aba "Tudo". Com `[]` o `includes` nunca casa e a grade
-    // fica vazia, mostrando o "Nenhum item nesta categoria"
+    // `types` vazio, e nao `null`: com `null` o filtro devolve TUDO e
+    // a aba de runas viraria uma copia da aba "Tudo"
     types: [],
   },
 ];
 
-// área de cada peça no boneco de equipamento (grid 3x3 do OSRS)
+/**
+ * As ordenacoes da mochila.
+ *
+ * A raridade e a padrao porque e o que o jogador procura primeiro: o
+ * lendario no topo. O desempate e sempre o nome, para a grade nao
+ * embaralhar entre duas aberturas do painel.
+ */
+const RARITY_RANK = {
+  legendary: 0,
+  epic: 1,
+  rare: 2,
+  uncommon: 3,
+  common: 4,
+};
+
+const SORTS = [
+  { id: "rarity", label: "Raridade" },
+  { id: "name", label: "Nome" },
+  { id: "count", label: "Quantidade" },
+  { id: "value", label: "Valor" },
+];
+
+// area de cada peça no boneco de equipamento
 const DOLL_AREA = {
   head: "head",
   gloves: "gloves",
@@ -84,26 +130,27 @@ const STAT_LABELS = {
   resource: "REC",
 };
 
-function statLine(stats) {
-  return Object.entries(stats ?? {})
-    .map(([key, value]) => {
-      const percent =
-        key === "attackSpeed" || key === "resourceRegen";
+const PERCENT_STATS = new Set(["attackSpeed", "resourceRegen"]);
 
-      const text = percent
-        ? `${value > 0 ? "+" : ""}${Math.round(value * 100)}%`
-        : `+${Math.round(value)}`;
-
-      return `${STAT_LABELS[key] ?? key} ${text}`;
-    })
-    .join("  ·  ");
+function formatStat(key, value) {
+  return PERCENT_STATS.has(key)
+    ? `${value > 0 ? "+" : ""}${Math.round(value * 100)}%`
+    : `+${Math.round(value)}`;
 }
 
-export function SlotMenu({ actions, align }) {
+export function SlotMenu({ actions, align, direction = "down" }) {
   if (actions.length === 0) return null;
 
   return (
-    <span className={`inv-menu inv-menu--${align}`}>
+    <span
+      className={[
+        "inv-menu",
+        `inv-menu--${align}`,
+        `inv-menu--${direction}`,
+      ]
+        .filter(Boolean)
+        .join(" ")}
+    >
       {actions.map((action) => (
         <button
           key={action.id}
@@ -126,47 +173,56 @@ export function SlotMenu({ actions, align }) {
   );
 }
 
-export function ItemSlot({
-  entry,
-  onEquip,
-  onUnequip,
-  onDiscardItem,
-  onDiscardEquipped,
-  onUseItem,
-  compact = false,
-  area,
-  menuOpen = false,
-  onToggleMenu,
-}) {
+/**
+ * AS ACOES DE UM SLOT, e a lista que a caixa de opcoes mostra.
+ *
+ * ## POR QUE ESTE TRECO SAIU DO `ItemSlot`
+ *
+ * Porque o `ItemSlot` desenha um slot com menu. A mochila usa um
+ * `ItemCard` — que tem o nome embaixo do icone — e o `ItemCard` nao
+ * sabe montar acoes: ele so repassa o que o dono da lista passar
+ *
+ * Com a montagem presa dentro do `ItemSlot`, a grade da mochila recebia
+ * `onUseItem`, `onDiscardItem` e os outros pelo `slotProps` e nenhum
+ * deles era lido. O clique abria o card, a caixa de opcoes nao aparecia,
+ * e nao havia como usar, vestir nem excluir NADA da mochila — nao era o
+ * livro, era o inventario inteiro
+ *
+ * Uma funcao que os dois chamam nao deixa essa lista de acoes crescer em
+ * dois lugares: um item novo entra aqui e aparece nos dois paineis
+ */
+function buildItemActions(entry, handlers) {
+  const {
+    onEquip,
+    onUnequip,
+    onDiscardItem,
+    onDiscardEquipped,
+    onUseItem,
+    onEnchant,
+  } = handlers;
+
   const item = getItem(entry.itemId);
 
-  if (!item) return null;
-
-  /**
-   * A raridade do SLOT e a da variante na mochila, e nao a do
-   * catalogo.
-   *
-   * O catalogo tem uma raridade so, e ela e a "natural" do item. O
-   * craft entrega o mesmo arco nas cinco, entao um `willow_bow`
-   * guardado pode ser lendario. Ler `item.rarity` pintava o slot com
-   * a cor da raridade base enquanto o nome no `title` dizia outra
-   * coisa, e a arte da raridade que se ajuste a cor
-   */
-  const raridadeId = entry.rarity ?? item.rarity;
-
-  const rarity = RARITY_STYLE[raridadeId] ?? rarityOf(item);
-
-  const unique = !item.stackable;
+  if (!item) return [];
 
   // so oferece "Equipar" quando o item tem ALGUM slot de destino
-  // valido. A regra antiga so olhava o tipo, e toda armadura tinha
-  // os tres slots de armadura como destino; agora a posicao conta, e
-  // um item cuja posicao nao existe no boneco fica sem a opcao em vez
-  // de falhar ao clicar
+  // valido: a posicao conta, e um item cuja posicao nao existe no
+  // boneco fica sem a opcao em vez de falhar ao clicar
   const equippable =
     item.type !== ITEM_TYPE.MATERIAL &&
     item.tier > 0 &&
     isEquippable(item);
+
+  /**
+   * ESTA PECA ACEITA AFIXO?
+   *
+   * E o mesmo `canEnchantItem` que o painel de encantar usa para montar
+   * as DUAS listas dele. Se os dois decidissem por conta propria, uma
+   * peca aqui marcada como "Encantar" poderia nao aparecer na lista do
+   * painel — e o jogador abriria um painel vazio procurando o que ele
+   * acabou de clicar
+   */
+  const encantavel = canEnchantItem(item.id);
 
   const actions = [];
 
@@ -176,6 +232,14 @@ export function ItemSlot({
         id: "unequip",
         label: "Desequipar",
         run: () => onUnequip(entry.slotId),
+      });
+    }
+
+    if (encantavel && onEnchant) {
+      actions.push({
+        id: "enchant",
+        label: "Encantar",
+        run: () => onEnchant(entry),
       });
     }
 
@@ -189,10 +253,8 @@ export function ItemSlot({
     }
   } else {
     if (equippable && onEquip) {
-      // O rotulo diz ONDE a peca vai. Com a regra da posicao, isso
-      // deixou de ser obvio: "Equipar" num slot livre qualquer era
-      // uma promessa vaga, e o jogador so descobria o destino depois
-      // de vestir
+      // O rotulo diz ONDE a peca vai: "Equipar" num slot livre
+      // qualquer era uma promessa vaga
       const destino = slotNameFor(item);
 
       actions.push({
@@ -202,22 +264,6 @@ export function ItemSlot({
       });
     }
 
-    /**
-     * USAR, quando o item e consumivel.
-     *
-     * Vem ANTES do "Excluir" de proposito: e a acao principal de uma
-     * pocao, e o menu que lista "Excluir" primeiro faz o jogador
-     * procurar o uso. O `danger` do excluir ja o separa visualmente
-     *
-     * O que decide e o `use` do CATALOGO, e nao o tipo.
-     * `ITEM_TYPE.POTION` e um rotulo, e o que o motor sabe aplicar e o
-     * `use` — um item novo com `use` ganha o botao sem tocar neste
-     * arquivo
-     *
-     * O rotulo mostra QUANTO cura. O jogador decide se vale o espaco da
-     * mochila olhando o numero, e nao descobrindo depois de ter perdido
-     * a pocao
-     */
     if (item.use && onUseItem) {
       const partes = [];
 
@@ -226,12 +272,47 @@ export function ItemSlot({
         partes.push(`${item.use.restoreResource} de recurso`);
       }
 
+      /**
+       * O LIVRO, e o NOME DA SKILL no rotulo.
+       *
+       * Sem esta parte o botao dizia so "Usar", e "Usar" e um botao que
+       * o jogador ja leu trinta vezes em pocaos sem olhar. Here o que
+       * ele esta prestes a perder 150 moedas decide, e o rotulo e o
+       * lugar mais barato de dizer isso
+       *
+       * O nome vem do pack pelo id, e nao de um texto escrito no item:
+       * renomear a skill no catalogo muda este rotulo junto, e nao
+       * deixaria "Usar" aqui falando um nome velho
+       */
+      if (item.use.teachSkill) {
+        const skill = skillPeloId(item.use.teachSkill);
+
+        partes.push(
+          skill ? `ensina ${skill.name}` : "ensina a habilidade",
+        );
+      }
+
       const efeito = partes.join(" e ");
 
       actions.push({
         id: "use",
         label: efeito ? `Usar · ${efeito}` : "Usar",
         run: () => onUseItem(entry),
+      });
+    }
+
+    /**
+     * ENCANTAR, na mochila.
+     *
+     * Fica entre "Usar" e "Excluir": e uma acao de transformação, que vem
+     * antes da acao destrutiva, e nunca antes de "Equipar" — vestir a peca
+     * e o que o jogador quer quando abre um item da mochila
+     */
+    if (encantavel && onEnchant) {
+      actions.push({
+        id: "enchant",
+        label: "Encantar",
+        run: () => onEnchant(entry),
       });
     }
 
@@ -245,25 +326,135 @@ export function ItemSlot({
     }
   }
 
+  return actions;
+}
+
+export function ItemSlot({
+  entry,
+  onEquip,
+  onUnequip,
+  onDiscardItem,
+  onDiscardEquipped,
+  onUseItem,
+  onEnchant,
+  compact = false,
+  area,
+  menuOpen = false,
+  onToggleMenu,
+}) {
+  const item = getItem(entry.itemId);
+
+  /**
+   * PARA ONDE A CAIXA ABRE: para baixo ou para cima.
+   *
+   * ## POR QUE ISTO EXISTE
+   *
+   * A caixa e `position: absolute` dentro do slot, entao ela NAO tem
+   * lugar na tela: ela tem lugar no painel. E o painel tem
+   * `overflow: hidden`, e a lista da mochila tem `overflow-y: auto`. Uma
+   * caixa que abre para baixo e CORTADA no item da ultima linha — e o
+   * slot das botas, no boneco, e exatamente um deles
+   *
+   * Abrir para cima resolve, mas quebra o item da PRIMEIRA linha. Nao ha
+   * um lado que serve para todos: quem decide e a posicao do slot na
+   * hora de abrir
+   *
+   * ## POR QUE MEDIR E NAO ADIVINHAR POR INDICE
+   *
+   * Poderia ser uma regra de "linha par abre para cima", que e o tipo de
+   * coisa que funciona ate a lista ter rolagem. Medindo o retangulo do
+   * slot contra o do container, a regra continua valendo com a lista
+   * rolada, com o painel meio na tela e com o boneco ter so as botas
+   * vestidas
+   *
+   * ## POR QUE O `event`, E NAO UM `ref`
+   *
+   * O `event.currentTarget` e o botao que o jogador apertou, e dele sai o
+   * slot e o container por `closest`. Um `ref` exigiria que o
+   * `InvSlotView` — que e compartilhado com o mercado —aceitasse
+   *_forwardRef_, e o mercado passaria a pagar por uma referencia que
+   * nao usa
+   */
+  const [direcao, setDirecao] = useState("down");
+
+  const abrirMenu = (clicado, event) => {
+    const slot = event?.currentTarget?.closest?.(".inv-slot");
+
+    const container = slot?.closest?.(
+      ".inv-content, .inv-equip__grid, .inv-panel__body",
+    );
+
+    if (!slot || !container) {
+      onToggleMenu?.(clicado);
+      return;
+    }
+
+    const caixaDoSlot = slot.getBoundingClientRect();
+    const caixaDoContainer = container.getBoundingClientRect();
+
+    /**
+     * A ALTURA QUE A CAIXA PRECISA.
+     *
+     * Duas acoes (vestir e excluir) ocupam uns 56px. E uma ESTIMATIVA de
+     * propósito: medir o conteudo antes de renderizar a caixa seria um
+     * segundo layout, e o valor so precisa ser grande o bastante para a
+     * decisao de lado acerto — na duvida, tratar como "nao cabe embaixo"
+     */
+    const ALTURA_ESTIMADA = 56;
+
+    const espacoAbaixo =
+      caixaDoContainer.bottom - caixaDoSlot.bottom;
+
+    setDirecao(
+      espacoAbaixo < ALTURA_ESTIMADA + 8 ? "up" : "down",
+    );
+
+    onToggleMenu?.(clicado);
+  };
+
+  if (!item) return null;
+
+  const actions = buildItemActions(entry, {
+    onEquip,
+    onUnequip,
+    onDiscardItem,
+    onDiscardEquipped,
+    onUseItem,
+    onEnchant,
+  });
+
   return (
+    /**
+     * O BOTAO DE CLIQUE E O DO `InvSlotView`, e nao um aqui.
+     *
+     * Este componente desenhavo um `<button class="inv-slot__hit">`
+     * proprio, DENTRO do `InvSlotView` — que ja traz o seu. Sao dois
+     * botoes com a mesma classe no mesmo slot, e num `display: grid` sem
+     * `grid-template-rows` cada filho ocupa uma linha propria: o do
+     * `InvSlotView` fica na linha 1, que e onde o jogador ve o icone, e o
+     * de baixo empurrava para fora da caixa.
+     *
+     * O efeito era que o clique batia no botao do `InvSlotView`, cujo
+     * `onSelect` NUNCA era passado aqui — entao `onSelect?.(entry)` era
+     * um no-op silencioso e a caixa de opcoes nao abria em lugar nenhum.
+     * O botao que funcionava estava embaixo da dobra
+     *
+     * Passar o `onToggleMenu` pelo `onSelect` resolve os dois: um botao
+     * so, e ele e o que o jogador esta clicando de verdade
+     */
     <InvSlotView
       entry={entry}
       compact={compact}
       area={area}
       className={menuOpen ? "is-menu" : ""}
+      onSelect={abrirMenu}
+      selected={menuOpen}
     >
-      <button
-        type="button"
-        className="inv-slot__hit"
-        onClick={() => onToggleMenu?.(entry)}
-        aria-label={item.name}
-        aria-expanded={menuOpen}
-      />
-
       {menuOpen && (
         <SlotMenu
           actions={actions}
           align={area ? "left" : "center"}
+          direction={direcao}
         />
       )}
     </InvSlotView>
@@ -274,6 +465,7 @@ function DollSlot({
   slot,
   onUnequip,
   onDiscardEquipped,
+  onEnchant,
   menuOpen,
   onToggleMenu,
 }) {
@@ -288,11 +480,8 @@ function DollSlot({
         onToggleMenu={onToggleMenu}
         entry={{
           itemId: slot.itemId,
-          // A raridade da variante vestida. Sem esta linha a entrada
-          // nao trazia raridade nenhuma, e o slot caia na do
-          // catalogo: vestir um arco lendario mostrava a arte da
-          // raridade base dele, que e o mesmo arco em outra
-          // imagem
+          // A raridade da variante vestida: sem ela o slot caia na do
+          // catalogo e mostrava a arte da raridade base
           rarity: slot.rarity ?? null,
           count: 1,
           slotId: slot.id,
@@ -300,6 +489,7 @@ function DollSlot({
         }}
         onUnequip={onUnequip}
         onDiscardEquipped={onDiscardEquipped}
+        onEnchant={onEnchant}
       />
     );
   }
@@ -319,6 +509,7 @@ function EquipmentDoll({
   equipment,
   onUnequip,
   onDiscardEquipped,
+  onEnchant,
   menu,
   onToggleMenu,
 }) {
@@ -334,53 +525,53 @@ function EquipmentDoll({
           onToggleMenu={onToggleMenu}
           onUnequip={onUnequip}
           onDiscardEquipped={onDiscardEquipped}
+          onEnchant={onEnchant}
         />
       ))}
     </div>
   );
 }
 
-function Bonuses({ equipment, onAutoEquip }) {
-  const bonuses = equipment?.bonuses ?? {};
+/**
+ * O cartao de poder e bonus do equipamento.
+ *
+ * O botao "Equipar melhores" mora aqui e aparece SEMPRE: antes ele
+ * ficava dentro da secao de bonus, que sumia quando nao havia nada
+ * vestido — justamente quando o jogador mais precisa dele.
+ */
+function PowerCard({ equipment, onAutoEquip }) {
+  const bonuses = Object.entries(equipment?.bonuses ?? {});
 
   return (
-    <div className="inv-equip__bonus">
-      <span className="eyebrow">Bônus_total</span>
+    <div className="inv-power">
+      <div className="inv-power__head">
+        <span className="inv-power__label">Power</span>
+        <strong className="inv-power__value">
+          {equipment?.power ?? 0}
+        </strong>
+      </div>
 
-      {Object.keys(bonuses).length === 0 ? (
-        <p className="inv-equip__empty">
-          Nenhum equipamento. Use “Equipar melhores”.
+      {bonuses.length === 0 ? (
+        <p className="inv-power__empty">
+          Nenhum equipamento vestido.
         </p>
       ) : (
-        <ul>
-          {Object.entries(bonuses).map(([key, value]) => (
-            <li key={key}>
-              <strong>
-                {STAT_LABELS[key] ?? key}
-              </strong>
-              <span>
-                {key === "attackSpeed" || key === "resourceRegen"
-                  ? `${value > 0 ? "+" : ""}${Math.round(value * 100)}%`
-                  : `+${Math.round(value)}`}
-              </span>
+        <ul className="inv-stat-grid">
+          {bonuses.map(([key, value]) => (
+            <li key={key} className="inv-stat">
+              <small>{STAT_LABELS[key] ?? key}</small>
+              <b>{formatStat(key, value)}</b>
             </li>
           ))}
         </ul>
       )}
-
-      <div className="inv-equip__power">
-        <span>Power</span>
-        <strong>
-          {equipment?.power ?? 0}
-        </strong>
-      </div>
 
       <button
         type="button"
         className="inv-action"
         onClick={onAutoEquip}
       >
-        Equipar melhores
+        ✦ Equipar melhores
       </button>
     </div>
   );
@@ -428,9 +619,7 @@ export function FilterPanel({
               ]
                 .filter(Boolean)
                 .join(" ")}
-              onClick={() =>
-                onChange(category, null)
-              }
+              onClick={() => onChange(category, null)}
             >
               Tudo
             </button>
@@ -451,9 +640,7 @@ export function FilterPanel({
                     .filter(Boolean)
                     .join(" ")}
                   style={{ "--rarity": style.color }}
-                  onClick={() =>
-                    onChange(category, rarity)
-                  }
+                  onClick={() => onChange(category, rarity)}
                 >
                   {style.label}
                 </button>
@@ -496,6 +683,7 @@ export default function InventoryPanel({
   onDiscardEquipped,
   onAutoEquip,
   onUseItem,
+  onEnchant,
   onFilterChange,
   onFilterReset,
   onFilterPrune,
@@ -503,6 +691,8 @@ export default function InventoryPanel({
   const [category, setCategory] = useState("all");
   const [menu, setMenu] = useState(null);
   const [filterOpen, setFilterOpen] = useState(false);
+  const [searchTerm, setSearchTerm] = useState("");
+  const [sort, setSort] = useState("rarity");
 
   const filter = useMemo(
     () => normalizeLootFilter(lootFilter),
@@ -523,6 +713,11 @@ export default function InventoryPanel({
 
   const entries = summary.items ?? [];
 
+  const capacityPercent = Math.min(
+    100,
+    (summary.used / Math.max(1, summary.capacity)) * 100,
+  );
+
   const closeMenu = () => setMenu(null);
 
   const toggleMenu = (entry) =>
@@ -542,17 +737,22 @@ export default function InventoryPanel({
     onDiscardEquipped?.(slotId);
   };
 
-  /**
-   * USA um consumivel, e fecha o menu do slot.
-   *
-   * O `closeMenu` vem antes do pedido pelo mesmo motivo do descarte:
-   * o menu fica na tela ate a proxima resposta do servidor, e um menu
-   * aberto em cima da pocao que acabou de sumir mostra um slot vazio
-   * com acoes que nao valem mais nada
-   */
   const useItem = (entry) => {
     closeMenu();
     onUseItem?.(entry);
+  };
+
+  /**
+   * ENCANTAR: fecha a mochila e entrega a peca ao painel de encantar.
+   *
+   * O `closeMenu` vem antes porque o painel de inventario vai sair de
+   * cena — os dois paineis sao o mesmo `PAINEL`, entao abrir o de
+   * encantar ja desmonta este. Sem fechar a caixa aqui, a troca
+   * aconteceria um quadro depois e a caixa piscaria no item errado
+   */
+  const enchantItem = (entry) => {
+    closeMenu();
+    onEnchant?.(entry);
   };
 
   const changeFilter = (key, value) => {
@@ -560,53 +760,70 @@ export default function InventoryPanel({
     onFilterChange?.(key, value);
   };
 
-  const visible = useMemo(() => {
-    const filter_ = TABS.find(
-      (entry) => entry.id === category,
-    );
+  // a contagem de cada aba, calculada uma vez por mudanca da mochila
+  const tabCounts = useMemo(() => {
+    const counts = {};
 
-    if (!filter_?.types) return entries;
+    for (const tab of TABS) {
+      counts[tab.id] = tab.types
+        ? entries.filter((entry) => {
+            const def = getItem(entry.itemId);
+            return def && tab.types.includes(def.type);
+          }).length
+        : entries.length;
+    }
 
-    return entries.filter((entry) => {
+    return counts;
+  }, [entries]);
+
+  // aba + busca + ordenacao num passo so, ja com o item resolvido
+  const cards = useMemo(() => {
+    const tab = TABS.find((entry) => entry.id === category);
+    const term = searchTerm.trim().toLowerCase();
+
+    const list = [];
+
+    for (const entry of entries) {
       const item = getItem(entry.itemId);
 
-      return item && filter_.types.includes(item.type);
+      if (!item) continue;
+      if (tab?.types && !tab.types.includes(item.type)) continue;
+      if (term && !item.name.toLowerCase().includes(term)) continue;
+
+      const raridadeId = entry.rarity ?? item.rarity;
+
+      list.push({
+        entry,
+        item,
+        raridadeId,
+        style: RARITY_STYLE[raridadeId] ?? rarityOf(item),
+      });
+    }
+
+    const byName = (a, b) => a.item.name.localeCompare(b.item.name);
+
+    list.sort((a, b) => {
+      if (sort === "name") return byName(a, b);
+
+      if (sort === "count") {
+        return b.entry.count - a.entry.count || byName(a, b);
+      }
+
+      if (sort === "value") {
+        return (
+          (b.item.value ?? 0) * b.entry.count -
+            (a.item.value ?? 0) * a.entry.count || byName(a, b)
+        );
+      }
+
+      return (
+        (RARITY_RANK[a.raridadeId] ?? 9) -
+          (RARITY_RANK[b.raridadeId] ?? 9) || byName(a, b)
+      );
     });
-  }, [entries, category]);
 
-  const slots = useMemo(() => {
-    const list = visible
-      .map((entry) => {
-        const item = getItem(entry.itemId);
-
-        if (!item) return null;
-
-        // ordena pela raridade que o slot vai MOSTRAR, e nao pela do
-        // catalogo. Um arco base e um arco lendario sao o mesmo item,
-        // entao ordenar so pelo catalogo punha os dois juntos e o
-        // lendario nao chegava ao topo que ele deveria ter
-        return {
-          entry,
-          item,
-          raridadeId: entry.rarity ?? item.rarity,
-        };
-      })
-      .filter(Boolean);
-
-    // ordena por raridade para que os melhores fiquem no topo da grade
-    const rank = {
-      legendary: 0,
-      epic: 1,
-      rare: 2,
-      uncommon: 3,
-      common: 4,
-    };
-
-    return list.sort(
-      (a, b) =>
-        (rank[a.raridadeId] ?? 9) - (rank[b.raridadeId] ?? 9),
-    );
-  }, [visible]);
+    return list;
+  }, [entries, category, searchTerm, sort]);
 
   const totalValue = entries.reduce((total, entry) => {
     const item = getItem(entry.itemId);
@@ -618,126 +835,243 @@ export default function InventoryPanel({
     filter[LOOT_CATEGORIES[0]] !== null ||
     filter[LOOT_CATEGORIES[1]] !== null;
 
+  const searching = searchTerm.trim() !== "";
+
   return (
-    <section className="inv-panel">
-      <nav className="inv-tabs">
-        {TABS.map((entry) => {
-          const count = entry.types
-            ? entries.filter((item) => {
-                const def = getItem(item.itemId);
+    <section className="inv-panel inv-v2">
+      <header className="inv-header">
+        <div className="inv-header__left">
 
-                return (
-                  def && entry.types.includes(def.type)
-                );
-              }).length
-            : entries.length;
+          <div className="inv-header__titles">
+            <h2 className="inv-title">Inventário</h2>
 
-          return (
-            <button
-              key={entry.id}
-              type="button"
-              className={[
-                "inv-tab",
-                category === entry.id ? "is-active" : "",
-              ]
-                .filter(Boolean)
-                .join(" ")}
-              onClick={() => setCategory(entry.id)}
-              title={entry.label}
-            >
-              <span className="inv-tab__icon">
-                {entry.icon}
+            <div className="inv-stats-summary">
+              <span
+                className={[
+                  "inv-chip",
+                  summary.isFull ? "is-full" : "",
+                ]
+                  .filter(Boolean)
+                  .join(" ")}
+                title="Espaço da mochila"
+              >
+                <i>▣</i>
+                <b>
+                  {summary.used}/{summary.capacity}
+                </b>
+                <span className="inv-chip__bar">
+                  <span
+                    style={{ width: `${capacityPercent}%` }}
+                  />
+                </span>
               </span>
-              <small>{entry.label}</small>
-              {count > 0 && (
-                <i className="inv-tab__count">{count}</i>
-              )}
-            </button>
-          );
-        })}
 
-        <button
-          type="button"
-          className={[
-            "inv-gear",
-            filterOpen ? "is-active" : "",
-            filtering ? "is-filtering" : "",
-          ]
-            .filter(Boolean)
-            .join(" ")}
-          onClick={() => {
-            closeMenu();
-            setFilterOpen((current) => !current);
-          }}
-          title="Configurar filtro de coleta"
-        >
-          ⚙
-        </button>
+              <span className="inv-chip inv-chip--gold" title="Moedas">
+                <i>◉</i>
+                <b>{summary.coins}</b>
+              </span>
+            </div>
+          </div>
+        </div>
 
-        <button
-          type="button"
-          className="inv-close"
-          onClick={onClose}
-          title="Fechar (I)"
-        >
-          ✕
-        </button>
+        <div className="inv-header__right">
+          <div className="inv-search">
+            <span className="inv-search__icon" aria-hidden="true">
+              ⌕
+            </span>
+            <input
+              type="text"
+              className="inv-search__input"
+              placeholder="Pesquisar itens..."
+              value={searchTerm}
+              onChange={(e) => setSearchTerm(e.target.value)}
+            />
+            {searchTerm && (
+              <button
+                type="button"
+                className="inv-search__clear"
+                onClick={() => setSearchTerm("")}
+                title="Limpar pesquisa"
+              >
+                ✕
+              </button>
+            )}
+          </div>
 
-        {filterOpen && (
-          <FilterPanel
-            filter={filter}
-            onChange={changeFilter}
-            onReset={() => onFilterReset?.()}
-            onPrune={() => onFilterPrune?.()}
-            onClose={() => setFilterOpen(false)}
-          />
-        )}
-      </nav>
+          <button
+            type="button"
+            className={[
+              "inv-gear",
+              filterOpen ? "is-active" : "",
+              filtering ? "is-filtering" : "",
+            ]
+              .filter(Boolean)
+              .join(" ")}
+            onClick={() => {
+              closeMenu();
+              setFilterOpen((current) => !current);
+            }}
+            title="Configurar filtro de coleta"
+          >
+            ⚙
+          </button>
+
+          <button
+            type="button"
+            className="inv-close"
+            onClick={onClose}
+            title="Fechar (I)"
+          >
+            ✕
+          </button>
+        </div>
+      </header>
 
       <div className="inv-panel__body">
         <aside className="inv-illus">
-          <EquipmentDoll
-            equipment={equipment}
-            menu={menu}
-            onToggleMenu={toggleMenu}
-            onUnequip={onUnequip}
-            onDiscardEquipped={discardEquipped}
-          />
+          <section className="inv-equipment-section">
+            <h3 className="inv-section-title">Equipamento</h3>
 
-          <Bonuses
+            <EquipmentDoll
+              equipment={equipment}
+              menu={menu}
+              onToggleMenu={toggleMenu}
+              onUnequip={onUnequip}
+              onDiscardEquipped={discardEquipped}
+              onEnchant={enchantItem}
+            />
+          </section>
+
+          <PowerCard
             equipment={equipment}
             onAutoEquip={onAutoEquip}
           />
         </aside>
 
-        <div className="inv-main">
-          {slots.length === 0 ? (
-            <p className="inv-panel__empty">
-              Nenhum item nesta categoria.
-            </p>
-          ) : (
-            <div className="inv-grid">
-              {slots.map(({ entry, item }) => (
-                <div
-                  key={entry.uid ?? entry.itemId}
-                  className="inv-cell"
-                >
-                  <ItemSlot
-                    entry={entry}
-                    onEquip={onEquip}
-                    onDiscardItem={discardItem}
-                    onUseItem={useItem}
-                    menuOpen={menu === entry.uid}
-                    onToggleMenu={toggleMenu}
-                  />
-                  <span className="inv-cell__name">
-                    {item.name}
-                  </span>
+        <main className="inv-main">
+          <div className="inv-toolbar">
+            <nav className="inv-tabs-compact">
+              {TABS.map((entry) => {
+                const count = tabCounts[entry.id];
+
+                return (
+                  <button
+                    key={entry.id}
+                    type="button"
+                    className={[
+                      "inv-tab-compact",
+                      category === entry.id ? "is-active" : "",
+                    ]
+                      .filter(Boolean)
+                      .join(" ")}
+                    onClick={() => {
+                      closeMenu();
+                      setCategory(entry.id);
+                    }}
+                    title={entry.label}
+                  >
+                    <span className="inv-tab-compact__icon">
+                      {entry.icon}
+                    </span>
+                    <small>{entry.label}</small>
+                    {count > 0 && (
+                      <i className="inv-tab-compact__count">
+                        {count}
+                      </i>
+                    )}
+                  </button>
+                );
+              })}
+            </nav>
+
+            <label className="inv-sort">
+              <span>Ordenar</span>
+              <select
+                className="inv-sort__select"
+                value={sort}
+                onChange={(e) => {
+                  closeMenu();
+                  setSort(e.target.value);
+                }}
+              >
+                {SORTS.map((option) => (
+                  <option key={option.id} value={option.id}>
+                    {option.label}
+                  </option>
+                ))}
+              </select>
+            </label>
+          </div>
+
+          <div className="inv-content">
+            {cards.length === 0 ? (
+              <div className="inv-empty-state">
+                <div className="inv-empty-icon">
+                  {searching ? "⌕" : "▣"}
                 </div>
-              ))}
-            </div>
-          )}
-        </div>
+                <p className="inv-panel__empty">
+                  {searching
+                    ? "Nenhum item encontrado para a busca."
+                    : "Nenhum item nesta categoria."}
+                </p>
+              </div>
+            ) : (
+              <div className="inv-grid-modern">
+                {cards.map(({ entry, item, raridadeId, style }) => {
+                  /**
+                   * AS ACOES DESTE ITEM, montadas aqui e nao no cartao.
+                   *
+                   * O `ItemCard` so pendura o que recebe: quem sabe o que
+                   * cabe num livro e o que cabe numa pocao e o dono da
+                   * lista. Passar os handlers pelo `slotProps` sem montar a
+                   * lista aqui deixava o inventario inteiro sem acao — o
+                   * clique abria o card e nao aparecia nada
+                   */
+                  const acoes = buildItemActions(entry, {
+                    onEquip,
+                    onDiscardItem: discardItem,
+                    onUseItem: useItem,
+                    onEnchant: enchantItem,
+                  });
+
+                  const aberto = menu === entry.uid;
+
+                  return (
+                    <ItemCard
+                      key={entry.uid ?? entry.itemId}
+                      entry={entry}
+                      className={aberto ? "is-menu" : ""}
+                      slotProps={{
+                        onToggleMenu: toggleMenu,
+                        menuOpen: aberto,
+                      }}
+/**
+                   * O MENU FORA DA LISTA, e nao dentro do cartao.
+                   *
+                   * A `.inv-content` rola, e um `absolute` dentro dela e
+                   * cortado nas duas bordas: para baixo o item do topo
+                   * perdia a caixa, para cima ela passava da borda e
+                   * ficava ATRAS da barra de abas
+                   *
+                   * O portal pendura a caixa no `body` com `fixed`, que
+                   * nao conhece container nenhum. E o que o `ItemTooltip`
+                   * ja faz pela dica, pelo mesmo motivo
+                   */
+                  menu={
+                    aberto ? (
+                      <SlotMenuFloat
+                        entry={entry}
+                        actions={acoes}
+                      />
+                    ) : null
+                  }
+                    />
+                  );
+                })}
+              </div>
+            )}
+          </div>
+        </main>
       </div>
 
       {menu !== null && (
@@ -752,48 +1086,17 @@ export default function InventoryPanel({
         />
       )}
 
-      <footer className="inv-status">
-        <span className="inv-status__cap">
-          <i>▣</i>
-          {summary.used}/{summary.capacity}
-        </span>
-
-        <span className="inv-status__hp">
-          <span className="inv-status__bar">
-            <span
-              className="inv-status__fill"
-              style={{ width: `${hpPercent}%` }}
-            />
-          </span>
-
-          <span className="inv-status__hptext">
-            {hp} / {maxHp}
-          </span>
-        </span>
-
-        {summary.isFull && (
-          <span className="inv-status__full">Cheio</span>
-        )}
-
-        {filtering && (
-          <span
-            className="inv-status__filter"
-            title="Filtro de coleta ativo: itens abaixo da raridade escolhida são descartados automaticamente"
-          >
-            <i>⚙</i>
-            Filtro
-          </span>
-        )}
-
-        <span className="inv-status__value">
-          {totalValue} em itens
-        </span>
-
-        <span className="inv-status__coins">
-          <i>◉</i>
-          {summary.coins}
-        </span>
-      </footer>
+      {filterOpen && (
+        <div className="inv-filter-panel">
+          <FilterPanel
+            filter={filter}
+            onChange={changeFilter}
+            onReset={() => onFilterReset?.()}
+            onPrune={() => onFilterPrune?.()}
+            onClose={() => setFilterOpen(false)}
+          />
+        </div>
+      )}
     </section>
   );
 }

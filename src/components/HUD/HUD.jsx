@@ -10,11 +10,26 @@ import CraftPanel from "../Craft/CraftPanel.jsx";
 import CollectionPanel, {
   StatusPanel,
 } from "../Collection/CollectionPanel.jsx";
-import EnchantPanel from "../Enchant/EnchantPanel.jsx";
+import EnchantPanel, {
+  chave,
+} from "../Enchant/EnchantPanel.jsx";
 import MarketPanel from "../Market/MarketPanel.jsx";
 import PotionPanel from "../Potions/PotionPanel.jsx";
+import HabilidadesPanel from "../Skills/HabilidadesPanel.jsx";
+
+/*
+ * O painel de desempenho do servidor esta commented no corpo do `HUD`,
+ * junto com o motivo. O import volta na mesma hora em que ele.
+ *
+ * While commented, o ESLint nao reclama de import sem uso porque este
+ * NAO e um import: e um bloco de comentario. O `ServerPerf.jsx`
+ * continua existindo e continua com o mesmo nome.
+ */
 import GuildPanel from "../Guild/GuildPanel.jsx";
 import PortalBox from "./PortalBox.jsx";
+import BossBox from "./BossBox.jsx";
+import TravelBox from "./TravelBox.jsx";
+import DeathPanel from "./DeathPanel.jsx";
 import {
   MINIMAP_HEIGHT,
   MINIMAP_TOP_IDLE,
@@ -23,6 +38,16 @@ import {
 import { DEFAULT_LOOT_FILTER } from "../../game/loot/lootFilter.js";
 import { RANK_CRITERIO } from "../../game/ranking/rank.js";
 import { digitandoEm } from "../../game/ui/typing.js";
+
+/**
+ * O ID DA ARENA, para o botao saber se o clique entra ou sai.
+ *
+ * Vem do registro de mapas e nao de um literal aqui: o mesmo id e usado
+ * pelo servidor para escolher o destino, e um `const` solto no HUD
+ * permitiria que um deles mudasse sem o outro
+ */
+import { ARENA_ID, findMap } from "../../data/maps/index.js";
+import { CREATURE_TYPES } from "../../data/enemies/index.js";
 import { NPC_ACAO } from "../../data/npc/index.js";
 
 /**
@@ -71,6 +96,16 @@ const PAINEL = {
    * em outro mapa
    */
   POCOES: "pocoes",
+
+  /**
+   * O PAINEL DE HABILIDADES, do mestre da base.
+   *
+   * Nao tem tecla, como a loja do mercador: os dois abrem por clique no
+   * NPC, e nenhum outro painel do jogo depende de o jogador estar perto
+   * de uma coisa. Um painel preso a um NPC e um painel que ninguem
+   * encontra
+   */
+  HABILIDADES: "habilidades",
 };
 
 /**
@@ -284,14 +319,6 @@ function QuestTracker({
   onOpen,
   onFocus,
 }) {
-  const xp = player.xp ?? 0;
-  const needed = player.xpToNext ?? 0;
-
-  const percent =
-    Number.isFinite(needed) && needed > 0
-      ? Math.min(100, (xp / needed) * 100)
-      : 100;
-
   const main = quests?.main?.current ?? null;
   const side = quests?.side?.current ?? null;
   const auto = quests?.auto ?? null;
@@ -321,25 +348,29 @@ function QuestTracker({
    */
   return (
     <section className="qst-tracker">
+      {/*
+        O NIVEL E A BARRA DE XP SAIRAM DO CABECALHO.
+
+        Eles foram para o rodape da tela (`Rodape`), colados na
+        borda. Cabiam aqui e a leitura era boa, mas disputavam espaco com
+        a linha da missao — que e o que o jogador precisa ler enquanto
+        joga, e o nivel so importa de vez em quando
+      */}
       <button
         type="button"
         className="qst-tracker__head"
         onClick={onOpen}
         title="Abrir missões (Q)"
       >
-        <span className="qst-tracker__lvl">
-          Nv.{player.level}
-        </span>
+        {/*
+          O QUE FICOU NO BOTAO.
 
-        <span className="qst-tracker__xp">
-          <i style={{ width: `${percent}%` }} />
-        </span>
-
-        <small>
-          {Number.isFinite(needed)
-            ? `${xp}/${needed} XP`
-            : "MAX"}
-        </small>
+          Sem texto, o botao fica com a altura de um cabecalho vazio. E
+          por isso que ele existe ainda: e a AREA CLICAVEL que abre o
+          painel de missoes, e remover o texto sem remover o botao
+          deixaria um espaco morto no topo da box
+        */}
+        <span className="qst-tracker__head-mark">✧</span>
       </button>
 
       {main && (
@@ -430,6 +461,261 @@ function QuestTracker({
   );
 }
 
+/**
+ * UM RECURSO COM O NUMERO DENTRO DA BARRA.
+ *
+ * O `Vitals` da HUD tambem mostra HP e recurso, mas com o numero DO
+ * LADO da barra, num bloco que fica no alto da tela. Aqui o numero vai
+ * DENTRO: a faixa e baixa, e um numero ao lado empurraria o trilho para
+ * fora dela
+ *
+ * O espaco entre o trilho e o preenchimento e o que segura a leitura:
+ * com o texto sobre a barra, ele ficaria legivel so na parte vazia — e
+ * a parte vazia e justamente onde o jogador olha quando o recurso esta
+ * cheio
+ */
+function BarraInterna({ percent, atual, maximo, cor, rotulo }) {
+  return (
+    <span
+      className="rodape__barra"
+      title={`${rotulo}: ${atual}/${maximo}`}
+    >
+      <i
+        className="rodape__barra-fill"
+        style={{
+          width: `${percent}%`,
+          background: cor,
+        }}
+      />
+
+      <span className="rodape__barra-num">
+        {Math.ceil(atual)}
+        <small>/{maximo}</small>
+      </span>
+    </span>
+  );
+}
+
+/**
+ * O TRILHO DOURADO DO XP, EMBAIXO DA LINHA INTEIRA.
+ *
+ * ## POR QUE ELE SAIU DO RODAPE
+ *
+ * Porque a barra de XP e a unica barra da tela que nao pertence a um
+ * personagem especifico: o progresso do nivel vale para a sessao toda,
+ * enquanto o HP e o recurso sao numeros que mudam a cada golpe. Dentro
+ * do rodape ele parava na coluna das barras de 300px; como linha da
+ * barra de acoes, ele atravessa do nivel ate o ultimo botao da direita
+ *
+ * ## POR QUE A CONTA FICA AQUI E NAO NO RODAPE
+ *
+ * O rodape calcula a porcentagem do XP porque e quem sabe do nivel. O
+ * `percent` desce por prop, e este componente so desenha — se ele
+ * recalculasse, a mesma conta estaria em dois lugares e os dois
+ * divergiriam no primeiro ajuste
+ */
+/**
+ * A PORCENTAGEM DE XP DE UM JOGADOR.
+ *
+ * ## POR QUE E UMA FUNCAO E NAO UM `useState` PASSADO POR PROP
+ *
+ * Porque o numero e usado em DOIS lugares: na porcentagem escrita ao lado
+ * do nivel, e no preenchimento do trilho que atravessa a linha da barra
+ * de acoes. Sao elementos distantes no DOM e nao podem ser irmaos
+ *
+ * Com a conta em um lugar so, os dois nao podem divergir — e se
+ * divergissem, o sintoma seria o numero dizendo 43% com a barra em 41%,
+ * que e o tipo de defeito que so aparece depois de horas de jogo
+ */
+function percentualXp(player) {
+  const xp = player?.xp ?? 0;
+  const needed = player?.xpToNext ?? 0;
+
+  /**
+   * `needed` que NAO E NUMERO e o jogo dizendo que o personagem chegou
+   * ao fim. Dividir por isso daria `NaN` na largura, e a barra sumiria
+   * com o numero em 100% na tela
+   */
+  const noMaximo = !Number.isFinite(needed) || needed <= 0;
+
+  return {
+    noMaximo,
+    percent: noMaximo
+      ? 100
+      : Math.min(100, (xp / needed) * 100),
+    xp,
+    needed,
+  };
+}
+
+/**
+ * O TRILHO DOURADO DO XP, NA SEGUNDA LINHA DA BARRA DE ACOES.
+ *
+ * ## POR QUE ELE VIVE AQUI E NAO NO RODAPE
+ *
+ * Porque a barra de XP e a unica barra da tela que nao pertence a um
+ * bloco so: o progresso do nivel vale para a sessao inteira, enquanto o
+ * HP e o recurso sao numeros que mudam a cada golpe. Dentro do rodape
+ * ele parava na coluna das barras de 300px; como linha da barra de
+ * acoes, ele atravessa do nivel ate o ultimo botao da direita
+ *
+ * ## POR QUE ELE CALCULA SOZINHO
+ *
+ * Pela funcao `percentualXp`, que e a mesma que escreve o numero ao lado
+ * do nivel. Os dois leem o mesmo `player` e chegam ao mesmo numero
+ */
+function TrilhoXp({ player }) {
+  const { percent, noMaximo, xp, needed } = percentualXp(player);
+
+  return (
+    <span
+      className="rodape__track"
+      title={
+        noMaximo
+          ? "Nível máximo"
+          : `${xp}/${needed} XP para o próximo nível`
+      }
+      aria-hidden="true"
+    >
+      <i style={{ width: `${percent}%` }} />
+    </span>
+  );
+}
+
+/**
+ * OS TRES NUMEROS DO PERSONAGEM, ACIMA DAS BARRAS.
+ *
+ * ## POR QUE ELES VEM DO MOTOR E NAO SAO CALCULADOS AQUI
+ *
+ * `player.attack`, `defense` e `speed` chegam prontos no painel: sao os
+ * mesmos numeros que o motor usou para calcular o golpe e o dano. O
+ * `StatusPanel` faz o mesmo pelo mesmo motivo — e o painel de status
+ * que o teste `hudStatus.test.jsx` cobre quando ele diz "o ATK da tela
+ * e o mesmo ataque que o motor usa"
+ *
+ * Recalcular aqui daria um numero na tela que o golpe nunca usou, e a
+ * diferenca apareceria so depois que o jogador notasse que o ATK da
+ * ficha e o ATQ do rodape nao batem
+ *
+ * ## POR QUE SO TRES, E NAO OS VINTE E SEIS
+ *
+ * Sao os tres que mudam a DECISAO do jogador: o que ele bate, o que ele
+ * aguenta e a que velocidade ele chega primeiro. Os outros vao no painel
+ * de status, que existe para o numero que so importa quando o jogador
+ * abre o painel
+ */
+function Atributos({ player }) {
+  return (
+    <span className="rodape__atributos">
+      <span className="rodape__atributo">
+        <small>ATQ</small>
+        {player?.attack ?? 0}
+      </span>
+
+      <span className="rodape__atributo">
+        <small>DEF</small>
+        {player?.defense ?? 0}
+      </span>
+
+      <span className="rodape__atributo">
+        <small>VEL</small>
+        {player?.speed ?? 0}
+      </span>
+    </span>
+  );
+}
+
+/**
+ * O RODAPE: NIVEL, HP E RECURSO.
+ *
+ * As tres informacoes juntas porque elas respondem a uma pergunta so —
+ * "como esta o meu personagem agora" — e separadas em tres lugares da
+ * tela o jogador passa a varrer o rodape para achar o numero que mudou
+ *
+ * ## A ORDEM DE LEITURA
+ *
+ * Nivel em cima, porcentagem embaixo. E a ordem em que a informacao
+ * chega: primeiro QUEM voce e, depois QUANTO falta
+ *
+ * HP e recurso vao AO LADO do nivel: sao os numeros que mudam a cada
+ * golpe, e empilhados abaixo deles empurrariam o nivel para fora da
+ * linha. Empilhados a direita, o nivel continua sendo o maior numero da
+ * tela — que e o que faz ele ler como titulo
+ *
+ * ## O RECURSO E DO SERVIDOR, E NAO UM NOME FIXO
+ *
+ * Vem de `player.resourceName`: e "Chi" no Guerreiro, "Foco" no
+ * Arbalist, "Furia" no Lancer. Escrever "Foco" aqui deixaria o Guerreiro
+ * com uma barra mentindo o nome do recurso dele
+ */
+function Rodape({ player }) {
+  const { percent } = percentualXp(player);
+
+  /**
+   * A PORCENTAGEM COM QUATRO CASAS.
+   *
+   * Com uma casa o numero ficava parado em 99,9% por varios abates no
+   * fim de um nivel longo, e a barra parecia travada. Quatro casas
+   * resolvem, e sao justas num numero que o jogador ve o tempo todo
+   *
+   * A VIRGULA e do `replace`, e nao do `toFixed`: o `toFixed` escreve
+   * ponto, que e o separador de milhar em pt-BR e de casas nos Estados
+   * Unidos. Escrever o ponto seria o numero errado na tela de um jogo
+   * todo em portugues
+   */
+  const texto = percent.toFixed(4).replace(".", ",");
+
+  const hp = player?.hp ?? 0;
+  const maxHp = player?.maxHp ?? 1;
+
+  const recurso = player?.resource ?? 0;
+  const maxRecurso = player?.maxResource ?? 1;
+
+  const hpPercent = Math.max(
+    0,
+    Math.min(100, (hp / maxHp) * 100),
+  );
+
+  const recursoPercent = Math.max(
+    0,
+    Math.min(100, (recurso / maxRecurso) * 100),
+  );
+
+  return (
+    <div className="rodape">
+      <span className="rodape__id">
+        <span className="rodape__lvl">
+          {player?.level ?? 1}
+        </span>
+
+        <span className="rodape__pct">
+          {texto}%
+        </span>
+      </span>
+
+      <span className="rodape__vitals">
+        <Atributos player={player} />
+
+        <BarraInterna
+          percent={hpPercent}
+          atual={hp}
+          maximo={maxHp}
+          cor="var(--hp, #e8655e)"
+          rotulo="Vida"
+        />
+
+        <BarraInterna
+          percent={recursoPercent}
+          atual={recurso}
+          maximo={maxRecurso}
+          cor={player?.resourceColor ?? "#6f8fe0"}
+          rotulo={player?.resourceName ?? "Recurso"}
+        />
+      </span>
+    </div>
+  );
+}
+
 export default function HUD({
   classDefinition,
   characterName,
@@ -437,6 +723,15 @@ export default function HUD({
   engineRef,
   onBack = null,
   intencao = null,
+
+  /**
+   * O MAPA ATUAL, por fora do `snapshot`.
+   *
+   * O painel privado nao carrega o mapa: ele viaja no `SNAPSHOT` do
+   * mundo. Sem este prop o HUD nao sabe em que mapa esta, e o botao da
+   * arena ficaria sem saber se o clique entra ou sai
+   */
+  mapa = null,
   /**
    * O CONVITE DE PARTY que chegou pelo EVENTO do servidor.
    *
@@ -458,6 +753,18 @@ export default function HUD({
    * o `null` e "nenhum"
    */
   const [painelAberto, setPainelAberto] = useState(null);
+
+  /**
+   * A PECA QUE O "ENCANTAR" DA CAIXA PEDIU, como chave.
+   *
+   * Vive no `HUD` e nao dentro do `EnchantPanel` porque o pedido nasce na
+   * mochila e o painel pode nem estar montado: e o `HUD` que recibe o
+   * clique, troca de painel e entrega a peca ja pronta
+   *
+   * `null` quando o painel foi aberto pelo botao, sem peca nenhuma. E o
+   * estado normal do painel, que abre com a lista vazia de selecao
+   */
+  const [alvoEncantar, setAlvoEncantar] = useState(null);
 
   /**
    * O JOGADOR MIRADO, e o menu que aparece em cima dele.
@@ -593,6 +900,20 @@ export default function HUD({
        */
       if (npc.acao === NPC_ACAO.POCOES) {
         abrirPainel(PAINEL.POCOES);
+        return;
+      }
+
+      /**
+       * O PAINEL DE HABILIDADES, e por que ele e um `if` e nao uma
+       * tabela.
+       *
+       * Sao duas acoes, e a lista com dois casos seria um mapa com duas
+       * entradas que existe so para caber num `switch`. O `if` cresce
+       * para o terceiro caso — e um painel de habilidades com conteudo
+       * vai ter mais de um
+       */
+      if (npc.acao === NPC_ACAO.HABILIDADES) {
+        abrirPainel(PAINEL.HABILIDADES);
       }
     },
     [abrirPainel],
@@ -998,18 +1319,87 @@ const handleGuildTalent = useCallback(
   [intencao],
 );
 
+/**
+ * O COFRE: o terceiro argumento e o QUE vai mexer.
+ *
+ * O painel manda `{ moeda }`, `{ item, quantidade }` ou
+ * `{ uid, quantidade }` — e o terceiro argumento e repassado inteiro,
+ * em vez de o painel ter que escolher o metodo certo. Sao tres metodos no
+ * cliente (`mexerNoCofre` e um so, com o objeto) e o espelhar aqui seria
+ * tres callbacks identicos
+ */
 const handleGuildCofre = useCallback(
-  (guildaId, acao) => {
+  (guildaId, acao, dados) => {
     if (intencao) {
-      intencao.mexerNoCofre(guildaId, acao);
+      intencao.mexerNoCofre(guildaId, acao, dados);
     }
   },
   [intencao],
 );
 
-const handleTravelPortal = useCallback(
+/**
+ * O BOTAO DA ARENA.
+ *
+ * Sem argumento: o sentido e o destino sao do SERVIDOR, e ele le o mapa
+ * em que o jogador esta. O pedido e o mesmo tanto para entrar quanto para
+ * sair, e e por isso que o botao nunca fica sem acao
+ */
+const handleArena = useCallback(
+  () => {
+    if (intencao) {
+      intencao.irParaArena();
+    }
+  },
+  [intencao],
+);
 
-    (portalId) => {
+/**
+ * O JOGADOR ESTA NA ARENA?
+ *
+ * E a unica coisa que o botao precisa saber, e ele compara o `mapa` do
+ * estado com o id da arena. O id vem do proprio pacote do servidor — nao
+ * de um `if` escrito no HUD — entao trocar o nome do mapa no registro e o
+ * unico lugar que precisa mudar
+ */
+const naArena = mapa === ARENA_ID;
+
+/**
+ * O NOME DO CHEFE, para a box de saida.
+ *
+ * Vem do catalogo pelo id que a ARENA declara, e nao e um texto escrito
+ * aqui: se o chefe mudar de nome no catalogo, a box passa a dizer o nome
+ * novo sem ninguem editar o HUD
+ *
+ * E `useMemo` com dependencia VAZIA de propósito: o chefe da arena e um
+ * dado de CATALOGO, e nao de estado. Nao ha `mapa` aqui dentro porque o
+ * `useMemo` guardaria o primeiro nome para sempre, e a box mostraria o
+ * chefe de outra arena se o registro mudasse
+ */
+const nomeChefeDaArena = useMemo(() => {
+  const idChefe = findMap(ARENA_ID)?.bosses?.[0]?.creature;
+
+  return CREATURE_TYPES[idChefe]?.name ?? "Chefe";
+}, []);
+
+/**
+   * TELEPORTAR para o fim da caminhada.
+   *
+   * O mesmo arranjo do portal e do revive: online quem decide e o
+   * servidor. Offline nao ha `intencao`, e um teleporte local moveria o
+   * boneco na tela sem gastar o pergaminho — o jogador assistiria ao
+   * salto e voltaria com o item inteiro na mochila
+   */
+  const handleTeleportar = useCallback(
+    () => {
+      if (intencao) {
+        intencao.teleportar();
+      }
+    },
+    [intencao],
+  );
+
+  const handleTravelPortal = useCallback(
+  (portalId) => {
       if (intencao) {
         /**
          * `atravessarPortal`, com o A.
@@ -1028,6 +1418,39 @@ const handleTravelPortal = useCallback(
     [engineRef, intencao],
   );
 
+  /**
+   * AS DUAS SAIDAS DA MORTE, pelo mesmo caminho do portal.
+   *
+   * Online quem decide e o servidor; offline quem decide e o motor da
+   * tela. Nos dois casos o painel NAO fecha sozinho: quem apaga o
+   * painel e o proximo `snapshot`/`sendSnapshot`, com `morte.morto`
+   * falso. Fechar aqui seria mentir — se o servidor recusar por falta de
+   * ouro, o painel sumiria e o jogador nao saberia por que
+   */
+  const handleReviver = useCallback(
+    () => {
+      if (intencao) {
+        intencao.reviver();
+        return;
+      }
+
+      engineRef.current?.reviverComOuro();
+    },
+    [engineRef, intencao],
+  );
+
+  const handleVoltarBase = useCallback(
+    () => {
+      if (intencao) {
+        intencao.voltarBase();
+        return;
+      }
+
+      engineRef.current?.voltarParaBase();
+    },
+    [engineRef, intencao],
+  );
+
   const handleEquip = useCallback(
     (entry, slotId) => {
       if (intencao) {
@@ -1036,8 +1459,7 @@ const handleTravelPortal = useCallback(
       }
 
       engineRef.current?.equipItem(entry.uid, slotId);
-    },
-    [engineRef, intencao],
+    },    [engineRef, intencao],
   );
 
   const handleUnequip = useCallback(
@@ -1195,17 +1617,57 @@ const handleTravelPortal = useCallback(
 
   const handleHuntCreature = useCallback(
     (creatureId) => {
+      /**
+       * O BOTAO E UM INTERRUPTOR, entao este clique pode ser uma coisa
+       * ou a outra.
+       *
+       * O mesmo botao vira "Parar" quando a criatura ja e o objetivo da
+       * cacada, e ai o painel NAO fecha: quem clicou em "Parar" estava
+       * olhando o bestiario para gerenciar as cacadas, e fechar embaixo
+       * do dedo dele seria uma resposta a um clique que ele nao deu
+       *
+       * E o `snapshot` que diz qual das duas e, e nao o rotulo do
+       * botao: o rotulo e desenho, e o `bestiaryAuto.creatureId` e o
+       * que o servidor esta cacando de verdade
+       */
+      const iaParar = snapshot?.bestiaryAuto?.creatureId === creatureId;
+
       // online, a cacada mora na SESSAO do servidor. chamar o motor
       // da tela nao valeria: o cliente nao tem sessao nem simula, o
       // clique morria aqui e o piloto nunca ia atras da criatura
       if (intencao) {
         intencao.cacarCriatura(creatureId);
-        return;
+      } else {
+        engineRef.current?.toggleBestiaryAuto(creatureId);
       }
 
-      engineRef.current?.toggleBestiaryAuto(creatureId);
+      /**
+       * "IR MATAR" FECHA O PAINEL, e e o que o jogador quer.
+       *
+       * Ele acabou de pedir para o personagem andar ate uma zona e
+       * comecar a cacar. O painel do bestiario cobre o centro da tela,
+       * entao o boneco nao da para ser acompanhado — e a cacada que
+       * comeca e o motivo de ter clicado, nao a leitura da lista de
+       * criaturas
+       *
+       * Quem continua sabendo o que esta acontecendo e a
+       * `BestiaryAutoBox`, que fica na coluna da esquerda com o nome da
+       * criatura e o botao de parar. Fechar o catalogo nao fecha a
+       * cacada, e o jogador nao perde o controle
+       *
+       * O `setPainelAberto` direto e nao o `alternarPainel`: alternar
+       * depende de o painel estar aberto, e a garantia de que esta
+       * aberto e o proprio `onHunt`. Um `alternar` aqui fecharia o
+       * painel errado no dia em que algum outro caminho chamasse o
+       * mesmo handler com o bestiario fechado
+       */
+      if (!iaParar) {
+        setPainelAberto((atual) =>
+          atual === PAINEL.BESTIARIO ? null : atual,
+        );
+      }
     },
-    [engineRef, intencao],
+    [engineRef, intencao, snapshot],
   );
 
   const handleStopBestiaryAuto = useCallback(() => {
@@ -1289,6 +1751,69 @@ const handleTravelPortal = useCallback(
   );
 
   /**
+   * O "ENCANTAR" da caixa do item: abre o painel JA COM A PECA ESCOLHIDA.
+   *
+   * E o inverso do caminho normal. Ate aqui o painel de encantar so
+   * abria pelo botao do HUD, e o jogador tinha de procurar a peca na
+   * lista — que e a lista de tudo que aceita afixo, e nao a peca que ele
+   * acabou de apontar com o dedo
+   *
+   * ## POR QUE A CHAVE VEM DO PROPRIO PAINEL DE ENCANTAR
+   *
+   * `chave` e exportada de la, e o `HUD` nao reescreve o formato
+   * `slot:<id>`/`mochila:<uid>`. Duas copias do mesmo formato divergem no
+   * primeiro dia em que alguem mudar, e a falha seria silenciosa: o painel
+   * abriria sem nenhuma peca selecionada e o jogador acharia que o
+   * "Encantar" nao funciona
+   *
+   * ## POR QUE O PAINEL DE ENCANTAR ABRE SO, E NAO OS DOIS
+   *
+   * Inventario e encantar sao o mesmo `PAINEL`: abrir um fecha o outro.
+   * O `setPainelAberto` e por isso `PAINEL.ENCHANT` explicito, e nao um
+   * alternar — um alternar abriria o encantar e fecharia o inventario
+   * nesse mesmo clique, que e o oposto do pedido
+   */
+  const handleOpenEnchant = useCallback(
+    (entry) => {
+      setAlvoEncantar(entry ? chave(entry) : null);
+
+      setPainelAberto(PAINEL.ENCHANT);
+    },
+    [],
+  );
+
+  /**
+   * O BOTAO DO PAINEL DE ENCANTAR, e o X DELE.
+   *
+   * ## UM SO METODO PARA OS DOIS, E ELE ALTERNA
+   *
+   * Este metodo nasceu como `fecharEncantar`, que so sabia fechar — e o
+   * botao do HUD deixou de ABRIR o painel. O `setPainelAberto` recebia
+   * `atual === PAINEL.ENCHANT ? null : atual`, entao com o painel fechado
+   * (`atual` nulo) o ternario devolvia `atual` e o clique nao fazia nada.
+   * O painel nao abriu mais e nao dava erro nenhum
+   *
+   * Alternar e o que resolve os dois usos, porque eles sao o mesmo gesto:
+   * clicar no botao com o painel fechado abre, com ele aberto fecha, e o
+   * X do painel cai no mesmo caso de "aberto". Um metodo so e a forma de
+   * os dois nunca divergirem
+   *
+   * ## POR QUE LIMPAR A PECA PEDIDA
+   *
+   * O `setAlvoEncantar(null)` e o que impede a peca do ultimo "Encantar"
+   * de ficar guardada no `HUD` e reaparecer na abertura seguinte pelo
+   * botao — que nao tem peca nenhuma. O jogador veria uma selecao que
+   * nao fez
+   */
+  const alternarEncantar = useCallback(() => {
+    setAlvoEncantar(null);
+
+    setPainelAberto((atual) =>
+      atual === PAINEL.ENCHANT ? null : PAINEL.ENCHANT,
+    );
+  }, []);
+
+  /**
    * As tres acoes do MARKET.
    *
    * Online todas vao por pedido, e SEMPRE: o mercado e o unico lugar
@@ -1360,6 +1885,23 @@ const handleTravelPortal = useCallback(
   );
 
   /**
+   * COMPRA um livro de habilidade com o Mestre.
+   *
+   * Manda o `itemId` do LIVRO e nao o da skill: e o livro que tem preco,
+   * e o servidor e quem descobre a skill por ele. Sem preco no pedido
+   * pelo mesmo motivo do `handleBuyPotion` — o cliente nao escolhe quanto
+   * paga
+   */
+  const handleBuySkillBook = useCallback(
+    (itemId) => {
+      if (intencao) {
+        intencao.comprarLivro(itemId);
+      }
+    },
+    [intencao],
+  );
+
+  /**
    * USA um consumivel da mochila: a pocao.
    *
    * O `uid` vem do slot, e nunca do item. Duas pocoes de raridades
@@ -1388,6 +1930,26 @@ const handleTravelPortal = useCallback(
    */
   const equipInItsSlot = useCallback(
     (entry) => {
+      /**
+       * ONLINE, O SERVIDOR ESCOLHE O SLOT.
+       *
+       * Este handler era o UNICO do inventario sem o caminho de rede:
+       * os outros quinze pedem ao servidor primeiro e so usam o motor da
+       * tela quando nao ha `intencao`. Aqui nao havia nenhum dos dois, e
+       * o motor do cliente nao simula nada — `slotFor` devolvia um id e o
+       * `equipItem` nao tinha mundo para colocar a peca. Online, "Equipar"
+       * nao fazia nada e nao dava erro nenhum
+       *
+       * O slot vai no pedido porque o CLIENTE nao pode escolher: aceitar
+       * um `slotId` de fora deixaria qualquer um vestir uma peca em um
+       * slot que ela nao aceita. O servidor confere contra o catalogo e
+       * decide — e o mesmo caminho do `unequip`
+       */
+      if (intencao) {
+        intencao.equipar(entry.uid, entry.slotId ?? null);
+        return;
+      }
+
       const engine = engineRef.current;
 
       if (!engine) return;
@@ -1398,7 +1960,7 @@ const handleTravelPortal = useCallback(
 
       engine.equipItem(entry.uid, destino);
     },
-    [engineRef],
+    [engineRef, intencao],
   );
 
   const player = snapshot?.player ?? {
@@ -1421,6 +1983,23 @@ const handleTravelPortal = useCallback(
 
   const cooldowns = snapshot?.cooldowns ?? {};
   const visibleSkills = skillPages[page] ?? [];
+
+  /**
+   * AS HABILIDADES QUE O PERSONAGEM APRENDEU, como `Set`.
+   *
+   * Vem do painel do servidor. `null` enquanto nao chegou, e um `Set`
+   * depois — e a distincao importa: `null` quer dizer "a tela ainda nao
+   * sabe", e nenhum slot aparece trancado nesse estado. Com um array
+   * vazio o jogador veria as cinco trancadas no primeiro quadro e
+   * acharia que perdeu o repertorio inteiro
+   */
+  const habilidadesAprendidas = useMemo(() => {
+    const lista = snapshot?.habilidadesAprendidas;
+
+    if (!Array.isArray(lista)) return null;
+
+    return new Set(lista);
+  }, [snapshot?.habilidadesAprendidas]);
 
   /**
    * A posicao do jogador no rank, para o medalão do botão.
@@ -1474,16 +2053,17 @@ const handleTravelPortal = useCallback(
           </span>
         </header>
 
-        <Vitals
-          player={player}
-          resourceColor={classDefinition.resource.color}
-        />
+        {/*
+          ATQ, DEF E VEL SAIRAM DAQUI.
 
-        <div className="hud-vitals__stats">
-          <span>ATQ {player.attack}</span>
-          <span>DEF {player.defense}</span>
-          <span>VEL {player.speed}</span>
-        </div>
+          Eles foram para o rodape, acima das barras de HP e recurso. Sao
+          os mesmos tres numeros, com o mesmo valor do motor — a unica
+          mudanca e onde o jogador os le
+
+          O `Vitals` de cima continua com HP e recurso: sao numeros que
+          mudam a cada golpe e ficam bem ao lado do bloco de vida. Nao
+          havia razao para duplica-los no rodape tambem
+        */}
 
         <button
           type="button"
@@ -1536,12 +2116,13 @@ const handleTravelPortal = useCallback(
           primeiro `snapshot` com posicao, e "X undefined" e pior do que
           nada
         */}
-        {Number.isFinite(player.x) &&
+        {/*LOC AQUI*/}
+        {/* {Number.isFinite(player.x) &&
           Number.isFinite(player.y) && (
             <output className="hud-coords">
               X {player.x} · Y {player.y}
             </output>
-          )}
+          )} */}
 </section>
 
         {/*
@@ -1597,7 +2178,7 @@ const handleTravelPortal = useCallback(
           ]
             .filter(Boolean)
             .join(" ")}
-          onClick={() => alternarPainel(PAINEL.ENCHANT)}
+          onClick={alternarEncantar}
           title="Encantar (X)"
           aria-label="Abrir o painel de encantamento"
         >
@@ -1664,6 +2245,49 @@ const handleTravelPortal = useCallback(
               </i>
             )}
         </button>
+
+        {/*
+          {/*
+          A ARENA DO CHEFE, ao lado do bestiario.
+
+          ## ESTE BOTAO SO EXISTE FORA DA ARENA
+
+          Ele ENTRA, e dentro da arena ele simplesmente nao esta na tela.
+          Quem esta la sai pela `BossBox`, embaixo do minimapa
+
+          Some, e nao desliga. Um botao desligado ainda ocupa o espaco do
+          icone, ainda parece a acao principal daquela fileira e ainda
+          obriga o jogador a passar o mouse por cima para descobrir que
+          nao faz nada. Hiding e o que faz a fileira dizer a verdade: la
+          fora existe "entrar na arena", e dentro nao existe nada porque
+          nao ha o que entrar
+
+          Antes ele fazia os dois sentidos, conforme o `mapa`. O icone
+          ficava a meia tela do minimapa e o jogador tinha de lembrar em
+          que mapa estava para saber se o clique tirava ele de la ou
+          jogava ele dentro. Um botao que muda de-como-funciona conforme
+          o lugar e um botao que o jogador precisa ler antes de clicar —
+          e agora ele nem existe no lugar onde isso seria confuso
+
+          ## SEM O `intencao`, O BOTAO NAO FALA COM O MOTOR LOCAL
+
+          A arena e uma viagem entre mapas, e a viagem de rede e do
+          SERVIDOR. Nao existe caminho offline para ela, e um botao que
+          fingisse que existe trocaria o mapa do jogador sem o mundo do
+          outro lado saber
+        */}
+        {!naArena && (
+          <button
+            type="button"
+            className={["hud-btn", "hud-btn--arena"].join(" ")}
+            onClick={handleArena}
+            disabled={!intencao}
+            title="Entrar na arena do chefe"
+            aria-label="Entrar na arena do chefe"
+          >
+            <HudIcon iconId="arena" />
+          </button>
+        )}
 
         {/*
           O MARKET, COLADO no bestiario.
@@ -1800,26 +2424,6 @@ const handleTravelPortal = useCallback(
         </button>
       </nav>
 
-      <aside className="hud-rail">
-        {skillPages.map((_, index) => (
-          <button
-            key={index}
-            type="button"
-            className={[
-              "hud-btn",
-              "hud-btn--sm",
-              page === index ? "is-active" : "",
-            ]
-              .filter(Boolean)
-              .join(" ")}
-            onClick={() => setPage(index)}
-            title={`Página ${index + 1} de habilidades`}
-          >
-            {index + 1}
-          </button>
-        ))}
-      </aside>
-
       {snapshot?.selectedTarget && (
         <section className="target-panel">
           <span className="eyebrow">ALVO</span>
@@ -1866,41 +2470,214 @@ const handleTravelPortal = useCallback(
         </div>
       )}
 
+      {/*
+        A BARRA DE BAIXO, em tres PECAS: as skills, a coluna com o auto
+        em cima da ultimate, e a dica.
+
+        ## O QUE MUDOU DE LUGAR
+
+        Antes a ultimate ficava no meio da fileira, com o botao de auto
+        solto no canto inferior direito, posicionado por `absolute` e
+        fora da barra. Agora:
+
+        - a ULTIMATE ocupa o lugar onde o botao de auto estava, no canto
+        inferior direito;
+        - as skills ficam do lado dela, a esquerda;
+        - o botao de auto fica ACIMA da ultimate, na mesma coluna
+
+        ## POR QUE O AUTO EM CIMA DA ULT
+
+        Sao os dois botoes que o jogador aperta SEM mirar: o auto liga e
+        desliga o piloto, e a ultimate e a skill que nao precisa de alvo.
+        Os dois no mesmo canto, empilhados, e o que faz o canto ser a
+        "mao do piloto" em vez de ter o auto perdido num canto e a
+        ultimate perdida no meio da fileira
+
+        ## A BARRA PAROU DE RESERVAR ESPACO PARA O BOTAO
+
+        O `padding-right: 104px` existia porque o `.hud-ability` era
+        `absolute` e a fileira de skills precisava sair da frente dele.
+        Com o botao no fluxo da barra, quem reserva espaco e o proprio
+        `flex` — e a fileira esta no lugar dela, encostada na coluna da
+        ultimate, sem um numero magico de 104px que so significava
+        "84 do botao + 22 da margem"
+      */}
       <footer className="hud-actionbar">
-        <div className="hud-actionbar__slots">
-          {visibleSkills.map((skill) => (
-            <SkillSlot
-              key={skill.id}
-              skill={skill}
-              cooldown={cooldowns[skill.id] ?? 0}
-              draggable
-              auto={Boolean(autoSkills[skill.id])}
-              onToggleAuto={(enabled) =>
-                handleToggleAuto(skill.id, enabled)
-              }
-              onClick={() =>
-                engineRef.current?.useSkillSlot(skill.slot)
-              }
-            />
-          ))}
+        {/*
+          O RODAPE COMO PRIMEIRO ITEM DA BARRA, E NAO COMO UM ELEMENTO
+          SOLTO.
+
+          Ele era um `absolute` de `100vw` na base da tela, e a barra de
+          acoes andava por cima. Com as barras de HP e recurso do lado do
+          nivel, os dois precisam dividir a MESMA linha: o rodape em 300px
+          a esquerda e as skills emcolando no que sobra
+
+          Aqui dentro, a ordem e a de leitura: identidade, recursos,
+          habilidades. E o espaco entre eles passa a ser um `gap` do flex,
+          e nao dois posicionamentos absolutos que concordam por sorte
+        */}
+        <Rodape player={player} />
+
+        <div className="hud-actionbar__group">
+          <div className="hud-actionbar__skills">
+            {visibleSkills.map((skill) => {
+              /**
+               * A TRANCA DA SKILL.
+               *
+               * O slot continua SENDO DESENHADO, e nao some: e o
+               * `useSkillSlot` do servidor que recusa, e o jogador precisa
+               * ver o nome do que ainda nao tem para saber o que comprar
+               * com o Mestre. Esconder traria duas consequencias ruins — o
+               * `slot` do array deixaria de bater com a posicao, e o
+               * jogador perderia a noção do repertorio da classe
+               *
+               * `null` e "ainda nao chegou do servidor": sem essa
+               * distincao o primeiro quadro mostraria tudo trancado e o
+               * jogador acharia que perdeu as habilidades
+               */
+              const aprendida =
+                habilidadesAprendidas === null ||
+                habilidadesAprendidas === undefined
+                  ? null
+                  : habilidadesAprendidas.has(skill.id);
+
+              return (
+                <SkillSlot
+                  key={skill.id}
+                  skill={skill}
+                  cooldown={cooldowns[skill.id] ?? 0}
+                  draggable
+                  auto={Boolean(autoSkills[skill.id])}
+                  trancada={aprendida === false}
+                  onToggleAuto={(enabled) =>
+                    handleToggleAuto(skill.id, enabled)
+                  }
+                  onClick={() =>
+                    engineRef.current?.useSkillSlot(skill.slot)
+                  }
+                />
+              );
+            })}
+
+            {/*
+              A DICA DE ARRASTAR, pendurada ABAIXO das skills e
+              CENTRALIZADA nelas.
+
+              ## POR QUE ESTA DENTRO DO BLOCO DE SKILLS
+
+              Para centralizar no meio DAS SKILLS — e nao no meio da
+              linha inteira, que tem a divisoria e a coluna do auto do
+              lado direito — a dica precisa medir o bloco de skills. So
+              quem esta dentro dele sabe disso
+
+              Centralizar na linha inteira daria um texto deslocado para
+              a direita, uns 35px do meio das skills, porque a coluna do
+              auto e da ultimate entra na conta
+
+              ## POR QUE `absolute` E NAO UM BLOCO DEBAIXO
+
+              Como item normal, a dica pusharia a altura do bloco de
+              skills, e o `align-items: flex-end` da linha alinharia a
+              BASE DA DICA com a base da ultimate — o que levantaria as
+              skills para fora do alinhamento. Ou seja: a dica ficaria de
+              baixo, mas desalinharia tudo acima dela
+
+              Pendurada, ela sai do fluxo: a altura do bloco continua
+              sendo a dos slots, o alinhamento da base fica intacto, e
+              o texto aparece logo abaixo
+
+              E por isso que o `padding-bottom` do rodape e maior que o
+              das outras bordas: e ali que a dica pendurada aparece
+            */}
+             {/*<p className="hud-actionbar__hint">
+              Arraste a skill ↓ para auto · ↑ para manual
+            </p> */}
+          </div>
 
           <span className="hud-actionbar__divider" />
 
-          <SkillSlot
-            ultimate
-            skill={classDefinition.ultimate}
-            cooldown={
-              cooldowns[classDefinition.ultimate.id] ?? 0
-            }
-            onClick={() =>
-              engineRef.current?.useUltimate()
-            }
-          />
+          {/*
+            A COLUNA: o auto em cima, a ultimate embaixo.
+
+            E o `div` que faz a empilhagem. Sem ele, os dois botoes
+            ficariam lado a lado no `flex` da linha — que e exatamente o
+            layout antigo, so que trocado de lugar
+          */}
+          <div className="hud-actionbar__pilha">
+            {/*
+              O BOTAO DE AUTO, que era um circulo de 84px com tres
+              textos dentro.
+
+              ## O QUE ELE DIZ AGORA: SO "auto"
+
+              Antes escrevia `AUTO`, `ALVO` ou `OFF` conforme o estado.
+              Os tres textos competiam pelo mesmo espaco de 84px com o
+              "T" da tecla embaixo, e o botao tinha que mudar de largura
+              de leitura conforme o que acontecia no jogo — o jogador
+              aprendia a ler o auto pelo TEXTO, e nao pela cor
+
+              ## O ESTADO CONTINUA VISIVEL, E SEM TEXTO
+
+              A classe `is-on` pinta a borda e o fundo de verde e liga
+              o pulso; a `is-engaged` pinta de dourado. E o que o jogador
+              le agora, e e melhor do que a palavra: verde pulsando
+              diz "ligado" de relance, sem focar a tela
+            */}
+            <button
+              type="button"
+              className={[
+                "hud-ability",
+                autoOn ? "is-on" : "",
+                engaged ? "is-engaged" : "",
+              ]
+                .filter(Boolean)
+                .join(" ")}
+              onClick={handleToggleAutoPlay}
+              title="Auto play (T)"
+            >
+              <span className="hud-ability__text">auto</span>
+            </button>
+
+            {/*
+              A ULTIMATE, trancada ate o nivel 6.
+
+              Diferente das skills de slot, ela nao vem de livro: e o
+              `ultimateLiberada` que o servidor ja calculou contra
+              `ULTIMATE_NIVEL`. A tela mostra o estado pronto em vez de
+              recalcular o nivel — assim nenhum dos dois lados pode
+              discordar sobre quando ela abre
+
+              `false` e o unico valor que tranca: `null` (ainda nao
+              chegou) deixa o botao normal, porque trancar sem informacao
+              seria mentir para o jogador
+            */}
+            <SkillSlot
+              ultimate
+              skill={classDefinition.ultimate}
+              cooldown={
+                cooldowns[classDefinition.ultimate.id] ?? 0
+              }
+              trancada={snapshot?.ultimateLiberada === false}
+              onClick={() =>
+                engineRef.current?.useUltimate()
+              }
+            />
+          </div>
         </div>
 
-        <p className="hud-actionbar__hint">
-          Arraste a skill ↓ para auto · ↑ para manual
-        </p>
+        {/*
+          O TRILHO DOURADO DO XP, ATRAVESSANDO A LINHA INTEIRA.
+
+          Ele fecha a barra de acoes e nao fica dentro do rodape porque
+          o progresso do nivel e a unica barra da tela que vale para a
+          sessao toda: dentro do rodape ele parava na coluna das barras de
+          HP. Aqui ele comeca no nivel e vai ate o ultimo botao da direita
+
+          E o ultimo filho de proposito: com `grid-row: 2` e
+          `grid-column: 1 / -1`, a posicao dele nao depende de quantos
+          botoes a barra tem nem de quantas paginas de skill existem
+        */}
+        <TrilhoXp player={player} />
       </footer>
 
       <PortalBox
@@ -1914,13 +2691,84 @@ const handleTravelPortal = useCallback(
         onTravel={handleTravelPortal}
       />
 
+      {/*
+        A SAIDA DA ARENA, no mesmo lugar da box do portal.
+
+        As duas nao aparecem juntas — a arena nao tem portal, e o
+        `dadosDoPortalNoPe` do motor nao acha nenhum la. Mas a POSICAO e
+        a mesma de proposito: as duas sao "a saida do lugar em que voce
+        esta", embaixo do minimapa, e o olho do jogador ja esta ali
+
+        E a mesma `handleArena` do icone do HUD. O pedido e o mesmo
+        (ENTRAR ou SAIR), e quem decide o sentido e o servidor, que le o
+        mapa em que o jogador esta. Um botao local que so soubesse sair
+        teria de inventar um pedido novo para o mesmo servidor
+      */}
+      <BossBox
+        naArena={naArena}
+        nomeChefe={nomeChefeDaArena}
+        minimapTop={
+          snapshot?.selectedTarget
+            ? MINIMAP_TOP_TARGETED
+            : MINIMAP_TOP_IDLE
+        }
+        minimapHeight={MINIMAP_HEIGHT}
+        onSair={handleArena}
+      />
+
+      {/*
+        O ATALHO DO DESLOCAMENTO LONGO.
+
+        Terceira box no mesmo canto: a saida da arena e o atalho da
+        caminhada. As tres nao coexistem — a arena nao tem viagem longa,
+        e o portal da para chegar antes de a caminhada ficar longa — mas
+        elas dividem a posicao de proposito, porque dividem o sentido:
+        "o que a tela oferece sobre onde voce esta"
+
+        Ela decide se existe lendo `teleporte` do painel, e `null` e o
+        estado de "nao ha viagem longa". Nenhum `if` sobre a posicao do
+        jogador mora aqui: quem tem o plano de viagem e o motor
+      */}
+      <TravelBox
+        teleporte={snapshot?.teleporte ?? null}
+        minimapTop={
+          snapshot?.selectedTarget
+            ? MINIMAP_TOP_TARGETED
+            : MINIMAP_TOP_IDLE
+        }
+        minimapHeight={MINIMAP_HEIGHT}
+        onTeleportar={handleTeleportar}
+      />
+
       <div className="hud-stack">
-        <QuestTracker
-          quests={snapshot?.quests}
-          player={player}
-          onOpen={() => abrirPainel(PAINEL.MISSOES)}
-          onFocus={handleFocusQuest}
-        />
+        {/*
+          A BOX DE MISSOES SOME DENTRO DA ARENA.
+
+          ## POR QUE
+
+          A arena nao tem zona de mob, nao tem NPC e nao tem portal: e
+          um lugar sem nada para fazer la dentro. O que a box mostraria
+          ali e o tracker de uma campanha que o jogador NAO esta
+          fazendo — e o pior tipo de convite: a missao aparece
+          acompanhada, o jogador sobe um degrau que ele nao pode
+          dar aqui, e a barra de progresso dele nao anda
+
+          ## E O PAINEL CONTINUA ABRINDO
+
+          So a BOX some. O botao de missoes no HUD e o `QuestPanel`
+          continuam como estao: quem quiser ver o que tem para fazer
+          ainda pode, e o atalho continua valendo. Esconder a caixa e o
+          que tira o convite da frente; esconder o acesso seria tirar o
+          jogador do jogo
+        */}
+        {!naArena && (
+          <QuestTracker
+            quests={snapshot?.quests}
+            player={player}
+            onOpen={() => abrirPainel(PAINEL.MISSOES)}
+            onFocus={handleFocusQuest}
+          />
+        )}
 
         {/*
           A PARTY VEM DEPOIS DA MISSÃO, e a ordem é do pedido: a box
@@ -2052,8 +2900,64 @@ const handleTravelPortal = useCallback(
         <EnchantPanel
           inventory={snapshot?.inventory}
           equipment={snapshot?.equipment}
+          /**
+           * A PECA QUE ENTRA JA ESCOLHIDA.
+           *
+           * Vem do "Encantar" da caixa do item. Sem isto, o painel abriria
+           * com a lista inteira e o jogador teria que achar a peca de novo
+           */
+          selecaoInicial={alvoEncantar}
           onEnchant={handleEnchantItem}
-          onClose={() => alternarPainel(PAINEL.ENCHANT)}
+          onClose={alternarEncantar}
+        />
+      )}
+
+      {/*
+        A LOJA DO MESTRE.
+
+        O `classId` vem da definicao de classe da tela, e e o que separa o
+        shop por classe: o painel pede os livros daquela classe e so
+        recebe os dela. Os `habilidadesAprendidas` e o `coins` sao do
+        painel do servidor — o painel so desenha
+      */}
+      {/*
+        O DESEMPENHO DO SERVIDOR, no canto.
+
+        COMENTADO POR ENQUANTO, e o componente, o import e o CSS estao
+        todos de pe: e so isto aqui que volta.
+
+        ## POR QUE COMENTAR E NAO APAGAR
+        *
+        * A medicao vale mais que o codigo que a mostra. O `/health/laco`
+        * ja responde `duracaoRecenteMs` e `duracaoPiorMs`, e eles
+        * continuam funcionando com o painel fora da tela — para conferir
+        * durante uma otimizacao basta abrir o endpoint no navegador
+        *
+        * Manter o `ServerPerf` em vez de reescrever depois e o que faz
+        * reativar custar uma linha, e nao meia hora de remontagem: o
+        * `fetch`, o tratamento de `null` e o layout do canto ja estao
+        * testados
+        *
+        * ## PARA VOLTAR
+        *
+        * Sao duas linhas e o comentario de cima: o `import` de
+        * `ServerPerf` e o `<ServerPerf />` no lugar deste bloco
+        *
+        * Os numeros vem prontos do servidor: `duracaoRecenteMs`,
+        * `duracaoPiorMs` e `orcamentoMs` no `/health/laco`. Se voce mexer
+        * no `tickSeconds`, a barra acompanha — o orcamento sobe com ele
+        * em vez de ficar preso num 50 escrito a mao
+        */}
+
+      {painelAberto === PAINEL.HABILIDADES && (
+        <HabilidadesPanel
+          classId={classDefinition?.id}
+          coins={summary.coins}
+          habilidadesAprendidas={
+            summary.habilidadesAprendidas ?? null
+          }
+          onBuy={handleBuySkillBook}
+          onClose={() => alternarPainel(PAINEL.HABILIDADES)}
         />
       )}
 
@@ -2068,6 +2972,15 @@ const handleTravelPortal = useCallback(
         <GuildPanel
           guilda={guilda}
           moedas={summary.coins}
+
+          /**
+           * A mochila inteira, e nao so as moedas.
+           *
+           * O cofre deposita ITEM, e o item vem da mochila: sem o
+           * `inventory` completo o painel de deposito mostraria uma lista
+           * vazia e o jogador nao teria de onde guardar nada
+           */
+          inventory={summary}
           onCriar={handleGuildCreate}
           onBuscar={handleGuildSearch}
           onPedir={handleGuildRequest}
@@ -2117,37 +3030,23 @@ const handleTravelPortal = useCallback(
           onDiscardEquipped={handleDiscardEquipped}
           onAutoEquip={handleAutoEquip}
           onUseItem={handleUseItem}
+          onEnchant={handleOpenEnchant}
           onFilterChange={handleFilterChange}
           onFilterReset={handleFilterReset}
           onFilterPrune={handleFilterPrune}
         />
       )}
 
-      <button
-        type="button"
-        className={[
-          "hud-ability",
-          autoOn ? "is-on" : "",
-          engaged ? "is-engaged" : "",
-        ]
-          .filter(Boolean)
-          .join(" ")}
-        onClick={handleToggleAutoPlay}
-        title="Auto play (T)"
-      >
-        <span className="hud-ability__ring" />
-        <span className="hud-ability__text">
-          {autoOn ? "AUTO" : engaged ? "ALVO" : "OFF"}
-        </span>
-        <span className="hud-ability__key">T</span>
-      </button>
-
       {/*
-        O PAUSE.
-        A cortina cobre a tela inteira e escurece o jogo: e o que separa
-        "estou olhando um painel" de "parei". O botao de sair fica AQUI,
-        e nao na barra — sair nao e um atalho, e uma decisao
-      */}
+  O PAUSE.
+  A cortina cobre a tela inteira e escurece o jogo: e o que separa
+  "estou olhando um painel" de "parei". O botao de sair fica AQUI,
+  e nao na barra — sair nao e um atalho, e uma decisao
+
+  O botao de auto NAO esta mais aqui: ele subiu para dentro da barra de
+  baixo, empilhado em cima da ultimate. Este bloco era o que o mantinha
+  `absolute` no canto inferior direito
+*/}
       {pauseOpen && (
         <div className="pause" role="dialog" aria-modal="true">
           <div className="pause__veil" />
@@ -2183,6 +3082,23 @@ const handleTravelPortal = useCallback(
           </div>
         </div>
       )}
+
+      {/*
+        A MORTE.
+        Vem DEPOIS do pause e nao antes, porque o z-index dele e maior: o
+        jogador que morreu com o pause aberto precisa ver a morte, e nao
+        um "Continuar" que o colocaria de volta num mundo em que ele
+        esta morto
+
+        O painel nao tem como fechar. Quem o apaga e o proximo painel do
+        servidor, com `morte.morto` falso — e ele so fica falso depois
+        que uma das duas saidas deu certo
+      */}
+      <DeathPanel
+        morte={snapshot?.morte}
+        onReviver={handleReviver}
+        onVoltarBase={handleVoltarBase}
+      />
     </div>
   );
 }

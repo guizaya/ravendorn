@@ -8,6 +8,7 @@ export default function SkillSlot({
   skill,
   cooldown = 0,
   disabled = false,
+  trancada = false,
   onClick,
   onToggleAuto,
   auto = false,
@@ -26,9 +27,23 @@ export default function SkillSlot({
       ? Math.min(1, cooldown / skill.cooldown)
       : 0;
 
-  const ready = cooldown <= 0 && !disabled;
+  /**
+ * O QUE A TRANCA FAZ, E O QUE ELA NAO FAZ
+ *
+ * Ela impede o clique e o arraste. Ela nao impede o RENDER: o slot
+ * continua desenhado, com o nome e o icone, porque o jogador precisa ver
+ * o que ainda nao tem para saber o que comprar com o Mestre
+ *
+ * `disabled` e o oposto de proposito: ele some o botao da navegacao de
+ * verdade, e aqui o slot e um botao com o icome apagado. Sao coisas
+ * diferentes: um slot trancado e informacao, um slot desabilitado nao e
+ * slot nenhum
+ */
+  const trancadaAgora = trancada || disabled;
+
+  const ready = cooldown <= 0 && !trancadaAgora;
   const showAuto = auto && !ultimate;
-  const canDrag = draggable && !disabled && !ultimate;
+  const canDrag = draggable && !trancadaAgora && !ultimate;
 
   function handlePointerDown(event) {
     if (!canDrag) return;
@@ -104,6 +119,16 @@ export default function SkillSlot({
       return;
     }
 
+    /**
+     * O clique numa skill trancada nao faz NADA.
+     *
+     * Nao e um aviso: o aviso esta no `title`, e um popup a cada clique
+     * numa skill de quem esta aprendendo seria barulho. Alem disso o
+     * servidor ja recusa com mensagem, entao o aviso aqui seria o mesmo
+     * aviso duas vezes
+     */
+    if (trancadaAgora) return;
+
     onClick?.();
   }
 
@@ -113,6 +138,7 @@ export default function SkillSlot({
       className={[
         "skill-slot",
         ultimate ? "skill-slot--ultimate" : "",
+        trancada ? "is-trancada" : "",
         ready ? "is-ready" : "",
         showAuto ? "is-auto" : "",
         canDrag ? "is-draggable" : "",
@@ -135,11 +161,17 @@ export default function SkillSlot({
       onClick={handleClick}
       disabled={disabled}
       title={
-        ultimate
-          ? `${skill.name} — ${skill.cooldown}s de cooldown`
-          : `${skill.name} — ${skill.cooldown}s de cooldown\nArraste para baixo: auto\nArraste para cima: manual`
+        trancada
+          ? `${skill.name} — não aprendida\nCompre o livro com o Mestre de Habilidades`
+          : ultimate
+            ? `${skill.name} — ${skill.cooldown}s de cooldown`
+            : `${skill.name} — ${skill.cooldown}s de cooldown\nArraste para baixo: auto\nArraste para cima: manual`
       }
-      aria-label={`Usar ${skill.name}`}
+      aria-label={
+        trancada
+          ? `${skill.name} — não aprendida`
+          : `Usar ${skill.name}`
+      }
       aria-pressed={showAuto}
     >
       <span className="skill-slot__frame" />
@@ -168,6 +200,19 @@ export default function SkillSlot({
       {canDrag && showAuto && !drag && (
         <span className="skill-slot__auto-badge">
           A
+        </span>
+      )}
+
+      {/**
+        O CADEADO, so na skill trancada.
+        *
+        E um caractere e nao um icone desenhado: o `§` do livro e o
+        `✓` do aprendido ja usam texto nesta tela, e uma arte nova aqui
+        seria a primeira coisa do componente que depende de arquivo
+      */}
+      {trancada && (
+        <span className="skill-slot__lock">
+          ✕
         </span>
       )}
 

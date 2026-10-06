@@ -3,13 +3,14 @@ import {
   GROUND_TILES,
   GROUND_TILE_SIZE,
   GROUND_USES_TILE,
+  groundTileEspelhadoFor,
   groundTileFor,
   TILE_SIZE,
   TILE_VARIANTS,
   TERRAIN_ROW,
   TERRAIN_SHEETS,
-  ZONE_TILE,
   ZONE_TILE_SIZE,
+  zoneTileFor,
   ZONES_USE_TILE,
   zoneUsesTile,
 } from "../../data/terrain/index.js";
@@ -140,17 +141,21 @@ export class TerrainRenderer {
     this.groundPatterns = new Map();
 
     /**
-     * O terreno das areas de mob, ladrilhado com o `terra.jpg`
+     * O terreno das areas de mob, ladrilhado por MAPA
+     *
+     * Antes era uma folha so, carregada no construtor. Com o mapa 2
+     * declarando a terra dele, uma unica folha passaria a repintar o
+     * mapa errado na hora da troca: o cache e por URL, igual ao do
+     * chao, e a folha do mapa que esta em cena e a que foi pedida
      *
      * Fora do `isReady()` pelo mesmo motivo das folhas de chao: uma arte
      * de 250KB que falha devolve a zona ao pixel art de 32px, e nao um
      * buraco no meio do mapa
      */
-    this.zone = ZONES_USE_TILE ? loadImage(ZONE_TILE) : null;
+    this.zoneImages = new Map();
 
-    this.zoneTile = null;
-    this.zoneTentou = false;
-    this.zonePattern = null;
+    this.zoneTiles = new Map();
+    this.zonePatterns = new Map();
 
     this.patches = new Map();
     this.zoneGrids = new Map();
@@ -178,11 +183,33 @@ export class TerrainRenderer {
     );
   }
 
-  isZoneReady() {
+  /**
+   * A FOLHA DE TERRA DESTE MAPA, ou null se nao carregou.
+   *
+   * O cache e por URL, igual ao do chao: o mapa 1 pede a terra do
+   * vale e o mapa 2 pede a dele, e cada uma e carregada uma vez so
+   */
+  zoneImageFor(map) {
+    const folha = zoneTileFor(map);
+
+    if (this.zoneImages.has(folha)) {
+      return this.zoneImages.get(folha);
+    }
+
+    const image = ZONES_USE_TILE ? loadImage(folha) : null;
+
+    this.zoneImages.set(folha, image);
+
+    return image;
+  }
+
+  isZoneReady(map) {
+    const image = this.zoneImageFor(map);
+
     return (
-      this.zone !== null &&
-      this.zone.complete === true &&
-      (this.zone.naturalWidth ?? this.zone.width ?? 0) > 0
+      image !== null &&
+      image.complete === true &&
+      (image.naturalWidth ?? image.width ?? 0) > 0
     );
   }
 
@@ -279,6 +306,67 @@ export class TerrainRenderer {
   }
 
   /**
+   * O TILE ESPELHADO, que fecha a emenda.
+   *
+   * A arte entra quatro vezes num canvas do dobro: normal, espelhada
+   * na horizontal, espelhada na vertical e espelhada nos dois eixos.
+   * A borda direita do quadrante normal encosta na borda esquerda do
+   * espelhado — que e a propria borda esquerda da arte — entao os dois
+   * lados casam por construcao e a emenda desaparece
+   *
+   * So e usado nos mapas declarados em `GROUND_TILE_ESPELHADO`: a
+   * grama e o calcamento ja vem continuos, e espelhar arte que ja
+   * fecha so mudaria o visual de mapas que estao certos
+   */
+  static espelharParaLadrilho(tile) {
+    if (!tile) return null;
+
+    const lado = tile.width;
+
+    if (!lado) return null;
+
+    const canvas = document.createElement("canvas");
+
+    if (!canvas) return null;
+
+    canvas.width = lado * 2;
+    canvas.height = lado * 2;
+
+    const ctx = canvas.getContext?.("2d");
+
+    if (!ctx) return null;
+
+    ctx.imageSmoothingEnabled = true;
+    ctx.imageSmoothingQuality = "high";
+
+    // superior esquerdo: a arte como veio
+    ctx.drawImage(tile, 0, 0);
+
+    // superior direito: espelhado no eixo X
+    ctx.save();
+    ctx.translate(lado * 2, 0);
+    ctx.scale(-1, 1);
+    ctx.drawImage(tile, 0, 0);
+    ctx.restore();
+
+    // inferior esquerdo: espelhado no eixo Y
+    ctx.save();
+    ctx.translate(0, lado * 2);
+    ctx.scale(1, -1);
+    ctx.drawImage(tile, 0, 0);
+    ctx.restore();
+
+    // inferior direito: espelhado nos dois eixos
+    ctx.save();
+    ctx.translate(lado * 2, lado * 2);
+    ctx.scale(-1, -1);
+    ctx.drawImage(tile, 0, 0);
+    ctx.restore();
+
+    return canvas;
+  }
+
+  /**
    * O tile do chao, memorizado.
    *
    * `groundTentou` impede que a tentativa fracassada vire trabalho
@@ -298,10 +386,14 @@ export class TerrainRenderer {
 
     if (!this.isGroundReady(map)) return null;
 
-    const tile = TerrainRenderer.reduceToTile(
+    const reduzido = TerrainRenderer.reduceToTile(
       this.groundImageFor(map),
       GROUND_TILE_SIZE,
     );
+
+    const tile = groundTileEspelhadoFor(map)
+      ? TerrainRenderer.espelharParaLadrilho(reduzido) ?? reduzido
+      : reduzido;
 
     this.groundTiles.set(folha, tile);
 
@@ -309,27 +401,42 @@ export class TerrainRenderer {
   }
 
   /**
-   * O tile de terra das areas de mob, memorizado.
+   * O tile de terra das areas de mob deste mapa, memorizado.
    *
-   * Mesma conta do chao, sobre o `terra.jpg`
+   * Mesma conta do chao, sobre a terra que o mapa declarar. O cache e
+   * por URL: sao duas terras no projeto e cada uma e reduzida uma vez
+   * so, mesmo entrando e saindo do mapa varias vezes
+   *
+   * ## POR QUE NAO HAI MAIS O "JA TENTOU E NAO DEU"
+   *
+   * A folha da zona e carregada sob demanda, e no primeiro quadro ela
+   * ainda esta baixando. A guarda de tentativa marcava a folha como
+   * descartada PARA SEMPRE nesse primeiro `false` — e a zona vivia
+   * caindo no pixel art de 32px, que e o terreno antigo, para sempre
+   *
+   * O guarda so fazia sentido quando a folha era carregada no
+   * construtor, antes do primeiro quadro. Nao ha tentativa a repetir
+   * agora: enquanto a imagem nao carrega, este metodo sai antes de
+   * reduzir qualquer coisa, e o `zoneTiles` ja evita refazer o ladrilho
+   * depois de pronto
    */
-  buildZoneTile() {
-    if (this.zoneTile !== null) {
-      return this.zoneTile;
+  buildZoneTile(map) {
+    const folha = zoneTileFor(map);
+
+    if (this.zoneTiles.has(folha)) {
+      return this.zoneTiles.get(folha);
     }
 
-    if (this.zoneTentou === true) return null;
+    if (!this.isZoneReady(map)) return null;
 
-    this.zoneTentou = true;
-
-    if (!this.isZoneReady()) return null;
-
-    this.zoneTile = TerrainRenderer.reduceToTile(
-      this.zone,
+    const tile = TerrainRenderer.reduceToTile(
+      this.zoneImageFor(map),
       ZONE_TILE_SIZE,
     );
 
-    return this.zoneTile;
+    this.zoneTiles.set(folha, tile);
+
+    return tile;
   }
 
   /**
@@ -622,24 +729,65 @@ export class TerrainRenderer {
  * Devolve `false` quando o ladrilho nao deu, e o `fillZone` cai no
  * pixel art: e melhor um ladrilho de 32px velho do que um buraco
  */
-  fillZoneWithTile(context, zone) {
+  fillZoneWithTile(context, zone, map) {
     if (!zoneUsesTile(zone)) return false;
 
-    if (this.zonePattern === null) {
-      const ladrilho = this.buildZoneTile() ?? this.zone;
+    const folha = zoneTileFor(map);
+
+    /**
+     * O PADRAO E POR MAPA, e nao um campo solto.
+     *
+     * Com uma unica zona no mundo inteiro, entrar no mapa 2 depois do
+     * mapa 1 reaproveitaria o padrao da terra do vale — e o cambio de
+     * mapa trocaria a geometria e nao a textura
+     */
+    if (!this.zonePatterns.has(folha)) {
+      /**
+       * A FOLHA AINDA ESTA BAIXANDO: NAO GUARDA NADA.
+       *
+       * O ladrilho e a imagem sao montados sob demanda, e no primeiro
+       * quadro nenhum dos dois existe ainda. Guardar esse resultado
+       * vazio era o que prendia a zona no pixel art de 32px para
+       * sempre: o cache dizia "ja resolvido" com `null`, e nenhum
+       * quadro depois voltava a tentar
+       *
+       * Devolver `false` sem tocar no cache faz o proximo quadro
+       * tentar de novo. E o que resolve: a imagem baixa uma vez — o
+       * `zoneImages` guarda o objeto `Image`, entao nao ha nova
+       * requisição por quadro — e o ladrilho nasce assim que ela
+       * estiver pronta
+       */
+      const imagem = this.zoneImageFor(map);
+
+      // a arte crua de 1600px so serve de reserva quando o ladrilho de
+      // 128px nao deu, e nao enquanto a imagem esta baixando
+      const ladrilho =
+        this.buildZoneTile(map) ??
+        (this.isZoneReady(map) ? imagem : null);
+
+      if (!ladrilho) return false;
+
+      let padrao = null;
 
       try {
-        this.zonePattern =
-          context.createPattern?.(ladrilho, "repeat") ??
-          null;
+        padrao =
+          context.createPattern?.(ladrilho, "repeat") ?? null;
       } catch {
-        this.zonePattern = null;
+        padrao = null;
       }
+
+      // um padrao que naobornou tambem nao entra no cache: o
+      // `createPattern` pode recusar uma imagem que so agora ficou
+      // pronta, e no quadro seguinte ela serve
+      if (!padrao) return false;
+
+      this.zonePatterns.set(folha, padrao);
     }
+    const padrao = this.zonePatterns.get(folha);
 
-    if (this.zonePattern === null) return false;
+    if (!padrao) return false;
 
-    context.fillStyle = this.zonePattern;
+    context.fillStyle = padrao;
 
     context.fillRect(
       zone.x,
@@ -651,8 +799,8 @@ export class TerrainRenderer {
     return true;
   }
 
-  fillZone(context, zone) {
-    if (this.fillZoneWithTile(context, zone)) {
+  fillZone(context, zone, map) {
+    if (this.fillZoneWithTile(context, zone, map)) {
       return;
     }
 
@@ -831,7 +979,7 @@ export class TerrainRenderer {
        * entram no mesmo `fillZone`, e o campo de provas usa o mesmo
        * ladrilho de terra das onze areas de mob
        */
-      this.fillZone(context, zone);
+      this.fillZone(context, zone, map);
     }
   }
 

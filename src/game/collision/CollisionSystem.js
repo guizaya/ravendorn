@@ -59,6 +59,17 @@ export class CollisionSystem {
 
     this.seen = new Set();
 
+    /**
+     * O CIRCULO DE RASCUNHO.
+     *
+     * `circleIntersectsRect` so le `x`, `y` e `radius`, entao um objeto
+     * so precisa existir para toda a vida do colisor. Este e chamado com
+     * todos os solidos visiveis da celula, para cada eixo de movimento
+     * de cada criatura: o literal por solido eram milhares de objetos de
+     * um so campo jogados fora por tique
+     */
+    this._circulo = { x: 0, y: 0, radius: 0 };
+
     for (const rect of this.solids) {
       this.insertSolid(rect);
     }
@@ -139,7 +150,34 @@ export class CollisionSystem {
     return scratch;
   }
 
+  /**
+   * A POSICAO ESTA DENTRO DO LIMITE DO MAPA?
+   *
+   * ## O CIRCULO, QUANDO O MAPA DECLARAR UM
+   *
+   * A arena de chefe tem um limite redondo, e o `bounds` retangular nao
+   * serve: ele barrava o jogador nos quatro cantos, deixando o circulo
+   * com quatro "orelhas" quadradas nos pontos de cima, de baixo, da
+   * esquerda e da direita
+   *
+   * Com `boundsCircle`, o teste e a DISTANCIA AO CENTRO. O `radius` do
+   * jogador e descontado do raio do circulo, e nao somado: o boneco tem
+   * que caber inteiro, entao e o CENTRO dele que tem que estar a
+   * `radius - raioDoBoneco` do centro da arena. Somar em vez de
+   * descontar deixaria o boneco pendurado para fora da borda
+   */
   isInsideBounds(position, radius) {
+    const circle = this.map.boundsCircle;
+
+    if (circle) {
+      const dx = position.x - circle.x;
+      const dy = position.y - circle.y;
+
+      const limite = Math.max(0, circle.radius - radius);
+
+      return dx * dx + dy * dy <= limite * limite;
+    }
+
     const bounds = this.map.bounds;
 
     return (
@@ -169,15 +207,40 @@ export class CollisionSystem {
     for (const rect of candidates) {
       if (rect.passable) continue;
 
-      if (
-        circleIntersectsRect(
-          { x: position.x, y: position.y, radius },
-          rect,
-        )
-      ) {
+      /**
+       * O circulo e REAPROVEITADO, e nao um literal por solido.
+       *
+       * `circleIntersectsRect` so le `x`, `y` e `radius`, entao um
+       * objeto so precisa existir. Este e chamado com todos os solidos
+       * visiveis da celula, para cada eixo de movimento de cada
+       * criatura: com 93 mobes, eram milhares de objetos de um so
+       * campo jogados fora por tique
+       */
+      this._circulo.x = position.x;
+      this._circulo.y = position.y;
+      this._circulo.radius = radius;
+
+      if (circleIntersectsRect(this._circulo, rect)) {
         return false;
       }
     }
+
+    /**
+     * AS ENTIDADES PASSADAS A LISTA INTEIRA, e nao um indice espacial.
+     *
+     * Este laco e O(n) sobre os inimigos do mapa: 93 no vale. E o
+     * comentario antigo falava em trocar por um grid uniforme, mas medido
+     * o laco NAO e o gargalo: ele ja compara ao quadrado, sem `sqrt`,
+     * sem `hypot` e sem alocar nada. Um grid aqui custaria mais para ser
+     * mantido a cada movimento do que o que economizaria na busca
+     *
+     * O que era caro de verdade neste metodo era o `distanceSquared`
+     * receber um objeto novo para cada par, e o circulo do
+     * `circleIntersectsRect` ser um literal por solido. As duas coisas
+     * estao resolvidas acima
+     */
+    const dx = position.x;
+    const dy = position.y;
 
     for (const entity of entities) {
       if (entity.id === ignoredEntityId || entity.alive === false) {
@@ -186,10 +249,10 @@ export class CollisionSystem {
 
       const minimumDistance = radius + entity.radius;
 
-      if (
-        distanceSquared(position, entity) <
-        minimumDistance * minimumDistance
-      ) {
+      const ex = dx - entity.x;
+      const ey = dy - entity.y;
+
+      if (ex * ex + ey * ey < minimumDistance * minimumDistance) {
         return false;
       }
     }
@@ -224,7 +287,48 @@ export class CollisionSystem {
     return false;
   }
 
+  /**
+   * Empurra a entidade para dentro do limite do mapa.
+   *
+   * ## POR QUE O CIRCULO NAO PODE SER UM `min`/`max` POR EIXO
+   *
+   * O clamp do retangulo e uma conta por eixo. O do circulo nao: se o
+   * jogador esta em (700, 120) numa arena de raio 548 centrada em (840,
+   * 588), os dois eixos estao DENTRO do retangulo e fora do circulo —
+   * mas clampar X e Y separadamente nao o traz de volta, porque cada eixo
+   * isolado ja "cabe"
+   *
+   * A solucao e projetar o ponto na direcao do centro: se a distancia
+   * passa do limite, o ponto vai para a borda do circulo NA MESMA LINHA
+   * que o centro. E o que faz o boneco deslizar pela curva em vez de
+   * parar reto nela
+   *
+   * E o `x === circle.x && y === circle.y` e a unica divisao por zero
+   * possivel: sem ele, quem estivesse exatamente no centro dividiria por
+   * zero e o clamp devolveria `NaN`, que some com a posicao do jogador
+   */
   clampToBounds(entity, radius) {
+    const circle = this.map.boundsCircle;
+
+    if (circle) {
+      const limite = Math.max(0, circle.radius - radius);
+
+      const dx = entity.x - circle.x;
+      const dy = entity.y - circle.y;
+
+      const distancia = Math.sqrt(dx * dx + dy * dy);
+
+      if (distancia <= limite) return false;
+
+      const x = distancia === 0 ? circle.x : circle.x + (dx / distancia) * limite;
+      const y = distancia === 0 ? circle.y : circle.y + (dy / distancia) * limite;
+
+      entity.x = x;
+      entity.y = y;
+
+      return true;
+    }
+
     const bounds = this.map.bounds;
 
     const minX = bounds.x + radius;

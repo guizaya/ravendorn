@@ -600,7 +600,6 @@ export const LIMO_PREGUICOSO_SPRITE = {
  * salto de direcao do reserva quase nunca aparece
  */
 const GOBLIN_SAQUEADOR_CELL = 68;
-
 const GOBLIN_SAQUEADOR_WALK_FRAMES = 8;
 const GOBLIN_SAQUEADOR_IDLE_FRAMES = 8;
 const GOBLIN_SAQUEADOR_IDLE_ROW = 8;
@@ -646,6 +645,129 @@ export const GOBLIN_SAQUEADOR_SPRITE = {
   anchorY: 55,
 };
 
+/**
+ * O HULK: O CHEFE DA ARENA.
+ *
+ * ## A MESMA ARTE DO GOBLIN, E UM CHEFE DIFERENTE
+ *
+ * A pasta de origem e `src/assets/sprites/hulk` — a mesma do Goblin
+ * Saqueador, e a folha e uma saida nova (`hulk-sheet.png`) do mesmo
+ * par de gifs. Sao duas criaturas com a mesma arte e numeros muito
+ * diferentes: o goblin e de nivel 5 e semi-passivo, e o hulk e o chefe de
+ * nivel 20
+ *
+ * ## AS CONSTANTES SAO DA FOLHA GERADA, NAO CHUTADAS
+ *
+ * Vem do log do `gif-to-sheet.mjs hulk`: 17 linhas (8 de caminhada, 1
+ * de idle e 8 de golpe), 9 quadros na linha de golpe, celula 68x68 e
+ * ancora (33.5, 55)
+ *
+ * O `SHOOT_ROW` e 9 e nao 0 porque o `attack` do `goblin` NAO tem linha
+ * propria — a folha do goblin para na linha 8. Sao duas folhas
+ * diferentes do mesmo material, e por isso as duas tem numeros
+ * proprios
+ */
+const HULK_CELL = 68;
+const HULK_WALK_FRAMES = 8;
+const HULK_IDLE_FRAMES = 8;
+const HULK_IDLE_ROW = 8;
+const HULK_ATTACK_FRAMES = 9;
+const HULK_ATTACK_ROW = 9;
+const HULK_WALK_FPS = 10;
+const HULK_IDLE_FPS = 5;
+const HULK_ATTACK_FPS = 8;
+
+/**
+ * A ESCALA DO CHEFE E 2, E E O CAMPO QUE REALMENTE DESENHA.
+ *
+ * ## POR QUE ESTA ESCALA E NAO O `spriteScale` DO CATALOGO
+ *
+ * Sao dois campos com nomes parecidos que NAO falam a mesma coisa, e so
+ * um deles chega na tela:
+ *
+ * - `spriteScale`, no catalogo de criaturas, e um numero que o desenho
+ *   nunca le. Nenhum codigo de renderizacao o consulta — ele existe no
+ *   objeto do inimigo e morre ali
+ * - `scale`, aqui no layout, e o que o `resolveDrawRect` multiplica pela
+ *   celula para saber quantos pixels o chefe ocupa
+ *
+ * Sem declarar este `scale`, o `createDirectionalSpriteDefinition` cai no
+ * `DIRECTIONAL_SCALE`, que e 1 — e o chefe aparecia com 68px, MENOR que
+ * o boneco do jogador (que e `SCALE = 2` na folha de classe). Um chefe
+ * de nivel 20 com metade do tamanho de quem ele persegue
+ *
+ * ## POR QUE 2, E NAO "O MAIOR DO JOGO"
+ *
+ * Com 2, o Hulk fica em 68x2 = 136px: o mesmo tamanho do jogador. E o
+ * que o dobro do desenho que estava na tela pediu, e ja e o dobro de um
+ * goblin (68px, `scale` 1). Ir alem de 2 e造 escolha de design, nao
+ * correcao — se um dia o chefe tiver de dominar a tela de verdade, esse
+ * numero e o lugar, mas 3 seria maior que o jogador e nao e o que foi
+ * pedido aqui
+ */
+const HULK_SCALE = 2;
+
+export const HULK_SPRITE = {
+  ...createDirectionalSpriteDefinition("hulk", SEM_IMAGEM, {
+    directions: ARBALIST_DIRECTIONS,
+
+    /**
+     * O balanco e de 2px, e nao os 3 dos bichos de pe medio.
+     *
+     * O hulk e o maior inimigo do jogo e ele anda devagar
+     * (`speed` baixa de proposito, para a luta ser de posicao e nao de
+     * perseguicao). Com 3px de amplitude e `spriteScale` grande, o
+     * desenho sobe para fora da propria celula a cada passo
+     */
+    walkBob: { amplitude: 2, frequency: 0.8 },
+
+    /**
+     * A escala que vai para a tela, 2. Ver `HULK_SCALE`: e este campo,
+     * e nao o `spriteScale` do catalogo, que decide o tamanho do chefe
+     */
+    scale: HULK_SCALE,
+
+    animations: {
+      // a linha do idle e uma linha INTEIRA da folha: sem o `row`, o
+      // `resolveFrameRect` leria a linha 0 (caminhada para leste) e o
+      // chefe parado viraria de lado
+      idle: {
+        row: HULK_IDLE_ROW,
+        start: 0,
+        length: HULK_IDLE_FRAMES,
+        fps: HULK_IDLE_FPS,
+      },
+
+      walk: {
+        start: 0,
+        length: HULK_WALK_FRAMES,
+        fps: HULK_WALK_FPS,
+      },
+
+      /**
+       * O GOLPE NA LINHA DELE, e sem `needsTarget`.
+       *
+       * A sentinela e o zumbi botam `needsTarget: true` porque a arte de
+       * arco so entra com alvo de verdade. O hulk e corpo a corpo e o
+       * golpe dele e um `./target` na sua frente: com a exigencia, ele
+       * levantaria o braco para o ar toda vez que entrasse na janela de
+       * golpe sem ter alvo mirado, que no boss e a janela inteira
+       */
+      attack: {
+        row: HULK_ATTACK_ROW,
+        start: 0,
+        length: HULK_ATTACK_FRAMES,
+        fps: HULK_ATTACK_FPS,
+      },
+    },
+  }),
+
+  frameWidth: HULK_CELL,
+  frameHeight: HULK_CELL,
+  anchorX: 33.5,
+  anchorY: 55,
+};
+
 export const ENEMY_SPRITES = {
   ...Object.fromEntries(
     Object.entries(ESCALA).map(([id, scale]) => [
@@ -663,7 +785,6 @@ export const ENEMY_SPRITES = {
   // chave e a do mesmo `id` de criatura, entao este registro tem
   // precedencia sobre o `createEnemySpriteDefinition` acima
   ghoul: GHOUL_FAMINTO_SPRITE,
-
   // TODO ogre usa a folha da predeira, o `ogre` da pedreira
   // incluso. As DUAS criaturas apontam para o MESMO objeto de
   // definicao: uma folha direcional de 68px, que o `ogre` nao tinha.
@@ -675,6 +796,15 @@ export const ENEMY_SPRITES = {
   // continuam no corpo vetorial, que e o que o registro decide
   // quando nao conhece o tipo
   dummy_warrior: BONECO_MADEIRA_SPRITE,
+
+  /**
+   * O HULK, o chefe da arena.
+   *
+   * Nao entra pelo `createEnemySpriteDefinition` acima porque e
+   * DIRECIONAL e tem linha de golpe propria: o `ESCALA` acima monta as
+   * criaturas de folha pequena, que nao tem nem idle nem ataque
+   */
+  hulk: HULK_SPRITE,
 };
 
 export function getEnemySprite(creatureId) {

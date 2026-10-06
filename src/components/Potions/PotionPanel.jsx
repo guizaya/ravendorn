@@ -83,8 +83,9 @@ export default function PotionPanel({
 
       <div className="pocao-panel__body">
         <p className="pocao-panel__intro">
-          O mercador vende poucoes. A cura vale a pena antes de entrar
-          em uma cacada, e nao durante.
+          O mercador vende consumiveis. A cura vale a pena antes de
+          entrar em uma cacada, e nao durante; o pergaminho e para
+          quando o caminho ate o destino ja esta longo demais.
         </p>
 
         {POCOES.map((pocao) => (

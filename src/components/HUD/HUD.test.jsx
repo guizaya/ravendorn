@@ -241,21 +241,32 @@ describe("HUD render", () => {
   });
 
   it("reflects the auto play state on the big button", () => {
-    expect(
-      render({ snapshot: snapshot() }),
-    ).toContain(">OFF<");
+    /**
+     * O estado do auto NAO E MAIS TEXTO.
+     *
+     * O botao escreve so "auto", e quem diz se ele esta ligado e a
+     * classe: `is-on` pinta a borda e o fundo de verde e liga o pulso,
+     * `is-engaged` pinta de dourado. A cor e o pulso dizem "ligado" de
+     * relance, sem focar a tela — o que o texto fazia mal
+     *
+     * Estas afirmacoes foram o TEXTO porque ele era o unico sinal que
+     * existia. A CLASS e o sinal que sobrou, e o que continua valendo
+     */
+    const off = render({ snapshot: snapshot() });
+
+    expect(off).toContain(">auto<");
+    expect(off).not.toContain("hud-ability is-on");
+    expect(off).not.toContain("hud-ability is-engaged");
 
     expect(
-      render({
-        snapshot: snapshot({ engaged: true }),
-      }),
-    ).toContain(">ALVO<");
+      render({ snapshot: snapshot({ engaged: true }) }),
+    ).toContain("hud-ability is-engaged");
 
     const on = render({
       snapshot: snapshot({ autoPlay: true }),
     });
 
-    expect(on).toContain(">AUTO<");
+    expect(on).toContain(">auto<");
     expect(on).toContain("hud-ability is-on");
   });
 

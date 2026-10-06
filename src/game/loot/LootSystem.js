@@ -324,6 +324,56 @@ export class LootSystem {
     return collected;
   }
 
+  /**
+   * Entrega itens JA SORTREADOS na mochila de um jogador.
+   *
+   * Existe separado do `collectFrom` porque a divisao por party sorteia
+   * UMA vez e depois distribui: quem chama o `collectFrom` de novo
+   * sorteia de novo, e ai um abate vira tres itens em tres gente
+   *
+   * O transbordo de inventario vai para o chao com o `ownerId` de quem
+   * recebeu, nunca sem dono
+   */
+  grantItems(creature, owner = null, items = []) {
+    const inventory = this.inventoryOf(owner);
+    const given = { items: [], dropped: 0 };
+
+    for (const entry of items) {
+      const result = inventory.add(
+        entry.itemId,
+        entry.count,
+      );
+
+      if (result.added > 0) {
+        given.items.push({
+          itemId: entry.itemId,
+          count: result.added,
+        });
+      }
+
+      if (result.dropped > 0) {
+        const position = this.scatter(
+          creature.x,
+          creature.y,
+          result.dropped,
+        );
+
+        this.spawnGroundDrop({
+          kind: "item",
+          itemId: entry.itemId,
+          count: result.dropped,
+          x: position.x,
+          y: position.y,
+          ownerId: owner?.id ?? null,
+        });
+
+        given.dropped += result.dropped;
+      }
+    }
+
+    return given;
+  }
+
   dropFrom(creature, owner = null) {
     const { coins, items } = this.roll(
       creature,

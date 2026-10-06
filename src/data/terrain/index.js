@@ -29,11 +29,12 @@ export const BASE_TERRAIN = "grass";
 /**
  * O CHAO DE CADA MAPA E UM TILE DE VERDADE.
  *
- * Cada mapa declara o seu. Sao duas texturas pintadas de 1600x1600,
- * feitas para repetir:
+ * Cada mapa declara o seu. Sao texturas pintadas de 1600x1600, feitas
+ * para repetir:
  *
  *   - `grama`: a grama do Vale de Cinzas, o mapa_1
  *   - `cidade`: o calcamento do mapa base
+ *   - `neve`: o chao do mapa 2
  *
  * Antes o chao era um `GROUND_TILE` unico, e com um segundo mapa no
  * projeto isso passou a ser errado: o mapa base abriria com grama
@@ -55,7 +56,76 @@ export const GROUND_TILES = {
     "../../assets/terrain/chao_cidade.jpg",
     import.meta.url,
   ).href,
+
+  neve: new URL(
+    "../../assets/terrain/neve.jpg",
+    import.meta.url,
+  ).href,
+
+  /**
+   * O CHAO DA ARENA DE CHEFE.
+   *
+   * 1600x1600, o mesmo tamanho das outras tres, entao entra no mesmo
+   *_pipeline_: o ladrilho de 128px e montado no carregamento e a arte
+   * grande nunca entra no bundle
+   *
+   * ## ESTA ARTE EMENDA, E POR ISSO NAO ESTA NO ESPELHADO
+   *
+   * Comparando as bordas da imagem com as do calcamento — que ja
+   * ladrilha sem costura ha anos — a `boss.jpg` da 58 de diferenca media
+   * entre a coluna da esquerda e a da direita, contra 147 do calcamento.
+   * A emenda e MENOR que a de uma arte que ja funciona, entao ela e
+   * usada como ladrilho direto
+   *
+   * Espelhar uma arte que ja fecha so mudaria o visual de um mapa que
+   * esta certo: o espelhado e o conserto para arte que NAO fecha (a
+   * neve), e nao um padrao
+   */
+  boss: new URL(
+    "../../assets/terrain/boss.jpg",
+    import.meta.url,
+  ).href,
 };
+
+/**
+ * QUAIS CHASOS PRECISAM VIRAR UM TILE ESPELHADO.
+ *
+ * ## O PROBLEMA
+ *
+ * O chao e um `createPattern` repetido. Para a repeticao nao aparecer,
+ * a arte precisa ser CONTINUA: o que toca na borda direita tem que
+ * continuar na borda esquerda, e o que toca embaixo tem que continuar
+ * em cima. Grama e calcamento foram feitos assim
+ *
+ * A neve nao. Tem terra batida encostando nas quatro bordas, e ao
+ * repetir, cada mancha e CORTAVA na emenda e continuava no tile de
+ * baixo: o desenho aparecia cortado ao meio, com a parte de cima de um
+ * lado e a de baixo do outro. E o "um tile cortando o outro"
+ *
+ * ## O ESPELHO COMO CONSERTO
+ *
+ * O ladrilho e montado com a arte quatro vezes, espelhada:
+ *
+ *     +--------+--------+
+ *     | normal | <-H    |
+ *     +--------+--------+
+ *     |  -V    | -H -V  |
+ *     +--------+--------+
+ *
+ * A borda direita do quadrante normal encosta na borda esquerda do
+ * quadrante espelhado, que e a propria borda esquerda da arte. Os
+ * dois lados casam por definicao, entao a emenda some
+ *
+ * E por mapa e nao geral: a grama e o calcamento ja sao continuos, e
+ * espelhar arte que ja fecha so mudaria o visual de dois mapas que
+ * estao certos
+ */
+export const GROUND_TILE_ESPELHADO = new Set(["neve"]);
+
+/** O chao deste mapa precisa de ladrilho espelhado? */
+export function groundTileEspelhadoFor(map) {
+  return GROUND_TILE_ESPELHADO.has(map?.groundTile);
+}
 
 /**
  * O lado do tile de chao, em pixel do mundo.
@@ -117,6 +187,33 @@ export const ZONE_TILE = new URL(
   "../../assets/terrain/terra.jpg",
   import.meta.url,
 ).href;
+
+/**
+ * A TERRA DAS ZONAS DE MOB DE CADA MAPA.
+ *
+ * O `ZONE_TILE` acima e o padrao, e continua valendo para o mapa que
+ * nao declarar nada. O mapa 2 declara a sua, porque a terra do Vale de
+ * Cinzas e a terra do mapa 2 sao o mesmo bioma em dois cenarios
+ * diferentes — e a diferenca de temperatura se enxerga no chao, nao
+ * so no minimapa
+ *
+ * Same chaves, mesmo traducao: `zoneTileFor` e o `groundTileFor` do
+ * chao. E a URL, e nao a imagem, que o cache guarda — assim trocar o
+ * mapa nao precisa recarregar nada, e so procurar outro ladrilho
+ */
+export const ZONE_TILES = {
+  terra: ZONE_TILE,
+
+  terra_2: new URL(
+    "../../assets/terrain/terra_2.jpg",
+    import.meta.url,
+  ).href,
+};
+
+/** A folha de terra das zonas deste mapa. Cai na do vale sem declaracao. */
+export function zoneTileFor(map) {
+  return ZONE_TILES[map?.zoneTile] ?? ZONE_TILE;
+}
 
 export const ZONE_TILE_SIZE = 128;
 

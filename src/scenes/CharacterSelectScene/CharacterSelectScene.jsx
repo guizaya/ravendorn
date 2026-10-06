@@ -111,6 +111,8 @@ export default function CharacterSelectScene({
   onNameChange,
 }) {
   const [tentouEntrar, setTentouEntrar] = useState(false);
+  const [consultando, setConsultando] = useState(false);
+  const [recusaServidor, setRecusaServidor] = useState(null);
   const nome = validateName(characterName);
 
   // o erro so aparece depois da primeira tentativa: reclamar do
@@ -118,9 +120,68 @@ export default function CharacterSelectScene({
   // seria ruido
   const erro = tentouEntrar && !nome.ok ? nome.reason : null;
 
-  const entrar = () => {
+  /**
+   * A TRAVA DE NICKNAME, VERIFICADA ANTES DE ENTRAR.
+   *
+   * Ha duas perguntas que so o servidor responde, e as duas sao sobre o
+   * MESMO nickname:
+   *
+   * 1. "Este personagem ja esta logado em outra janela?" — outro
+   *    navegador conectado com o mesmo nome
+   *
+   * 2. "Este nickname ja tem personagem de outra classe?" — o save do
+   *    nickname existe com outra classe
+   *
+   * Sem consultar, o jogador so descobre disso DEPOIS de entrar no
+   * mapa: o socket abre, a tela do jogo carrega, e o aviso solto
+   * aparece num canto. Verificando no botao, o aviso fica no campo do
+   * nome, onde o jogador esta olhando, e ele nem chega a abrir o jogo
+   *
+   * A consulta e uma ADIANTACAO, nao uma autoridade: o servidor continua
+   * recusando no JOIN. Um cliente que pule esta consulta e entre direto
+   * ainda esbarra nas mesmas travas do servidor
+   */
+  async function conferirNickname() {
+    let resposta;
+
+    try {
+      resposta = await fetch(`/api/personagem/${nome.value}`);
+    } catch {
+      // sem servidor HTTP nao ha como consultar. Nao bloqueia a
+      // entrada: o JOIN ainda vai recusar o que precisa ser recusado
+      return null;
+    }
+
+    if (!resposta.ok) return null;
+
+    return resposta.json();
+  }
+
+  const entrar = async () => {
     setTentouEntrar(true);
+    setRecusaServidor(null);
+
     if (!nome.ok || !selectedClass) return;
+
+    setConsultando(true);
+
+    const ficha = await conferirNickname();
+
+    setConsultando(false);
+
+    if (ficha?.logado) {
+      setRecusaServidor(
+        "Este personagem ja esta logado em outra janela.",
+      );
+      return;
+    }
+
+    if (ficha?.existe && ficha.classe && ficha.classe !== selectedClass.id) {
+      setRecusaServidor(
+        "Este nickname ja tem um personagem de outra classe. Entre com a classe original.",
+      );
+      return;
+    }
 
     onPlay({ name: nome.value });
   };
@@ -151,8 +212,22 @@ export default function CharacterSelectScene({
       <NameField
         name={characterName}
         onChange={onNameChange}
-        error={erro}
+        error={erro ?? recusaServidor}
       />
+
+      {/*
+        O AVISO DA TRAVA, DENTRO DA TELA DE SELECAO.
+
+        A recusa do servidor (nickname logado, classe diferente) e
+        mostrada aqui, e nao na tela do mapa. O jogador ainda nao
+        escolheu entrar no mundo: o aviso pertence a escolha de nome, e
+        volta para o campo onde ele esta digitando
+      */}
+      {recusaServidor ? (
+        <p className="selection-lock-warning" role="alert">
+          {recusaServidor}
+        </p>
+      ) : null}
 
       <section className="class-grid">
         {CHARACTER_CLASSES.map((definition) => {
@@ -239,17 +314,22 @@ export default function CharacterSelectScene({
                   // sem nome valido nao entra: o servidor exige
                   // nome para identificar o jogador
                   nome.ok ? "" : "is-blocked",
+                  // consultando o servidor: o botao trava para o
+                  // jogador nao clicar tres vezes e abrir tres sockets
+                  consultando ? "is-busy" : "",
                 ]
                   .filter(Boolean)
                   .join(" ")}
-                aria-disabled={!nome.ok}
+                aria-disabled={!nome.ok || consultando}
                 onClick={entrar}
               >
                 <span>JOGAR</span>
                 <small>
-                  {nome.ok
-                    ? "Entrar no mapa"
-                    : "Escreva um nome"}
+                  {consultando
+                    ? "Conferindo o nickname..."
+                    : nome.ok
+                      ? "Entrar no mapa"
+                      : "Escreva um nome"}
                 </small>
               </button>
             </div>

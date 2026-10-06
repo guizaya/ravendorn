@@ -530,11 +530,24 @@ export class GameClient {
     });
   }
 
-  mexerNoCofre(guildaId, acao) {
+  /**
+ * O COFRE: deposita e saca moedas e itens.
+ *
+ * O segundo argumento e um objeto com `moeda`, `item` ou `uid`, e nao
+ * posicois soltas. Os tres caminhos nao convivem: um pedido com `moeda` e
+ * `item` preenchidos e um pedido malformado, e o servidor le a moeda
+ * primeiro
+ *
+ * O `uid` do item e sempre o da MOCHILA no deposito e o do SLOT no
+ * saque — sao espacos diferentes com ids diferentes, e e o espaco que
+ * diz de onde o item vem
+ */
+  mexerNoCofre(guildaId, acao, dados = {}) {
     return this.pedirPainel({
       op: PANEL_OPS.GUILD_COFRE,
       guildId: guildaId,
       cofreAcao: acao,
+      ...dados,
     });
   }
 
@@ -543,6 +556,34 @@ export class GameClient {
       op: PANEL_OPS.TRAVESSAR_PORTAL,
       portalId,
     });
+  }
+
+  /**
+   * O BOTAO DA ARENA: entra, e o segundo clique traz de volta.
+   *
+   * Nao leva mapa nem posicao, e nao por falta de argumento: o destino
+   * e a origem sao lidos pelo SERVIDOR. Um `mapa` aqui viraria um
+   * teletransporte para qualquer lugar pedido pelo cliente
+   *
+   * O sentido tambem nao vem do cliente. Quem decide e o mapa em que o
+   * jogador esta, entao o botao sabe o que faz olhando o proprio icone e
+   * o pedido e o mesmo nos dois casos
+   */
+  irParaArena() {
+    return this.pedirPainel({ op: PANEL_OPS.IR_PARA_ARENA });
+  }
+
+  /**
+   * Teleporta para o fim da viagem, gastando um pergaminho.
+   *
+   * Nao leva coordenada nenhuma, e e o que fecha a porta de um cliente
+   * modificado: o destino sai do plano de viagem que o SERVIDOR esta
+   * calculando. Mandar `x`/`y` aqui seria aceitar "me mande para
+   * qualquer ponto do mapa", e o servidor resolveria o destino de um
+   * pedido que ele mesmo montou
+   */
+  teleportar() {
+    return this.pedirPainel({ op: PANEL_OPS.TELEPORTAR });
   }
 
   /**
@@ -738,11 +779,52 @@ export class GameClient {
     });
   }
 
+  /**
+   * Compra um livro com o Mestre de Habilidades.
+   *
+   * `itemId` e o do LIVRO, e nao o da skill: e o livro que tem preco.
+   * O servidor passa esse id pelo catalogo e descobre a skill por ele
+   *
+   * Nao vai `count` porque um livro ensina uma skill — a segunda copia
+   * nao ensina nada, e o servidor recusa antes de cobrar
+   */
+  comprarLivro(itemId) {
+    if (!itemId) return false;
+
+    return this.pedirPainel({
+      op: PANEL_OPS.BUY_SKILL_BOOK,
+      itemId,
+    });
+  }
+
   /** Desiste da cacada. */
   pararCacada() {
     return this.pedirPainel({
       op: PANEL_OPS.CLEAR_BESTIARY_AUTO,
     });
+  }
+
+  /**
+   * REVIVER depois de morrer, pagando ouro.
+   *
+   * Nao leva o preco. O servidor calcula com `reviveCost(level)` e
+   * cobra da mochila de quem pediu; mandar o valor aqui seria deixar o
+   * cliente escolher quanto paga, e o painel so precisaria mostrar o
+   * numero para o jogador saber o que espera pagar
+   */
+  reviver() {
+    return this.pedirPainel({ op: PANEL_OPS.REVIVER });
+  }
+
+  /**
+   * VOLTAR PARA A BASE depois de morrer, perdendo XP.
+   *
+   * Tambem sem parametro: nem o preco nem o mapa de destino. O destino
+   * e o `DEFAULT_MAP_ID`, resolvido pelo servidor — aceitar um `mapId`
+   * aqui seria um teletransporte de graça, sem passar por portal
+   */
+  voltarBase() {
+    return this.pedirPainel({ op: PANEL_OPS.VOLTAR_BASE });
   }
 
   marcarAuto(skillId, ativo) {

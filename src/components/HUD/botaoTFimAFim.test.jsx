@@ -354,7 +354,7 @@ describe("o botao do T, do clique ate o servidor", () => {
       await esperarPor(() =>
         primeiro.container
           .querySelector(".hud-ability")
-          .textContent.includes("AUTO"),
+          .className.includes("is-on"),
       ),
     ).toBe(true);
 
@@ -366,8 +366,12 @@ describe("o botao do T, do clique ate o servidor", () => {
     // Ana ja recebeu o painel dela, o Bento ter recebido o mesmo
     // texto seria a falha. Verificar antes daria tempo de sobra
     // demais para o bug aparecer
-    expect(segundo.container.querySelector(".hud-ability").textContent)
-      .not.toContain("AUTO");
+    //
+    // E a CLASSE, e nao o texto: o botao de auto escreve so "auto" e
+    // nao muda de palavra conforme o estado. Quem carrega o estado e a
+    // `is-on`, que e verde e pulsando
+    expect(segundo.container.querySelector(".hud-ability").className)
+      .not.toContain("is-on");
 
     cleanup();
     segundo.unmount();

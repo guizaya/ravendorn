@@ -23,6 +23,8 @@
  * pacote, e a lista "pularia" na tela.
  */
 
+import { nameKey } from "../../data/characterName.js";
+
 /** Os criterios que o painel oferece, na ordem em que aparecem. */
 export const RANK_CRITERIO = {
   NIVEL: "nivel",
@@ -77,6 +79,63 @@ export function dadosDoJogador(sessao) {
 
     cacadas: bestiary.completed.size,
     abates,
+
+    // quem esta na partida agora. Um jogador offline entra na lista
+    // com `false`, e o painel usa isso para nao mostrar a lista toda
+    // igual sem diferenciar quem pode ser encontrado no mapa
+    online: true,
+  };
+}
+
+/**
+ * O MESMO DADO, lido de um PERSONAGEM SALVO em vez de uma sessao viva.
+ *
+ * O save tem a MESMA informacao com outra forma: o `bestiary` vai
+ * como `kills` em pares `[tipo, total]` e `completed` em lista, porque
+ * JSON nao tem `Map` nem `Set`. Sem esta leitura, o rank so conhecia
+ * quem estava conectado — e fechar o navegador sumia com o jogador
+ * da tabela
+ *
+ * O `nome` vem de fora porque o arquivo se chama pela CHAVE do nome
+ * (`nameKey`), e o nome com acento e com caixa e o que o jogador
+ * digitou: e ele que o painel precisa mostrar
+ */
+export function dadosDoSalvo(save, nome) {
+  if (!save || typeof save !== "object") return null;
+
+  const player = save.player ?? {};
+  const bestiary = save.bestiary ?? {};
+
+  let abates = 0;
+
+  // `kills` pode vir como array de pares ou ja como objeto, se um save
+  // antigo tiver sido escrito de outra forma
+  const pares = Array.isArray(bestiary.kills)
+    ? bestiary.kills
+    : Object.entries(bestiary.kills ?? {});
+
+  for (const par of pares) {
+    const total = Array.isArray(par) ? par[1] : par;
+
+    abates += Math.max(0, Math.floor(total ?? 0));
+  }
+
+  const completed = Array.isArray(bestiary.completed)
+    ? bestiary.completed
+    : [];
+
+  return {
+    id: null,
+    name: save.name ?? nome,
+    classId: save.classId ?? null,
+
+    nivel: Math.max(1, Math.floor(player.level ?? 1)),
+    xp: Math.max(0, Math.floor(player.xp ?? 0)),
+
+    cacadas: completed.length,
+    abates,
+
+    online: false,
   };
 }
 
@@ -124,15 +183,46 @@ function comPosicao(ordenada) {
 /**
  * Monta o rank inteiro, as duas listas ja ordenadas.
  *
- * `sessoes` e a lista de `PlayerSession` do mundo. O servidor
- * chama com todo mundo que esta conectado, e o painel mostra so
- * quem entrou na partida: um rank com jogador que ja saiu seria
- * uma posicao que ninguem pode Occupy.
+ * `sessoes` e a lista de `PlayerSession` do mundo: quem esta na
+ * partida agora. `salvos` sao os personagens em disco, para o rank
+ * mostrar quem ja jogou e hoje esta offline
+ *
+ * ## A ORDEM DE PRECEDENCIA
+ *
+ * Online vence offline. Se o mesmo nickname aparecesse duas vezes — a
+ * sessao viva e o arquivo — o painel mostraria a mesma pessoa duas
+ * vezes e o resto da lista desceria uma posicao sem motivo
+ *
+ * A comparacao e por `nameKey`, a MESMA chave do arquivo e do
+ * servidor: "Teste", "teste " e "TESTE" sao um personagem so
  */
-export function montarRank(sessoes) {
-  const dados = sessoes
-    .map(dadosDoJogador)
-    .filter(Boolean);
+export function montarRank(sessoes, salvos = []) {
+  const vistos = new Set();
+
+  const dados = [];
+
+  for (const sessao of sessoes) {
+    const linha = dadosDoJogador(sessao);
+
+    if (!linha) continue;
+
+    vistos.add(nameKey(linha.name));
+
+    dados.push(linha);
+  }
+
+  for (const salvo of salvos) {
+    const linha = dadosDoSalvo(salvo, salvo?.name);
+
+    if (!linha) continue;
+
+    // ja esta na lista pela sessao viva: o dado de agora e mais novo
+    if (vistos.has(nameKey(linha.name))) continue;
+
+    vistos.add(nameKey(linha.name));
+
+    dados.push(linha);
+  }
 
   return {
     [RANK_CRITERIO.NIVEL]: comPosicao(ordenarPorNivel(dados)),

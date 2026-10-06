@@ -1,4 +1,10 @@
-import { useCallback, useEffect, useRef, useState } from "react";
+import {
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+} from "react";
 import { GameClient, STATUS } from "../../game/net/GameClient.js";
 
 /**
@@ -257,6 +263,18 @@ export default function useGameClient({
     [comCliente],
   );
 
+  /**
+   * A ARENA DO CHEFE, o botao de ir e voltar.
+   *
+   * Sem argumento nenhum: o destino e o sentido sao do servidor. O
+   * wrapper existe so para o HUD nao falar com o `GameClient` direto, como
+   * os outros
+   */
+  const irParaArena = useCallback(
+    () => comCliente((c) => c.irParaArena()),
+    [comCliente],
+  );
+
   /** O auto da missao, que e um pedido separado do de cacar perto. */
   const alternarAutoMissao = useCallback(
     () => comCliente((c) => c.alternarAutoMissao()),
@@ -382,9 +400,57 @@ export default function useGameClient({
     [comCliente],
   );
 
+  /**
+   * Compra um livro com o Mestre de Habilidades.
+   *
+   * Este e o unico lugar do front que conhecia o livro. Sem esta linha o
+   * `intencao.comprarLivro` do HUD era `undefined`, e o clique chamava
+   * `undefined` dentro de um `if (intencao)` que continuava verdadeiro —
+   * o botao clicava, nao dava erro na tela e nao acontecia nada
+   */
+  const comprarLivro = useCallback(
+    (itemId) => comCliente((c) => c.comprarLivro(itemId)),
+    [comCliente],
+  );
+
   /** Desiste da cacada em andamento. */
   const pararCacada = useCallback(
     () => comCliente((c) => c.pararCacada()),
+    [comCliente],
+  );
+
+  /**
+   * AS DUAS SAIDAS DA MORTE.
+   *
+   * Nenhuma das duas decide nada, e nenhuma manda preco: quem cobra o
+   * ouro e quem calcula a perda de XP e o SERVIDOR. Um `reviver` local
+   * devolveria a vida sem cobrar, e um `voltarBase` local perderia o XP
+   * da tela enquanto o servidor continuaria com o XP inteiro — o jogador
+   * veria o numero cair, fechar o navegador e voltar com ele inteiro
+   *
+   * Os dois metodos do `GameClient` tambem nao levam argumento, entao um
+   * cliente modificado nao teria o que forjar
+   */
+  const reviver = useCallback(
+    () => comCliente((c) => c.reviver()),
+    [comCliente],
+  );
+
+  const voltarBase = useCallback(
+    () => comCliente((c) => c.voltarBase()),
+    [comCliente],
+  );
+
+  /**
+   * Teleporta para o fim da viagem.
+   *
+   * Sem argumento, como o revive e o voltar para a base. O destino e o
+   * pergaminho sao coisas do SERVIDOR: um teleporte local moveria o
+   * boneco sem gastar o item, e o jogador assistiria ao teleporte
+   * acontecer na tela e voltaria com o pergaminho inteiro na mochila
+   */
+  const teleportar = useCallback(
+    () => comCliente((c) => c.teleportar()),
     [comCliente],
   );
 
@@ -498,27 +564,56 @@ const destravarTalent = useCallback(
 );
 
 const mexerNoCofre = useCallback(
-    (guildaId, acao) =>
-      comCliente((c) => c.mexerNoCofre(guildaId, acao)),
+    (guildaId, acao, dados) =>
+      comCliente((c) => c.mexerNoCofre(guildaId, acao, dados)),
     [comCliente],
   );
 
-  return {
-    status,
-    erro,
-    recusa,
+  /**
+ * O QUE ESTE HOOK ENTREGA.
+ *
+ * A lista fica num objeto de modulo, e nao espalhada em dozens de
+ * linhas de `return`. Dois motivos:
+ *
+ * 1. O `useMemo` abaixo precisa dela como dependencia, e uma lista
+ *    escrita no `return` nao da para ler de la
+ * 2. `useGameClient.test.jsx` le ESTE objeto por regex para conferir que
+ *    todo metodo que o HUD pede existe aqui. A lista e a fonte da
+ *    verdade, entao o teste passa a ler a fonte em vez de arranhar o
+ *    arquivo
+ */
+  const intencao = {
+  status,
+  erro,
+  recusa,
 
     /**
      * O CONVITE DE PARTY pendente, ou `null`.
      *
      * Sai do hook para a tela porque a caixa de cinco segundos e um
-     * ESTADO DE INTERFACE, e nao dado do mundo: ela conta o tempo, aceita
-     * e fecha sozinha
+     * ESTADO DE INTERFACE, e nao dado do mundo: ela conta o tempo,
+     * aceita e fecha sozinha
      */
     conviteParty,
 
     jogando: status === STATUS.JOGANDO,
-    mensagem: MENSAGEM[status] ?? "",
+    /**
+     * A MENSAGEM DA RECUSA E O MOTIVO DO SERVIDOR.
+     *
+     * Antes era sempre `MENSAGEM[status]`, que na recusa dava "Esse nome
+     * nao serviu" para qualquer motivo: nome logado em outro navegador,
+     * classe diferente da salva, mundo cheio. O jogador via um texto
+     * generico e nao sabia o que fazer
+     *
+     * O `motivoRecusa` ja chegava aqui e nao era usado em lugar nenhum.
+     * Agora ele e a mensagem, e o texto generico fica so para o caso de
+     * recusa sem motivo — que nao deveria acontecer, mas se acontecer
+     * ainda tem algo na tela
+     */
+    mensagem:
+      status === STATUS.RECUSADO
+        ? (recusa ?? MENSAGEM[status])
+        : (MENSAGEM[status] ?? ""),
     cliente: clienteRef,
     estado: estadoRef,
     tecla,
@@ -530,20 +625,20 @@ const mexerNoCofre = useCallback(
     ultimate,
     soltar,
 
-  equipar,
-  desequipar,
-  consertarEquipamento,
-  descartar,
-  equiparMelhor,
+    equipar,
+    desequipar,
+    consertarEquipamento,
+    descartar,
+    equiparMelhor,
     filtroDeLoot,
     podarMochila,
     criar,
     marcarAuto,
-  criarGuilda,
-  buscarGuilda,
-  pedirGuilda,
-  aceitarGuilda,
-  negarGuilda,
+    criarGuilda,
+    buscarGuilda,
+    pedirGuilda,
+    aceitarGuilda,
+    negarGuilda,
 
     criarParty,
     convidarParty,
@@ -554,25 +649,65 @@ const mexerNoCofre = useCallback(
     seguirPartyMember,
     focarAlvoDoLider,
     passarLideranca,
-  sairDaGuilda,
-  destravarTalent,
-  mexerNoCofre,
+    sairDaGuilda,
+    destravarTalent,
+    mexerNoCofre,
 
     alternarAutoPlay,
     atravessarPortal,
+    irParaArena,
     alternarAutoMissao,
     focarMissao,
     aceitarMissaoSecundaria,
     abandonarMissaoSecundaria,
     resgatarRecompensaMissao,
     cacarCriatura,
-  entregarColecao,
-  encantar,
-  listarNoMarket,
-  comprarNoMarket,
-  cancelarNoMarket,
+    entregarColecao,
+    encantar,
+    listarNoMarket,
+    comprarNoMarket,
+    cancelarNoMarket,
     usarItem,
     comprarPocao,
+    comprarLivro,
     pararCacada,
+    reviver,
+    voltarBase,
+    teleportar,
   };
+
+  /**
+   * O RETORNO MEMOIZADO.
+   *
+   * Este hook devolvia um objeto literal, e o `TestMapScene` passa o
+   * resultado inteiro como a prop `intencao` do `HUD`. Um literal novo a
+   * cada render significa `intencao` com outra identidade 20 vezes por
+   * segundo (a frequencia dos pacotes)
+   *
+   * E o `HUD` usa `intencao` como dependencia de `useEffect` e de
+   * `useCallback`: o `openInventory` era recriado, e o `keydown` do
+   * teclado inteiro era removido e registrado de novo a cada render. Isso
+   * e a instabilidade #1 do projeto em React — nao custava um render
+   * errado, custava trabalho repetido 20x por segundo
+   *
+   * A dependencia e o `intencao` INTEIRO, e nao a lista de cada metodo:
+   * o objeto so muda quando um destes tres muda, entao o memo acerta, e
+   * uma lista de 50 dependencias seria o mesmo numero de linhas sem
+   * nenhum ganho — qualquer metodo novo mudaria o array de dependencias
+   * e esqueceria de entrar, e ai o memo mentiria
+   */
+  const estavel = useRef(intencao);
+
+  // so recalcula quando os tres estados de conexao mudam. Todo o resto
+  // do objeto e `useCallback` com dependencia `[]`, que nunca muda
+  if (
+    estavel.current.status !== status ||
+    estavel.current.erro !== erro ||
+    estavel.current.recusa !== recusa ||
+    estavel.current.conviteParty !== conviteParty
+  ) {
+    estavel.current = intencao;
+  }
+
+  return estavel.current;
 }

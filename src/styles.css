@@ -558,6 +558,38 @@ h1,h2,h3,p {
   font-weight: 700;
   opacity: 0.7;
 }
+
+/**
+ * O BOTAO JOGAR ENQUANTO CONFERE O NICKNAME.
+ *
+ * A consulta ao servidor leva um instante, e sem este estado o botao
+ * continua com a cara de "pronto" — o jogador clica de novo e abre
+ * dois sockets. O `opacity` baixo com o cursor de espera diz o que esta
+ * acontecendo sem precisar de texto novo
+ */
+.play-button.is-busy {
+  opacity: 0.65;
+  cursor: progress;
+}
+
+/**
+ * O AVISO DE NICKNAME LOGADO OU DE CLASSE DIFERENTE.
+ *
+ * Fica logo abaixo do campo de nome, e nao num toast: o aviso e sobre a
+ * escolha de nome, e o campo de nome e onde o jogador esta olhando
+ */
+.selection-lock-warning {
+  max-width: 520px;
+  margin: 12px 0 0;
+  padding: 11px 15px;
+  border-left: 3px solid #d6654a;
+  border-radius: 0 9px 9px 0;
+  background: rgba(214, 101, 74, 0.13);
+  color: #f0b4a3;
+  font-size: 13px;
+  font-weight: 600;
+  line-height: 1.5;
+}
 .detail-pills {
   display: flex;
   flex-wrap: wrap;
@@ -863,6 +895,152 @@ h1,h2,h3,p {
  */
 .pause__btn--primary {
   font-weight: 700;
+}
+
+/* ---------- o painel da morte ---------- */
+
+/*
+ * AQUI SO O LAYOUT, como o pause acima.
+ *
+ * Cor, borda e raio vivem em `theme-inventory.css`. A anatomia e a do
+ * pause de proposito — cortina mais um painel —, e a diferenca real e
+ * que este NAO FECHA: nao ha "continuar", e o veu e `inset: 0` com
+ * `pointer-events: auto` para nao haver clique por tras
+ */
+.dth {
+  position: absolute;
+  inset: 0;
+
+  /* acima do pause (40): um jogador morto que ainda apertou ESC nao
+     pode ter a cortina dele por cima da morte */
+  z-index: 45;
+
+  display: grid;
+  place-items: center;
+
+  /* o pai `.hud` e `pointer-events: none` para o clique chegar ao
+     jogo; aqui precisa ser clicavel por inteiro */
+  pointer-events: auto;
+}
+
+.dth__veil {
+  position: absolute;
+  inset: 0;
+}
+
+.dth__panel {
+  position: relative;
+  display: flex;
+  width: min(400px, calc(100vw - 24px));
+  flex-direction: column;
+  align-items: center;
+  gap: 6px;
+  padding: 20px 18px 18px;
+  text-align: center;
+}
+
+.dth__mark {
+  font-size: 26px;
+  line-height: 1;
+}
+
+.dth__title {
+  margin: 0;
+  font-size: 15px;
+  font-weight: 800;
+  letter-spacing: 0.22em;
+  text-transform: uppercase;
+}
+
+.dth__hint {
+  margin: 0 0 8px;
+  font-size: 11px;
+  line-height: 1.45;
+}
+
+/*
+ * O VOLTAR AUTOMATICO.
+ *
+ * Fica entre o texto e os botoes porque e a regra que vale quando
+ * ninguem clica, entao e a informacao que o jogador precisa antes de
+ * ler os precos
+ */
+.dth__countdown {
+  margin: 0 0 12px;
+  font-size: 11px;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+  letter-spacing: 0.04em;
+}
+
+/*
+ * AS DUAS SAIDAS LADO A LADO.
+ *
+ * Lado a lado e nao empilhadas porque a ESCOLHA e uma comparacao: o
+ * jogador precisa ver os dois precos no mesmo olhar. Empilhado, ele
+ * le o de cima, decide, e so depois descobre o de baixo
+ */
+.dth__options {
+  display: grid;
+  width: 100%;
+  grid-template-columns: 1fr 1fr;
+  gap: 8px;
+}
+
+.dth__btn {
+  display: flex;
+  min-width: 0;
+  flex-direction: column;
+  align-items: center;
+  gap: 3px;
+  padding: 11px 9px 10px;
+  font: inherit;
+  cursor: pointer;
+}
+
+.dth__btn:disabled {
+  cursor: default;
+}
+
+.dth__btn-label {
+  font-size: 12px;
+}
+
+/*
+ * O PRECO e maior que o rotulo.
+ *
+ * E o numero que o jogador precisa, e o rotulo so diz o que ele faz.
+ * Um botao cujo texto e "Reviver · 60" faz o olho voltar para o
+ * rotulo para descobrir o que significa o 60
+ */
+.dth__btn-cost {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  font-family: Montserrat, Inter, sans-serif;
+  font-size: 19px;
+  font-weight: 800;
+  font-variant-numeric: tabular-nums;
+  line-height: 1;
+}
+
+.dth__btn-cost i {
+  font-family: Inter, sans-serif;
+  font-size: 12px;
+}
+
+.dth__btn-note {
+  font-size: 9px;
+  line-height: 1.35;
+  text-align: center;
+}
+
+/* em tela estreita as duas saidas empilham: com 320px de largura,
+ * duas colunas de preco + rotulo + nota nao cabem sem quebrar */
+@media (max-width: 380px) {
+  .dth__options {
+    grid-template-columns: 1fr;
+  }
 }
 /* ---------- circular button base ---------- */
 
@@ -1297,6 +1475,24 @@ h1,h2,h3,p {
   transform: translateY(1px);
 }
 
+/**
+ * O MOTIVO DA TRAVA.
+ *
+ * O texto que o servidor mandou em `portal.motivo`, que e a mesma frase
+ * que o jogador ouve se insistir
+ *
+ * Aqui so o LAYOUT, como manda o `theme-inventory.css`: a cor deste
+ * texto, a da caixa fechada e a do botao desligado moram la, com o
+ * resto da moldura do portal. Cor escrita em dois lugares e a cor que a
+ * tema esquecesse um dia
+ */
+.prt-box__lock {
+  margin: 4px 0 6px;
+  font-family: Inter, sans-serif;
+  font-size: 10px;
+  line-height: 1.4;
+}
+
 /* ============================================================================
    GUILDA
    ============================================================================
@@ -1445,6 +1641,21 @@ h1,h2,h3,p {
   list-style: none;
 }
 
+/**
+ * A LISTA VAZIA.
+ *
+ * Aparece quando a busca nao traz nada — o mundo sem nenhuma guilda, ou
+ * um termo que nao casa. E precisa de uma linha propria porque a lista
+ * sem nenhum `li` e um `grid` de altura zero: o jogador veria um painel
+ * com o campo de busca e nada abaixo, sem nenhum sinal do que aconteceu
+ */
+.gld-lista__vazia {
+  padding: 8px 2px;
+  color: var(--t-text-faintest, #8b7a63);
+  font-size: 10px;
+  text-align: center;
+}
+
 .gld-row {
   display: flex;
   align-items: center;
@@ -1498,6 +1709,273 @@ h1,h2,h3,p {
   flex-wrap: wrap;
 }
 
+/* ============================================================================
+   A ARVORE DE TALENTOS
+
+   A arvore e uma GRADE de colunas com as LIGAS por cima, em SVG. As duas
+   coisas se apoiam na mesma medicao: o no e posicionado pela grade, e a
+   linha entre pai e filho sai das caixas que a grade produziu — ver o
+   `ArvoreTalentos`, que e quem mede e desenha
+
+   As colunas sao iguais de largura (`1fr`) e a mais cheia define a altura
+   da grade, com as menores centralizadas dentro dela. E o desenho da
+   referencia: quatro raizes enchem a coluna e as outras duas ficam no
+   meio da altura, e nao grudadas no topo
+
+   O `--gld-linhas` e o numero de nos da coluna mais cheia. E ele que
+   distribui as colunas menores sem a arvore saber nada de layout
+   ========================================================================== */
+
+.gld-arvore {
+  margin: 0 0 4px;
+}
+
+.gld-arvore__grade {
+  position: relative;
+  display: grid;
+  grid-auto-flow: column;
+  grid-auto-columns: 1fr;
+  gap: 30px;
+  align-items: center;
+  min-height: calc(var(--gld-linhas, 4) * 66px);
+}
+
+.gld-arvore__coluna {
+  display: grid;
+  gap: 8px;
+  align-content: center;
+}
+
+/**
+ * As LIGAS, por tras dos nos.
+ *
+ * `position: absolute` com o tamanho da grade: o SVG ocupa a area toda e
+ * nao empurra ninguem. E ele que precisa ficar ATRAS dos nos, senao a
+ * linha cruza o icone e o nome no meio
+ */
+.gld-arvore__ligas {
+  position: absolute;
+  inset: 0;
+  z-index: 0;
+  overflow: visible;
+  pointer-events: none;
+}
+
+.gld-arvore__liga {
+  fill: none;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+/**
+ * UM NO.
+ *
+ * O no e um cartao de TRES faixas empilhadas, e a ordem delas e o que
+ * faz a tela se ler de cima para baixo:
+ *
+ *   1. icone + nome ............ o que este no e
+ *   2. os dois STATS ........... o que ele da, e o que vem a seguir
+ *   3. Nv., barra, pct, botao .. o estado e a acao
+ *
+ * A faixa dos stats vem ANTES da barra de proposito: e a razao de
+ * invest no no, e a barra e so o quanto falta para chegar. Se a barra
+ * viesse primeiro, o jogador leria o progresso e so depois descobria o
+ * que progresso esta comprando
+ *
+ * ## POR QUE O ICONE SO OCUPA DUAS LINHAS
+ *
+ * Uma celula de grid nao pode pertencer a duas areas. Com o `icone`
+ * atravessando as quatro linhas e a segunda linha sendo toda `stats`, as
+ * duas areas se disputavam a celula da segunda linha — e um
+ * `grid-template-areas` invalido e DESCARTADO pelo navegador inteiro, nao
+ * so a linha ruim. Os sete filhos perdiam as areas e caíam todos na mesma
+ * celula, que e o "tudo em cima do outro" que apareceu na tela
+ *
+ * Entao o icone mora so ao lado do nome e da faixa de stats, e a linha da
+ * barra comeca na coluna 2. A area `livre` e o nome que o CSS exige para
+ * o espaco em branco do canto inferior esquerdo: toda celula precisa
+ * pertencer a alguma area
+ */
+.gld-no {
+  display: grid;
+  grid-template-columns: auto 1fr auto;
+  grid-template-areas:
+    "icone nome nivel"
+    "icone stats stats"
+    "livre barra botao"
+    "livre pct botao";
+  align-items: center;
+  column-gap: 7px;
+  row-gap: 3px;
+  padding: 6px 7px;
+  border-radius: 4px;
+  border: 1px solid #2c241b;
+  background: #14100c;
+}
+
+.gld-no__icone {
+  grid-area: icone;
+  display: grid;
+  place-items: center;
+  width: 26px;
+  height: 26px;
+  border-radius: 3px;
+  font-size: 14px;
+  line-height: 1;
+}
+
+.gld-no__nome {
+  grid-area: nome;
+  overflow: hidden;
+  font-family: Inter, sans-serif;
+  font-size: 11px;
+  font-weight: 700;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/**
+ * A FAIXA DOS STATS: o premio de cima, o incremento de baixo.
+ *
+ * O `<b>` e o total e o `<i>` e o proximo, e sao tags diferentes porque
+ * eles NAO tem o mesmo peso: o total e o que o jogador ja tem, e o
+ * incremento e uma promessa. A distincao precisa sobreviver no CSS
+ *
+ * O `title` de cada numero carrega o nome por extenso (`Vida maxima`),
+ * porque a sigla sozinha em um numero nao diz se e vida, defesa ou
+ * velocidade — e o jogador que abre o painel de status ve esses nomes
+ * la, entao a sigla tem que ser a mesma de la
+ */
+.gld-no__stats {
+  grid-area: stats;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 4px 8px;
+  margin: 1px 0 2px;
+  padding: 0 1px;
+  font-family: Inter, sans-serif;
+  font-size: 10px;
+  line-height: 1.3;
+}
+
+.gld-no__premio {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  min-width: 0;
+}
+
+.gld-no__premio em {
+  font-style: normal;
+  opacity: 0.6;
+}
+
+/**
+ * O PROXIMO NIVEL.
+ *
+ * Fica a direita da faixa e mais apagado de proposito: e o que vem, e nao
+ * o que se tem. A esquerda da tela fica com o numero que o painel de
+ * status confirma, e a direita com a promessa
+ */
+.gld-no__proximo {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  justify-content: flex-end;
+  font-style: normal;
+  white-space: nowrap;
+}
+
+/**
+ * O `Nv.` e uma ETIQUETA, e fica no canto.
+ *
+ * O `/5` e o que diz quantos degraus existem, e sem ele o numero solto
+ * nao daria para saber se o no chegou ao fim. E o total no `small`, mais
+ * apagado, para o olho ler "Nv. 3" primeiro e "/5" depois
+ */
+.gld-no__nivel {
+  grid-area: nivel;
+  font-family: Inter, sans-serif;
+  font-size: 10px;
+  font-weight: 700;
+  white-space: nowrap;
+}
+
+/**
+ * A BARRA e a PCT vao na MESMA LINHA.
+ *
+ * A porcentagem e a unica leitura de "quanto falta", e uma barra com o
+ * numero embaixo (o desenho comum) empurraria o cartao para o dobro da
+ * altura em sete nos. Na mesma linha, a barra e o numero se leem juntos e
+ * a arvore cabe na altura de quatro cartoes
+ *
+ * A barra e `1fr` e a pct tem largura fixa: a barra cresce e encolhe com
+ * o nome do no, e a porcentagem fica sempre na mesma coluna — se os dois
+ * dividissem espaco, o "100%" tremeria de coluna conforme o texto
+ */
+.gld-no__barra {
+  grid-area: barra;
+  position: relative;
+  height: 6px;
+  overflow: hidden;
+  border-radius: 2px;
+}
+
+.gld-no__nivel small {
+  font-size: 9px;
+  font-weight: 400;
+  opacity: 0.7;
+}
+
+/**
+ * A BARRA e a PCT vao na MESMA LINHA.
+ *
+ * A porcentagem e a unica leitura de "quanto falta", e uma barra com o
+ * numero embaixo (o desenho comum) empurraria o cartao para o dobro da
+ * altura em sete nos. Na mesma linha, a barra e o numero se leem juntos e
+ * a arvore cabe na altura de quatro cartoes
+ *
+ * A barra e `1fr` e a pct tem largura fixa: a barra cresce e encolhe com
+ * o nome do no, e a porcentagem fica sempre na mesma coluna — se os dois
+ * dividissem espaco, o "100%" tremeria de coluna conforme o texto
+ */
+.gld-no__barra i {
+  display: block;
+  height: 100%;
+  border-radius: 2px;
+  transition: width 0.25s ease-out;
+}
+
+.gld-no__pct {
+  grid-area: pct;
+  min-width: 34px;
+  font-family: Inter, sans-serif;
+  font-size: 9px;
+  font-weight: 700;
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+}
+
+.gld-no__btn {
+  grid-area: botao;
+  padding: 4px 8px;
+  font-size: 10px;
+}
+
+.gld-arvore__nota {
+  margin: 10px 0 0;
+  font-family: Inter, sans-serif;
+  font-size: 10px;
+  line-height: 1.45;
+  opacity: 0.75;
+}
+
+.gld-talentos {
+  min-width: 0;
+}
+
 .gld-tier {
   display: grid;
   gap: 4px;
@@ -1539,6 +2017,142 @@ h1,h2,h3,p {
   gap: 6px;
 }
 
+/**
+ * A NOTA do rodape do cofre.
+ *
+ * Fica DEPOIS dos paineis e nao antes: e a explicacao da regra, e nao o
+ * alvo da acao. Quem ja sabe ler nao precisa passar por ela para achar
+ * o botao de depositar
+ */
+.gld-cofre__nota {
+  margin: 0;
+  font-family: Inter, sans-serif;
+  font-size: 10px;
+  line-height: 1.45;
+}
+
+/* ============================================================================
+   OS DOIS PAINEIS DO COFRE
+
+   Depositar e retirar sao dois formularios, e nao um com um botao que
+   muda de texto. A razao esta no comentario do componente: juntar os
+   dois obriga o jogador a lembrar em que sentido o formulario esta, e o
+   erro errado ali deposita uma mochila cheia em vez de esvaziar um cofre
+
+   As duas colunas sao iguais de largura (`1fr`) e a mais cheia define a
+   altura. Uma mochila com trinta pilhas ao lado de um cofre com duas
+   ficaria com duas colunas de alturas muito diferentes, e a linha do
+   item escolhido ficaria em alturas diferentes nos dois lados
+   ========================================================================== */
+
+.gld-cofre__paineis {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 10px;
+  align-items: start;
+}
+
+.gld-cofre__painel {
+  display: grid;
+  gap: 8px;
+  align-content: start;
+  padding: 8px;
+  border: 1px solid #2c241b;
+  border-radius: 4px;
+  background: #14100c;
+}
+
+/**
+ * O CABECALHO de cada painel.
+ *
+ * O `h4` e menor que o `.gld-sub` das outras abas de proposito: aqui ele
+ * nomeia um SUB-bloco dentro da aba do cofre, e nao uma aba. Do mesmo
+ * tamanho, ele competiria com o titulo do painel inteiro
+ */
+.gld-cofre__cabeca {
+  display: grid;
+  gap: 1px;
+}
+
+.gld-cofre__cabeca h4 {
+  margin: 0;
+  font-family: Inter, sans-serif;
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+}
+
+.gld-cofre__cabeca small {
+  font-family: Inter, sans-serif;
+  font-size: 9px;
+  opacity: 0.7;
+}
+
+/**
+ * A LINHA das moedas: [tudo] [campo] [moedas].
+ *
+ * O primeiro botao e a carteira INTEIRA e nao tem rotulo escrito: o
+ * numero que ele mostra e o total disponivel, e o `title` diz o que ele
+ * faz. Um "Tudo" escrito sobre o numero seria redundancia
+ *
+ * O campo tem largura FIXA e nao `1fr`: os dois botoes precisam ficar
+ * juntos e nao empurrados para a ponta pela largura do painel. Com
+ * `1fr` o campo esticaria e o numero do total deixaria de estar ao lado
+ * do que ele mede
+ */
+.gld-cofre__linha {
+  display: flex;
+  gap: 5px;
+  align-items: center;
+}
+
+.gld-cofre__linha--item {
+  padding-top: 5px;
+  border-top: 1px solid #2c241b;
+}
+
+.gld-cofre__campo {
+  flex: none;
+  width: 74px;
+  padding: 4px 6px;
+  border: 1px solid #2c241b;
+  border-radius: 3px;
+  font-family: Inter, sans-serif;
+  font-size: 11px;
+  text-align: right;
+  background: #0a0806;
+}
+
+/**
+ * O NOME do item escolhido.
+ *
+ * E `1fr` porque e a linha que mais cresce: um nome de item do catalogo
+ * tem o dobro do tamanho de um numero, e sem o `min-width: 0` ele
+ * empurraria os botoes para fora do painel
+ */
+.gld-cofre__escolhido {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  font-family: Inter, sans-serif;
+  font-size: 10px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/**
+ * A GRADE dos itens.
+ *
+ * E a `inv-grid` do inventario de verdade, com o mesmo `--slot` e o
+ * mesmo `InvSlotView` — cor de raridade, icone, contador e marca de peca
+ * unica saem iguais aos da mochila, e o jogador nao tem que aprender um
+ * segundo grid
+ */
+.gld-cofre__grade {
+  max-height: 190px;
+  overflow-y: auto;
+}
+
 .qst-tracker {
   position: relative;
   padding: 9px 10px;
@@ -1563,6 +2177,7 @@ h1,h2,h3,p {
   display: flex;
   width: 100%;
   align-items: center;
+  justify-content: center;
   gap: 8px;
   padding: 0 0 8px;
   border: 0;
@@ -1574,51 +2189,394 @@ h1,h2,h3,p {
     background: transparent;
     cursor: pointer;
 }
-.qst-tracker__lvl {
-  padding: 2px 7px;
-  border: 1px solid rgba(229,
-    187,
-    104,
-    0.45);
-    border-radius: 6px;
-    color: var(--gold);
-    background: rgba(50,
-    39,
-    15,
-    0.55);
-    font-size: 10px;
-    font-weight: 800;
-    white-space: nowrap;
+
+/**
+ * O CABECALHO SO COM O MARCA.
+ *
+ * O nivel e a barra de XP sairam daqui para o rodape da tela, na base.
+ * O botao continua existindo porque e ele que abre o painel de missoes, e
+ * um cabecalho vazio seria um espaco morto no topo da box
+ *
+ * O `✧` e o que o jogador passa a ler ali: o simbolo da missao em vez de
+ * um numero que ele so confere de vez em quando
+ */
+.qst-tracker__head-mark {
+  color: var(--gold);
+  font-size: 11px;
+  opacity: 0.85;
 }
-.qst-tracker__xp {
-  height: 6px;
-  flex: 1;
+
+/**
+ * A BARRA DE XP, NA FAIXA INFERIOR DA TELA INTEIRA.
+ *
+ * ## POR QUE `100vw` E NAO `right: 0`
+ *
+ * Porque a barra ocupa a largura toda da tela, e `right: 0` com `width`
+ * nenhuma deixa a largura no palpite do conteudo. `width: 100vw` diz
+ * exatamente o que e: uma faixa de largura de tela, rente a borda
+ *
+ * ## POR QUE COLUNA E NAO LINHA
+ *
+ * A ordem de leitura e de cima para baixo: o nivel, o quanto falta, e o
+ * trilho que mostra o mesmo quanto falta de forma continua. Empilhado,
+ * o numero e o desenho que o acompanha ficam na mesma coluna e o olho desce
+ * uma vez so; de lado, o olho teria de ir do numero para o trilho
+ *
+ * ## POR QUE OS NUMEROS A ESQUERDA E O TRILHO NA LARGURA TODA
+ *
+ * Os numeros ficam no canto, onde nao disputam espaco com nada, e o
+ * trilho aproveita a faixa inteira. Com o trilho de largura fixa ele
+ * ficaria curto num monitor largo e desperdiçaria o resto
+ *
+ * ## POR QUE A ALTURA E TAO APERTADA
+ *
+ * A barra de acoes tem `padding-bottom: 28px`, e dentro dessa faixa a
+ * tela esta VAZIA na largura toda: a ultimate termina 28px acima da
+ * borda. A barra de XP ocupa exatamente essa faixa, o que faz dela uma
+ * CONTINUACAO da barra de acoes e nao um elemento por cima
+ *
+ * A conta e fechada — `1 + 9 + 11 + 3 + 1` com 2px de vao = 27px. Uma
+ * das tres linhas crescendo faz a faixa invadir a ultimate, e o sintoma
+ * seria a barra sumindo embaixo dela
+ *
+ * ## POR QUE `font-variant-numeric: tabular-nums`
+ *
+ * Porque a porcentagem muda muitas vezes por segundo. Em fonte comum o
+ * "1" e mais estreito que o "8", entao a largura do numero treme a cada
+ * abate e o trilho parece tremer junto. Com digitos de largura fixa o
+ * numero fica parado e so o preenchimento anda
+ *
+ * ## POR QUE `pointer-events: none`
+ *
+ * Porque a faixa passa por cima da barra de acoes. Se capturasse o
+ * clique, o `auto` e a ultimate ficariam mortos nela
+ */
+/**
+ * O RODAPE: NIVEL, HP, RECURSO E O TRILHO DE XP.
+ *
+ * ## POR QUE ELE DENTRO DA BARRA DE ACOES
+ *
+ * Porque os dois dividem a MESMA linha: o rodape a esquerda, com o nivel
+ * e as barras de HP e recurso, e as skills emcolando no que sobra ate a
+ * direita. Com o rodape como `absolute` de `100vw` por baixo, os dois
+ * ficavam disputando a mesma faixa da tela
+ *
+ * ## POR QUE AS BARRAS TEM 180px FIXOS
+ *
+ * E o que segura o layout: com `1fr` elas herdariam o que sobrasse e
+ * mudariam de largura a cada redimensionamento da janela, e o nivel
+ * perderia a coluna.
+ *
+ * 180px comporta "1234/5678" com folga — que e o maior numero que a
+ * barra vai encontrar — e ainda deixa as skills com espaco. Vieram de
+ * 300px, e as duas juntas comiam quase metade da largura util da barra
+ *
+ * ## A ALTURA
+ *
+ * Nao ha numero de altura em lugar nenhum: o nivel tem 49px, as duas
+ * barras somam 27px, e o rodape cresce ate o maior dos dois. Quem
+ * controla a altura e o `align-items` da barra de acoes
+ */
+.rodape {
+  display: grid;
+  width: auto;
+  flex: none;
+
+  /**
+   * DUAS COLUNAS: O NIVEL E AS BARRAS.
+   *
+   * O trilho de XP nao esta aqui — ele virou a segunda linha da barra de
+   * acoes, e e o unico elemento que atravessa a linha toda
+   */
+  grid-template-columns: auto 180px;
+  align-items: center;
+  column-gap: 12px;
+
+  /**
+   * O TAMANHO DA PORCENTAGEM, E A PROPORCAO DO NIVEL.
+   *
+   * Uma variavel e nao dois numeros soltos: o nivel e `3.75x` a
+   * porcentagem, e essa e a proporcao que faz o primeiro ler como titulo
+   * e a segunda como detalhe. Com os dois escritos a mao, o primeiro
+   * ajuste de um deles quebra a leitura sem ninguem ver o porque
+   *
+   * O nivel era 2.5x e subiu 1.5x — 2.5 vezes 1.5 da 3.75
+   */
+  --xp-pct: 13px;
+  --xp-lvl-ratio: 3.75;
+
+  /**
+   * SEM FUNDO E SEM CLIQUE.
+   *
+   * Sem fundo porque ele aparecia como um degrau cortando a tela. E sem
+   * clique porque o rodape esta na MESMA linha das skills: um
+   * `pointer-events` aqui capturaria o clique nos slots de habilidade
+   */
+  background: transparent;
+  pointer-events: none;
+}
+
+/**
+ * O NIVEL E A PORCENTAGEM, COMO UM BLOCO SO.
+ *
+ * E um container e nao dois elementos soltos porque precisam ter a MESMA
+ * largura: sem ele, a porcentagem entraria no espaco do numero do nivel
+ * e as barras de HP pulariam de coluna a cada mudanca de nivel
+ */
+.rodape__id {
+  display: flex;
+  min-width: 46px;
+  flex-direction: column;
+  align-items: flex-start;
+  justify-content: center;
+  line-height: 1;
+}
+
+.rodape__lvl {
+  color: var(--gold);
+  font-size: calc(var(--xp-pct) * var(--xp-lvl-ratio));
+  font-weight: 800;
+  text-shadow: 0 1px 3px rgba(0,
+    0,
+    0,
+    0.9);
+}
+
+.rodape__pct {
+  margin-top: 1px;
+  color: #c3ccd6;
+  font-size: var(--xp-pct);
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+  text-shadow: 0 1px 3px rgba(0,
+    0,
+    0,
+    0.9);
+}
+
+/**
+ * AS DUAS BARRAS, EMPILHADAS NA SEGUNDA COLUNA.
+ *
+ * A largura vem do `grid-template-columns` do rodape, e nao de um `width`
+ * aqui: e o grid que decide as colunas, e um `width` na barra seria um
+ * segundo numero precisando concordar com ele
+ */
+/**
+ * OS TRES NUMEROS, ACIMA DAS BARRAS.
+ *
+ * ## POR QUE DENTRO DO BLOCO DAS BARRAS E NAO ACIMA DO RODAPE
+ *
+ * Porque eles pertencem a MESMA coluna: sao a leitura dos numeros do
+ * personagem, e o `180px` das barras ja reserva essa coluna. Um bloco
+ * separado acima do rodape teria que repetir a conta de
+ * alinhamento, e as duas colunas divergiriam no primeiro ajuste
+ *
+ * ## POR QUE O ROTULO E `<small>` ACIMA DO NUMERO
+ *
+ * Porque e assim que o resto da tela le um par rotulo/valor, e o jogador
+ * ja reconhece o formato. De lado — "ATQ 45" — o texto viraria uma frase
+ * e o olho teria de separar o nome do numero
+ *
+ * ## POR QUE `tabular-nums`
+ *
+ * Porque os tres numeros mudam de valor quando o jogador sobe de nivel
+ * ou troca de peca. Em fonte comum o "45" e o "7" tem larguras
+ * diferentes, entao a linha inteira andaria de lado no momento exato em
+ * que o jogador esta olhando
+ */
+.rodape__atributos {
+  display: flex;
+  justify-content: center;
+  gap: 12px;
+  line-height: 1;
+}
+
+.rodape__atributo {
+  display: flex;
+  align-items: baseline;
+  gap: 4px;
+  color: #c3ccd6;
+  font-size: 11px;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+  text-shadow: 0 1px 3px rgba(0,
+    0,
+    0,
+    0.9);
+}
+
+.rodape__atributo small {
+  color: #8b98a8;
+  font-size: 9px;
+  font-weight: 800;
+  letter-spacing: 0.04em;
+}
+
+.rodape__vitals {
+  display: flex;
+  min-width: 0;
+  flex-direction: column;
+  gap: 3px;
+  justify-content: center;
+}
+
+.rodape__barra {
+  position: relative;
+  display: block;
+
+  /**
+   * A ALTURA E 20% MENOR QUE ANTES.
+   *
+   * Eram 15px e ficaram 12. A conta esta no comentario porque e o tipo
+   * de numero que volta a mudar: a proxima vez que a barra precisa de
+   * espaco para o numero, o `line-height: 1` abaixo e o que garante que
+   * o texto ainda cabe
+   */
+  height: 12px;
   overflow: hidden;
-  border-radius: 999px;
+  border-radius: 2px;
   background: rgba(4,
     7,
     10,
-    0.9);
-    box-shadow: inset 0 1px 2px rgba(0,
-    0,
-    0,
-    0.7);
+    0.62);
 }
-.qst-tracker__xp i {
-  display: block;
+
+.rodape__barra-fill {
+  position: absolute;
+  top: 0;
+  left: 0;
   height: 100%;
-  border-radius: 999px;
-  background: linear-gradient(90deg,
-    #6f8fe0,
-    #b28cff);
-    transition: width 160ms linear;
+  border-radius: 2px;
+
+  /**
+   * O PREENCHIMENTO SEM GRADIENTE.
+   *
+   * HP e recurso sao duas cores solidas, e nao uma rampa. O jogador
+   * precisa da cor para saber QUAL das duas esta sob o olho, e um
+   * gradiente nas duas as deixaria parecendo a mesma barra
+   */
+  transition: width 140ms linear;
 }
-.qst-tracker__head small {
-  color: #8b98a8;
-  font-size: 8px;
+
+/**
+ * O NUMERO DENTRO DA BARRA, NO CENTRO.
+ *
+ * ## POR QUE CENTRALIZADO E NAO ENCOSTADO NA DIREITA
+ *
+ * Estava encostado na direita para o texto nao balancar de posicao a
+ * cada golpe — "120" e "9" mudavam de coluna e a linha tremia. Com o
+ * numero centralizado e `tabular-nums`, a largura dos digitos e sempre a
+ * mesma, entao o centro e um ponto FIXO e o balanco some sem custar o
+ * alinhamento
+ *
+ * E centralizado porque o numero e o assunto da barra: com ele no meio,
+ * o jogador le "quanto tenho" sem o olho ir ate a ponta
+ */
+.rodape__barra-num {
+  position: absolute;
+  top: 0;
+  right: 0;
+  left: 0;
+  display: flex;
+  height: 100%;
+  align-items: center;
+  justify-content: center;
+  color: #eef2f6;
+  font-size: 10px;
   font-weight: 700;
-  white-space: nowrap;
   font-variant-numeric: tabular-nums;
+  line-height: 1;
+  text-shadow: 0 1px 2px rgba(0,
+    0,
+    0,
+    0.95);
+}
+
+.rodape__barra-num small {
+  color: #b6bec8;
+  font-size: 9px;
+  font-weight: 600;
+}
+
+/**
+ * O TRILHO DOURADO DO XP, NA SEGUNDA LINHA, ATRAVESSANDO TUDO.
+ *
+ * E o unico elemento do rodape que usa a largura toda: o progresso do
+ * nivel dura a sessao toda, e uma barra do tamanho das de HP pareceria
+ * menos importante do que e. E `grid-column: 1 / -1` porque ele e filho
+ * da BARRA DE ACOES agora, e nao do rodape — ele comeca no nivel e
+ * termina no ultimo botao da direita
+ *
+ * ## A METADE QUE FICA PARA BAIXO
+ *
+ * O trilho e uma caixa de 3px com `overflow: hidden`, e o preenchimento
+ * dentro dele tem o DOBRO da altura. A metade de baixo e cortada pela
+ * caixa, entao a barra parece Continuar alem da borda da tela em vez de
+ * terminar nela
+ *
+ * Sao 3px e nao 4 porque a parte visivel era grossa demais: o jogador
+ * via uma fita de ouro de 4px encostada na borda, que lia como moldura
+ * da tela e nao como barra de progresso. Metade disso — 2px — ja diz o
+ * mesmo e some menos
+ *
+ * Sem o corte a barra acabaria rente ao rodape do navegador, e a linha
+ * de baixo encostaria nele sem folga nenhuma — o que acontece com uma
+ * barra de 1px em qualquer canto
+ */
+.rodape__track {
+  display: block;
+  width: 100%;
+  height: 3px;
+  grid-column: 1 / -1;
+  grid-row: 2;
+  overflow: hidden;
+  border-radius: 999px 999px 0 0;
+  background: rgba(4,
+    7,
+    10,
+    0.75);
+}
+
+.rodape__track i {
+  display: block;
+
+  /**
+   * O DOBRO DA ALTURA DA CAIXA, E NAO 100%.
+   *
+   * E o que faz a barra parecer CONTINUAR alem da borda: a caixa do
+   * trilho tem `overflow: hidden` e 4px, e este preenchimento tem 8px.
+   * A metade de baixo e cortada, entao o jogador ve a metade de cima de
+   * uma barra que nao cabe na tela — a leitura e de "continua", e nao de
+   * "acabou aqui"
+   *
+   * Com `height: 100%` a barra acabaria rente ao rodape do navegador, e
+   * a linha de baixo encostaria nele sem folga nenhuma
+   *
+   * O `200%` esta escrito em vez de `8px` porque o trilho e quem muda de
+   * altura: com o numero solto, aumentar o trilho deixaria o
+   * preenchimento curto e o corte aparecia
+   */
+  height: 200%;
+  border-radius: 999px 999px 0 0;
+
+  /**
+   * O DOURADO, DO MAIS CLARO AO MAIS ESCURO.
+   *
+   * O gradiente vai de `#f0d9a8` para `#a8842f`, que sao as duas pontas
+   * do ouro do proprio projeto: a clara e a cor do texto de numero
+   * grande, e a escura e a do botao de craft. Com o gradiente
+   * horizontal a barra ganha volume sem parecer um gradiente — o olho
+   * le "ouro" e nao "cores"
+   *
+   * Era azul para roxo, que e a cor de recurso do resto da tela. Trocar
+   * para o ouro faz a barra de XP ler como XP: o recurso continua sendo
+   * o unico azul da HUD, e as duas barras param de se confundirem
+   */
+  background: linear-gradient(90deg,
+    #f0d9a8 0%,
+    #d8b45c 55%,
+    #a8842f 100%);
+  transition: width 160ms linear;
 }
 .qst-tracker__row {
   display: flex;
@@ -3667,7 +4625,7 @@ backdrop-filter: blur(14px);
  */
 .inv-illus {
   display: flex;
-  width: 232px;
+  width: 255px !important;
   flex: none;
   flex-direction: column;
   gap: 8px;
@@ -3770,6 +4728,181 @@ backdrop-filter: blur(14px);
 .mkt-panel {
   width: min(640px, calc(100vw - 24px));
   max-height: min(620px, calc(100vh - 28px));
+}
+
+/**
+ * A ABA DE COMPRAR: O CORPO VIRA DUAS COLUNAS.
+ *
+ * E uma modifier e nao uma regra do `mkt-panel__body` porque as outras
+ * duas abas — vender e historico — sao listas de uma coluna, com a barra
+ * de rolagem do proprio corpo. Um `display: flex` aqui as quebraria
+ *
+ * O `overflow: hidden` e o que delega a rolagem para a VITRINE. Com o
+ * corpo rolando, a coluna de filtros andaria junto com os anuncios e o
+ * jogador perderia o filtro no meio da lista — que era o problema do
+ * layout antigo, com os filtros numa faixa acima
+ */
+.mkt-panel__body--vitrine {
+  display: flex;
+  min-height: 0;
+  overflow: hidden;
+  padding: 10px;
+}
+
+/**
+ * AS DUAS COLUNAS: o filtro na esquerda e a vitrine na direita.
+ *
+ * `height: 100%` e o que faz a coluna de filtro ter a altura toda em vez
+ * de encolher ao conteudo: e ela que segura a altura, e a vitrine que
+ * rola dentro dela
+ */
+.mkt-comprar {
+  display: flex;
+  gap: 10px;
+  width: 100%;
+  min-height: 0;
+}
+
+/**
+ * A COLUNA DO FILTRO.
+ *
+ * `width: 168px` e `flex: none`: a coluna nao encolhe nem cresce com o
+ * conteudo. Um `flex: 1` faria o filtro acompanhar o tamanho da vitrine,
+ * e a coluna de busca e de tipo mudariam de largura a cada tecla
+ */
+.mkt-lateral {
+  display: flex;
+  width: 168px;
+  flex: none;
+  flex-direction: column;
+  gap: 10px;
+}
+
+/**
+ * A BUSCA, e o que a torna uma coluna e nao uma faixa.
+ *
+ * E o mesmo desenho do `inv-search` do inventario, com as classes
+ * proprias em vez de `inv-v2`: dar `inv-v2` ao mercado traria as 99
+ * regras daquele cabecalho junto — largura de 880px, abas, computador
+ * que o mercado nao tem
+ */
+.mkt-busca {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+}
+
+.mkt-busca > span {
+  color: #7d8794;
+  font-size: 9px;
+  font-weight: 800;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+}
+
+.mkt-busca__input {
+  width: 100%;
+  padding: 6px 8px;
+  border: 1px solid rgba(255, 255, 255, 0.13);
+  border-radius: 4px;
+  color: #e6ecf3;
+  background: rgba(0, 0, 0, 0.34);
+  font-size: 11px;
+}
+
+.mkt-busca__input::placeholder {
+  color: #6b7684;
+}
+
+.mkt-busca__input:focus {
+  border-color: var(--t-gold-line, #8a7250);
+  outline: none;
+}
+
+/**
+ * A CONTA DE QUANTOS ANUNCIOS A BUSCA DEIXOU.
+ *
+ * So aparece quando ha busca, e e o que separa "nao achei nada" de
+ * "achei 3 de 40": sem ela o jogador digita, a lista fica vazia e ele
+ * nao sabe se foi o filtro ou a busca
+ */
+.mkt-lateral__conta {
+  margin: 0;
+  color: #7d8794;
+  font-size: 9px;
+  text-align: center;
+}
+
+/**
+ * A VITRINE: os cards, na grade.
+ *
+ * `align-content: start` e o que impede que a grade estique as linhas
+ * para encher a altura toda, deixando um vao entre a ultima fileira e o
+ * fim da coluna
+ */
+.mkt-vitrine {
+  display: grid;
+  min-width: 0;
+  flex: 1;
+  align-content: start;
+  grid-template-columns: repeat(auto-fill, minmax(104px, 1fr));
+  gap: 6px;
+  overflow-y: auto;
+  padding-right: 4px;
+}
+
+/** A vitrine vazia ocupa a coluna da direita, ao lado do filtro */
+.mkt-vazia {
+  flex: 1;
+  align-self: center;
+}
+
+/**
+ * O QUE VAI DENTRO DO CARD: quem vende e por quanto.
+ *
+ * Sao os dados do ANUNCIO, e nao do item — e o `ItemCard` cuida so do
+ * item. Ficam no espaco de baixo do card, que e o que ele deixa para
+ * quem o usa
+ */
+.mkt-card__seller {
+  max-width: 100%;
+  overflow: hidden;
+  color: var(--t-text-faintest, #8b7a63);
+  font-size: 8px;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.mkt-card__preco {
+  display: flex;
+  gap: 4px;
+  align-items: baseline;
+  justify-content: center;
+}
+
+.mkt-card__preco strong {
+  color: var(--t-gold-bright, #f0d9a8);
+  font-size: 12px;
+  font-weight: 800;
+}
+
+.mkt-card__preco small {
+  color: var(--t-text-faintest, #8b7a63);
+  font-size: 8px;
+}
+
+/**
+ * O BOTAO DE COMPRAR, que ocupa a largura do card.
+ *
+ * E o `mkt-item__buy` de sempre — a mesma cara do botao da lista antiga —
+ * para o botao de compra do mercado continuar sendo o mesmo botao em
+ * qualquer aba
+ */
+.mkt-card__buy {
+  width: 100%;
+  margin-top: 2px;
 }
 
 .mkt-panel__body {
@@ -3936,6 +5069,42 @@ backdrop-filter: blur(14px);
   color: #8d97a5;
   font-size: 11px;
   line-height: 1.45;
+}
+
+/**
+ * O ESCOPO DO HISTORICO: "minhas" e "todas".
+ *
+ * Abre em "minhas" porque o que o vendedor quer ver depois de uma venda
+ * e a linha dele. Dois botoes pequenos, do mesmo tamanho e peso do resto
+ * do painel, para nao competir com a lista de vendas logo abaixo
+ */
+.mkt-historico__escopo {
+  display: flex;
+  gap: 6px;
+  margin: 0 0 10px;
+}
+
+.mkt-chip {
+  padding: 4px 11px;
+  border: 1px solid #3a4353;
+  border-radius: 3px;
+  background: #171d26;
+  color: #8d97a5;
+  font: inherit;
+  font-size: 11px;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.mkt-chip:hover {
+  border-color: #4a5566;
+  color: #c3ccd6;
+}
+
+.mkt-chip.is-on {
+  border-color: #6b5a42;
+  background: #241c14;
+  color: #d8b45c;
 }
 
 .mkt-section {
@@ -4790,6 +5959,52 @@ backdrop-filter: blur(14px);
 }
 .inv-menu--left {
   left: 0;
+}
+
+/**
+ * A CAIXA ABRINDO PARA CIMA.
+ *
+ * O `top: calc(100% + 4px)` da `.inv-menu` desce a caixa; esta troca o
+ * `top` por um `bottom`, e a ancora para a BORDA INFERIOR do slot. E o
+ * que o `ItemSlot` decide ao abrir, medindo o espaco que sobrou embaixo
+ * dentro do container
+ *
+ * Sem isso, a caixa do slot de baixo (as botas no boneco, o ultimo item
+ * da lista) era cortada pelo `overflow: hidden` do painel — e o jogador
+ * clicava no item e nao via nada, que e o mesmo sintoma de um clique que
+ * nao funciona
+ */
+.inv-menu--up {
+  top: auto;
+  bottom: calc(100% + 4px);
+}
+
+/**
+ * A CAIXA FORA DA LISTA, pendurada no `body`.
+ *
+ * ## POR QUE `fixed` E NAO `absolute`
+ *
+ * Ela nao esta mais dentro do `.inv-content`, entao ja nao tem um
+ * container para se posicionar contra. `fixed` e a viewport, que e
+ * exatamente a referencia que o `SlotMenuFloat` mede
+ *
+ * Sem o `fixed`, o `top` que o componente calcula viraria coordenada
+ * relativa a pagina e a caixa apareceria deslocada pelo scroll da mochila
+ *
+ * ## POR QUE O `z-index` ALTO E NECESSARIO
+ *
+ * A caixa esta no `body`, por FORA do painel. O painel do inventario
+ * vive num contexto de empilhamento proprio e pinta acima de tudo que
+ * esta fora dele — inclusive o HUD e o canvas. Um `z-index` baixo aqui
+ * colocaria o menu ATRAS do painel inteiro, e o sintoma seria o mesmo
+ * que motivou o portal: a caixa some
+ */
+.inv-menu--float {
+  position: fixed;
+  z-index: 900;
+  top: 0;
+  left: 0;
+  transition: opacity 90ms ease;
 }
 .inv-menu__action {
   display: block;
@@ -5840,26 +7055,128 @@ backdrop-filter: blur(14px);
 }
 /* ---------- bottom action bar ---------- */
 
+/**
+ * A BARRA DE ACOES: DUAS LINHAS.
+ *
+ * ## POR QUE GRID E NAO FLEX
+ *
+ * Porque o trilho do XP precisa atravessar a linha INTEIRA, do nivel ate
+ * o ultimo botao da direita. Num flex so, um item de largura total ou
+ * empurra os outros para fora ou fica espremido no que sobrar. Numa
+ * segunda linha do grid, ele ocupa `1 / -1` e os botoes ficam livres
+ * para se distribuir na primeira
+ *
+ * ## AS DUAS LINHAS
+ *
+ * A primeira e a conteudo: rodape, skills, divisoria e a coluna do
+ * auto+ultimate. A segunda e a barra dourada do XP, sozinha
+ *
+ * ## POR QUE `align-items: flex-end` NO RODAPE
+ *
+ * E o que alinha as duas metades pela base: o rodape tem o nivel de 49px
+ * e a barra tem os slots de 54px. Alinhados pelo pe, o trilho de XP fica
+ * na mesma altura do pe dos slots, e os dois blocos parecem um so rodape
+ */
 .hud-actionbar {
   position: absolute;
   right: 0;
   bottom: 0;
   left: 0;
-  padding: 10px 16px 12px;
-  background: linear-gradient(    0deg,
-    rgba(4,
-      7,
-      10,
-      0.92),
-    transparent  );
+
+  display: grid;
+
+  /**
+   * TRES COLUNAS E DUAS LINHAS.
+   *
+   * `auto` para o rodape, que mede o que precisa; `1fr` para as skills,
+   * que sao empurradas para a direita com o `justify-self: end`; e as
+   * duas ultimas para a divisoria e a coluna do auto+ultimate
+   */
+  grid-template-columns: auto 1fr auto auto;
+  grid-template-rows: auto auto;
+  align-items: end;
+  column-gap: 14px;
+  row-gap: 4px;
+
+  /**
+   * O TRILHO FICA NA BORDA, E O RESTO TEM FOLGA.
+   *
+   * O `padding` e o que separava o trilho dourado da borda da tela. Sem
+   * ele, o `bottom: 0` do `.hud-actionbar` colocava as 12px de folga
+   * DEPOIS do trilho, e a barra ficava suspensa acima do rodape do
+   * navegador
+   *
+   * A solucao e o `padding-bottom: 0` com o resto do espaco movido para
+   * um `padding-top` do mesmo tamanho: o conteudo continua com o mesmo
+   * vao em cima, e a barra dourada encosta na borda
+   */
+  padding: 22px 16px 0;
 }
-.hud-actionbar__slots {
+
+/**
+ * O RODAPE NA PRIMEIRA LINHA, NA PRIMEIRA COLUNA.
+ *
+ * O `grid` e quem coloca ele, e nao um `grid-column` aqui: a posicao
+ * declared em dois lugares e a que diverge quando a barra ganha uma
+ * coluna nova
+ */
+.rodape {
+  grid-column: 1;
+  grid-row: 1;
+}
+
+/**
+ * O GRUPO DAS SKILLS.
+ *
+ * E `justify-self: end` que empurra o conjunto para a DIREITA do rodape:
+ * o rodape ocupa a esquerda com 300px de barras e o que sobra da tela
+ * vai para as habilidades
+ */
+.hud-actionbar__group {
+  display: flex;
+  align-items: flex-end;
+  justify-self: end;
+  gap: 9px;
+  width: max-content;
+  margin-bottom: 8px;
+}
+
+/**
+ * O BLOCO DE SKILLS.
+ *
+ * O `position: relative` e o que permite a dica ficar pendurada ACIMA
+ * dele, sem ser empurrada pela propria altura
+ *
+ * ## POR QUE A DUPLICACAISSAI
+ *
+ * Havia duas regras identicas neste nome, e a segunda vinha DEPOIS:
+ * `display`, `align-items` e `gap` eram repetidos sem motivo, e o
+ * `position: relative` da primeira era cancelado por omissao — a dica
+ * de arrastar pendurada saia em relacao ao `body` em vez do bloco de
+ * skills, e aparecia no lugar errado da tela
+ */
+.hud-actionbar__skills {
+  position: relative;
   display: flex;
   align-items: center;
-  justify-content: center;
   gap: 9px;
-  padding-right: 104px;
 }
+
+/**
+ * A COLUNA DO PILOTO: o auto em cima, a ultimate embaixo.
+ *
+ * `align-items: center` alinha os dois pelo centro, e nao pela base. Os
+ * dois tem larguras diferentes — o botao de auto e um circulo de 84px e a
+ * ultimate e um quadrado de 54px — e alinhar pela base os deixaria
+ * tortos um em relacao ao outro, como se nao pertencessem a mesma fileira
+ */
+.hud-actionbar__pilha {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 6px;
+}
+
 .hud-actionbar__divider {
   width: 1px;
   height: 44px;
@@ -5877,11 +7194,144 @@ backdrop-filter: blur(14px);
       255,
       0)  );
 }
+/**
+ * A DICA DE ARRASTAR: pendurada abaixo das skills e centralizada nelas.
+ *
+ * ## POR QUE `position: absolute`
+ *
+ * Como item normal do bloco de skills, ela pusharia a altura do bloco e
+ * o `align-items: flex-end` do grupo alinharia a BASE DA DICA com a base
+ * da ultimate — levantando todas as skills e desalinhando a fileira
+ *
+ * Pendurada fora do fluxo, a altura do bloco continua sendo a dos slots,
+ * o alinhamento da base fica intacto, e o texto aparece logo abaixo
+ *
+ * ## POR QUE `width: 100%` E `text-align: center`
+ *
+ * `width: 100%` e a LARGURA DO BLOCO DE SKILLS, e nao da tela nem da
+ * linha inteira. E o `center` que põe o texto no meio das skills — sem
+ * ele, um texto com `nowrap` comecaria na borda esquerda do bloco
+ *
+ * Centralizar na linha inteira daria um texto uns 35px a direita do meio
+ * das skills, porque a divisoria e a coluna do auto+ult entrariam na
+ * conta
+ *
+ * ## O `nowrap`
+ *
+ * Uma frase sobre as skills quebrando em duas linhas teria a segunda
+ * caindo embaixo da ultimate, parecendo parte do botao de auto
+ */
+/**
+ * A DICA DE ARRASTAR, ACIMA DAS SKILLS.
+ *
+ * ## POR QUE ACIMA E NAO ABAIXO
+ *
+ * Ela era pendurada em `top: calc(100% + 6px)`, e essa folga era o
+ * `padding-bottom` de 28px da barra. A barra de XP virou a segunda
+ * linha do grid e ocupa essa folga inteira, entao a dica caia SOBRE o
+ * dourado e os dois textos se cruzavam na base da tela
+ *
+ * Acima das skills a posicao esta livre, e o texto fica perto do que
+ * ele explica: o gesto e nos slots
+ *
+ * ## POR QUE `absolute` E NAO UM BLOCO
+ *
+ * Como item normal ela pusharia a altura da linha e o alinhamento pela
+ * base dos slots — que e o que alinha as skills, o auto e a ultimate
+ * entre si — sairia do lugar
+ */
 .hud-actionbar__hint {
-  margin: 8px 0 0;
+  position: absolute;
+  right: 0;
+  bottom: calc(100% + 6px);
+  left: 0;
+  margin: 0;
   color: #6f7c8d;
   font-size: 9px;
   text-align: center;
+  white-space: nowrap;
+}
+
+/**
+ * O PAINEL DE DESEMPENHO DO SERVIDOR, no canto superior direito.
+ *
+ * ## POR QUE NAO E PARTE DA BARRA DE ACAO
+ *
+ * Porque ele e leitura de maquina e nao acao do jogador. Fica no canto,
+ * acima de tudo e atras de nada, e continua visivel com um painel aberto
+ * por cima — que e justamente quando da para medir o quanto aquele painel
+ * custa
+ *
+ * ## POR QUE A BARRA E TAO BAIXA
+ *
+ * Porque o numero precisa ser lido de relance. Uma barra de 4px com o
+ * numero do lado cabe numa linha sem roubar atencao do jogo, e a
+ * saturacao em 100% e o que importa: ela mostra que o tique esta
+ * comendo o tempo do proximo
+ */
+.server-perf {
+  position: absolute;
+  top: 8px;
+  right: 10px;
+  z-index: 40;
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  padding: 4px 9px;
+  border: 1px solid rgba(255,
+    255,
+    255,
+    0.09);
+  border-radius: 7px;
+  background: rgba(9,
+    12,
+    17,
+    0.82);
+  color: #9fb0c4;
+  font-size: 10px;
+  line-height: 1;
+  pointer-events: none;
+}
+.server-perf__titulo {
+  color: #5f6c7d;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+}
+.server-perf__num {
+  color: #e6edf5;
+  font-size: 12px;
+  font-weight: 700;
+}
+.server-perf__num i {
+  margin-left: 2px;
+  color: #7d8a9b;
+  font-size: 9px;
+  font-style: normal;
+  font-weight: 400;
+}
+.server-perf__pior {
+  font-size: 9px;
+}
+.server-perf__barra {
+  display: block;
+  width: 52px;
+  height: 4px;
+  overflow: hidden;
+  border-radius: 2px;
+  background: rgba(255,
+    255,
+    255,
+    0.1);
+}
+.server-perf__barra i {
+  display: block;
+  height: 100%;
+  border-radius: 2px;
+  transition: width 220ms ease;
+}
+.server-perf__extra {
+  color: #5f6c7d;
+  font-size: 9px;
 }
 /* ---------- circular skill slot ---------- */
 
@@ -5960,6 +7410,77 @@ backdrop-filter: blur(14px);
 }
 .skill-slot:disabled {
   cursor: not-allowed;
+}
+
+/**
+ * A SKILL QUE O PERSONAGEM AINDA NAO APRENDEU.
+ *
+ * ## POR QUE O SLOT CONTINUA DESENHADO
+ *
+ * Porque o jogador precisa VER o que falta para saber o que comprar com
+ * o Mestre. Esconder o slot tiraria do jogador a noção do repertorio da
+ * classe e, pior, quebraria a `slot` do array — a posicao de cada skill
+ * e a sua ordem no catalogo, e um slot escondido mudaria o que a tecla
+ * N dispara
+ *
+ * ## POR QUE NAO E `:disabled`
+ *
+ * `disabled` tira o botao da navegacao de verdade, e o slot ficaria sem
+ * foco, sem clique e sem dica. Aqui ele continua sendo um botao clicavel
+ * que nao faz nada — o que e o que o jogador espera de um slot trancado
+ *
+ * O que muda e a APARENCIA: cor de cinza, sem o brilho de `is-ready`, e
+ * o X no meio. O nome e o icone continuam legiveis de proposito
+ */
+.skill-slot.is-trancada {
+  border-color: rgba(255,
+    255,
+    255,
+    0.1);
+  color: #7d8794;
+  cursor: not-allowed;
+  filter: saturate(0.15);
+  background: radial-gradient(    circle at 34% 26%,
+    rgba(38,
+      44,
+      52,
+      0.9),
+    rgba(9,
+      13,
+      18,
+      0.98) 72%  );
+}
+.skill-slot.is-trancada .skill-slot__icon {
+  opacity: 0.42;
+}
+.skill-slot.is-trancada .skill-slot__key {
+  opacity: 0.5;
+}
+
+/**
+ * O X DA SKILL TRANCA.
+ *
+ * Fica por cima do icone, no centro, e e o unico sinal de que o slot
+ * esta trancado. Sem ele o cinza sozinho parece "em cooldown", e o
+ * jogador esperaria o cooldown passar
+ */
+.skill-slot__lock {
+  position: absolute;
+  inset: 0;
+  z-index: 3;
+  display: grid;
+  place-items: center;
+  font-size: 17px;
+  font-weight: 700;
+  color: rgba(226,
+    232,
+    240,
+    0.82);
+  text-shadow: 0 1px 3px rgba(0,
+    0,
+    0,
+    0.9);
+  pointer-events: none;
 }
 .skill-slot--ultimate {
   --slot: 64px;
@@ -6106,13 +7627,32 @@ backdrop-filter: blur(14px);
 }
 /* ---------- large action button ---------- */
 
+/**
+ * O BOTAO DE AUTO.
+ *
+ * ## DEIXOU DE SER `absolute`
+ *
+ * Era `position: absolute; right: 22px; bottom: 24px` — solto no canto
+ * inferior direito, por fora da barra de baixo, com a fileira de skills
+ * desviando dele por um `padding-right` de 104px. Agora ele vive dentro
+ * de `.hud-actionbar__pilha`, na coluna em cima da ultimate, e quem
+ * posiciona e o `flex` da barra
+ *
+ * O `relative` e o que sobrou: o `translate` do `:hover` precisa de um
+ * contexto de posicionamento, e `absolute` era o que fornecia um
+ *
+ * ## 42px, E METADE DOS 84
+ *
+ * Com a ultimate embaixo a 54px, um circulo de 84px ficava com o dobro
+ * do peso visual do resto da barra e empurrava a coluna para cima do
+ * rodape. Metade cabe ao lado dos slots de 54px como um detalhe do canto,
+ * e a ultimate volta a ser a peca que se enxerga primeiro
+ */
 .hud-ability {
-  position: absolute;
-  right: 22px;
-  bottom: 24px;
+  position: relative;
   display: grid;
-  width: 84px;
-  height: 84px;
+  width: 42px;
+  height: 42px;
   place-items: center;
   border: 2px solid rgba(255,
     255,
@@ -6133,12 +7673,12 @@ backdrop-filter: blur(14px);
     0,
     0,
     0.6),    inset 0 1px 0 rgba(255,
-    255,
-    255,
-    0.12),    inset 0 -4px 12px rgba(0,
-    0,
-    0,
-    0.55);
+      255,
+      255,
+      0.12),    inset 0 -4px 12px rgba(0,
+      0,
+      0,
+      0.55);
     cursor: pointer;
     pointer-events: auto;
     transition:    transform 130ms ease,    border-color 160ms ease;
@@ -6149,28 +7689,30 @@ backdrop-filter: blur(14px);
 .hud-ability:active {
   transform: scale(0.96);
 }
-.hud-ability__ring {
-  position: absolute;
-  inset: 7px;
-  border: 1px solid rgba(255,
-    255,
-    255,
-    0.09);
-    border-radius: 50%;
-}
+/**
+ * O TEXTO: "auto", e so ele.
+ *
+ * 11px, e nao os 14px do botao de 84px. Quatro letras minusculas a 14px
+ * nao cabiam em 42px de largura util, e o texto vazando para fora do
+ * circulo e pior do que um texto pequeno
+ *
+ * ## O `hud-ability__ring` SUMIU
+ *
+ * Era um anel de 1px a `inset: 4px`, dentro do circulo. Num botao de 84px
+ * ele era um detalhe; num de 42px, 8px de cada lado sobram e o anel vira
+ * a segunda coisa que o jogador ve — um circulo dentro do circulo, com o
+ * "auto" espremido no meio. Num botao de 42px a borda externa ja e a
+ * forma; o anel so competia com ela
+ *
+ * A borda de FORA continua: e ela que faz o contorno redonddo e e a que
+ * muda de cor com o estado
+ */
 .hud-ability__text {
   position: relative;
-  font-family: Montserrat, Inter, sans-serif;
-  font-size: 14px;
-  font-weight: 800;
-  letter-spacing: 0.04em;
-}
-.hud-ability__key {
-  position: absolute;
-  bottom: 14px;
-  font-size: 9px;
+  font-family: Inter, sans-serif;
+  font-size: 11px;
   font-weight: 700;
-  opacity: 0.6;
+  letter-spacing: 0;
 }
 .hud-ability.is-engaged {
   border-color: rgba(255,
@@ -6300,9 +7842,26 @@ backdrop-filter: blur(14px);
 .hud-actionbar {
   overflow-x: auto;
 }
-.hud-actionbar__slots {
-  justify-content: flex-start;
+
+/**
+ * O GRUPO vira largura do conteudo, e nao mais a fileira de skills.
+ *
+ * Era a fileira de skills que recebia isto: ela encolhia para o
+ * que tinha dentro e ficava encostada a esquerda quando nao cabia. Agora
+ * quem encolhe e o grupo inteiro — skills, divisoria e a coluna do
+ * auto+ult juntos — porque os tres precisam andar juntos
+ */
+/**
+ * O GRUPO em tela estreita: encosta a esquerda.
+ *
+ * O `margin-left: auto` da base empurraria o grupo para a direita mesmo
+ * com `justify-content: flex-start`. Com o grupo mais largo que a tela,
+ * isso colocaria o comeco dele fora da area visivel — e o rodape e
+ * `overflow-x: auto`, entao a parte da esquerda ficaria inalcancavel
+ */
+.hud-actionbar__group {
   width: max-content;
+  margin-left: 0;
 }
 .skill-slot {
   --slot: 50px;
@@ -6349,14 +7908,21 @@ backdrop-filter: blur(14px);
 .hud-buffs {
   display: none;
 }
+/**
+ * O BOTAO DE AUTO em tela estreita: 33px, a MESMA metade.
+ *
+ * Este numero era 66px quando a base era 84px, e a conta era a mesma de
+ * hoje. Sem a divisao por dois na base, os dois numeros nao ficam
+ * ligados — e um 66 aqui, contra 42 la, faria o botao CRESCER na tela
+ * estreita, que e o contrario do que a media query existe para fazer
+ *
+ * O `font-size` do texto saiu daqui: a base ja e 11px, que era
+ * exatamente o que esta regra sobrescrevia. Deixar os dois escreveria o
+ * mesmo numero em lugares separados
+ */
 .hud-ability {
-  right: 14px;
-  bottom: 18px;
-  width: 66px;
-  height: 66px;
-}
-.hud-ability__text {
-  font-size: 11px;
+  width: 33px;
+  height: 33px;
 }
 .hud-actionbar__hint {
   display: none;
@@ -6639,6 +8205,31 @@ backdrop-filter: blur(14px);
   border-radius: 2px;
   color: #d8b45c;
   background: #241c14;
+  font-size: 8px;
+  font-weight: 800;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+  vertical-align: 1px;
+}
+
+/**
+ * O JOGADOR QUE ESTA OFFLINE.
+ *
+ * A opacidade baixa e a etiqueta dizem a mesma coisa: ele conta no
+ * rank, mas nao esta no mapa. Sem a opacidade, a lista inteira ficaria
+ * igual e nao haveria como saber quem procurar
+ */
+.rnk-row.is-offline {
+  opacity: 0.55;
+}
+
+.rnk-row__off {
+  margin-left: 6px;
+  padding: 1px 5px;
+  border: 1px solid #4a4a4a;
+  border-radius: 2px;
+  color: #8d8d8d;
+  background: #1a1a1a;
   font-size: 8px;
   font-weight: 800;
   letter-spacing: 0.05em;
@@ -7019,11 +8610,39 @@ backdrop-filter: blur(14px);
   box-shadow: 0 0 0 2px rgba(255, 255, 255, 0.18);
 }
 
+/**
+ * A BARRA DE AVANCO DO MAPA NO TRILHO.
+ *
+ * Era a cor do chao do mapa, sempre em 100%: uma barra de progresso
+ * cheia desde o primeiro segundo. Agora o trilho e o fundo e o `i` de
+ * dentro e o quanto da campanha daquele mapa ja foi feito — nasce
+ * vazio e cresce
+ *
+ * O `--cor-mapa` do elemento passa a cor pela variavel CSS, e o
+ * preenchimento a usa. O preenchimento e um gradiente um pouco mais
+ * claro no topo para dar volume, sem mudar a cor do mapa
+ */
 .qst-rail__swatch {
   width: 100%;
   height: 4px;
+  overflow: hidden;
   border-radius: 2px;
+  background: rgba(255, 255, 255, 0.11);
 }
+
+.qst-rail__swatch > i {
+  display: block;
+  height: 100%;
+  border-radius: 2px;
+  background: linear-gradient(
+    to bottom,
+    color-mix(in srgb, var(--cor-mapa) 82%, #ffffff),
+    var(--cor-mapa)
+  );
+  transition: width 260ms ease-out;
+}
+
+
 
 .qst-rail__tab small {
   font-size: 11px;
@@ -7577,4 +9196,957 @@ backdrop-filter: blur(14px);
 .pty-member__tag--foco {
   color: #6fbf8a;
   border-color: rgba(111, 191, 138, 0.35);
+}
+
+/* ===================================================================
+   INVENTARIO v2 — no padrao de painel do projeto
+
+   A ESTRUTURA e a do `InventoryPanel.jsx`: cabecalho com titulo e
+   chips, busca, barra de abas com ordenacao, grade de cartoes, cartao
+   de poder e rodape. A APARENCIA e a do resto do jogo: casca
+   `.inv-panel` de sempre, canto de 2 a 4px, fio de borda quente, ouro
+   `#c9a227`/`#e8c96a`, type de 9 a 11px e o brilho de dentro das
+   bordas em vez de sombra projetada.
+
+   O `.inv-panel` original segue sendo a casca do craft, do market, do
+   encantamento e das pocoes, e nenhuma regra antiga foi tocada.
+
+   Tudo aqui e escopado em `.inv-v2`, e o bloco NAO reescreve o que
+   ja estava no padrao: o slot, a coluna do boneco, o menu de acao e o
+   popover do filtro continuam saindo das regras de sempre. Este
+   arquivo entra so para as pecas que o cabecalho novo inventou
+   =================================================================== */
+
+/* ---------- a casca ---------- */
+
+.inv-panel.inv-v2 {
+  /* o `--slot` e a medida da casa: o boneco e o cartao usam o mesmo,
+     entao um item na mochila e o mesmo item vestido tem o mesmo
+     tamanho. A coluna do boneco sai dele em vez de ter um numero
+     solto — mudar o slot move os dois lados juntos */
+  --slot: 68px;
+  --inv-line: #2c241b;
+  --inv-line-gold: #6b5a42;
+  --inv-soft: rgba(255, 255, 255, 0.05);
+  --inv-muted: #8a929c;
+  width: min(880px, calc(100vw - 24px));
+  max-height: min(620px, calc(100vh - 28px));
+  border: 2px solid #4a3c2c;
+  color: #d8dee6;
+  animation: inv-v2-in 0.14s ease-out;
+}
+
+@keyframes inv-v2-in {
+  from {
+    opacity: 0;
+    transform: translate(-50%, calc(-50% + 6px));
+  }
+  to {
+    opacity: 1;
+    transform: translate(-50%, -50%);
+  }
+}
+
+/* 3 colunas do boneco + 2 vaos + os 10px de cada `padding`. A conta
+ * esta aqui para o `--slot` mudar em um lugar so */
+.inv-v2 .inv-illus {
+  width: calc(3 * var(--slot) + 2 * var(--osrs-gap) + 20px);
+  overflow-y: auto;
+
+  /**
+   * O ESPACO ENTRE O BONECO E A MOCHILA, que era 24px de vazio.
+   *
+   * A conta antes: 10px do `padding` do boneco, mais os 2px da
+   * divisoria, mais 10px do `padding` da mochila. Sao tres margens
+   * somando, e nenhuma delas precisava existir — o vazio entre duas
+   * areas nao e conteudo de ninguem
+   *
+   * Aqui o `padding-right` cai para 4px, e o `padding-left` da mochila
+   * cai junto na regra de baixo. O que fica sao 4px de cada lado e os 2px
+   * da divisoria: 10px, com a divisoria ainda separando as duas colunas
+   *
+   * ## POR QUE SO UM LADO DE CADA
+   *
+   * Diminuir os dois paddings de uma vez so pelo `padding-right` do
+   * boneco nao resolveria: a mochila continuaria com 10px de ar antes do
+   * primeiro card, e o vazio que se ve e a soma dos dois
+   */
+  padding-right: 4px;
+}
+
+/**
+ * O MESMO VAO, PELO OUTRO LADO.
+ *
+ * Esta e a segunda metade da conta do comentario acima: sem ela o
+ * `padding-right` do boneco sozinho cortaria metade do vazio, e o
+ * resultado pareceria um arranjo em vez de uma decisao
+ */
+.inv-v2 .inv-main {
+  padding-left: 4px;
+}
+
+.inv-v2 .inv-equip__grid {
+  justify-content: center;
+}
+
+/* ---------- cabecalho ---------- */
+
+.inv-v2 .inv-header {
+  display: flex;
+  flex: none;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 8px 10px;
+  border-bottom: 2px solid #0a0806;
+  background: linear-gradient(180deg, #3b3024 0%, #241c14 100%);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.07);
+}
+
+.inv-v2 .inv-header__left {
+  display: flex;
+  min-width: 0;
+  align-items: center;
+  gap: 9px;
+}
+
+/* o quadradinho do titulo. Sem brilho: ele e um marcador, e nao um
+ * ponto de luz */
+.inv-v2 .inv-header__mark {
+  display: grid;
+  width: 30px;
+  height: 30px;
+  flex: none;
+  place-items: center;
+  border: 1px solid #4a3c2c;
+  border-radius: 3px;
+  color: #d8b45c;
+  background: linear-gradient(180deg, #342a20 0%, #221a13 100%);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.06);
+  font-size: 15px;
+  text-shadow: 0 1px 2px #000;
+}
+
+.inv-v2 .inv-header__titles {
+  min-width: 0;
+}
+
+.inv-v2 .inv-title {
+  margin: 0 0 4px;
+  color: #f0d9a8;
+  font-family: Montserrat, Inter, sans-serif;
+  font-size: 14px;
+  font-weight: 800;
+  letter-spacing: 0.02em;
+  line-height: 1;
+  text-shadow: 0 1px 2px #000;
+}
+
+/* os numeros do cabecalho: `--muted` do projeto, nao uma rampa nova */
+.inv-v2 .inv-stats-summary {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+}
+
+.inv-v2 .inv-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 2px 7px;
+  border: 1px solid #2c241b;
+  border-radius: 2px;
+  color: #b6bec8;
+  background: rgba(0, 0, 0, 0.35);
+  font-size: 10px;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+}
+
+.inv-v2 .inv-chip i {
+  color: var(--inv-muted);
+  font-size: 10px;
+  font-style: normal;
+}
+
+.inv-v2 .inv-chip b {
+  color: #eef2f6;
+  font-weight: 700;
+}
+
+.inv-v2 .inv-chip small {
+  color: var(--inv-muted);
+  font-size: 9px;
+  font-weight: 600;
+}
+
+/* a moeda e a unica coisa dourada do cabecalho, e o ouro do projeto */
+.inv-v2 .inv-chip--gold {
+  border-color: #6b5a42;
+  background: rgba(201, 162, 39, 0.12);
+}
+
+.inv-v2 .inv-chip--gold i,
+.inv-v2 .inv-chip--gold b {
+  color: #e8c96a;
+}
+
+/* a barra e a mesma do `.pty-member__track`: 4px, canto 2px */
+.inv-v2 .inv-chip__bar {
+  display: block;
+  width: 40px;
+  height: 4px;
+  overflow: hidden;
+  border-radius: 2px;
+  background: rgba(255, 255, 255, 0.1);
+}
+
+.inv-v2 .inv-chip__bar span {
+  display: block;
+  height: 100%;
+  border-radius: 2px;
+  background: #6fbf8a;
+  transition: width 0.18s ease-out;
+}
+
+.inv-v2 .inv-chip.is-full {
+  border-color: #a03434;
+}
+
+.inv-v2 .inv-chip.is-full .inv-chip__bar span {
+  background: #c1423f;
+}
+
+.inv-v2 .inv-header__right {
+  display: flex;
+  flex: none;
+  align-items: center;
+  gap: 6px;
+}
+
+/* ---------- a busca ---------- */
+
+.inv-v2 .inv-search {
+  position: relative;
+  display: flex;
+  align-items: center;
+}
+
+.inv-v2 .inv-search__icon {
+  position: absolute;
+  left: 8px;
+  color: var(--inv-muted);
+  font-size: 13px;
+  pointer-events: none;
+}
+
+.inv-v2 .inv-search__input {
+  width: 176px;
+  padding: 6px 26px 6px 26px;
+  border: 1px solid #2c241b;
+  border-radius: 3px;
+  color: #eef2f6;
+  background: rgba(0, 0, 0, 0.4);
+  font-size: 11px;
+  transition: border-color 0.12s, width 0.18s;
+}
+
+.inv-v2 .inv-search__input::placeholder {
+  color: #6d7887;
+}
+
+/* o foco nao some: a borda ganha o ouro e um fio, que e como o resto
+ * do painel marca foco */
+.inv-v2 .inv-search__input:focus {
+  width: 210px;
+  border-color: #8a7250;
+  outline: none;
+  box-shadow: 0 0 0 1px rgba(201, 162, 39, 0.4);
+}
+
+.inv-v2 .inv-search__clear {
+  position: absolute;
+  right: 5px;
+  display: grid;
+  width: 17px;
+  height: 17px;
+  place-items: center;
+  border: 0;
+  border-radius: 2px;
+  color: var(--inv-muted);
+  background: rgba(255, 255, 255, 0.08);
+  cursor: pointer;
+  font-size: 8px;
+}
+
+.inv-v2 .inv-search__clear:hover {
+  color: #eef2f6;
+  background: rgba(255, 255, 255, 0.16);
+}
+
+/* ---------- a barra: abas + ordenacao ---------- */
+
+.inv-v2 .inv-toolbar {
+  display: flex;
+  flex: none;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 8px 10px 0;
+}
+
+/**
+ * A BARRA DE ABAS e a de sempre, movida para dentro da barra.
+ *
+ * O bloco de abas do projeto ja existia (`.inv-tabs` com fundo de
+ * madeira e aba em telhado) e e a leitura que o jogador ja conhece. As
+ * abas compactas sao a MESMA coisa com outro nome: mesmo fundo, mesma
+ * aba, mesma aba ativa. Nao havia por que desenhar um segundo widget
+ * para o mesmo controle
+ */
+.inv-v2 .inv-tabs-compact {
+  display: flex;
+  flex: none;
+  align-items: stretch;
+  gap: 2px;
+  padding: 3px 3px 0;
+  /* border-bottom: 2px solid #0a0806; */
+  /* border-radius: 3px 3px 0 0; */
+  /* background: linear-gradient(180deg, #3b3024 0%, #241c14 100%); */
+  /* box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.07); */
+}
+
+.inv-v2 .inv-tab-compact {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  padding: 5px 10px 6px;
+  border: 1px solid #2c241b;
+  border-bottom: 0;
+  border-radius: 4px 4px 0 0;
+  color: #a2917a;
+  background: linear-gradient(180deg, #342a20 0%, #221a13 100%);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.06);
+  cursor: pointer;
+}
+
+.inv-v2 .inv-tab-compact:hover {
+  color: #e0d3bd;
+  background: linear-gradient(180deg, #453729 0%, #2a2118 100%);
+}
+
+.inv-v2 .inv-tab-compact.is-active {
+  border-color: #6b5a42;
+  color: #f0d9a8;
+  background: linear-gradient(180deg, #56452e 0%, #35291c 100%);
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.14),
+    inset 0 -2px 6px rgba(0, 0, 0, 0.45);
+}
+
+.inv-v2 .inv-tab-compact__icon {
+  font-size: 13px;
+  font-weight: 800;
+  line-height: 1;
+  text-shadow: 0 1px 2px #000;
+}
+
+.inv-v2 .inv-tab-compact small {
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.03em;
+}
+
+.inv-v2 .inv-tab-compact__count {
+  color: #d8b45c;
+  font-size: 9px;
+  font-style: normal;
+  font-weight: 800;
+  font-variant-numeric: tabular-nums;
+}
+
+/* ---------- a ordenacao ---------- */
+
+.inv-v2 .inv-sort {
+  display: inline-flex;
+  flex: none;
+  align-items: center;
+  gap: 6px;
+  padding-bottom: 4px;
+  color: var(--inv-muted);
+  font-size: 10px;
+  font-weight: 800;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+}
+
+.inv-v2 .inv-sort__select {
+  padding: 4px 22px 4px 8px;
+  border: 1px solid #2c241b;
+  border-radius: 3px;
+  color: #d8dee6;
+  background:
+    linear-gradient(45deg, transparent 50%, #8a929c 50%) calc(100% - 13px) 52% / 5px 5px no-repeat,
+    linear-gradient(135deg, #8a929c 50%, transparent 50%) calc(100% - 8px) 52% / 5px 5px no-repeat,
+    linear-gradient(180deg, #33291f 0%, #201912 100%);
+  appearance: none;
+  cursor: pointer;
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0;
+  text-transform: none;
+}
+
+.inv-v2 .inv-sort__select:hover {
+  border-color: #8a7250;
+}
+
+.inv-v2 .inv-sort__select:focus {
+  border-color: #8a7250;
+  outline: none;
+}
+
+.inv-v2 .inv-sort__select option {
+  color: #eef2f6;
+  background: #1c1710;
+}
+
+/* ---------- a grade ---------- */
+
+.inv-v2 .inv-content {
+  min-height: 0;
+  flex: 1;
+  padding: 8px 10px 10px;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  pointer-events: auto;
+  touch-action: pan-y;
+}
+
+/**
+ * O PAINEL DE ENCANTAR TAMBEM USA O CARTAO DA MOCHILA.
+ *
+ * ## POR QUE `.enc-panel` APARECE EM CADA REGUA, E NAO UMA CLASSE NOVA
+ *
+ * As regras do cartao sao escopadas em `.inv-v2`, que e o nome do
+ * cabecalho novo do inventario. Dar `inv-v2` ao painel de encantar
+ * resolveria com uma palavra, mas traria as 99 regras daquele cabecalho
+ * junto — largura de 880px, cabecalho, abas, busca e ordenador que este
+ * painel nao tem. Metade delas ficaria inerte e a outra metade mudaria o
+ * tamanho dele sem ninguem pedir
+ *
+ * Entrar entao em cada regra do cartao e do grid, num seletor duplo, e o
+ * que mantem UMA regra para os dois paineis. Duplicar o bloco inteiro
+ * seria o caminho mais curto e o que garante a divergencia no primeiro
+ * ajuste de largura
+ *
+ * ## O `--slot` E AS VARIAVEIS
+ *
+ * O `.inv-v2` tambem declara `--slot`, `--inv-muted` e companhia, e as
+ * regras do cartao leem essas variaveis. As do painel de encantar ficam
+ * aqui, e sao as MESMAS do inventario: se um dia o cartao ganhar uma cor
+ * que mora numa delas, os dois paineis pegam
+ */
+/**
+ * OS PAINEIS QUE USAM O `ItemCard`.
+ *
+ * O inventario, o de encantar e o mercado renderizam o MESMO
+ * componente — `ItemCard` — entao o CSS do card nao pode ser de um
+ * painel so. Sem estas tres classes em cada regra, o card do mercado
+ * saia sem estilo nenhum: sem fundo, sem a barrinha de raridade e sem
+ * o nome alinhado, que era o sintoma
+ *
+ * ## POR QUE NAO UM `.item-card--comum` NO COMPONENTE
+ *
+ * Ha um seletor duplo em cada regra do cartao em vez de uma classe
+ * unica no JSX. A alternativa seria o `ItemCard` exigir que o painel
+ * sealede uma classe — e ai viraria erro silencioso de novo: um painel
+ * novo que usasse o card sem saber dessa exigencia sairia sem estilo,
+ * do mesmo jeito que o mercado saiu
+ *
+ * As variaveis que as regras do card leem ficam abaixo, e sao as mesmas
+ * nos tres
+ */
+.enc-panel,
+.mkt-panel {
+  --slot: 68px;
+  --inv-line: #2c241b;
+  --inv-line-gold: #6b5a42;
+  --inv-soft: rgba(255, 255, 255, 0.05);
+  --inv-muted: #8a929c;
+}
+
+/* a coluna e um pouco maior que o slot: o cartao tem borda, o nome e
+ * a raridade embaixo */
+.inv-v2 .inv-grid-modern,
+.enc-panel .inv-grid-modern,
+.mkt-panel .inv-grid-modern {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(88px, 1fr));
+  gap: 6px;
+
+  /**
+   * SEM `padding-bottom` DE 88px, E ESTE E O MOTIVO.
+   *
+   * A grade carregava 88px de vao embaixo para que o menu da ULTIMA
+   * linha ainda coubesse, sendo cortado pelo `overflow` do painel. E o
+   * `ItemSlot` mede o espaco que sobrou e vira o menu para cima quando
+   * nao cabe — entao a folga virou vao morto, e vao morto de 88px e o
+   * pior tipo: uma coluna de branco embaixo da ultima fileira que o
+   * jogador pagava rolagem para atravessar
+   *
+   * A regra do menu e a de verdade agora. O que este codigo garante e
+   * que ela existe — o `min-height` do `.inv-main` e a folga ultima de
+   * quem abre a caixa; aqui o vao e so a grade fechando
+   */
+}
+
+/**
+ * O CARTAO do item.
+ *
+ * A raridade entra por DUAS vias, e as duas precisam concordar: a
+ * borda e a barrinha de cima usam `--rarity`, que o `InventoryPanel`
+ * poe inline. O cartao NAO ganha fundo colorido nem brilho — um cartao
+ * de 88px com brilho de raridade vira um semaforo, e o que separa o
+ * raro do comum e a borda e o nome, que ja bastam
+ */
+.inv-v2 .inv-item-card,
+.enc-panel .inv-item-card,
+.mkt-panel .inv-item-card {
+  --rarity: #c3ccd6;
+  position: relative;
+  display: flex;
+  min-width: 0;
+  flex-direction: column;
+  align-items: center;
+  gap: 5px;
+  padding: 7px 6px 6px;
+  border: 1px solid #2c241b;
+  border-radius: 3px;
+  background: linear-gradient(180deg, #221a13 0%, #17110c 100%);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.04);
+  transition: border-color 0.12s, background 0.12s;
+}
+
+/* a barrinha da raridade: 2px no alto, do tamanho da raridade, e sem
+ * brilho — a cor sozinha ja diz */
+.inv-v2 .inv-item-card::before,
+.enc-panel .inv-item-card::before,
+.mkt-panel .inv-item-card::before {
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 2px;
+  background: var(--rarity);
+  content: "";
+  opacity: 0.5;
+}
+
+.inv-v2 .inv-item-card:hover,
+.inv-v2 .inv-item-card.is-menu,
+.enc-panel .inv-item-card:hover,
+.enc-panel .inv-item-card.is-menu,
+.mkt-panel .inv-item-card:hover,
+.mkt-panel .inv-item-card.is-menu {
+  border-color: #8a7250;
+  background: linear-gradient(180deg, #2a2118 0%, #1c1610 100%);
+}
+
+.inv-v2 .inv-item-card.is-menu,
+.enc-panel .inv-item-card.is-menu,
+.mkt-panel .inv-item-card.is-menu {
+  z-index: 6;
+}
+
+.inv-v2 .inv-item-card[data-rarity="common"]::before,
+.enc-panel .inv-item-card[data-rarity="common"]::before,
+.mkt-panel .inv-item-card[data-rarity="common"]::before {
+  opacity: 0.22;
+}
+
+.inv-v2 .inv-item-card[data-rarity="legendary"]::before,
+.enc-panel .inv-item-card[data-rarity="legendary"]::before,
+.mkt-panel .inv-item-card[data-rarity="legendary"]::before {
+  opacity: 1;
+}
+
+/* o cartao usa o mesmo `--slot` do boneco */
+.inv-v2 .inv-item-card .inv-slot {
+  width: var(--slot);
+  max-width: 100%;
+}
+
+.inv-v2 .inv-item-info,
+.enc-panel .inv-item-info,
+.mkt-panel .inv-item-info {
+  display: flex;
+  width: 100%;
+  min-width: 0;
+  flex-direction: column;
+  align-items: center;
+  gap: 2px;
+}
+
+.inv-v2 .inv-item-name,
+.enc-panel .inv-item-name,
+.mkt-panel .inv-item-name {
+  display: block;
+  width: 100%;
+  overflow: hidden;
+  color: #e6ecf2;
+  font-size: 11px;
+  font-weight: 700;
+  text-align: center;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.inv-v2 .inv-item-meta,
+.enc-panel .inv-item-meta,
+.mkt-panel .inv-item-meta {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.inv-v2 .inv-item-rarity,
+.enc-panel .inv-item-rarity,
+.mkt-panel .inv-item-rarity {
+  color: var(--rarity);
+  font-size: 8px;
+  font-weight: 800;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+/* a quantidade e um numero, entao e um quadradinho: pílula em 9px
+ * vira um ponto e o olho nao acha */
+.inv-v2 .inv-item-count,
+.enc-panel .inv-item-count,
+.mkt-panel .inv-item-count {
+  padding: 0 4px;
+  border-radius: 2px;
+  color: #d8dee6;
+  background: rgba(255, 255, 255, 0.1);
+  font-size: 9px;
+  font-weight: 800;
+  font-variant-numeric: tabular-nums;
+}
+
+/* ---------- coluna do equipamento ---------- */
+
+.inv-v2 .inv-section-title {
+  margin: 0 0 7px;
+  color: #d8b45c;
+  font-size: 10px;
+  font-weight: 800;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+}
+
+.inv-v2 .inv-equipment-section {
+  padding: 8px;
+  border: 1px solid #2c241b;
+  border-radius: 3px;
+  background: rgba(0, 0, 0, 0.25);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.03);
+}
+
+/* ---------- o cartao de poder ---------- */
+
+.inv-v2 .inv-power {
+  display: flex;
+  flex-direction: column;
+  gap: 7px;
+  padding: 8px;
+  border: 1px solid #2c241b;
+  border-radius: 3px;
+  background: rgba(0, 0, 0, 0.25);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.03);
+}
+
+/* a DIVIDA entre o rotulo e o numero: sem ela os dois ficam na mesma
+ * linha e o numero parece parte do texto */
+.inv-v2 .inv-power__head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  padding-bottom: 5px;
+  border-bottom: 1px solid #2c241b;
+}
+
+.inv-v2 .inv-power__label {
+  color: var(--inv-muted);
+  font-size: 10px;
+  font-weight: 800;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+}
+
+/* o numero e o ouro do projeto, em Montserrat, e NAO em gradiente
+ * recortado: o painel inteiro nao usa texto em gradiente e um numero
+ * dourado e mais um degrau na hierarquia */
+.inv-v2 .inv-power__value {
+  color: #e8c96a;
+  font-family: Montserrat, Inter, sans-serif;
+  font-size: 21px;
+  font-weight: 800;
+  font-variant-numeric: tabular-nums;
+  line-height: 1;
+  text-shadow: 0 1px 2px #000;
+}
+
+.inv-v2 .inv-power__empty {
+  margin: 0;
+  color: var(--inv-muted);
+  font-size: 10px;
+  font-style: italic;
+}
+
+.inv-v2 .inv-stat-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 3px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.inv-v2 .inv-stat {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 5px;
+  padding: 3px 6px;
+  border: 1px solid #2c241b;
+  border-radius: 2px;
+  background: rgba(255, 255, 255, 0.04);
+}
+
+.inv-v2 .inv-stat small {
+  overflow: hidden;
+  color: var(--inv-muted);
+  font-size: 9px;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.inv-v2 .inv-stat b {
+  color: #6fbf8a;
+  font-size: 10px;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+}
+
+/**
+ * O BOTAO DO POWER.
+ *
+ * Ouro solido e o unico botao cheio do painel: e a acao que o jogador
+ * mais precisa e a unica que o painel executa sozinho. O resto — abas,
+ * busca, menu — sao controles, e controle fica em fio de borda
+ */
+.inv-v2 .inv-action {
+  width: 100%;
+  margin: 0;
+  padding: 6px 8px;
+  border: 1px solid #c9a227;
+  border-radius: 3px;
+  color: #0e1014;
+  background: #c9a227;
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.25);
+  cursor: pointer;
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  transition: background 0.12s, border-color 0.12s;
+}
+
+.inv-v2 .inv-action:hover {
+  border-color: #e8c96a;
+  background: #e8c96a;
+}
+
+.inv-v2 .inv-action:active {
+  background: #a98a1e;
+}
+
+/* ---------- estado vazio ---------- */
+
+.inv-v2 .inv-empty-state {
+  display: grid;
+  min-height: 200px;
+  place-content: center;
+  justify-items: center;
+  gap: 8px;
+  border: 1px dashed #2c241b;
+  border-radius: 3px;
+  background: rgba(0, 0, 0, 0.18);
+}
+
+.inv-v2 .inv-empty-icon {
+  display: grid;
+  width: 40px;
+  height: 40px;
+  place-items: center;
+  border: 1px solid #2c241b;
+  border-radius: 3px;
+  color: #4a3f33;
+  background: rgba(0, 0, 0, 0.3);
+  font-size: 18px;
+}
+
+.inv-v2 .inv-panel__empty {
+  color: var(--inv-muted);
+  font-size: 10px;
+  letter-spacing: 0.1em;
+}
+
+/* ---------- o rodape ---------- */
+
+.inv-v2 .inv-status-modern {
+  flex: none;
+  padding: 7px 10px;
+  border-top: 2px solid #0a0806;
+  background: linear-gradient(180deg, #241c14 0%, #1c1610 100%);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.05);
+}
+
+.inv-v2 .inv-status-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.inv-v2 .inv-status-hp {
+  display: flex;
+  min-width: 0;
+  flex: 1;
+  align-items: center;
+  gap: 7px;
+}
+
+.inv-v2 .inv-status-hp__label {
+  flex: none;
+  color: #e8655e;
+  font-size: 10px;
+  font-weight: 800;
+  letter-spacing: 0.08em;
+}
+
+/* ---------- o popover do filtro ---------- */
+
+/* so a POSICAO e nova: a caixa em si continua sendo a de sempre */
+.inv-v2 .inv-filter-panel {
+  position: absolute;
+  z-index: 8;
+  top: 56px;
+  right: 10px;
+}
+
+/* ---------- responsivo ---------- */
+
+/* a coluna do boneco e `calc()` do `--slot`, entao mexer no slot ja
+ * move a coluna. Aqui so o painel e a grade mudam de tamanho */
+@media (max-width: 880px) {
+  .inv-panel.inv-v2 {
+    --slot: 56px;
+    width: min(640px, calc(100vw - 16px));
+    max-height: min(600px, calc(100vh - 16px));
+  }
+
+  .inv-v2 .inv-search__input,
+  .inv-v2 .inv-search__input:focus {
+    width: 140px;
+  }
+
+  .inv-v2 .inv-sort > span {
+    display: none;
+  }
+}
+
+@media (max-width: 640px) {
+  .inv-panel.inv-v2 {
+    --slot: 44px;
+    width: min(460px, calc(100vw - 12px));
+    max-height: min(600px, calc(100vh - 12px));
+  }
+
+  .inv-v2 .inv-header {
+    flex-wrap: wrap;
+    padding: 7px 8px;
+  }
+
+  .inv-v2 .inv-header__right {
+    width: 100%;
+  }
+
+  .inv-v2 .inv-search {
+    flex: 1;
+  }
+
+  .inv-v2 .inv-search__input,
+  .inv-v2 .inv-search__input:focus {
+    width: 100%;
+  }
+
+  /* o equipamento vira uma faixa no topo, com o poder ao lado */
+  .inv-v2 .inv-illus {
+    width: auto;
+    flex: none;
+    flex-direction: row;
+    align-items: stretch;
+    gap: 6px;
+    overflow: visible;
+    border-right: 0;
+    border-bottom: 2px solid #0a0806;
+  }
+
+  .inv-v2 .inv-equipment-section {
+    flex: none;
+    padding: 6px;
+  }
+
+  .inv-v2 .inv-section-title {
+    display: none;
+  }
+
+  .inv-v2 .inv-power {
+    min-width: 0;
+    flex: 1;
+  }
+
+  .inv-v2 .inv-main {
+    min-height: 300px;
+    flex: none;
+    overflow: visible;
+  }
+
+  .inv-v2 .inv-content {
+    overflow: visible;
+  }
+
+  .inv-v2 .inv-toolbar {
+    flex-wrap: wrap;
+    padding: 7px 8px 0;
+  }
+
+  .inv-v2 .inv-grid-modern,
+.enc-panel .inv-grid-modern,
+.mkt-panel .inv-grid-modern {
+    grid-template-columns: repeat(auto-fill, minmax(76px, 1fr));
+    gap: 5px;
+  }
+
+  .inv-v2 .inv-filter-panel {
+    top: 96px;
+    right: 6px;
+    left: 6px;
+  }
+
+  .inv-v2 .inv-filter {
+    width: auto;
+  }
 }

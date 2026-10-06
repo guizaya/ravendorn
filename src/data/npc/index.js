@@ -52,6 +52,20 @@ export const NPC_ACAO = Object.freeze({
    * HUD, que e o nome do painel do mercado entre jogadores
    */
   POCOES: "pocoes",
+
+  /**
+   * Abre o painel de HABILIDADES do mestre da base.
+   *
+   * O painel ainda esta VAZIO de proposito: o NPC existe, o clique
+   * funciona e a tela abre, e o que vai dentro dela e trabalho que vem
+   * depois
+   *
+   * E um valor proprio, e nao o reuso de outro painel. Se este
+   * apontasse para `PAINEL.STATUS`, o mestre abriria o painel de status
+   * do personagem — uma tela que existe, e que nao tem nada a ver com
+   * aprender uma habilidade
+   */
+  HABILIDADES: "habilidades",
 });
 
 /**
@@ -115,6 +129,42 @@ export const NPC_TYPES = Object.freeze({
      */
     blocking: true,
   }),
+
+  /**
+   * O MESTRE DE HABILIDADES, ao lado do mercador.
+   *
+   * ## A ESCALA E 0.09, E NAO A DO MERCADOR
+   *
+   * A arte e 1205x1306 — mais que o DOBRO da do mercador em cada lado.
+   * Com o 0.2 do mercador, ela sairia com 241x261 na tela, o dobro da
+   * altura do jogador, e o mestre pareceria um segundo jogador gigante em
+   * vez de alguem contando com a propria silhueta
+   *
+   * 0.09 leva os 1306px para 118px, praticamente a altura do mercador
+   * (119px) e do jogador (128px). E o que faz os dois se lerem como duas
+   * pessoas no calcamento, e nao como um obstaculo e um poste
+   *
+   * ## O RAIO DE CLIQUE E O DO MERCADOR
+   *
+   * Os dois tem por volta de 100px de largura em tela, entao o mesmo
+   * `28` de raio da um alvo de mouse equivalente. Um raio maior nao
+   * help: a arte e larga mas o boneco e o que o jogador mira, e um alvo
+   * largo demais comeca a competir com o calcamento
+   */
+  habilidades: Object.freeze({
+    id: "habilidades",
+    name: "Mestre de Habilidades",
+
+    /** o que o clique abre: o painel de habilidades, hoje vazio */
+    acao: NPC_ACAO.HABILIDADES,
+
+    sheet: NPC_SHEETS.habilidades,
+    scale: 0.09,
+    naturalWidth: NPC_SPRITE_SIZES.habilidades.width,
+    naturalHeight: NPC_SPRITE_SIZES.habilidades.height,
+    clickRadius: 28,
+    blocking: true,
+  }),
 });
 
 /**
@@ -135,6 +185,25 @@ export const BASE_NPCS = Object.freeze([
     id: "npc_mercado_base",
     typeId: "mercador",
     x: 710,
+    y: 377,
+  }),
+
+  /**
+   * O MESTRE DE HABILIDADES, AO LADO do mercador.
+   *
+   * (880, 377) e 170px a direita do mercador, na MESMA altura — os dois
+   * ficam na mesma linha do calcamento, e nao um atras do outro. A
+   * leitura e a de duas bancas: quem entra no hub ve as duas de uma vez
+   * e escolhe a que precisa
+   *
+   * 170px e o menor espacaco que ainda deixa o mestre com a propria
+   * largura. A arte e 108px em tela, entao uma separacao menor faria as
+   * duas se tocarem
+   */
+  Object.freeze({
+    id: "npc_habilidades_base",
+    typeId: "habilidades",
+    x: 880,
     y: 377,
   }),
 ]);

@@ -14,6 +14,19 @@
  * confere que o jogador esta mesmo em cima do portal e so entao troca.
  * Um botao que chamasse `setMap` no cliente serviria para teleportar
  * para qualquer lugar sem andar ate o portal
+ *
+ * ## O PORTAL TRAVADO
+ *
+ * A Floresta Sombria so abre com a campanha do mapa 1 acabada, e a box
+ * mostra isso. A trava e DITADA pelo motor (`portal.bloqueado` e
+ * `portal.motivo`, do mesmo `dadosDaTrava` que o servidor usa para
+ * recusar), entao a caixa nunca promete uma viagem que vai ser negada,
+ * e nunca esconde uma que vai passar.
+ *
+ * O botao fica desligado com o motivo escrito na tela, e nao so no
+ * `title`: um botao morto sem explicacao e a mesma coisa que nao ter
+ * saida nenhuma. O motivo tambem vai no aviso do servidor quando o
+ * jogador insiste — mas ele nao consegue insistir, e e esse o ponto
  */
 
 export default function PortalBox({
@@ -24,9 +37,23 @@ export default function PortalBox({
 }) {
   if (!portal) return null;
 
+  /**
+   * A TRAVA, com `false` como padrao.
+   *
+   * Sem o campo, ou com ele explicitamente `false`, o portal esta
+   * aberto. Assim um painel antigo — ou o Single player antes desta
+   * regra — nao trava portal nenhum por accidento
+   */
+  const bloqueado = portal.bloqueado === true;
+
   return (
     <div
-      className="prt-box"
+      className={[
+        "prt-box",
+        bloqueado ? "is-locked" : "",
+      ]
+        .filter(Boolean)
+        .join(" ")}
       style={{
         // o minimapa e desenhado no canvas, entao nao ha elemento DOM
         // para se grudar. A posicao vem das MESMAS constantes que o
@@ -36,17 +63,28 @@ export default function PortalBox({
       }}
       data-portal={portal.id}
       data-destino={portal.destino}
+      data-bloqueado={bloqueado ? "sim" : "nao"}
     >
-      <p className="prt-box__label">Portal</p>
+      <p className="prt-box__label">
+        {bloqueado ? "Portal selado" : "Portal"}
+      </p>
 
       <p className="prt-box__name">{portal.nome}</p>
+
+      {bloqueado && (
+        <p className="prt-box__lock" role="status">
+          {portal.motivo ?? "Este portal ainda nao se abriu."}
+        </p>
+      )}
 
       <button
         type="button"
         className="prt-box__go"
         onClick={() => onTravel?.(portal.id)}
+        disabled={bloqueado}
+        title={bloqueado ? (portal.motivo ?? "Bloqueado") : "Atravessar"}
       >
-        Atravessar
+        {bloqueado ? "Selado" : "Atravessar"}
       </button>
     </div>
   );

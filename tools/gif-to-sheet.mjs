@@ -32,9 +32,17 @@ const HERE = dirname(fileURLToPath(import.meta.url));
  */
 export const SHEETS = {
   arbalist: {
-    sourceDir: "src/assets/sprites/arbalist",
+    sourceDir: "src/assets/sprites/new_arbalist_2",
     output: "src/assets/sprites/arbalist-sheet.png",
-    frameSize: 64,
+
+    /**
+     * A CELULA SUBIU DE 64 PARA 84.
+     *
+     * As 17 lanes da arte nova medem 84x84, todas iguais — e a ferramenta
+     * recusa uma lane maior que a celula em vez de cortar pixel da arte.
+     * A folha antiga (576x1088) era de 64x64; a nova sai de 84x84
+     */
+    frameSize: 84,
     prefix: "ARBALIST",
   },
   zumbi: {
@@ -375,6 +383,54 @@ export const SHEETS = {
      * bicho que nao persegue quase nao entra na janela de golpe
      */
     shoot: false,
+  },
+
+  /**
+   * O HULK, O CHEFE DA ARENA.
+   *
+   * ## A MESMA PASTA DO GOBLIN
+   *
+   * `sourceDir` e `src/assets/sprites/hulk` — a MESMA arte que o Goblin
+   * Saqueador usa. A pasta se chama `hulk` e nao `goblin` desde o
+   * começo: e o nome que a arte teve, e o goblin passou a usar ela
+   * depois
+   *
+   * Sao duas folhas de saida diferentes para um so par de gifs, e isso
+   * e o que permite as DUAS criaturas existirem com stats e
+   * comportamentos distintos mesmo tendo a mesma cara
+   *
+   * ## O GOLPE AGORA EXISTE
+   *
+   * A pasta `attack/` foi preenchida depois de a folha do goblin ser
+   * montada pela primeira vez, e e por isso que o goblin esta com
+   * `shoot: false` acima. O hulk NAO: ele ataca de verdade, e e um
+   * AGGRESSIVO com `aggroRange` grande, entao a falta de animacao de
+   * golpe seria visivel em todas as lutas
+   *
+   * Como a arte e a mesma, um pedido de golpe aqui mostra EXATAMENTE o
+   * que o goblin mostra hoje: o parado. Sao duas criaturas com nomes,
+   * numeros e comportamentos diferentes e a mesma arte — se isso for
+   * um problema visual, a correcao e trocar a pasta de origem do hulk,
+   * nao mexer nesta folha
+   */
+  hulk: {
+    sourceDir: "src/assets/sprites/hulk",
+    output: "src/assets/sprites/hulk-sheet.png",
+    frameSize: 68,
+    prefix: "HULK",
+
+    // tem `idle` desenhado, com oito quadros
+    idle: true,
+
+    /**
+     * O golpe esta em `attack/`, e nao em `shoot/`.
+     *
+     * E o mesmo nome que o guerreiro usa, e pela mesma razao: e corpo a
+     * corpo e o nome da pasta e o da arte de origem, nao uma
+     * descricao do que o golpe faz
+     */
+    shootDir: "attack",
+    shoot: true,
   },
 };
 

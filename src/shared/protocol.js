@@ -28,7 +28,6 @@ export const PARTY_MAX = 3;
 export const CLIENT_COMMANDS = Object.freeze({
   JOIN: "JOIN",
   INPUT: "INPUT",
-  INPUT: "INPUT",
   ACTION: "ACTION",
   PANEL: "PANEL",
   PING: "PING",
@@ -126,6 +125,22 @@ export const PANEL_OPS = Object.freeze({
    */
   TRAVESSAR_PORTAL: "TRAVESSAR_PORTAL",
 
+  /**
+   * A ARENA DO CHEFE: um botao que entra e sai.
+   *
+   * E o unico `op` de viagem que nao passa por portal, e por isso ele nao
+   * recebe o id de destino: o servidor sabe que a arena e `boss_1` e sabe
+   * de onde o jogador veio. Aceitar um mapa vindo do cliente daria a
+   * qualquer um um teletransporte para onde quisesse — o mesmo motivo que
+   * o `TRAVESSAR_PORTAL` acima nao aceita destino
+   *
+   * O segundo clique no botao e o mesmo `op`: quem decide o sentido e o
+   * mapa em que o jogador esta, e nao o botao. Um `op` para entrar e
+   * outro para sair permitiria que o cliente ficasse travado na arena se
+   * um dos dois se perdesse
+   */
+  IR_PARA_ARENA: "IR_PARA_ARENA",
+
   /* ------------------------------------------------------------------
      GUILDA
      ------------------------------------------------------------------
@@ -213,6 +228,75 @@ ENCHANT: "ENCHANT",
    * cliente nao pode escolher quanto paga
    */
   BUY_POTION: "BUY_POTION",
+
+  /**
+   * COMPRAR um livro de habilidade com o Mestre de Habilidades.
+   *
+   * ## POR QUE E UM OP E NAO O `USE_ITEM` DE NOVO
+   *
+   * Porque `USE_ITEM` gasta o livro da mochila, e este ENTREGA um. Sao
+   * a mesma coisa vista de lados opostos, e misturar as duas daria um
+   * `USE_ITEM` que cria itens
+   *
+   * O `itemId` e o do LIVRO, e nao o da skill: e o livro que tem preco.
+   * O servidor passa esse id pelo catalogo de livros e resolve a skill
+   * por ele, entao um id de skill forjado no pedido vira um livro que
+   * nao existe e a compra e recusada
+   *
+   * O preco segue a regra do `BUY_POTION`: vem do catalogo do SERVIDOR,
+   * e o que vier no pedido e descartado
+   */
+  BUY_SKILL_BOOK: "BUY_SKILL_BOOK",
+
+  /* ------------------------------------------------------------------
+     MORTE
+     ------------------------------------------------------------------
+     Os dois jeitos de voltar ao jogo depois de morrer. Nao ha um
+     comando so porque a escolha e do jogador e o preco de cada uma e
+     diferente: um custa ouro, o outro custa XP. Um comando unico com um
+     parametro "como" deixaria o cliente escolhendo o preco de si mesmo
+   */
+
+  /**
+   * REVIVER NA HORA, pagando ouro.
+   *
+   * Quem decide o preco e o SERVIDOR, e ele confere contra a mochila de
+   * quem pediu. O painel mostra o valor porque o jogador precisa saber
+   * antes de clicar, mas se o cliente mandasse o valor, bastaria mandar
+   * zero
+   *
+   * Nao leva `custo` no payload: e o servidor que cobra, e o painel
+   * mostra o mesmo numero que o servidor vai cobrar
+   */
+  REVIVER: "REVIVER",
+
+  /**
+   * VOLTAR PARA A BASE perdendo parte do XP.
+   *
+   * Nao custa ouro — custa o que o jogador acumulou no nivel. E nao
+   * leva `xp` no payload pelo mesmo motivo do de cima: quem calcula a
+   * perda e o servidor, sobre o XP que ele proprio concedeu
+   *
+   * A BASE e o `DEFAULT_MAP_ID`. O servidor resolve o destino, e nao o
+   * cliente: aceitar um `mapId` aqui deixaria qualquer um se mandar
+   * para o vale sem portal nenhum
+   */
+  VOLTAR_BASE: "VOLTAR_BASE",
+
+  /**
+   * TELEPORTAR para o fim da viagem, gastando um pergaminho.
+   *
+   * Nao leva coordenada no payload, e e o ponto mais importante deste
+   * comando: se o cliente mandasse `x`/`y`, qualquer um se teleporte
+   * para onde quisesse, atravessando o mapa inteiro de uma vez. O
+   * servidor resolve o destino pelo plano de viagem que ELE esta
+   * calculando, e ignora qualquer coordenada que venha junto
+   *
+   * O pergaminho tambem nao vem no pedido, pelo mesmo motivo do revive:
+   * quem conta e quem gasta e o servidor, contra a mochila de quem
+   * pediu
+   */
+  TELEPORTAR: "TELEPORTAR",
 });
 
 
@@ -317,7 +401,16 @@ export const REJECT = Object.freeze({
   BAD_MESSAGE: "Mensagem invalida.",
   BAD_VERSION: "Versao de protocolo diferente.",
   NO_NAME: "Escreva um nome para entrar.",
-  NAME_TAKEN: "Esse nome ja esta no jogo.",
+  /**
+   * O NOME JA ESTA CONECTADO EM OUTRO LUGAR.
+   *
+   * A trava de um personagem so por nickname: "Teste" e "teste" sao o
+   * mesmo personagem, entao abrir em outro navegador e negado. O texto
+   * fala de personagem e nao so de "nome", porque e o personagem que
+   * esta logado — e e assim que o jogador entende o que fechar
+   */
+  NAME_TAKEN:
+    "Este personagem ja esta logado em outra janela.",
   UNKNOWN_CLASS: "Classe desconhecida.",
   ALREADY_JOINED: "Voce ja entrou nesta partida.",
   RATE_LIMIT: "Voce esta mandando comandos demais.",
@@ -346,8 +439,12 @@ export const REJECT = Object.freeze({
   // classe e parte da identidade do personagem: aceitar a nova
   // classe gravaria por cima do progresso antigo e o jogador
   // perderia nivel, ouro e missoes sem ter pedido nada
+  //
+  // O texto diz o que fazer — escolher a classe certa — porque o
+  // jogador so descobre que existe um personagem anterior quando
+  // tenta entrar
   CHARACTER_CLASS_MISMATCH:
-    "Esse nome ja tem um personagem de outra classe.",
+    "Este nickname ja tem um personagem de outra classe. Entre com a classe original.",
 });
 
 /** monta um comando do cliente */

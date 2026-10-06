@@ -5,6 +5,21 @@ const CONTROL_EFFECTS = new Set([
   "silence",
 ]);
 
+/**
+ * OS EFEITOS QUE IMPEDEM CADA COISA.
+ *
+ * Sao conjuntos fixos, entao vivem no modulo. Antes cada chamada de
+ * `canMove`/`canAct`/`canCastSkill` alocava um array de strings
+ * literais, e `canMove` e chamada duas vezes por tique por jogador — no
+ * `updatePlayer` e no `walkToward`
+ *
+ * O `.some` continua, mas sobre uma constante. O ganho nao e o `.some`:
+ * e nao existir array novo por chamada
+ */
+const TRAVAM_MOVIMENTO = ["stun", "freeze", "root"];
+const TRAVAM_ACAO = ["stun", "freeze"];
+const TRAVAM_SKILL = ["stun", "freeze", "silence"];
+
 export class StatusSystem {
   apply(target, sourceEffect, source = null) {
     const effect = {
@@ -109,6 +124,31 @@ export class StatusSystem {
           // direto.
           if (effect.source) {
             entity.lastHitBy = effect.source;
+
+            /**
+             * O DoT tambem tem HORA, e nao so autor.
+             *
+             * Sem isto, o `lastHitBy` de um veneno fica no mob ate a
+             * poisoning acabar, e um abate que acontece muito depois
+             * ainda paga para quem aplicou. Com a hora, o abate so
+             * reconhece o veneno enquanto ele esta realmente burnsando
+             */
+            entity.lastHitAt = Date.now();
+
+            /**
+             * E A MARCA DE QUE FOI O VENENO, e nao um golpe.
+             *
+             * O motor usa isso para tratar o abate por DoT diferente
+             * do abate por golpe direto: quem envenenou e o dono mesmo
+             * que tenha ido embora, e nao um jogador "parado" que
+             * precisa estar atacando para ser creditado
+             *
+             * A flag e necessaria porque o efeito sai do
+             * `statusEffects` assim que o HP zera, dentro deste
+             * `update` e antes do `killEnemy`: no abate, o array ja
+             * estaria limpo e a autoria do veneno seria ilegivel
+             */
+            entity.lastHitPorDoT = true;
           }
 
           effect.tickTimer += effect.tickInterval;
@@ -222,23 +262,34 @@ export class StatusSystem {
     return Math.max(0, multiplier);
   }
 
+  /**
+   * OS EFEITOS QUE IMPEDEM CADA COISA.
+   *
+   * Sao conjuntos fixos, entao vivem no modulo. Antes cada chamada de
+   * `canMove`/`canAct`/`canCastSkill` alocava um array de strings
+   * literais — e `canMove` e chamada duas vezes por tique por jogador, no
+   * `updatePlayer` e no `walkToward`
+   *
+   * O `.some` sobre esse array continua, mas agora sobre uma constante. O
+   * ganho nao e o `.some`: e nao existir array novo por chamada
+   */
   canMove(entity) {
-    return !["stun", "freeze", "root"].some((type) =>
-      this.has(entity, type),
-    );
-  }
+  return !TRAVAM_MOVIMENTO.some((type) =>
+    this.has(entity, type),
+  );
+}
 
-  canAct(entity) {
-    return !["stun", "freeze"].some((type) =>
-      this.has(entity, type),
-    );
-  }
+canAct(entity) {
+  return !TRAVAM_ACAO.some((type) =>
+    this.has(entity, type),
+  );
+}
 
-  canCastSkill(entity) {
-    return !["stun", "freeze", "silence"].some((type) =>
-      this.has(entity, type),
-    );
-  }
+canCastSkill(entity) {
+  return !TRAVAM_SKILL.some((type) =>
+    this.has(entity, type),
+  );
+}
 
   isInvulnerable(entity) {
     return this.has(entity, "invulnerability");

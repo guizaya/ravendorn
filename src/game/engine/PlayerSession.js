@@ -5,6 +5,7 @@ import { QuestLog } from "../quests/QuestLog.js";
 import { Bestiary } from "../bestiary/Bestiary.js";
 import { Craft } from "../craft/Craft.js";
 import { Collection } from "../collection/Collection.js";
+import { darKitDeTeste } from "../entities/kitDeTeste.js";
 
 /**
  * Tudo o que pertence a UM jogador, e nao ao mundo.
@@ -37,6 +38,25 @@ export function createPlayerSession(
     { id: id ?? `p_${classDefinition.id}`, name },
   );
 
+  const equipment = new Equipment();
+
+  /* ==============================================================
+     KIT DE TESTE — APAGAR ESTAS DUAS LINHAS
+     ==============================================================
+     Um equipamento para o personagem novo, só para a classe que já
+     tem item no catálogo. É teste, não conteúdo do jogo.
+
+     Apague o bloco abaixo E o import do `darKitDeTeste` lá em cima.
+     Não há flag de desligamento: uma flag esquecida continua dando
+     equipamento a todo mundo, e isso é pior do que código apagado.
+
+     A chamada acontece ANTES do objeto da sessão ser montado, porque
+     o `darKitDeTeste` recebe a sessão pronta e preenche o
+     `equipment` dela. Ele foi chamado antes deste bloco justamente
+     para isso: é a única linha dele que depende da ordem
+     ============================================================== */
+  darKitDeTeste({ classId: classDefinition.id, equipment });
+
   return {
     id: player.id,
     name: player.name,
@@ -60,7 +80,7 @@ export function createPlayerSession(
 
     // o estado privado deste jogador
     inventory: new Inventory(),
-    equipment: new Equipment(),
+    equipment,
     quests: new QuestLog(),
     bestiary: new Bestiary(),
     craft: new Craft(),
@@ -136,6 +156,26 @@ export function createPlayerSession(
     // `Map` de modulo e compartilhado por todos, e arrastar uma
     // skill na Ana ligava o automatico dela no Bento tambem
     skillAuto: new Set(),
+
+    /**
+     * AS HABILIDADES QUE ESTE JOGADOR APRENDEU.
+     *
+     * Nasce VAZIO, e essa e a mudanca de regra: o personagem comeca sem
+     * nenhuma habilidade. Quem ensina e o livro, comprado com o Mestre de
+     * Habilidades — nao o nivel
+     *
+     * E um `Set` pelo mesmo motivo do `skillAuto` acima: no servidor um
+     * `Set` de modulo seria compartilhado por todos, e a Ana aprender
+     * uma skill ligaria a do Bento tambem
+     *
+     * Guarda o ID da skill (`"arbalist_quick_shot"`), e nao o slot: o
+     * slot e a posicao no array da classe e muda se a ordem do catalogo
+     * mudar, e um save antigo apontaria para a habilidade errada
+     *
+     * A ULTIMATE NAO ENTRA AQUI. Ela e liberada pelo nivel 6, e nao por
+     * livro — ver `ULTIMATE_NIVEL` em `src/data/skills/index.js`
+     */
+    habilidadesAprendidas: new Set(),
 
     // o caminho que o auto esta percorrendo
     autoWaypoint: null,
@@ -307,6 +347,58 @@ export function createPlayerSession(
      * loot e decidido no servidor.
      */
     lootFilter: null,
+
+    /**
+     * O RESULTADO DA BUSCA DE GUILDA deste jogador.
+     *
+     * ## POR QUE VIVE AQUI, E NAO NO MOTOR
+     *
+     * Era `this.searchResults`, um campo do MOTOR: a busca da Ana
+     * aparecia na aba Buscar do Bento, que nem tinha digitado nada. No
+     * servidor o motor e compartilhado por todo mundo conectado, entao
+     * um campo dele e a ultima busca que alguem fez — e nao a do dono da
+     * sessao que esta recebendo aquele painel
+     *
+     * E o mesmo motivo do resto desta sessao: a lista e privada do
+     * jogador, e dois jogadores buscando guilda ao mesmo tempo nao
+     * podem compartilhar um campo
+     *
+     * ## COMECA VAZIA DE PROPOSITO
+     *
+     * A aba Buscar e a mais importante para quem ainda nao tem guilda, e
+     * ela abre mostrando a lista. O termo vai no pedido, nao aqui: o que
+     * mora na sessao e o RESULTADO
+     */
+    guildaBusca: [],
+
+    /**
+     * A MORTE, e o PRAZO para escolher.
+     *
+     * ## POR QUE ISTO EXISTE
+     *
+     * O painel da morte (o `DeathPanel`) le UM campo so, `morte.morto`,
+     * e o servidor manda esse campo no painel a cada pacote. Ele nunca
+     * existiu: o componente esta no disco e o HUD o renderiza, mas o
+     * motor nao produzia o estado — entao o painel vivia fechado, sem
+     * erro nenhum, que e a pior forma de sumir
+     *
+     * ## POR QUE VIVE NA SESSAO E NAO NO MOTOR
+     *
+     * Pelos mesmos motivos de `lootFilter` e `message`: sao estado
+     * PRIVADO. No servidor dois jogadores podem estar mortos ao mesmo
+     * tempo, cada um com o proprio relogio correndo. Um campo do motor
+     * faria o prazo de um cair para o outro, e um deles seria puxado de
+     * volta a base enquanto ainda lia o preco da outra saida
+     *
+     * `restante` e o relogio em SEGUNDOS, e o motor e quem decrementa.
+     * O painel so exibe: um cliente que calculasse o prazo mostraria 5s
+     * com os botoes liberados enquanto o servidor ja estava voltando o
+     * jogador para a base
+     */
+    morte: {
+      ativo: false,
+      restante: 0,
+    },
 
     message: null,
     messageRemaining: 0,

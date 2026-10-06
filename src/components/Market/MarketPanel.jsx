@@ -1,6 +1,8 @@
 import { useMemo, useState } from "react";
 import ItemIcon from "../UI/ItemIcon.jsx";
 import InvSlotView from "../UI/InvSlotView.jsx";
+import ItemCard from "../UI/ItemCard.jsx";
+import { slotsNecessarios } from "../../game/inventory/Inventory.js";
 import {
   ANUNCIOS_MAXIMOS,
   ANUNCIO_DIAS,
@@ -51,6 +53,13 @@ const ABAS = [
   { id: "vender", icone: "⚑", label: "Vender" },
   { id: "historico", icone: "≡", label: "Historico" },
 ];
+
+/**
+ * O `inventory` do painel ja vem no formato do `summary` do servidor, e
+ * o `summary` nao tem `stacks`: tem `items`. A `slotsNecessarios` quer
+ * pilhas, entao a lista vira uma de lista
+ */
+const inventarioEmPilhas = (inventory) => inventory?.items ?? [];
 
 /**
  * O painel aguenta `market` nulo.
@@ -132,7 +141,21 @@ export default function MarketPanel({
         </button>
       </nav>
 
-      <div className="mkt-panel__body">
+      {/*
+        O CORPO, COM A COLUNA QUANDO A ABA E A DE COMPRAR.
+        *
+        * A modifier so vale para a vitrine: as outras duas abas
+        * (vender e historico) sao listas de uma coluna com a barra de rolagem
+        * do proprio corpo, e um `display: flex` aqui as quebraria
+      */}
+      <div
+        className={[
+          "mkt-panel__body",
+          aba === "comprar" ? "mkt-panel__body--vitrine" : "",
+        ]
+          .filter(Boolean)
+          .join(" ")}
+      >
         {aba === "comprar" && (
           <ComprarAba
             data={data}
@@ -168,111 +191,200 @@ export default function MarketPanel({
 function ComprarAba({ data, inventory, onBuy }) {
   const [tipo, setTipo] = useState("");
   const [raridade, setRaridade] = useState("");
+  const [busca, setBusca] = useState("");
 
   const filtrados = useMemo(() => {
+    /**
+     * O TERMO, em minusculas, uma vez.
+     *
+     * `.toLowerCase()` dentro do `filter` repetiria a conversao para cada
+     * anuncio a cada tecla digitada. Com a vitrine em dezenas de itens e
+     * a busca ja rodando a cada tecla, isso e a diferenca entre digitar e
+     * digitar com atraso
+     */
+    const termo = busca.trim().toLowerCase();
+
     return data.listings.filter((listing) => {
       if (tipo && tipoDoAnuncio(listing) !== tipo) return false;
       if (raridade && listing.rarity !== raridade) {
         return false;
       }
 
+      if (termo) {
+        /**
+         * A BUSCA E PELO NOME DO ITEM, e nao pelo texto do anuncio.
+         *
+         * O anuncio tem nome de quem vende e preco, e nenhum dos dois
+         * ajuda o jogador a achar uma coisa: quem procura "arco" esta
+         * procurando um arco. O nome vem do CATALOGO, e nao do
+         * `describeAnuncioItem`, que acrescenta a quantidade e a raridade
+         * por extenso — e "Arco de caça" nao casaria com quem digitou
+         * "arco"
+         */
+        const nome = getItem(listing.itemId)?.name ?? "";
+
+        if (!nome.toLowerCase().includes(termo)) {
+          return false;
+        }
+      }
+
       return true;
     });
-  }, [data.listings, tipo, raridade]);
+  }, [data.listings, tipo, raridade, busca]);
 
   /**
-   * O item cabe na mochila do comprador?
+   * O ITEM CABE NA MOCHILA DO COMPRADOR?
    *
    * A checagem e do LADO DO CLIENTE e e uma economia, nao uma
-   * seguranca: o servidor confere de novo antes de entregar. Mostrar o
-   * botao ativo num item que nao cabe seria o jogador descobrir o
-   * problema so depois de clicar
+   * seguranca: o servidor confere de novo antes de entregar
+   *
+   * Duas coisas foram corrigidas aqui. A primeira e que esta funcao lia
+   * `inventory.freeSlots`, um campo que o servidor NUNCA envia — o
+   * `summary` manda `used`, `capacity` e `isFull`. Um `undefined > 0`
+   * da `false`, entao o botao ficava "A mochila esta cheia" para todo
+   * anuncio, com a mochila livre
+   *
+   * A segunda e que "tem 1 slot livre" nao basta: um anuncio de 200
+   * materiais precisa de 3 slots mesmo com 1 livre, porque cada pilha
+   * guarda 99. A conta e a do servidor (`slotsNecessarios`), para o
+   * botao e a recusa dizerem a mesma coisa
    */
-  const cabe = () => {
-    if (inventory?.isFull) return false;
+  const livres = data.mochila?.livres ?? null;
 
-    return inventory ? inventory.freeSlots > 0 : true;
+  const cabe = (listing) => {
+    // sem os slots no painel (Single player) deixa o botao agir: quem
+    // decide, no fim das contas, e o servidor
+    if (livres === null) return true;
+
+    const precisa = slotsNecessarios(
+      inventarioEmPilhas(inventory),
+      listing.itemId,
+      listing.count,
+      listing.rarity,
+    );
+
+    return precisa <= livres;
   };
 
   return (
-    <>
-      <Filtros
-        tipo={tipo}
-        raridade={raridade}
+    /**
+     * A VITRINE DE DUAS COLUNAS: o filtro na lateral, os cards na
+     * direita.
+     *
+     * ## POR QUE OS FILTROS FORAM PARA A ESQUERDA
+     *
+     * Eles ficavam numa faixa ACIMA da lista, empurrando os anuncios
+     * para baixo e fazendo o jogador rolar ate comecar a ver. E o filtro
+     * e uma ferramenta de leitura: ele fica ao lado do que filtra, para
+     * mudar o filtro e ver o resultado sem que a pagina se mexa
+     *
+     * ## POR QUE UM CARD E NAO A LINHA ANTIGA
+     *
+     * O anuncio usava uma linha propria (`mkt-item`), com arte, nome,
+     * vendedor, preco e botao em tres colunas. A vitrine e uma lista de
+     * coisas para comparar, e comparar precisa de um formato que se repete
+     * e se alinha. E o `ItemCard` — o mesmo da mochila e do encantar —
+     * ja faz isso, com a raridade na barrinha de cima do card
+     *
+     * O preco, o vendedor, o prazo e o botao entram no espaco de baixo do
+     * card, que e o que o `ItemCard` deixa para quem o usa
+     */
+    <div className="mkt-comprar">
+      <aside className="mkt-lateral">
+        <Filtros
+          tipo={tipo}
+          raridade={raridade}
           onTipo={setTipo}
-        onRaridade={setRaridade}
+          onRaridade={setRaridade}
         />
 
+        <label className="mkt-busca">
+          <span>Pesquisar</span>
+
+          <input
+            type="text"
+            className="mkt-busca__input"
+            placeholder="Nome do item..."
+            value={busca}
+            onChange={(event) => setBusca(event.target.value)}
+          />
+        </label>
+
+        {/*
+          O QUE A BUSCA CAIU FORA, e so quando ela e a causa.
+          *
+          * Sem isso a lista vazia dizia "nenhum anuncio com esse filtro"
+          * mesmo com a vitrine cheia: o jogador digitava "arco", nao
+          * achava, e nao sabia se o filtro ou a busca era o culpado
+        */}
+        {busca.trim() !== "" && (
+          <p className="mkt-lateral__conta">
+            {filtrados.length} de {data.listings.length}
+          </p>
+        )}
+      </aside>
+
       {filtrados.length === 0 ? (
-        <p className="inv-panel__empty">
+        <p className="inv-panel__empty mkt-vazia">
           {data.listings.length === 0
             ? "Nenhum anuncio no mercado."
-            : "Nenhum anuncio com esse filtro."}
+            : busca.trim() !== ""
+              ? "Nenhum item com esse nome."
+              : "Nenhum anuncio com esse filtro."}
         </p>
       ) : (
-        <ul className="mkt-list">
+        <div className="mkt-vitrine">
           {filtrados.map((listing) => (
-            <li
-              key={listing.id}
-              className="mkt-item"
-              style={
-                listing.color
-                  ? { "--mkt": listing.color }
-                  : undefined
-              }
-            >
-              <header className="mkt-item__head">
-                <ItemIcon
-                  itemId={listing.itemId}
-                  rarity={listing.rarity}
-                  className="mkt-item__icon"
-                  alt=""
-                />
+            <ItemCard key={listing.id} entry={listing}>
+              {/*
+                O QUE O CARDO NAO SABE: quem vende, por quanto, ate
+                quando, e o botao.
 
-                <span className="mkt-item__names">
-                  <strong>
-                    {describeAnuncioItem({
-                      itemId: listing.itemId,
-                      rarity: listing.rarity,
-                      count: listing.count,
-                    })}
-                  </strong>
+                Sao tres dados de um anuncio e nao de um item — e o
+                `ItemCard` cuida so do item. Passar o anuncio inteiro
+                como `entry` e o que faz o card mostrar a raridade e a
+                quantidade certas sem o `ItemCard` saber de mercado
+              */}
+              <span className="mkt-card__seller">
+                {listing.sellerName}
+              </span>
 
+              <span className="mkt-card__preco">
+                <strong>{listing.price}</strong>
+
+                {listing.count > 1 && (
                   <small>
-                    {listing.sellerName}
+                    {precoUnitario(listing.price, listing.count)}
+                    /un
                   </small>
-                </span>
+                )}
+              </span>
 
-                <span className="mkt-item__price">
-                  <strong>{listing.price}</strong>
-                  <small>
-                    {listing.count > 1 &&
-                      `${precoUnitario(
-                        listing.price,
+              <BarraTempo restanteMs={listing.restanteMs} />
+
+              <button
+                type="button"
+                className="mkt-item__buy mkt-card__buy"
+                onClick={() => onBuy?.(listing.id)}
+                disabled={!cabe(listing)}
+                title={
+                  cabe(listing)
+                    ? "Comprar"
+                    : `Nao cabe: precisa de ${slotsNecessarios(
+                        inventarioEmPilhas(inventory),
+                        listing.itemId,
                         listing.count,
-                      )}/un`}
-                  </small>
-                </span>
-              </header>
-
-              <footer className="mkt-item__foot">
-                <BarraTempo restanteMs={listing.restanteMs} />
-
-                <button
-                  type="button"
-                  className="mkt-item__buy"
-                  onClick={() => onBuy?.(listing.id)}
-                  disabled={!cabe()}
-                  title={cabe() ? "Comprar" : "A mochila esta cheia"}
-                >
-                  Comprar
-                </button>
-              </footer>
-            </li>
+                        listing.rarity,
+                      )} slot(s) e voce tem ${livres ?? 0}`
+                }
+              >
+                Comprar
+              </button>
+            </ItemCard>
           ))}
-        </ul>
+        </div>
       )}
-    </>
+    </div>
   );
 }
 
@@ -610,23 +722,70 @@ function VenderAba({ data, inventory, onCancel, onList }) {
 /* ------------------------------------------------------------------ */
 
 function HistoricoAba({ data }) {
-  if (data.historico.length === 0) {
-    return (
-      <p className="inv-panel__empty">
-        Nada foi vendido ainda.
-      </p>
-    );
-  }
+  /**
+   * O HISTORICO E MEU DE PRIMEIRO.
+   *
+   * O servidor manda as vendas todas com uma marca `minha` — as que eu
+   * vendi e as que eu comprei. Abrir em "todas" punha o vendedor no
+   * meio do movimento do mundo, e o que ele quer ver depois de vender
+   * e a linha DELE: o que saiu, para quem e por quanto
+   *
+   * O "todas" continua la para quem quer ver o preco que os outros
+   * players estao pagando — que e a outra coisa que se olha o mercado
+   */
+  const [escopo, setEsco] = useState("minhas");
+
+  const vendas =
+    escopo === "minhas"
+      ? data.historico.filter((venda) => venda.minha)
+      : data.historico;
 
   return (
     <>
-      <p className="mkt-hint">
-        As vendas mais recentes primeiro. O total e o preco por
-        unidade.
-      </p>
+      <div className="mkt-historico__escopo">
+        <button
+          type="button"
+          className={[
+            "mkt-chip",
+            escopo === "minhas" ? "is-on" : "",
+          ]
+            .filter(Boolean)
+            .join(" ")}
+          onClick={() => setEsco("minhas")}
+        >
+          Minhas
+        </button>
 
-      <ul className="mkt-list">
-        {data.historico.map((venda) => (
+        <button
+          type="button"
+          className={[
+            "mkt-chip",
+            escopo === "todas" ? "is-on" : "",
+          ]
+            .filter(Boolean)
+            .join(" ")}
+          onClick={() => setEsco("todas")}
+        >
+          Todas
+        </button>
+      </div>
+
+      {vendas.length === 0 ? (
+        <p className="inv-panel__empty">
+          {escopo === "minhas"
+            ? "Nada foi vendido ainda."
+            : "O mercado nao tem movimento ainda."}
+        </p>
+      ) : (
+        <>
+          <p className="mkt-hint">
+            {escopo === "minhas"
+              ? "Suas vendas e compras, mais recentes primeiro."
+              : "As vendas do mercado, mais recentes primeiro."}
+          </p>
+
+          <ul className="mkt-list">
+            {vendas.map((venda) => (
           <li
             key={venda.id}
             className={[
@@ -672,7 +831,9 @@ function HistoricoAba({ data }) {
             </header>
           </li>
         ))}
-      </ul>
+          </ul>
+        </>
+      )}
     </>
   );
 }

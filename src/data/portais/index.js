@@ -1,14 +1,27 @@
 /**
  * Os PORTAIS DO MAPA.
  *
- * Os portais do vale e o do hub tem PARA ONDE IR; o da floresta ainda
- * nao. Um portal sem `destino` e um enfeite, e a tela nao oferece nada
- * sobre ele
+ * Os portais do vale e o do hub tem PARA ONDE IR; o da floresta tambem,
+ * e e o unico que tem TRAVA: ele so abre com a campanha do mapa 1
+ * acabada. Um portal sem `destino` e um enfeite, e a tela nao oferece
+ * nada sobre ele
+ * e e o unico que tem TRAVA: ele so abre com a campanha do mapa 1
+ * acabada. Um portal sem `destino` e um enfeite, e a tela nao oferece
+ * nada sobre ele
  *
  * O caminho e de ida e volta entre o hub e o vale:
  *
  *   hub -> portal_pantano -> vale
  *   portal_pantano -> portal_hub -> hub
+ *
+ * E a ida da campanha:
+ *
+ *   portal_floresta -> Floresta Sombria (so com o mapa 1 completo)
+ *   portal_mapa2    -> vale (sempre, a volta e livre)
+ *
+ * A volta nao tem trava nenhuma, e de proposito: a trava segura a
+ * ENTRADA no mapa novo, e um jogador preso la fora nao tem como voltar
+ * nem terminar o que falta
  *
  * Os dois lados declaram o par pelo `id` do outro portal. Nenhum guarda
  * coordenada de chegada, entao mover um portal move a chegada dos dois
@@ -168,6 +181,24 @@ export const PORTALS = [
      */
     destino: "map_2",
     chegada: "portal_mapa2",
+
+    /**
+     * A TRAVA: SO ATRAVESSA COM A CAMPANHA DO MAPA 1 ACABADA.
+     *
+     * `exigeMissaoDe: "map_1"` e so a DECLARACAO da regra — quais
+     * missoes faltam e quem avalia isso mora em `data/quests`, nas
+     * funcoes `portalLiberado` e `dadosDaTrava`
+     *
+     * A declaracao fica no portal porque e uma propriedade DO PORTAL: o
+     * dia em que a Floresta Sombria deixar de exigir a campanha e o dia
+     * em que este objeto muda, e nao o dia em que o motor ganha um
+     * `if` a mais
+     *
+     * Sem isto o mapa 2 e alcancavel no minuto um: o jogador sai do hub,
+     * ve o portal da floresta e cai na campanha do mapa 2 sem nunca ter
+     * cacado no pantano
+     */
+    exigeMissaoDe: "map_1",
   },
 ];
 

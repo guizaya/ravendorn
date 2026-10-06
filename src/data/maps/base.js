@@ -127,10 +127,23 @@ export const BASE_MAP = {
   cameraZoom: 1 / 0.7,
 
 
+/**
+   * O HUB NAO E DE COMBATE.
+   *
+   * O `emZonaDeCombate` do motor lia `map.id !== "base"` antes, e so
+   * este `false` e o que mantem o portal do hub sem briga: e o unico mapa
+   * do jogo onde nao se bate em nada
+   *
+   * Declarar aqui tira a regra do lugar errado. Com o id no motor, um
+   * mapa novo — uma arena, um bosses, um evento — era de combate por
+   * acidente, e o jeito de um mapa nao ter briga era ter o nome certo
+   */
+  combat: false,
+
   /**
    * A SEMENTE do sorteio deste mapa.
    *
-   * O vale usa a dele para espalhar criaturas e arvores. O hub nao tem
+   * O vale usa a dela para espalhar criaturas e arvores. O hub nao tem
    * zona nem prop, entao a semente nao sorteia nada por enquanto — mas
    * ela mora AQUI, e nao dentro do motor, porque e propriedade do mapa.
    * O motor le `map.seed` e nao sabe de onde veio

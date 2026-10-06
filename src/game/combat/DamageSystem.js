@@ -179,6 +179,35 @@ export class DamageSystem {
     // `lastHitBy` nao interfere neles.
     if (attacker && attacker !== target) {
       target.lastHitBy = attacker;
+
+      /**
+       * QUANDO O GOLPE ACONTECEU, e nao so quem deu.
+       *
+       * O `lastHitBy` sozinho nao diz se o golpe e de agora. Ele e
+       * gravado a cada dano e NUNCA e limpo: o mob leva o primeiro
+       * golpe, o jogador vai caçar outro, e tres minutos depois o mob
+       * morre de DoT — e o dono do abate ainda era o jogador que saiu
+       * para longe ha tres minutos
+       *
+       * O sintoma era o pior dos dois: o jogador que tinha acabado de
+       * matar o proprio mob viajava quatro mil pixels para a base e,
+       * quando voltava, recebia o loot de um abate que ele nao deu
+       *
+       * So o tempo de agora gravado resolve: o dono passa a valer
+       * enquanto o golpe for recente, e um abate cujo dono ultimo
+       * atacou faz tempo cai no `null` e nao paga ninguem
+       */
+      target.lastHitAt = Date.now();
+
+      /**
+       * GOLPE DIREITO, entao a marca do veneno e apagada.
+       *
+       * Um mob pode estar envenenado e levar um golpe na mao. Se o
+       * golpe direto nao limpasse a marca, o abate seguinte seria
+       * creditado a quem envenenou — que foi o ultimo a queimar, nao
+       * o ultimo a bater
+       */
+      target.lastHitPorDoT = false;
     }
 
     this.onDamaged?.(attacker, target, amount, action);

@@ -143,7 +143,26 @@ const conviteAtivo = convite ?? party?.convite ?? null;
   };
 
   return (
-    <section className="pty-box">
+    <section
+      className={[
+        "pty-box",
+        /**
+         * A BORDA ESQUERDA acende com convite na tela.
+         *
+         * A `ConviteBox` dentro da caixa ja avisa que ha convite, com a
+         * moldura dourada. Mas a borda da CAIXA e o que o jogador ve
+         * quando o olho esta no jogo e nao na coluna: e ela que diz,
+         * de longe, que alguem esta chamando
+         *
+         * A fonte e a `ConviteBox`, e nao o `party` do painel, porque o
+         * evento chega antes do pacote — um convite esperando o painel
+         * perderia quase a metade dos cinco segundos
+         */
+        conviteAtivo ? "is-invite" : "",
+      ]
+        .filter(Boolean)
+        .join(" ")}
+    >
       {conviteAtivo && (
         <ConviteBox
           key={conviteAtivo.de?.id ?? "convite"}

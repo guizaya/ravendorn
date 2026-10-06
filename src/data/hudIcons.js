@@ -50,6 +50,7 @@
 export const HUD_ICON_IDS = [
   "stats",
   "bestiario",
+  "arena",
   "market",
   "collection",
   "craft",
@@ -68,6 +69,21 @@ export const HUD_ICON_IDS = [
 const HUD_ICON_GLYPH = {
   stats: "?",
   bestiario: "☠",
+
+  /**
+   * A ARENA DO CHEFE.
+   *
+   * E o `☠` do bestiario de proposito: os dois botoes sao sobre criaturas
+   * e luta, e a arena e ONDE a luta acontece. Um glifo proprio
+   * acrescentaria um nono desenho que o jogador precisa aprender sem
+   * dizer nada novo
+   *
+   * O botao e o mesmo nas duas direcoes e muda so o texto e a cor — o
+   * glifo e um so, e ver o mesmo icone virar "sair" e o que comunica que
+   * e a mesma porta
+   */
+  arena: "☠",
+
   market: "⇄",
 
   // a colecao usava o `⛁`, o mesmo caractere do catalogo de itens
@@ -104,6 +120,17 @@ const HUD_ICON_GLYPH = {
 export const HUD_ICON_FILE = {
   stats: "stats",
   bestiario: "bestiario",
+
+  /**
+   * A arte da arena AINDA NAO EXISTE.
+   *
+   * A entrada fica declarada com o nome do arquivo que DEVERIA estar la,
+   * pelo mesmo motivo da guilda logo abaixo: e o `hudIcons.test.js` que
+   * compara as duas listas e falha dizendo o que falta. Sem esta linha
+   * o icone cairia no glifo `☠` para sempre, e o botao da arena
+   * pareceria igual ao do bestiario
+   */
+  arena: "arena",
   market: "market",
   craft: "craft",
   collection: "colecao",

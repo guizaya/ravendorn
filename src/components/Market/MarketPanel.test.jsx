@@ -81,6 +81,15 @@ const dados = (over = {}) => ({
   historico: [],
   total: 0,
   coins: 1000,
+
+  /**
+   * A mochila de quem esta olhando. O servidor manda `livres` e
+   * `capacity`, e o painel so desabilita a compra quando estes numeros
+   * existem — sem eles (Single player) o botao age e quem decide e o
+   * servidor
+   */
+  mochila: { livres: 20, capacity: 20 },
+
   limites: {
     maxAnuncios: ANUNCIOS_MAXIMOS,
     precoMinimo: PRECO_MINIMO,
@@ -122,7 +131,7 @@ describe("as tres abas", () => {
       dados({
         listings: [anuncio()],
         meus: [anuncio({ id: "a_2" })],
-        historico: [anuncio({ id: "a_3" })],
+        historico: [anuncio({ id: "a_3", minha: true })],
       }),
     );
 
@@ -140,7 +149,41 @@ describe("as tres abas", () => {
 
     clicarNaAba("Historico");
 
+    /**
+     * O historico abre em "MINHAS", entao a linha do historico precisa
+     * da marca `minha` — que e o que o servidor envia quando a venda
+     * foi minha. Sem ela a linha seria de outro jogador e ficaria fora
+     * do escopo padrao
+     */
     expect(container.querySelectorAll(".mkt-item")).toHaveLength(1);
+  });
+
+  it("o historico abre so com as MINHAS vendas", () => {
+    const { container } = montarPainel(
+      dados({
+        historico: [
+          anuncio({ id: "a_minha", minha: true }),
+          anuncio({ id: "a_alheia", minha: false }),
+        ],
+      }),
+    );
+
+    fireEvent.click(
+      [...container.querySelectorAll("[role='tab']")].find((aba) =>
+        aba.textContent.includes("Historico"),
+      ),
+    );
+
+    expect(container.querySelectorAll(".mkt-item")).toHaveLength(1);
+
+    // e o botao "todas" traz as duas
+    fireEvent.click(
+      [...container.querySelectorAll("button")].find((b) =>
+        b.textContent.trim() === "Todas",
+      ),
+    );
+
+    expect(container.querySelectorAll(".mkt-item")).toHaveLength(2);
   });
 });
 
@@ -237,6 +280,109 @@ describe("a vitrine alheia", () => {
 
     expect(container.querySelectorAll(".mkt-item")).toHaveLength(0);
     expect(container.textContent).toContain("filtro");
+  });
+});
+
+describe("o espaco da mochila na hora de comprar", () => {
+  /**
+   * O BUG QUE ESTE BLOCO TRAVA.
+   *
+   * O painel decidia se o item cabia lendo `inventory.freeSlots`, e o
+   * `summary` do servidor NUNCA mandou esse campo — ele manda `used`,
+   * `capacity` e `isFull`. Um `undefined > 0` da `false`, entao o botao
+   * de compra ficava desabilitado com o titulo "A mochila esta cheia"
+   * para TODO anuncio, com a mochila livre
+   *
+   * O numero da tela agora vem de `data.mochila`, que o servidor monta
+   * com o mesmo `freeSlots` que ele usa para recusar a compra
+   */
+  const botao = (container) =>
+    container.querySelector(".mkt-item__buy");
+
+  const comEspaco = (livres) =>
+    montarPainel(
+      dados({
+        listings: [anuncio()],
+        mochila: { livres, capacity: 20 },
+      }),
+    );
+
+  it("compra liberada quando ha slot livre", () => {
+    const { container } = comEspaco(5);
+
+    expect(botao(container).disabled).toBe(false);
+    expect(botao(container).getAttribute("title")).toBe("Comprar");
+  });
+
+  it("compra bloqueada quando a mochila esta cheia de verdade", () => {
+    const { container } = comEspaco(0);
+
+    expect(botao(container).disabled).toBe(true);
+    expect(botao(container).getAttribute("title")).toContain(
+      "voce tem 0",
+    );
+  });
+
+  it("o motivo traz quantos slots o anuncio exige", () => {
+    // 99 de um material = 1 pilha; o titulo tem que dizer "1 slot"
+    const { container } = comEspaco(0);
+
+    expect(botao(container).getAttribute("title")).toContain(
+      "precisa de 1 slot",
+    );
+  });
+
+  it("um anuncio que funde no que ja existe nao gasta slot", () => {
+    const { container } = montarPainel(
+      dados({
+        listings: [
+          // a MESMA raridade da pilha do comprador: e por isso que funde
+          anuncio({
+            itemId: "slime_gel",
+            count: 10,
+            rarity: "common",
+          }),
+        ],
+        mochila: { livres: 0, capacity: 20 },
+      }),
+      {
+        // o comprador JA tem uma pilha parcial do mesmo item
+        inventory: {
+          items: [{ itemId: "slime_gel", count: 5, rarity: "common" }],
+          used: 20,
+          capacity: 20,
+          isFull: true,
+        },
+      },
+    );
+
+    expect(botao(container).disabled).toBe(false);
+  });
+
+  it("sem os slots no painel o botao age: quem decide e o servidor", () => {
+    const { container } = montarPainel(
+      dados({ listings: [anuncio()], mochila: undefined }),
+    );
+
+    expect(botao(container).disabled).toBe(false);
+  });
+
+  it("cada anuncio e julgado pelo seu proprio tamanho", () => {
+    const { container } = montarPainel(
+      dados({
+        listings: [
+          anuncio({ id: "a_1", itemId: "slime_gel", count: 10 }),
+          anuncio({ id: "a_2", itemId: "willow_bow", count: 3 }),
+        ],
+        mochila: { livres: 2, capacity: 20 },
+      }),
+    );
+
+    const botoes = container.querySelectorAll(".mkt-item__buy");
+
+    // o material cabe em 1 slot; 3 arcos nao empilham, dao 3
+    expect(botoes[0].disabled).toBe(false);
+    expect(botoes[1].disabled).toBe(true);
   });
 });
 

@@ -1,5 +1,6 @@
 import { MAX_LEVEL } from "../progression/Levels.js";
 import { getItem } from "../../data/items/index.js";
+import { SKILL_PACKS } from "../../data/skills/index.js";
 import { normalizeLootFilter } from "../loot/lootFilter.js";
 import { isEnchant } from "../../data/enchant/index.js";
 import { getQuest, normalizeRewards, questScopeOf } from "../../data/quests/index.js";
@@ -198,6 +199,31 @@ export function snapshotSession(sessao) {
       done: [...collection.done],
       bonus: collection.bonus,
     },
+
+    /**
+ * As HABILIDADES QUE O PERSONAGEM APRENDEU.
+ *
+ * ## POR QUE ESTE CAMPO E OBRIGATORIO NO SAVE
+ *
+ * O `useSkillSlot` no servidor recusa qualquer skill que nao esteja na
+ * lista. Sem isto no arquivo, o jogador que gastou 150 moedas e um livro
+ * para aprender a Quick Shot perderia a habilidade no proximo login — e
+ * o livro ja foi consumido, entao nao haveria como recuperar
+ *
+ * ## POR QUE SO O ID, E NAO O SLOT
+ *
+ * O `slot` e a posicao no array da classe. Reordenar o catalogo de
+ * habilidades mudaria o slot de uma skill ja aprendida, e o save antigo
+ * apontaria para a habilidade errada. O id (`arbalist_quick_shot`) e
+ * estavel
+ *
+ * ## POR QUE VAI UM ARRAY E NAO O `Set`
+ *
+ * Porque o `Set` e um `Set` na memoria e um array no arquivo. O
+ * `fromSave` reconstrói o `Set` ao ler, e e ele que filtra os ids contra
+ * o pack da classe — um id forjado no arquivo nao vira habilidade
+ */
+    habilidades: [...(sessao.habilidadesAprendidas ?? [])],
 
     /**
      * O filtro de coleta do jogador.
@@ -458,6 +484,29 @@ export function applyCharacterSave(
      */
     bonus: objeto(c.bonus),
   });
+
+  // --- habilidades aprendidas ---
+  //
+  // O `Set` e recriado do zero, e nao acrescido: um save editado nao
+  // pode acrescentar nada ao que a sessao ja tinha
+  //
+  // O FILTRO e o ponto. O id salvo precisa ser uma skill do pack DESTA
+  // classe: sem esta conferida, um arquivo com
+  // `"warrior_void_slash"` num Arbalist ensinaria uma habilidade que o
+  // `useSkillSlot` dele nem acha por slot — e o jogador entraria com uma
+  // skill invisivel na barra
+  //
+  // A ULTIMATE NAO PASSA AQUI. Ela nao esta no `Set` e nunca entra: e
+  // liberada pelo nivel, que ja foi lido e limitado no topo desta funcao
+  sessao.habilidadesAprendidas = new Set(
+    lista(bruto.habilidades)
+      .map((id) => texto(id, 64))
+      .filter((id) =>
+        SKILL_PACKS[sessao.classId]?.skills?.some(
+          (skill) => skill.id === id,
+        ),
+      ),
+  );
 
   // --- filtro de coleta ---
   //

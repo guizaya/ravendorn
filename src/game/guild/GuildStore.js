@@ -1,16 +1,24 @@
 import {
+GUILD_COFRE_SLOTS_MAX,
   GUILD_MEMBROS_MAX,
   GUILD_PEDIDOS_MAX,
   GUILD_PONTOS_MAX,
   GUILD_ROLE,
+  GUILD_NOME_MIN,
   GUILD_TALENTS,
+  GUILD_TALENT_NIVEL_MAX,
+  GUILD_TALENT_POR_CLIQUE,
   chaveDeBusca,
   getTalent,
   normalizarNome,
   normalizarTag,
   pontosDesde,
   podeGerenciar,
-  talentDisponivel,
+  talentNivel,
+  talentNoMaximo,
+  talentPontos,
+  talentPodeSubir,
+  talentProgresso,
   validarNomeGuilda,
   validarTagGuilda,
 } from "../../data/guild/index.js";
@@ -89,18 +97,39 @@ export class GuildStore {
    * guildas com o mesmo nome nao existem — o `nomes` barra a segunda —
    * mas "lobo" acha varias, e a lista precisa de uma ordem estavel
    */
-  buscar(termo, limite = 12) {
+buscar(termo, limite = 12) {
     const procurado = chaveDeBusca(termo);
 
-    if (!procurado) return [];
-
+    /**
+     * TERMO VAZIO E "MOSTRE TUDO", e nao "nao achei nada".
+     *
+     * Antes o `if (!procurado) return []` recusava o termo vazio, e a
+     * aba Buscar abria sempre vazia: o jogador so via guildas digitando
+     * algo e apertando Procurar. A lista do mundo e o que ele quer ao
+     * ABRIR a aba — o filtro e o que ele usa depois
+     *
+     * O `limite` continua valendo: sem ele, abrir a aba traria todas as
+     * guildas do servidor de uma vez, e o painel perderia o sentido de
+     * lista
+     */
     const achadas = [];
 
     for (const guilda of this.guilds.values()) {
-      const noNome = chaveDeBusca(guilda.nome).includes(procurado);
-      const naTag = guilda.tag.toLowerCase().includes(procurado);
+      /**
+       * SEM TERMO, NINGUEM E DESCARTADO.
+       *
+       * O filtro e aplicado so quando ha algo a comparar. Com termo, um
+       * `includes` de string vazia casaria com tudo, entao o `procurado`
+       * continua sendo o que separa os dois caminhos
+       */
+      if (procurado) {
+        const noNome = chaveDeBusca(guilda.nome).includes(procurado);
+        const naTag = guilda.tag.toLowerCase().includes(procurado);
 
-      if (noNome || naTag) achadas.push(guilda);
+        if (!noNome && !naTag) continue;
+      }
+
+      achadas.push(guilda);
     }
 
     return achadas
@@ -162,9 +191,22 @@ export class GuildStore {
       tag: normalizarTag(tag),
       liderId,
       coLiderId: null,
-      membros: new Map(),
+membros: new Map(),
       pedidos: [],
-      talentos: new Set(),
+
+      /**
+       * Os Talentos da guilda, por NIVEL.
+       *
+       * O valor e o nivel alcancado (0 a 5) e nao um `Set` de ids
+       * ligados: a arvore tem degraus, e um `Set` so consegue dizer "ligado
+       * ou nao" — que perderia a metade do desenho
+       *
+       * O `Map` guarda o NIVEL e o catalogo guarda o BONUS de cada
+       * degrau. Os dois nunca ficam no mesmo lugar, entao nao existe
+       * estado que possa discordar do catalogo
+       */
+      talentos: new Map(),
+
       criadoEm: this.agora(),
     };
 
@@ -395,17 +437,36 @@ export class GuildStore {
      TALENTOS
      ------------------------------------------------------------------ */
 
-  /**
-   * DESTRAVA um talento da arvore.
+/**
+   * SOBE UM DEGRAU de um talento da arvore.
    *
    * Os pontos sao do jogador que gasta e o talento e da guilda: e o
-   * "todo mundo ajuda" do desenho. Um membro destrava, e todos os
+   * "todo mundo ajuda" do desenho. Um membro sobe o degrau, e todos os
    * outros ganham o bonus
    *
-   * As tres recusas, cada uma fechando uma porta: pontos demais, pai
-   * nao destravado, e ja destravado
+   * ## AS QUATRO RECUSAS
+   *
+   * Cada uma fecha uma porta diferente, e a ordem importa:
+   *
+   * 1. **o no nao existe** — id errado
+   * 2. **ja esta no topo** — `talentNoMaximo`. Antes do saldo: um no no
+   *    Nv. 5 nao aceita mais ponto, e a barra dele esta cheia ha dias
+   * 3. **os pais nao subiram** — `talentPodeSubir`. O no e do MEIO ou do
+   *    TOPO, e a raiz ainda esta no Nv. 0
+   * 4. **o jogador nao tem ponto** — o unico lugar onde o custo sai
+   *
+   * O `custo` volta no resultado porque o SERVIDOR e quem desconta o
+   * ponto do jogador: o store nao guarda saldo (o ponto e da sessao), e
+   * quem cobra precisa saber quanto foi
+   *
+   * ## O QUE MUDA: UM PONTO, E O NIVEL SAI DEPOIS
+   *
+   * O `Map` guarda o TOTAL de pontos do no, nao o nivel. Este metodo soma
+   * `1` e devolve — e o nivel e derivado das marcas, em `talentNivel`.
+   * Guardar o nivel aqui obrigaria a conta do nivel a existir em dois
+   * lugares, e a barra do painel a depender dela
    */
-  destravarTalent(chave, guildaId, talentId, pontosDoJogador) {
+  atribuirPonto(chave, guildaId, talentId, pontosDoJogador) {
     const guilda = this.get(guildaId);
 
     if (!guilda) return { ok: false, motivo: "guildaNaoExiste" };
@@ -414,39 +475,81 @@ export class GuildStore {
 
     if (!node) return { ok: false, motivo: "talentNaoExiste" };
 
-if (guilda.talentos.has(talentId)) {
-      return { ok: false, motivo: "jaDestraulado" };
+    if (talentNoMaximo(talentId, guilda.talentos)) {
+      return { ok: false, motivo: "talentNoMaximo" };
     }
 
-    if (!talentDisponivel(talentId, guilda.talentos)) {
+    if (!talentPodeSubir(talentId, guilda.talentos)) {
       return { ok: false, motivo: "exigePai" };
     }
 
-    if ((pontosDoJogador ?? 0) < node.custo) {
+    if ((pontosDoJogador ?? 0) < GUILD_TALENT_POR_CLIQUE) {
       return { ok: false, motivo: "pontosInsuficientes" };
     }
 
-    guilda.talentos.add(talentId);
+    const jaRecebidos = talentPontos(talentId, guilda.talentos);
 
-    return { ok: true, guilda, custo: node.custo };
+    const nivelAntes = talentNivel(talentId, guilda.talentos);
+
+    guilda.talentos.set(talentId, jaRecebidos + GUILD_TALENT_POR_CLIQUE);
+
+    const nivelDepois = talentNivel(talentId, guilda.talentos);
+
+    return {
+      ok: true,
+      guilda,
+      custo: GUILD_TALENT_POR_CLIQUE,
+      pontos: jaRecebidos + GUILD_TALENT_POR_CLIQUE,
+      nivel: nivelDepois,
+      nivelMax: GUILD_TALENT_NIVEL_MAX,
+
+      /**
+       * O CLIQUE SUBIU O NIVEL, ou so encheu a barra.
+       *
+       * E a distincao que o painel usa para decidir se vale a pena
+       * avisar: um clique e o caso comum — a barra sobe um ponto — e a
+       * maioria dos cliques nao muda nenhum stat. Sem este campo, o
+       * painel anunciaria "Nv. 2!" quatro vezes para o mesmo nivel
+       *
+       * E o servidor que avisa o jogador quando isso acontece, porque o
+       * bonus so entra no personagem nessa hora
+       */
+      subiuDeNivel: nivelDepois > nivelAntes,
+    };
   }
 
-  /* ------------------------------------------------------------------
+/* ------------------------------------------------------------------
      O COFRE
      ------------------------------------------------------------------ */
 
   /**
-   * O COFRE: deposito e saque, so pela diretoria.
+   * O COFRE da guilda: moedas e itens, e so a diretoria mexe.
    *
-   * A regra e do jogador e ela e literal: **so o lider e o co-lider
-   * tocam no cofre**. Nao existe deposito de membro comum
+   * A regra do jogador e literal: **so o lider e o co-lider tocam no
+   * cofre**. Nao existe deposito de membro comum, e essa consequencia
+   * e aceita — um cofre que so a diretoria abre nunca enche sozinho
    *
-   * Vale registrar a consequencia, porque ela e o efeito colateral da
-   * regra pedida: um cofre que so a diretoria abre nunca enche sozinho.
-   * Ele comeca vazio e so recebe o que a diretoria colocar nele. E o
-   * que foi pedido — nao e um bug, e a regra
+   * ## POR QUE CADA MOVIMENTO E UMA OPERACAO SO
+   *
+   * Depositar "500 moedas e este item" em um pedido so exigiria um meio
+   * caminho, e o meio caminho e onde o item se perde: as moedas entram, o
+   * cofre esta cheio, o item volta para a mochila do jogador... e se o
+   * servidor cair no meio, as moedas ja foram e o item nao voltou
+   *
+   * Com uma operacao por pedido, cada uma tem UM ponto de falha e um
+   * caminho de volta. O item nunca e recebido sem lugar, e a moeda nunca
+   * e debitada sem ser creditada
+   *
+   * ## O QUE CADA RECUSA FECHA
+   *
+   * 1. **sem permissao** — `semCargo`
+   * 2. **o item nao existe** — veio do cliente, entao nao e confiavel
+   * 3. **a quantidade e zero ou negativa** — `quantidade`
+   * 4. **a mochila nao tem** — e o mais comum
+   * 5. **o destino nao cabe** — o cofre cheio no deposito, a mochila
+   *    cheia no saque. E o unico caso em que o item volta inteiro
    */
-  mexerNoCofre(chave, guildaId, acao) {
+  mexerNoCofre(chave, guildaId, acao, dados = {}) {
     const guilda = this.get(guildaId);
 
     if (!guilda) return { ok: false, motivo: "guildaNaoExiste" };
@@ -455,14 +558,222 @@ if (guilda.talentos.has(talentId)) {
       return { ok: false, motivo: "semCargo" };
     }
 
-    if (!guilda.cofre) {
-      guilda.cofre = {
-        slots: [],
-        moedas: 0,
-      };
+    const cofre = this.cofreDe(guilda);
+
+    /**
+     * O QUE FOI PEDIDO, resolvido por tipo.
+     *
+     * `moeda` e `item` sao os dois caminhos, e nao ha um terceiro: o
+     * que um slot de item e uma quantidade significam ja esta escrito
+     * nos dois metodos abaixo
+     */
+    if (dados.moeda !== undefined) {
+      return acao === "retirar"
+        ? this.sacarMoedas(cofre, dados.moeda)
+        : this.depositarMoedas(cofre, dados.moeda);
     }
 
-return { ok: true, guilda, cofre: guilda.cofre, acao };
+    if (dados.item !== undefined) {
+      return acao === "retirar"
+        ? this.sacarItem(cofre, dados.item, dados.quantidade)
+        : this.depositarItem(cofre, dados.item, dados.quantidade);
+    }
+
+    return { ok: false, motivo: "cofreInvalido" };
+  }
+
+  /**
+   * O COFRE de uma guilda, criando se ela nunca recebeu um.
+   *
+   * Criar na leitura e o que faz `snapshotPara` poder mostrar `moedas: 0`
+   * e `slots: []` sem um `if` em cada lugar — e o que impede a recusa
+   * "cofre nao existe" de existir, ja que toda guilda tem um
+   */
+  cofreDe(guilda) {
+    if (!guilda.cofre) {
+      guilda.cofre = { slots: [], moedas: 0 };
+    }
+
+    return guilda.cofre;
+  }
+
+  /**
+   * DEPOSITA moedas.
+   *
+   * O desconto e do SERVIDOR, nao daqui: o dinheiro mora na sessao e o
+   * store nao sabe o saldo. O que este metodo e guarda e o outro lado —
+   * o `cofre.moedas`, que e do store e nao de ninguem
+   *
+   * E o valor pedido e o valor a adicionar. Quem cobra passa o saldo
+   * inteiro: e o que impede um `descontar` parcial e um credito cheio
+   * quando um dos dois falha
+   */
+  depositarMoedas(cofre, valor) {
+    const moedas = Math.floor(Number(valor) || 0);
+
+    if (moedas <= 0) return { ok: false, motivo: "quantidade" };
+
+    cofre.moedas += moedas;
+
+    return { ok: true, cofre, moedas };
+  }
+
+  /**
+   * SACA moedas do cofre.
+   *
+   * O piso e o saldo do cofre, e nao um `min`: um saque maior que o que
+   * tem e recusado, em vez de sacar tudo e o jogador achar que sacou o
+   * numero que pediu
+   */
+  sacarMoedas(cofre, valor) {
+    const moedas = Math.floor(Number(valor) || 0);
+
+    if (moedas <= 0) return { ok: false, motivo: "quantidade" };
+
+    if (cofre.moedas < moedas) {
+      return { ok: false, motivo: "cofreSemMoedas" };
+    }
+
+    cofre.moedas -= moedas;
+
+    return { ok: true, cofre, moedas };
+  }
+
+  /**
+   * O SLOT de um item no cofre, pelo `uid` do slot.
+   *
+   * A busca e por `uid` e nao por `itemId`: o cofre guarda o MESMO item
+   * em raridades diferentes, e um saque que casasse por `itemId` tiraria
+   * a raridade errada. E o que impede um lootingrar com dois slots iguais
+   * de devolver o item duas vezes
+   */
+  slotDoCofre(cofre, uid) {
+    return cofre.slots.find((s) => s.uid === uid) ?? null;
+  }
+
+  /**
+   * DEPOSITA um item da mochila.
+   *
+   * O `uid` e da MOCHILA do jogador, e o servidor e que tira o item de la
+   * antes de chamar aqui. O store nao conhece a mochila: ele so sabe o
+   * que ja esta no cofre
+   *
+   * ## O ITEM VOLTA INTEIRO SE O COFRE NAO CABE
+   *
+   * E o unico lugar do jogo inteiro em que um item pode voltar. A
+   * alternativa — guardar do mesmo jeito e o jogador descobrir depois que
+   * sumiram — e pior que a recusa, porque o item nao tem nem lugar onde
+   * foi parar
+   *
+   * ## A FUSAO E A MESMA DA MOCHILA
+   *
+   * Um material de 40 que entra num cofre que ja tem 30 vira uma pilha de
+   * 70, e nao duas. Sem isso o cofre encheria de duplicatas do mesmo
+   * material e ocuparia um slot por deposito
+   */
+  depositarItem(cofre, entrada, quantidade) {
+    const itemId = entrada?.itemId;
+
+    if (!itemId) return { ok: false, motivo: "cofreInvalido" };
+
+    const count = Math.floor(Number(quantidade) || 0);
+
+    if (count <= 0) return { ok: false, motivo: "quantidade" };
+
+    const rarity = entrada.rarity ?? null;
+
+    // ## A FUSAO, com a mesma regra da `Inventory`: so com item E
+    // ## raridade iguais. `??` porque um slot antigo pode ter o campo
+    // ## fora, e a raridade de catalogo e o que o `add` usaria
+    const existente = cofre.slots.find(
+      (s) =>
+        s.itemId === itemId &&
+        (s.rarity ?? null) === (rarity ?? null),
+    );
+
+    const total = (existente?.quantidade ?? 0) + count;
+
+    /**
+     * O COFRE CABE NESSE ITEM?
+     *
+     * Uma pilha de material nao tem teto no cofre — e o que o
+     * `maxStack` da mochila nao governa, porque o cofre nao e equipamento
+     * e nao tem limite de pilha. O que limita e a quantidade de SLOTS
+     */
+    if (!existente && cofre.slots.length >= GUILD_COFRE_SLOTS_MAX) {
+      return { ok: false, motivo: "cofreCheio" };
+    }
+
+    if (existente) {
+      existente.quantidade = total;
+    } else {
+      cofre.slots.push({
+        uid: entrada.uid ?? this.novoUidSlot(),
+        itemId,
+        rarity,
+        quantidade: count,
+        nome: entrada.nome ?? itemId,
+        enchant: entrada.enchant ?? null,
+      });
+    }
+
+    return { ok: true, cofre, itemId, count };
+  }
+
+  /**
+   * SACA um item do cofre para a mochila.
+   *
+   * O `soltar` e o destino, e ele e quem devolve o item se a mochila
+   * estiver cheia: um `add` parcial deixaria parte do item num lugar e
+   * parte em outro, e o jogador veria "saquei 40" com 20 no cofre e 20 na
+   * mochila sem nenhum aviso
+   *
+   * O parametro existe por um motivo so — o store nao conhece a mochila.
+   * Quem sabe o que cabe nao e este arquivo, e sim quem tem o
+   * `Inventory` na mao: o servidor
+   */
+  sacarItem(cofre, uid, quantidade, soltar = null) {
+    const slot = this.slotDoCofre(cofre, uid);
+
+    if (!slot) return { ok: false, motivo: "cofreSemItem" };
+
+    const pedido = Math.floor(Number(quantidade) || 0);
+
+    if (pedido <= 0) return { ok: false, motivo: "quantidade" };
+
+    if (slot.quantidade < pedido) {
+      return { ok: false, motivo: "cofreSemItem" };
+    }
+
+    /**
+     * SEM DESTINO, E SO A CONTAGEM.
+     *
+     * O `soltar` ausente nao e erro: quem chama pode estar so
+     * conferindo se o item existe e quanto tem. O item SAI do cofre
+     * apenas quando houve para onde ir
+     */
+    if (soltar) {
+      const recebido = soltar(slot.itemId, pedido, slot.rarity);
+
+      if (recebido.added < pedido) {
+        return { ok: false, motivo: "mocheiraCheia" };
+      }
+    }
+
+    slot.quantidade -= pedido;
+
+    if (slot.quantidade <= 0) {
+      cofre.slots.splice(cofre.slots.indexOf(slot), 1);
+    }
+
+    return {
+      ok: true,
+      cofre,
+      itemId: slot.itemId,
+      rarity: slot.rarity,
+      count: pedido,
+      enchant: slot.enchant,
+    };
   }
 
   /**
@@ -481,20 +792,21 @@ return { ok: true, guilda, cofre: guilda.cofre, acao };
 
     if (!guilda) return null;
 
-    if (!guilda.cofre) {
-      guilda.cofre = {
-        slots: [],
-        moedas: 0,
-      };
-    }
-
-    guilda.cofre.moedas += Math.max(
+    this.cofreDe(guilda).moedas += Math.max(
       0,
       Math.floor(Number(coins) || 0),
     );
 
     return guilda.cofre;
   }
+
+  /** um id de slot novo, para quando o item veio sem `uid` */
+  novoUidSlot() {
+    this.seqSlot = (this.seqSlot ?? 0) + 1;
+
+    return `cofre_${this.seqSlot}`;
+  }
+
 
 
   /**
@@ -561,18 +873,23 @@ return { ok: true, guilda, cofre: guilda.cofre, acao };
         pontos: pontos ?? 0,
         pontosMax: GUILD_PONTOS_MAX,
 
-        /**
-         * A arvore aparece mesmo sem guilda, toda bloqueada.
+/**
+         * A arvore aparece mesmo sem guilda, toda zerada.
          *
-         * E o que mostra ao jogador o que ele PODE desbloquear se criar
-         * uma — esconder a arvore faria a aba parecer quebrada
+         * E o que mostra ao jogador o que ele PODE subir se criar uma —
+         * esconder a arvore faria a aba parecer quebrada
+         *
+         * E ela vem com a PORCENTAGEM ja calculada contra o saldo do
+         * jogador, e nao zerada: quem esta fora de guilda mas tem pontos
+         * acumulado ve o quanto ja runner up do primeiro degrau, e isso
+         * e o que convence a criar a guilda agora em vez de depois
          *
          * `cofre: null` e explicito, e nao omitido: o painel pergunta
          * pelo cofre sem perguntar se tem guilda antes, e `undefined`
          * seria um terceiro estado que so o painel saberia tratar
          */
         cofre: null,
-        arvore: arvoreSnapshot(new Set()),
+        arvore: arvoreSnapshot(new Map(), pontos ?? 0),
       };
     }
 
@@ -585,8 +902,21 @@ membros: [...guilda.membros.values()].map((m) => ({
           id: m.id,
           nome: m.nome,
           papel: m.papel,
-          jogadorId: m.chave,
-          eu: m.chave === chave,
+
+          /**
+           * O `jogadorId` e o `m.id`, e nao um `m.chave`.
+           *
+           * O membro nao tem campo `chave`: a chave ESTEVE no `id`, que
+           * e a `donoKey`. Ler `m.chave` dava `undefined` em todos os
+           * membros, o que mandava `jogadorId: undefined` ao painel e
+           * deixava `eu` sempre falso — o jogador nunca via qual linha
+           * era a dele na aba Membros
+           *
+           * O `id` volta tambem porque e ele que o painel usa para
+           * conferir os botoes de expulsar e passar a lideranca
+           */
+          jogadorId: m.id,
+          eu: m.id === chave,
         })),
 
         membrosMax: GUILD_MEMBROS_MAX,
@@ -603,9 +933,9 @@ membros: [...guilda.membros.values()].map((m) => ({
       pontos: pontos ?? 0,
       pontosMax: GUILD_PONTOS_MAX,
 
-      arvore: arvoreSnapshot(guilda.talentos),
+      arvore: arvoreSnapshot(guilda.talentos, pontos ?? 0),
 
-      // o cofre so vem no painel de quem pode mexer nele. Membro comum
+// o cofre so vem no painel de quem pode mexer nele. Membro comum
       // recebe `null` e o painel nem desenha a aba
       cofre:
         podeGerenciar(guilda, chave) && guilda.cofre
@@ -613,25 +943,276 @@ membros: [...guilda.membros.values()].map((m) => ({
           : null,
     };
   }
+
+  /* ------------------------------------------------------------------
+     DISCO
+     ------------------------------------------------------------------ */
+
+  /**
+   * AS GUILDAS como um objeto simples.
+   *
+   * ## POR QUE ISTO EXISTE
+   *
+   * Sem esta funcao a guilda vivia so no `this.guilds`, e uma guilda
+   * evaporava com o processo: o jogador criava, via o clan ativo, e no
+   * relog (ou no primeiro reinicio do servidor) voltava para "criar ou
+   * buscar". O save do personagem guarda os PONTOS do jogador, mas nao a
+   * qual guilda ele pertence — e e o store que e o dono dessa ligacao
+   *
+   * O que entra e o que o store precisa para responder as MESMAS
+   * perguntas depois de recarregar: o `id`, o nome normalizado (para o
+   * conflito e a busca), o lider, os membros COM A CHAVE (e o que
+   * refaz o indice `guildaDaChave`), os pedidos, os talentos por nivel,
+   * o cofre e a data
+   *
+   * O `Map` vira lista de pares e o `Set` vira lista: nenhum dos dois
+   * sobrevive ao JSON, e um `Map` vazio num arquivo lido de volta e uma
+   * guilda que perdeu todos os membros sem nenhum aviso
+   */
+  toSave() {
+    return [...this.guilds.values()].map((guilda) => ({
+      id: guilda.id,
+      nome: guilda.nome,
+      tag: guilda.tag,
+      liderId: guilda.liderId,
+      coLiderId: guilda.coLiderId,
+      criadoEm: guilda.criadoEm,
+
+      /**
+       * Os MEMBROS com a chave no `id`.
+       *
+       * O `id` do membro JA e a chave — e o mesmo valor que o
+       * `guildaDaChave` indexa — entao ele e quem sobrevive. E ele que
+       * faz o jogador voltar a encontrar a guilda pelo nome normalizado
+       * depois do relog
+       */
+      membros: [...guilda.membros.values()].map((m) => ({
+        id: m.id,
+        nome: m.nome,
+        papel: m.papel,
+        desde: m.desde,
+      })),
+
+      pedidos: guilda.pedidos.map((p) => ({
+        chave: p.chave,
+        nome: p.nome,
+        classe: p.classe,
+        pedidoEm: p.pedidoEm,
+      })),
+
+      /**
+       * Os Talentos como lista de pares `[id, nivel]`.
+       *
+       * E o `Map` do nivel, e um `Set` de ids seria um arquivo que nao
+       * distingue "subiu um degrau" de "subiu cinco"
+       */
+      talentos: [...guilda.talentos.entries()],
+
+      cofre: guilda.cofre
+        ? {
+            slots: guilda.cofre.slots,
+            moedas: guilda.cofre.moedas,
+          }
+        : null,
+    }));
+  }
+
+  /**
+   * Recarrega as guildas do arquivo.
+   *
+   * ## POR QUE UM INDICE, E NAO UM MAP CHEIO DE CONFIANÇA
+   *
+   * O arquivo pode ter sido editado a mao, vir de uma versao futura ou
+   * ficar pela metade. Cada guilda passa por um filtro, e uma guilda que
+   * falha o filtro e DESCARTADA em vez de entrar pela metade: uma guilda
+   * sem lider nao tem quem promova, e uma guilda com um `id` repetido
+   * faria dois jogadores aparecerem na mesma
+   *
+   * Os dois indices sao refeitos aqui, e nao guardados no arquivo:
+   * `nomes` e um derivado do nome (busca e conflito) e `guildaDaChave` e
+   * um derivado dos membros. Guardar os dois no disco seria guardar duas
+   * copias que so podem divergir da terceira
+   *
+   * A `sequencia` do `novoId` andou ate o maior id numerico do arquivo,
+   * para uma guilda nova criada depois do reload NAO colidir com uma que
+   * ja estava la
+   */
+  fromSave(bruto) {
+    if (!Array.isArray(bruto)) return 0;
+
+    let carregadas = 0;
+
+    let maiorNumero = -1;
+
+    for (const item of bruto) {
+      const guilda = guildaLegivel(item);
+
+      if (!guilda) continue;
+
+      // um id repetido faria a segunda sobrescrever a primeira no
+      // `guilds`, e um membro ficaria em duas guildas ao mesmo tempo
+      if (this.guilds.has(guilda.id)) continue;
+
+      this.guilds.set(guilda.id, guilda);
+      this.nomes.add(normalizarNome(guilda.nome));
+
+      for (const membro of guilda.membros.values()) {
+        this.guildaDaChave.set(membro.id, guilda.id);
+      }
+
+      carregadas += 1;
+
+      const numero = numeroDoId(guilda.id);
+
+      if (numero > maiorNumero) maiorNumero = numero;
+    }
+
+    this.sequencia = maiorNumero + 1;
+
+    return carregadas;
+  }
+}
+
+/**
+ * O numero de um id no formato `g_7`.
+ *
+ * O `novoId` do store gera `g_` mais um contador, e e esse contador que
+ * precisa continuar de onde parou depois do reload
+ */
+function numeroDoId(id) {
+  const numero = Number(String(id ?? "").replace(/^g_/, ""));
+
+  return Number.isFinite(numero) ? numero : -1;
+}
+
+/**
+ * UMA GUILDA do arquivo, ou `null` se nao presta.
+ *
+ * O filtro e o mesmo espirito do `pagamentosLegiveis` do mercado: um
+ * arquivo pela metade devolve `null` e a guilda e descartada. O que
+ * obrigatorio e o `id` (sem ele a guilda nao tem endereco) e o `nome`
+ * (sem ele a busca e o conflito nao funcionam)
+ *
+ * O LIDER e conferido contra os membros, e nao aceito como veio: um
+ * `liderId` apontando para alguem que nao esta na lista produziria uma
+ * guilda que ninguem pode administrar e ninguem pode expulsar. Nesse
+ * caso a guilda sobe assim mesmo, com o primeiro membro como lider — o
+ * que o arquivo quis dizer e que sobrou gente
+ */
+function guildaLegivel(bruto) {
+  if (!bruto || typeof bruto !== "object") return null;
+
+  const id = String(bruto.id ?? "").trim();
+
+  const nome = String(bruto.nome ?? "").trim();
+
+  if (!id) return null;
+  if (nome.length < GUILD_NOME_MIN) return null;
+
+  const membros = new Map();
+
+  for (const brutoMembro of bruto.membros ?? []) {
+    const chave = String(brutoMembro?.id ?? "").trim();
+
+    if (!chave) continue;
+
+    membros.set(chave, {
+      id: chave,
+      nome: String(brutoMembro?.nome ?? chave).trim(),
+      papel:
+        brutoMembro?.papel === GUILD_ROLE.CO_LIDER
+          ? GUILD_ROLE.CO_LIDER
+          : GUILD_ROLE.MEMBRO,
+      desde: Number(brutoMembro?.desde) || 0,
+    });
+  }
+
+  if (membros.size === 0) return null;
+
+  const liderId = membros.has(String(bruto.liderId ?? ""))
+    ? String(bruto.liderId)
+    : [...membros.keys()][0];
+
+  const coLiderId = membros.has(String(bruto.coLiderId ?? ""))
+    ? String(bruto.coLiderId)
+    : null;
+
+  const talentos = new Map();
+
+  for (const par of bruto.talentos ?? []) {
+    const [talentId, pontos] = Array.isArray(par) ? par : [];
+
+    if (!talentId) continue;
+    if (!getTalent(talentId)) continue;
+
+    /**
+     * O valor lido e o do formato ATUAL: pontos atribuitos.
+     *
+     * O `Map` passou a guardar o total de pontos de cada no, e nao o nivel
+     * — o nivel e derivado das marcas. Um arquivo do formato antigo, que
+     * gravava o nivel, e convertido para pontos pela ultima marca que
+     * aquele nivel alcancava: um no que estava no Nv. 2 (marca 10) volta
+     * com 10 pontos, que e o mesmo estado e a mesma barra
+     *
+     * Sem essa conversao, o `Math.min(nivel)` de antes gravaria 2 e a
+     * barra do no passaria a mostrar 2 de 40 — um no que o jogador tinha
+     * comprado inteiro aparecia com 5% depois do reinicio
+     */
+    talentos.set(
+      String(talentId),
+      Math.max(0, Math.floor(Number(pontos) || 0)),
+    );
+  }
+
+  return {
+    id,
+    nome,
+    tag: normalizarTag(bruto.tag),
+    liderId,
+    coLiderId,
+    membros,
+    pedidos: (bruto.pedidos ?? [])
+      .filter((p) => p && p.chave)
+      .map((p) => ({
+        chave: String(p.chave),
+        nome: String(p.nome ?? p.chave),
+        classe: String(p.classe ?? ""),
+        pedidoEm: Number(p.pedidoEm) || 0,
+      })),
+    talentos,
+    cofre: bruto.cofre
+      ? {
+          slots: Array.isArray(bruto.cofre.slots)
+            ? bruto.cofre.slots
+            : [],
+          moedas: Math.max(0, Number(bruto.cofre.moedas) || 0),
+        }
+      : null,
+    criadoEm: Number(bruto.criadoEm) || 0,
+  };
 }
 
 /**
  * A ARVORE como o painel a consome.
  *
- * Os nodes vem com o estado de cada um — destravado, disponivel ou
- * bloqueado — porque essa decisao e do servidor e a tela nao tem como
- * refaze-la sem duplicar as regras. O guilda nao entra: o estado do
- * node vem so do conjunto de talentos
+ * Cada no vem com o estado inteiro do degrau — nivel, se esta no topo, a
+ * porcentagem, e se o jogador pode subir agora — porque essa decisao e do
+ * servidor e a tela nao tem como refaze-la sem duplicar as regras
+ *
+ * ## O CUSTO NAO ENTRA, E E DE PROPOSITO
+ *
+ * O numero do degrau e segredo, e este e o unico lugar que monta o
+ * payload que viaja no socket. Mandar o `custo` e o painel voltar a
+ * mostrar, nao importa o que o JSX faça com ele: o `GameClient` guarda o
+ * pacote inteiro e qualquer um que abrir o console le o numero
+ *
+ * O que viaja e a PORCENTAGEM e um `temPontos` booleano. A porcentagem
+ * responde "esta perto?" e o booleano responde "da para subir agora?",
+ * que sao as duas perguntas que o painel faz — nenhuma delas precisa do
+ * valor
  */
-function arvoreSnapshot(talentos) {
-  return GUILD_TALENTS.map((node) => ({
-    id: node.id,
-    nome: node.nome,
-    custo: node.custo,
-    tier: node.tier,
-    exige: node.exige,
-    descricao: node.descricao,
-    destravado: talentos.has(node.id),
-    disponivel: talentDisponivel(node.id, talentos),
-  }));
+function arvoreSnapshot(talentos, pontos) {
+  return GUILD_TALENTS.map(
+    (node) => talentProgresso(node.id, talentos, pontos ?? 0),
+  );
 }

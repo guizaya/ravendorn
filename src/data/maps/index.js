@@ -4,6 +4,7 @@ import {
 } from "../props/index.js";
 import { PORTALS, MAP_2_PORTALS } from "../portais/index.js";
 import { BASE_MAP } from "./base.js";
+import { BOSS_1_ID, BOSS_1_MAP } from "./boss1.js";
 import {
   minimapColorFor,
   terrainLabelColor,
@@ -1275,7 +1276,28 @@ export const MAP_2 = {
 
   background: "#17221f",
 
-  groundTile: "grama",
+  groundTile: "neve",
+
+  /**
+   * A TERRA DAS ZONAS DE MOB.
+   *
+   * O mapa 1 e a base usam a terra do vale, que e o padrao. O mapa 2
+   * declara a sua porque a neve ja mudou o clima do cenario, e a
+   * terra de campo de mob que vem do vale destoava
+   */
+  zoneTile: "terra_2",
+
+  /**
+   * AS PROPS SEM SOMBRA NESTE MAPA.
+   *
+   * A sombra e uma elipse preta fixa sob a prop. Na neve ela nao segue
+   * a luz do cenario e denuncia o que e arte colada no chao, entao o
+   * arbusto e a arvore ficam sem ela
+   *
+   * A lista e POR TIPO, e nao "o mapa inteiro sem sombra": pedra e
+   * toco continuam com a sombra, que e o que da assentamento ao resto
+   */
+  propsSemSombra: ["arbusto", "arvore"],
 
   spawn: MAP_1_SPAWN,
 
@@ -1332,6 +1354,14 @@ export const MAPS = {
   base: BASE_MAP,
   map_1: MAP_1,
   map_2: MAP_2,
+
+  /**
+   * A ARENA DE CHEFE.
+   *
+   * Sem portal apontando para ela ainda: a arena se entra por outra
+   * etapa, e um `destino` viria do portal que a traz — nao da arena
+   */
+  boss_1: BOSS_1_MAP,
 };
 
 /**
@@ -1341,6 +1371,16 @@ export const MAPS = {
  * entrar no mundo
  */
 export const DEFAULT_MAP_ID = "base";
+
+/**
+ * O ID DA ARENA DO CHEFE, reexportado.
+ *
+ * O botao do HUD precisa dele para comparar com o mapa em que o jogador
+ * esta, e o import dele por aqui evita que o HUD alcance o arquivo do
+ * mapa por um caminho proprio: quem registra mapa e quem fala do id dele
+ * sao o mesmo lugar
+ */
+export { BOSS_1_ID as ARENA_ID };
 
 /**
  * O mapa de um id.

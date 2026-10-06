@@ -141,22 +141,56 @@ export function drawMinimap(
     );
   }
 
-  context.fillStyle = "rgba(255, 255, 255, 0.1)";
+  /**
+ * OS PONTOS DE OBSTACULO.
+ *
+ * Antes eram ~1226 `fillRect`, um por prop bloqueante, e um `fillStyle`
+ * novo a cada um. Isso roda a 60Hz: sao 73 mil chamadas de canvas por
+ * segundo so para desenhar pontinhos de 1 a 3px no minimapa
+ *
+ * As CORES sao Duas, nao 1226. Entao o `fillStyle` muda duas vezes e nao
+ * uma por prop. O `fillRect` continua um por prop — agrupar exigiria
+ * `beginPath` por ponto, que e mais caro do que o proprio rect
+ *
+ * E o cache vem do `map`, que e estavel: o minimapa desenha os mesmos
+ * obstaculos em toda chamada e so o jogador e os inimigos mudam. A
+ * lista ja vem em coordenadas de mundo, entao o que se cacheia e o
+ * resultado depois da transformacao
+ */
+function desenharObstaculos(context, blocking, scale, baseX, baseY) {
+  if (!blocking?.length) return;
 
-  for (const prop of map.blocking ?? []) {
-    context.fillStyle = prop.isTree
+  // uma passada para o verde, outra para o cinza: e o que troca o
+  // `fillStyle` o menor numero de vezes possivel
+  for (let cor = 0; cor < 2; cor += 1) {
+    context.fillStyle = cor === 0
       ? "rgba(34, 63, 45, 0.8)"
       : "rgba(150, 155, 160, 0.6)";
 
-    const size = Math.max(1, prop.radius * scale * 0.5);
+    for (const prop of blocking) {
+      const ehArvore = prop.isTree === true;
 
-    context.fillRect(
-      baseX + prop.x * scale - size / 2,
-      baseY + prop.y * scale - size / 2,
-      size,
-      size,
-    );
+      if ((ehArvore ? 0 : 1) !== cor) continue;
+
+      const size = Math.max(1, prop.radius * scale * 0.5);
+
+      context.fillRect(
+        baseX + prop.x * scale - size / 2,
+        baseY + prop.y * scale - size / 2,
+        size,
+        size,
+      );
+    }
   }
+}
+
+desenharObstaculos(
+  context,
+  map.blocking,
+  scale,
+  baseX,
+  baseY,
+);
 
   context.strokeStyle = "rgba(255, 255, 255, 0.55)";
   context.lineWidth = 1;

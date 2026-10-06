@@ -245,7 +245,7 @@ export class MarketStore {
    * as moedas DELE. Feito dentro do `Market`, um erro no meio
    * duplicaria dinheiro ou item
    */
-  buy(listingId, buyerKey) {
+  buy(listingId, buyerKey, buyerName = null) {
     const listing = this.get(listingId);
 
     if (!listing) {
@@ -272,7 +272,7 @@ export class MarketStore {
 
     this.listings.delete(listingId);
 
-    this.registrarVenda(listing, buyerKey);
+    this.registrarVenda(listing, buyerKey, buyerName);
 
     return { ok: true, listing };
   }
@@ -284,8 +284,15 @@ export class MarketStore {
    * Ana" sem precisar de outra consulta — e porque o historico e a
    * unica pista de quem ficou com o item se um dia for preciso
    * desfazer
+   *
+   * O `buyerName` e O NOME, e nao a chave. A chave e o `nameKey` do
+   * nome: minusculo, sem espaco e sem acento. Deixar `buyerName` nulo
+   * fazia o painel cair no `buyerKey` e mostrar "vendido para teste2"
+   * para quem se chama "Teste 2" — e, depois de um restart, o
+   * `sanitizarVenda` lia esse nulo do disco e mantinha a chave para
+   * sempre
    */
-  registrarVenda(listing, buyerKey) {
+  registrarVenda(listing, buyerKey, buyerName = null) {
     this.historico.push({
       id: listing.id,
       itemId: listing.itemId,
@@ -296,7 +303,7 @@ export class MarketStore {
       sellerKey: listing.sellerKey,
       sellerName: listing.sellerName,
       buyerKey,
-      buyerName: null,
+      buyerName: buyerName ?? null,
 
       soldAt: this.agora(),
       expiresAt: listing.expiresAt,
@@ -536,6 +543,8 @@ export function snapshotMarket({
   viewerName,
   filtro = {},
   agora = null,
+  mochila = null,
+  coins = null,
 }) {
   const relogio = agora ?? store.agora();
 
@@ -618,7 +627,28 @@ export function snapshotMarket({
 
     total: store.openCount,
 
-    coins: null,
+    /**
+     * AS MOEDAS DE QUEM ESTA OLHANDO.
+     *
+     * O motor passa `coins` e este campo devolvia `null` fixo, entao o
+     * painel do mercado recebia `null` mesmo com o valor real chegando.
+     * O `?? 0` e so para o Single player, onde nao ha coins injetados
+     */
+    coins: coins ?? 0,
+
+    /**
+     * A MOCHILA DE QUEM ESTA OLHANDO, em slots.
+     *
+     * Sem isto o painel nao tem como saber que um anuncio nao cabe: o
+     * jogador so descobria depois de clicar, com o servidor recusando e
+     * o dinheiro jahaving sido devolvido. Com `livres` e `capacity` o
+     * botao de compra pode avisar antes, e cada anuncio sabe dizer
+     * quantos slots exige
+     */
+    mochila: {
+      livres: mochila?.livres ?? 0,
+      capacity: mochila?.capacity ?? 0,
+    },
 
     limites: {
       maxAnuncios: ANUNCIOS_MAXIMOS,
@@ -642,8 +672,15 @@ export function matchesFiltro(listing, filtro = {}) {
     if (listing.rarity !== filtro.rarity) return false;
   }
 
-  if (filtro.modo) {
-  }
+  /**
+   * O MODO NAO FILTRA NADA, E ISTO E DE PROPOSITO.
+   *
+   * Existiu um segundo modo, o "leilao", que foi removido por nao ter
+   * mecanica propria. Sobrou so o `FIXO`, entao comparar o modo do
+   * anuncio com o modo pedido seria verdadeiro ou falso para a mesma
+   * coisa. O `if` fica aqui vazio de proposito, para o lugar existir caso
+   * um dia voltar a ter mais de um modo
+   */
 
   return true;
 }

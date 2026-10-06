@@ -592,3 +592,40 @@ export const SKILL_PACKS = {
   ),
 
 };
+
+/**
+ * O NIVEL EM QUE A ULTIMATE LIBERA.
+ *
+ * ## POR QUE A ULTIMATE E A UNICA EXCECAO
+ *
+ * As cinco habilidades de slot sao ensinadas por livro, compradas com o
+ * Mestre. A ultimate nao: ela libera por NÍVEL
+ *
+ * A razao e a diferenca de papel. As cinco slots sao o repertorio e sao
+ * compradas — um livro e um item, entao o jogador sabe exatamente o que
+ * falta e o preco. A ultimate e a assinatura da classe, e um livro
+ * dela seria um item novo, com arte nova e preco novo, que a unica
+ * coisa que ele teaching é "esperar mais um nivel"
+ *
+ * E o nivel 6 e o primeiro degrau do vale. Um personagem novo no hub nao
+ * tem nada contra ninguem ainda, entao travar a ultimate ate la nao tira
+ * nada de ninguem
+ *
+ * Quem consulta: `GameEngine.useUltimate` (a porta do servidor) e o HUD
+ * (a tranca na tela). Os dois leem ESTE numero — se cada um tivesse o
+ * seu, a tela diria "travada" com o servidor deixando passar
+ */
+export const ULTIMATE_NIVEL = 6;
+
+/**
+ * A ULTIMATE JA LIBEROU PARA ESTE JOGADOR?
+ *
+ * ## POR QUE ESTE FICA AQUI E NAO NO MOTOR
+ *
+ * E a MESMA pergunta que a HUD e o servidor precisam responder, e as duas
+ * leem este codigo. Se o numero do nivel estivesse escrito duas vezes, a
+ * tela e o servidor divergiriam no primeiro save
+ */
+export function ultimateLiberada(level) {
+  return Number(level ?? 0) >= ULTIMATE_NIVEL;
+}

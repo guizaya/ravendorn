@@ -35,24 +35,36 @@ const DIRECTIONAL_WALK_BOB = {
  * As medidas do ARBALIST, medidas na folha gerada.
  *
  * `celula`, `ANCORA` e as contagens sao a saida de
- * `node tools/gif-to-sheet.mjs arbalist`. A arte foi trocada e os
- * numeros mudaram:
+ * `node tools/gif-to-sheet.mjs arbalist`. A arte foi trocada DUAS vezes e
+ * os numeros mudaram duas vezes:
  *
- * - o idle foi de 7 para **8** quadros. O gif novo tem um quadro a
- *   mais, e o `length: 7` antigo deixaria o ultimo frame fora do
- *   balanco parado
- * - a ancora foi de (32, 54) para **(31.5, 51)**: o pe da arte nova
- *   esta 3px mais alto na celula. Sem isto o arquiro andaria 3px
- *   dentro do chao em todas as direcoes — um erro pequeno e invisivel
- *   num screenshot, e que faz o personagem parecer deslizar
+ * - o idle foi de 7 para **8** quadros. O gif trouxe um quadro a mais, e
+ *   o `length: 7` antigo deixaria o ultimo frame fora do balanco parado
+ * - a celula foi de 64 para **84**: a arte nova tem 84x84 em todas as 17
+ *   lanes. E o numero mais importante dos tres — sem ele o
+ *   `resolveFrameRect` le um pedaco de 64x64 de cada quadro de 84 e o
+ *   boneco sai cortado
+ * - a ancora foi de (32, 54) para (31.5, 51) e depois para
+ *   **(41.5, 68)**: o pe da arte nova esta 20px mais baixo na celula,
+ *   porque a celula tambem cresceu. Sem isto o arquiro andaria 17px
+ *   dentro do chao em todas as direcoes — um erro grande e bem visivel,
+ *   que faz o personagem parecer estar enterrado em vez de pisando
+ *
+ * ## ESTES NUMEROS ESTAO DUPLICADOS EM `index.js`
+ *
+ * O `ARBALIST_SPRITE` deste arquivo (sem imagem, para o servidor) e o de
+ * `index.js` (com imagem, para o cliente) declaram os mesmos numeros, e
+ * a duplicacao vem de antes desta conversa. Trocar a arte exige mexer
+ * nos dois, e esquecer um deles deixa o cliente e o servidor discordando
+ * sobre onde fica o pe do arquiro
  *
  * A ancora e declarada POR FOLHA, e nao no padrao compartilhado, pelo
  * mesmo motivo que o guerreiro tem a dele: cada celula tem a sua, e
  * `DIRECTIONAL_ANCHOR_Y` e o do arquiro ANTIGO
  */
-const ARBALIST_FRAME_SIZE = 64;
-const ARBALIST_ANCHOR_X = 31.5;
-const ARBALIST_ANCHOR_Y = 51;
+const ARBALIST_FRAME_SIZE = 84;
+const ARBALIST_ANCHOR_X = 41.5;
+const ARBALIST_ANCHOR_Y = 68;
 const ARBALIST_COLUMNS = 9;
 
 const ARBALIST_FRAMES = 8;

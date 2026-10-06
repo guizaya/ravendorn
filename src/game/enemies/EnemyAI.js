@@ -141,20 +141,53 @@ export class EnemyAI {
   }
 
   /**
-   * Todos os jogadores online.
+   * Todos os jogadores online, em UM array reaproveitado.
    *
-   * No single player tem um so e a lista tem um elemento, entao
-   * o comportamento nao muda. Online, um inimigo compartilhado
-   * precisa saber que ha varias pessoas no mesmo mapa.
+   * Este getter e lido TRES vezes por inimigo por tique — `updateAlert`,
+   * `isAggressive` e `updateCombat` chamam `nearestPlayer`, que le aqui.
+   * A versao anterior devolvia `[...map.values()].map(...)`: um array
+   * novo e um objeto por jogador, 3 vezes por mob. Com 93 mobs do mapa 1
+   * e 50 jogadores online, sao 279 arrays por tique por mapa — 5.580/s
+   * so para materializar uma lista que nao muda
+   *
+   * A lista so muda quando alguem entra ou sai, e quem sabe disso e o
+   * `GameServer`. Entao o array e montado uma vez e invalidado pelo
+   * `invalidatePlayers`, e o `nearestPlayer` passou a percorrer o `Map`
+   * direto — assim nem chega a precisar da lista
    */
   get players() {
     if (this.world.players?.size) {
-      return [...this.world.players.values()].map(
-        (session) => session.player,
-      );
+      if (!this._players) {
+        this._players = [...this.world.players.values()].map(
+          (session) => session.player,
+        );
+      }
+
+      return this._players;
     }
 
-    return this.world.player ? [this.world.player] : [];
+    // o array de um jogador so tambem pode ser reaproveitado: e o
+    // `world.player` virando lista toda vez que o foco muda
+    if (!this._playerUnico) this._playerUnico = [];
+
+    if (this.world.player) {
+      this._playerUnico[0] = this.world.player;
+      this._playerUnico.length = 1;
+    } else {
+      this._playerUnico.length = 0;
+    }
+
+    return this._playerUnico;
+  }
+
+  /**
+   * Esquece a lista de jogadores.
+   *
+   * O `GameServer` chama quando alguem entra ou sai do mundo. Sem isso
+   * a lista ficaria congelada com quem ja saiu
+   */
+  invalidatePlayers() {
+    this._players = null;
   }
 
   /**
@@ -170,17 +203,66 @@ export class EnemyAI {
    * muda. Online, o inimigo so persegue o mais proximo: senao ele
    * ignoraria o resto da partida e pareceria travado de costas.
    */
+  /**
+   * O jogador mais proximo, sem alocar nada.
+   *
+   * Percorre o `Map` de sessoes direto em vez de passar pelo `players`,
+   * porque aqui a lista nao e preciso: so interessa o minimo. Com o
+   * `players` no meio, cada chamada ainda materializava o array
+   *
+   * A distancia e comparada AO QUADRADO. `distance` faz `Math.hypot`,
+   * que e uma chamada nativa cara, e a ordem dos dois jogadores nao
+   * muda comparando quadrados: se `a` esta mais perto que `b`, `a²` e
+   * menor que `b²` para as duas distancias nao negativas
+   */
   nearestPlayer(enemy) {
     let best = null;
-    let bestDistance = Infinity;
+    let bestSquared = Infinity;
 
-    for (const player of this.players) {
-      const d = distance(enemy, player);
+    const sessoes = this.world.players;
 
-      if (d < bestDistance) {
-        bestDistance = d;
-        best = player;
+    /**
+     * UM JOGADOR MORTO NAO E ALVO.
+     *
+     * Sem este filtro, o slime que matou o jogador continua perseguindo
+     * e atacando o cadaver: o `DamageSystem` recusa o dano (a linha 66
+     * ve `hp <= 0`), mas o mob continua se movendo em direcao a ele e
+     * gastando o cooldown do golpe. O resultado era um aglomerado de
+     * bicho andando em circulo em cima do corpo, e no multiplayer cada
+     * jogador vivo puxava a turma de volta — a partida inteira virava
+     * um grupo de mob andando em cima de um morto
+     *
+     * E o filtro e o MESMO `estaDePe` que o resto da IA usa. Se este
+     * `hp > 0` e o `estaDePe` divergirem, o comportamento mais curto
+     * ganha, e a divergencia so aparece como um mob que segue um cadaver
+     */
+    if (sessoes?.size) {
+      for (const sessao of sessoes.values()) {
+        const player = sessao.player;
+
+        if (!this.estaDePe(player)) continue;
+
+        const dx = player.x - enemy.x;
+        const dy = player.y - enemy.y;
+
+        const squared = dx * dx + dy * dy;
+
+        if (squared < bestSquared) {
+          bestSquared = squared;
+          best = player;
+        }
       }
+
+      return best;
+    }
+
+    const player = this.world.player;
+
+    if (player && this.estaDePe(player)) {
+      const dx = player.x - enemy.x;
+      const dy = player.y - enemy.y;
+
+      if (dx * dx + dy * dy < bestSquared) best = player;
     }
 
     return best;
@@ -754,6 +836,28 @@ export class EnemyAI {
 
     const vizinhos = this.world.enemies;
 
+    /**
+     * O CORTE ANTES DA RAIZ.
+     *
+     * `SEPARATION_RANGE` ao quadrado, calculado uma vez por mob. O
+     * teste de longe e feito no quadrado ANTES de qualquer `sqrt`, e o
+     * `sqrt` so acontece para quem de fato esta dentro do alcance
+     *
+     * Este e o laco mais caro do servidor inteiro: cada uma das 93
+     * criaturas do mapa 1 itera as 93, o que da 8.649 pares por tique.
+     * Com `Math.hypot` em cada par eram 173.000 chamadas nativas por
+     * segundo por mapa, e o `hypot` e varias vezes mais lento que
+     * `Math.sqrt(dx*dx + dy*dy)` — ele existe para nao estourar o
+     * numero, e aqui os valores sao coordenadas de mapa, que nao
+     * estouram
+     *
+     * E o corte importava: num aglomerado tipico, dos 93 pares, so
+     * uma dezena esta dentro dos 120px. O resto era 82 chamadas
+     * nativas por mob por tique jogadas fora
+     */
+    const alcanceSquared =
+      SEPARATION_RANGE * SEPARATION_RANGE;
+
     for (const outro of vizinhos) {
       if (outro === thisEnemy) continue;
       if (outro.alive === false) continue;
@@ -762,12 +866,14 @@ export class EnemyAI {
       const dx = thisEnemy.x - outro.x;
       const dy = thisEnemy.y - outro.y;
 
-      const distancia = Math.hypot(dx, dy);
-
-      const minimo = (thisEnemy.radius ?? 20) + (outro.radius ?? 20);
+      const distanciaSquared = dx * dx + dy * dy;
 
       // longe demais: nao ha por que empurrar
-      if (distancia >= SEPARATION_RANGE) continue;
+      if (distanciaSquared >= alcanceSquared) continue;
+
+      const distancia = Math.sqrt(distanciaSquared);
+
+      const minimo = (thisEnemy.radius ?? 20) + (outro.radius ?? 20);
 
       /**
        * `distancia` em 0 daria `NaN` na divisao. Dois corpos exatamente

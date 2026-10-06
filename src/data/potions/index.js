@@ -63,8 +63,31 @@ export const POCOES = Object.freeze([
      * A cor do preco.
      *
      * O ouro do jogador e o mesmo numero que o do mercador, entao a cor
-     * e o que diz "isto e despesa" antes de o jogador clicar
+     * e o que diz "isto e despesa" antes do jogador clicar
      */
+    corPreco: "#e8c96a",
+  }),
+
+  Object.freeze({
+    id: "pergaminho_teleporte",
+
+    /**
+     * 90, e quase o DOBRO da pocao.
+     *
+     * E o preco de uma atalho de viagem, e nao de um item de consumo.
+     * A pocao se paga porque evita uma morte; o pergaminho se paga porque
+     * evita andar tres mil pixels, e isso vale mais para quem ja esta
+     * com o auto ligado do que para quem esta parado no meio do mapa
+     *
+     * E mais caro que a pocao DEPOIS de subiu de nivel, porque e
+     * justamente quem tem level alto quem atravessa o vale inteiro: o
+     * preco nao acompanha o nivel, e o tempo que ele economiza
+     */
+    preco: 90,
+
+    descricao:
+      "Pula direto para o fim do deslocamento automatico. Gasta um pergaminho por teleporte.",
+
     corPreco: "#e8c96a",
   }),
 ]);

@@ -1,6 +1,7 @@
+import { useState } from "react";
 import ItemIcon from "./ItemIcon.jsx";
+import ItemTooltip from "./ItemTooltip.jsx";
 import {
-  ITEM_TYPE_LABEL,
   RARITY_STYLE,
   getItem,
   isStackable,
@@ -18,34 +19,14 @@ import {
  *
  * Este componente nao sabe o que e um `uid`, nem de onde veio a entrada:
  * ele desenha. Quem decide o que acontece no clique e o `ItemSlot` do
- * inventario (menu de equipar/descartar) e o seletor do mercado (escolher
- * o que anunciar)
+ * inventario (menu de equipar/encantar/descartar) e o seletor do mercado
+ * (escolher o que anunciar)
  *
- * O `title` e o mesmo do inventario de proposito: nome, raridade, tipo,
- * valor e atributos num texto so. E a forma mais barata de dar a
- * informacao completa sem ocupar a tela
+ * A CAIXA DE INFORMACOES fica no `ItemTooltip`, e este componente so
+ * avisa que o mouse entrou. Ela e parte do slot para o jogador, e nao
+ * parte do desenho: vive num portal por causa do `overflow: hidden` do
+ * painel, e a leitura dela esta no proprio `ItemTooltip`
  */
-function statLine(stats) {
-  if (!stats) return "";
-
-  const STAT_LABELS = {
-    attack: "ATQ",
-    defense: "DEF",
-    speed: "VEL",
-    attackSpeed: "VEL. ATQ",
-    critChance: "CRIT",
-    critDamage: "DANO CRIT",
-    maxHp: "HP",
-    maxResource: "REC",
-    lifeSteal: "ROUBO",
-    cooldownReduction: "CD",
-  };
-
-  return Object.entries(stats)
-    .map(([key, value]) => `${STAT_LABELS[key] ?? key} ${value}`)
-    .join("  ·  ");
-}
-
 export default function InvSlotView({
   entry,
   compact = false,
@@ -75,8 +56,43 @@ export default function InvSlotView({
 
   const nome = item.name;
 
-  return (
+  /**
+   * A CAIXA DE INFORMACOES, e o que o `title` fazia antes.
+   *
+   * ## POR QUE O ESTADO E O `elemento` E NAO UM `true`
+   *
+   * A caixa precisa do retangulo do slot para saber onde se posicionar, e
+   * o `event.currentTarget` do `pointerenter` e exatamente esse elemento.
+   * Guardar so um booleano obrigaria a medir de novo dentro de um
+   * `useEffect`, com um segundo layout para chegar no mesmo lugar
+   *
+   * ## O FOCO CONTA COMO PASSAR O MOUSE
+   *
+   * Quem navega pelo teclado tabula nos slots, e um item focado que nao
+   * abre a caixa fica sem informacao nenhuma. E o `onBlur` fecha, entao
+   * o `title` nativo sumiu sem perda de acessibilidade
+   */
+  const [ancora, setAncora] = useState(null);
+
+  const abrirDica = (event) => setAncora(event.currentTarget);
+
+  const fecharDica = () => setAncora(null);
+
+  const slot = (
     <div
+      /**
+       * O `data-uid` do slot.
+       *
+       * Existe para o `direcaoDoMenu` do inventario encontrar o retangulo
+       * deste item pelo `uid` da pilha. A medicao decide se a caixa de
+       * opcoes abre para cima ou para baixo, e ela precisa saber ONDE este
+       * slot esta — sem isto so dava para medir o container inteiro, e o
+       * item do meio da lista receberia a direcao do ultimo
+       *
+       * `uid` e nao `itemId`: duas pilhas do mesmo item em raridades
+       * diferentes sao dois slots, e a caixa errada abriria sobre a outra
+       */
+      data-uid={entry.uid ?? undefined}
       className={[
         "inv-slot",
         `inv-slot--${raridadeId}`,
@@ -91,16 +107,27 @@ export default function InvSlotView({
         "--rarity": rarity?.color ?? "#c3ccd6",
         ...(area ? { gridArea: area } : null),
       }}
-      title={`${item.name}\n${rarity?.label ?? ""} · ${
-        ITEM_TYPE_LABEL[item.type]
-      }\nValor: ${item.value} moedas${
-        statLine(item.stats) ? `\n${statLine(item.stats)}` : ""
-      }`}
     >
       <button
         type="button"
         className="inv-slot__hit"
-        onClick={() => onSelect?.(entry)}
+        /**
+         * O `event` vai como SEGUNDO argumento, e nao no lugar do `entry`.
+         *
+         * Quem chama precisa do `entry` para saber o que foi clicado, e
+         * alguns precisam tambem do `event` para saber ONDE o slot esta:
+         * uma caixa de opcoes que abre para baixo e cortada pela borda do
+         * painel quando o item esta na ultima linha
+         *
+         * O seletor do mercado, que e o outro usuario deste componente,
+         * recebe o segundo argumento e ignora — e por isso que ele vem
+         * depois do `entry` e nao antes
+         */
+        onClick={(event) => onSelect?.(entry, event)}
+        onPointerEnter={abrirDica}
+        onPointerLeave={fecharDica}
+        onFocus={abrirDica}
+        onBlur={fecharDica}
         aria-label={nome}
         aria-pressed={onSelect ? Boolean(selected) : undefined}
       >
@@ -133,5 +160,21 @@ export default function InvSlotView({
 
       {children}
     </div>
+  );
+
+  /**
+   * A CAIXA VAI DEPOIS DO `return` DO SLOT, e nao dentro dele.
+   *
+   * Ela nao pode ser filha do `.inv-slot`: o painel tem `transform` e
+   * `overflow: hidden`, entao qualquer coisa dentro dele e cortada na
+   * borda. E ela nao precisa estar no lugar — o portal pendura no `body`
+   * e se posiciona pela tela
+   */
+  return (
+    <>
+      {slot}
+
+      <ItemTooltip entry={entry} ancora={ancora} />
+    </>
   );
 }

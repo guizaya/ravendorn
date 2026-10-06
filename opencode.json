@@ -1,0 +1,20 @@
+{
+    "$schema": "https://opencode.ai/config.json",
+    "model": "openrouter/stealth/space-bunny-alpha",
+    "provider": {
+      "spacebunny": {
+        "npm": "@ai-sdk/openai-compatible",
+        "name": "Space Bunny",
+        "options": {
+          "baseURL": "https://spacebunnymodel.com/api/v1",
+          "apiKey": "sb_live_TP-UwPC49lKsfNAr9BZJsrhIULX_jkCOP8ZTu75nPv8"
+        },
+        "models": {
+          "space-bunny-alpha": {
+            "name": "Space Bunny Alpha"
+          }
+        }
+      }
+    },
+    "model": "spacebunny/space-bunny-alpha"
+  }

@@ -17,8 +17,9 @@
      5. texto        - a escala de texto do inventario
      6. selection    - tela de escolha de classe
      7. hud          - vitals, barras, buffs, alvo, skill slots, mensagens
-     8. quests       - tracker, painel de missoes e as abas principal/secundaria
-     9. bestiary     - painel, entradas e a box de auto
+8. quests       - tracker, painel de missoes e as abas principal/secundaria
+      9. bestiary     - painel, entradas e a box de auto
+     10. party        - box da party, linhas de membro e a caixa de convite
    ============================================================================ */
 
 :root {
@@ -56,6 +57,24 @@
   --t-positive: #7ef0b0;
   --t-danger: #a03434;
   --t-danger-text: #ff9d9d;
+
+  /**
+   * O AZUL DO MAGICO, e o unico azul da paleta.
+   *
+   * A paleta do projeto e quente — marrom, dourado, verde de positivo e
+   * vermelho de perigo — e o azul ficou de fora ate agora. Ele entrou
+   * com a box do teleporte, que precisava se distinguir do portal (dourado)
+   * e da arena (vermelho) sem ler texto
+   *
+   * Sao tres caixas no mesmo canto da tela, e cada uma e um "o que fazer
+   * aqui": atravessar, sair, pular. Um acento so nao serviria. O azul e o
+   * unico que o tema nao usava, entao ele entrou sem competir com nada
+   *
+   * E um frio, nao um ciano: a paleta e de madeira e pergaminho, e um
+   * azul vivo pareceria interface moderna no meio de um jogo de fantasia
+   */
+  --t-magic: #6f8fc4;
+  --t-magic-bright: #a3c0ea;
 
   /* as variaveis que styles.css ja usava, agora com a paleta do inventario */
   --panel: var(--t-panel);
@@ -268,7 +287,6 @@ button:focus-visible {
 .target-panel,
 .game-message,
 .skill-slot,
-.hud-actionbar,
 .qst-tracker,
 .qst-panel,
 .bst-panel,
@@ -540,6 +558,48 @@ button:focus-visible {
   color: var(--t-gold-bright);
 }
 
+/**
+ * O BOTAO DA ARENA.
+ *
+ * ## SO UM SENTIDO, E SO UM LUGAR
+ *
+ * Este botao ENTRA na arena, e dentro da arena ele nao e desenhado. A
+ * saida e a `BossBox`, embaixo do minimapa, que e o vermelho de perigo
+ * daquele lugar
+ *
+ * Antes este botao fazia os dois sentidos e a cor mudava: virava
+ * vermelho quando o jogador estava dentro, para dizer "isto aqui tira
+ * voce de la". Isso virou regra morta quando o botao passou a sumir
+ * dentro da arena — o `.is-active` vermelho nao tem mais aonde ser
+ * aplicado, e o perigo agora mora na box, onde a saida realmente esta
+ *
+ * O ouro que sobrou e o de "abrir informacao", que e o do bestiario ao
+ * lado. Nao ha mais estado dentro para distinguished
+ */
+.hud-btn--arena {
+  border-color: var(--t-line-3);
+  color: var(--t-gold-bright);
+}
+
+.hud-btn--arena:hover {
+  border-color: var(--t-gold);
+  color: var(--t-gold-bright);
+}
+
+/**
+ * SEM REDE, O BOTAO APAGA.
+ *
+ * A arena e uma viagem entre mapas, e a viagem de rede e do SERVIDOR.
+ * Um botao que parecesse funcionar e nao fizesse nada seria pior que um
+ * botao visivelmente desligado — e o `not-allowed` diz ao jogador que o
+ * motivo e a conexao, nao o jogo
+ */
+.hud-btn--arena:disabled {
+  border-color: var(--t-line);
+  color: var(--t-text-faintest);
+  cursor: not-allowed;
+}
+
 .hud-btn--bestiary.is-active {
   border-color: var(--t-gold);
   color: var(--t-gold-bright);
@@ -779,9 +839,7 @@ button:focus-visible {
 .hud-btn,
 .hud-buff,
 .skill-slot,
-.hud-ability,
 .skill-slot__frame,
-.hud-ability__ring,
 .skill-slot__cooldown,
 .skill-slot__auto-badge,
 .skill-slot__drag-hint,
@@ -796,6 +854,23 @@ button:focus-visible {
 .hud-btn__badge,
 .hud-buff__time {
   border-radius: var(--t-radius-sm);
+}
+
+/**
+ * O BOTAO DE AUTO E O UNICO CIRCULAR, e ele fica de fora de cima.
+ *
+ * `.hud-ability` estava na lista, e a lista e o que aplica
+ * `border-radius: var(--t-radius-sm)`. Entao o `border-radius: 50%` do
+ * `styles.css` era sobreposto pelo tema, e o botao de 42px saia como um
+ * quadradinho com o texto "auto" espremido dentro — quadrado porque o
+ * tema dizia que era, nao porque alguem escolheu
+ *
+ * A ordem dos arquivos e o que decide: `theme-inventory.css` vem depois
+ * de `styles.css`, entao um `50%` escrito aqui nao venceria. A saida e
+ * tirar o elemento da lista
+ */
+.hud-ability {
+  border-radius: 50%;
 }
 
 .hud-btn,
@@ -837,7 +912,6 @@ button:focus-visible {
   background: linear-gradient(180deg, #1f3a2c 0%, #14261d 100%);
 }
 
-.hud-ability__ring,
 .skill-slot__frame {
   border-color: rgba(255, 255, 255, 0.09);
 }
@@ -1167,7 +1241,8 @@ button:focus-visible {
 
 /* barra de acao */
 .hud-actionbar {
-  background: linear-gradient(0deg, rgba(10, 8, 6, 0.94), transparent);
+  background: none;
+  box-shadow: none;
 }
 
 .hud-actionbar__divider {
@@ -1761,6 +1836,145 @@ button:focus-visible {
 .pause__btn--primary:hover {
   background: var(--t-raised);
 }
+
+/* ============================================================================
+   O PAINEL DA MORTE
+   ============================================================================ */
+
+/*
+ * A APARENCIA mora aqui, como a de todo painel deste arquivo: o
+ * `styles.css` deixou so o layout, entao trocar este bloco reestiliza o
+ * painel da morte sem tocar na tela de jogo
+ *
+ * E a MESMA anatomia do pause — cortina, caixa, titulo, botao — com
+ * tres diferencas que sao consequencias, nao enfeite:
+ *
+ * 1. O veu e MAIS ESCURO. O pause cobre o jogo porque o jogador QUER
+ *    olhar o jogo por tras. Aqui o jogador morreu: o veu escuro e o que
+ *    diz "acabou", e um veu claro deixaria a cena da derrota visivel
+ *    atras do painel
+ *
+ * 2. O titulo e VERMELHO. E a unica cor de estado do tema, e ela esta
+ *   guardada para o jogador em perigo. Usar dourado aqui faria a morte
+ *    parecer um botao
+ *
+ * 3. Os botoes tem PRECO visivel. E o unico painel do jogo que mostra
+ *    o que a acao custa antes dela acontecer
+ */
+.dth__veil {
+  background: color-mix(in srgb, var(--t-abyss) 88%, transparent);
+  backdrop-filter: blur(3px) saturate(0.4);
+}
+
+.dth__panel {
+  border: 2px solid var(--t-danger);
+  color: var(--t-text);
+  background: linear-gradient(
+    180deg,
+    var(--t-panel) 0%,
+    var(--t-sunken) 100%
+  );
+  box-shadow:
+    var(--t-bevel),
+    var(--t-drop),
+    0 0 40px rgba(160, 52, 52, 0.18);
+}
+
+/* a caveira: o unico elemento do painel que nao vem do catalogo */
+.dth__mark {
+  color: var(--t-danger-text);
+  text-shadow: 0 2px 6px rgba(0, 0, 0, 0.6);
+}
+
+.dth__title {
+  color: var(--t-danger-text);
+  letter-spacing: 0.22em;
+}
+
+.dth__hint {
+  color: var(--t-text-dim);
+}
+
+/**
+ * O VOLTAR AUTOMATICO e a unica linha do painel com cor de ALERTA.
+ *
+ * Os botoes dourados e verdes dizem o que cada saida custa. Este diz
+ * o que acontece se o jogador nao escolher — e essa e a informacao que
+ * ele nao tem em lugar nenhum da tela. A cor e a de perigo do tema
+ * porque o fim do prazo NAO e neutro: ele leva XP junto
+ */
+.dth__countdown {
+  color: var(--t-danger-text);
+}
+
+/* a moldura de cada saida: um botao com tres linhas */
+.dth__btn {
+  border: 1px solid var(--t-line-2);
+  border-radius: var(--t-radius-sm);
+  color: var(--t-text);
+  background: var(--t-raised);
+}
+
+.dth__btn:disabled {
+  /* o botao do ouro sem moedas e o que DIZ que nao ha o que fazer com
+   * ele. Escurecer e deixar o texto cinza e o suficiente */
+  border-color: var(--t-line);
+  color: var(--t-text-faintest);
+  background: var(--t-sunken);
+}
+
+.dth__btn-label {
+  color: inherit;
+  font-weight: 700;
+}
+
+/*
+ * O PRECO usa a cor do que ele gasta.
+ *
+ * `◉` dourado no botao que gasta ouro, `✦` no que gasta XP. E o que
+ * separa as duas saidas antes de qualquer leitura: o jogador ve dois
+ * botoes com um numero em cada e ja sabe que cada numero e de uma
+ * materia diferente
+ */
+.dth__btn-cost {
+  color: var(--t-gold-bright);
+}
+
+.dth__btn-cost--xp {
+  color: var(--t-positive);
+}
+
+.dth__btn-cost i {
+  font-style: normal;
+}
+
+.dth__btn-note {
+  color: var(--t-text-faintest);
+}
+
+/**
+ * O REVIVER e o botao cheio, porque e a saida que nao tira progresso.
+ *
+ * Quem morreu quer voltar ao jogo. O ouro se compra de novo, o XP nao.
+ * A distincao esta na materia e nao num `disabled`, entao ela tem que
+ * aparecer ANTES do clique
+ */
+.dth__btn--revive {
+  border-color: var(--t-gold-line);
+  color: var(--t-gold-bright);
+  background: var(--t-active-deep);
+}
+
+.dth__btn--revive:hover:not(:disabled) {
+  border-color: var(--t-gold);
+  background: var(--t-active);
+}
+
+/* voltar para a base e o botao de fio: custa XP e tira a posicao */
+.dth__btn--base:hover {
+  border-color: var(--t-line-3);
+  color: var(--t-text-bright);
+}
 /* ============================================================================
    A BOX DO PORTAL, abaixo do minimapa
    ============================================================================ */
@@ -1827,6 +2041,317 @@ button:focus-visible {
 .prt-box__go:focus-visible {
   outline: 2px solid var(--t-gold-bright);
   outline-offset: 2px;
+}
+
+/**
+   O PORTAL SELADO: a Floresta Sombria antes da campanha do mapa 1.
+
+   A moldura NAO muda. Uma caixa com cor diferente na mesma canto da tela
+   denunciaria que ela foi colada depois — e o portal selado e um estado
+   do jogo, nao outra superficie. O que muda e o TEXTO e o botao, que e
+   onde o jogador olha
+
+   O `--t-line-3` na borda mantem a caixa com o mesmo peso das outras e
+   so tira o dourado do botao: e a moldura que diz "esta fechada", e o
+   verde do rotulo que deixa de dizer "pode atravessar"
+ */
+.prt-box.is-locked {
+  border-color: var(--t-line-3);
+}
+
+/**
+   O ROTULO de um portal fechado.
+
+   some o verde de `--t-positive` — o verde deste rotulo significa "pode
+   atravessar", e um verde em portal travado seria um sim que nao
+   existe. Vira o apagado do texto, como o `col-entry__give:disabled`
+ */
+.prt-box.is-locked .prt-box__label {
+  color: var(--t-text-faintest);
+}
+
+.prt-box.is-locked .prt-box__name {
+  color: var(--t-text-dim);
+}
+
+/**
+   O MOTIVO DA TRAVA.
+
+   O texto que o servidor mandou em `portal.motivo`, e a mesma frase que o
+   jogador ouve se insistir. Vai no `--t-text-dim`, e nao no dourado do
+   botao: sao dois dourados na mesma caixa, e o motivo nao e uma acao
+ */
+.prt-box__lock {
+  color: var(--t-text-dim);
+}
+
+/**
+   O BOTAO desligado.
+
+   Exatamente o `:disabled` do mercado e da colecao
+   (`--t-line-2` sobre `--t-sunken`, no apagado): um botao que o projeto
+   ja usa para "voce nao pode" nao pode ter outra cara so aqui
+ */
+.prt-box.is-locked .prt-box__go,
+.prt-box__go:disabled {
+  border-color: var(--t-line-2);
+  background: var(--t-sunken);
+  color: var(--t-text-faintest);
+  cursor: not-allowed;
+}
+
+/**
+   A BOX DA ARENA DO CHEFE.
+
+   A MESMA CAIXA, com a cor do perigo.
+
+   A `BossBox` reusa a `.prt-box` de proposito: as duas ficam no mesmo
+   canto da tela, na mesma posicao relativa ao minimapa, e sao a mesma
+   coisa — "a saida do lugar em que voce esta". Se a box do chefe tivesse
+   moldura propria, o jogador veria dois tipos de caixa onde Bastava um,
+   e teria de aprender qual era qual.
+
+   O QUE MUDA E SO A COR, e e o vermelho que o projeto ja reserva para
+   "voce esta em perigo" (o mesmo do chefe no catalogo, e o mesmo do
+   painel da morte). O dourado do `PortalBox` diz "atravesar", que e uma
+   viagem; aqui o botao diz "sair", que e uma fuga — e uma saida de
+   emergencia precisa ser reconhecida antes de ser lida
+ */
+/**
+   A BOX DE INFORMACOES DO ITEM, que era um `title` do navegador.
+
+   A MESMA moldura da `prt-box`, na verdade: e a mesma ideia — uma caixa
+   escura de borda dura sobre o mundo — e uma; por isso mesmo como
+   `inv-tip` e nao `prt-box` sao duas classes com o mesmo desenho. Se um
+   dia os dois divergirem, valeria mais unificar
+
+   ## O `pointer-events: none` E OBRIGATORIO
+
+   A caixa nasce logo ao lado do slot, entao ela ficaria EM CIMA do item
+   seguinte da lista. Com `pointer-events` ligado, passar o mouse para a
+   proxima peca fecharia a dica anterior ao chegar nesta — e o jogador
+   nunca conseguiria ler duas dicas seguidas. Sem `pointer-events`, o
+   mouse atravessa a caixa como se ela nao existisse
+
+   ## A opacidade controlleda pelo React
+
+   A caixa e desenhada invisivel ate medir o proprio tamanho (ver
+   `ItemTooltip`), para nao nascer no canto da tela por um quadro
+ */
+.inv-tip {
+  position: fixed;
+  z-index: 90;
+  display: grid;
+  gap: 2px;
+  padding: 7px 9px 8px;
+  pointer-events: none;
+  border: 2px solid var(--t-line-2);
+  border-radius: var(--t-radius-sm);
+  color: var(--t-text);
+  background: linear-gradient(
+    180deg,
+    var(--t-panel) 0%,
+    var(--t-sunken) 100%
+  );
+  box-shadow: var(--t-bevel), var(--t-drop);
+  transition: opacity 90ms ease-out;
+}
+
+.inv-tip__name {
+  color: var(--t-text-bright);
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.inv-tip__meta {
+  display: flex;
+  gap: 5px;
+  align-items: center;
+  font-size: 10px;
+}
+
+.inv-tip__meta i {
+  color: var(--t-text-faintest);
+  font-style: normal;
+}
+
+.inv-tip__value {
+  margin-top: 2px;
+  color: var(--t-gold-bright);
+  font-size: 10px;
+}
+
+/**
+ * A DESCRICAO DO ITEM.
+ *
+ * A dica nao tinha lugar para ela. Todo item do catalogo podia ter
+ * `description` e o campo simplesmente nao era desenhado — o livro de
+ * habilidade e o primeiro item em que a frase faz falta, porque e o
+ * unico em que o efeito nao cabe em um numero
+ */
+.inv-tip__desc {
+  margin-top: 4px;
+  color: var(--t-text-faint);
+  font-size: 10px;
+  font-style: italic;
+  line-height: 1.35;
+}
+
+/**
+ * O BLOCO "ENSIINA", so no livro de habilidade.
+ *
+ * E o que separa "gastei 150 moedas" de "gastei 150 moedas na skill que
+ * eu quero". O rotulo em cima e o nome embaixo sao duas linhas porque o
+ * nome e a informacao, e o rotulo so diz do que se trata
+ *
+ * Os numeros ficam em uma terceira linha e mais apagados: sao a
+ * comparacao, nao a promessa. O jogador olha o nome primeiro e so depois
+ * pesa se o dano compensa
+ */
+.inv-tip__ensina {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  margin: 4px 0 0;
+  padding: 4px 0;
+  border-top: 1px solid var(--t-line);
+  border-bottom: 1px solid var(--t-line);
+}
+
+.inv-tip__ensina-rotulo {
+  color: var(--t-text-faintest);
+  font-size: 9px;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+}
+
+.inv-tip__ensina strong {
+  color: var(--t-text-bright);
+  font-size: 12px;
+}
+
+.inv-tip__ensina-numeros {
+  color: var(--t-text-faint);
+  font-size: 10px;
+}
+
+.inv-tip__stats {
+  display: grid;
+  gap: 2px;
+  margin: 3px 0 0;
+  padding: 4px 0 0;
+  border-top: 1px solid var(--t-line);
+  list-style: none;
+}
+
+/**
+ * UM ATRIBUTO: o rotulo na esquerda e o valor na direita.
+ *
+ * E o `space-between` do cartao de Power do inventario. Ali os bonuses
+ * andam em DUAS colunas porque o painel e largo; aqui a caixa e estreita
+ * e sao um por linha. O que se copiou foi a leitura de cada linha: o
+ * nome do atributo e o numero com ar entre eles, alinhados nas pontas
+ *
+ * `min-width: 0` no rotulo e o que impede um nome longo de empurrar o
+ * valor para fora da caixa: o `ellipsis` precisa de um espaco definido
+ * para ter onde cortar
+ */
+.inv-tip__stat {
+  display: flex;
+  gap: 8px;
+  align-items: baseline;
+  justify-content: space-between;
+}
+
+.inv-tip__stat small {
+  min-width: 0;
+  overflow: hidden;
+  color: var(--t-text-dim);
+  font-size: 9px;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.inv-tip__stat b {
+  color: var(--t-positive);
+  font-size: 10px;
+  font-weight: 700;
+}
+
+.prt-box--chefe {
+  border-color: var(--t-danger);
+}
+
+.prt-box--chefe .prt-box__label {
+  color: var(--t-danger-text);
+}
+
+.prt-box--chefe .prt-box__go--chefe {
+  border-color: var(--t-danger);
+  color: var(--t-danger-text);
+}
+
+.prt-box--chefe .prt-box__go--chefe:hover {
+  border-color: var(--t-danger-text);
+  color: var(--t-abyss);
+  background: linear-gradient(180deg, var(--t-danger-text) 0%, var(--t-danger) 100%);
+}
+
+.prt-box--chefe .prt-box__go--chefe:focus-visible {
+  outline: 2px solid var(--t-danger-text);
+  outline-offset: 2px;
+}
+
+/**
+   A BOX DO TELEPORTE.
+
+   O AZUL do portal, e nao o dourado.
+
+   A `prt-box__go` do portal e dourada porque atravessar e uma VIAGEM: o
+   botao leva a outro mapa e o preco de nao fazer nada e ficar do lado.
+   O teleporte tambem e uma viagem no sentido do jogo, mas nao troca de
+   mapa — e o azul que o projeto ja usa para "magico/teleporte", e ele
+   separa as tres caixas do mesmo canto sem precisar de texto
+
+   Sem estado `disabled` proprio: o botao desligado reusa o
+   `.prt-box__go:disabled` que a `PortalBox` ja tem, porque "voce nao
+   pode" e a mesma cara em qualquer uma das tres
+ */
+.prt-box--teleporte {
+  border-color: var(--t-line-3);
+}
+
+.prt-box--teleporte .prt-box__label {
+  color: var(--t-magic);
+}
+
+.prt-box--teleporte .prt-box__go--teleporte {
+  border-color: var(--t-magic);
+  color: var(--t-magic-bright);
+}
+
+.prt-box--teleporte .prt-box__go--teleporte:hover {
+  border-color: var(--t-magic-bright);
+  color: var(--t-abyss);
+  background: linear-gradient(
+    180deg,
+    var(--t-magic) 0%,
+    #3f6fae 100%
+  );
+}
+
+.prt-box--teleporte .prt-box__go--teleporte:focus-visible {
+  outline: 2px solid var(--t-magic-bright);
+  outline-offset: 2px;
+}
+
+.prt-box.is-locked .prt-box__go:hover,
+.prt-box__go:disabled:hover {
+  border-color: var(--t-line-2);
+  background: var(--t-sunken);
+  color: var(--t-text-faintest);
 }
 /* ============================================================================
    GUILDA
@@ -1990,11 +2515,11 @@ button:focus-visible {
 }
 
 /**
- * Os TALENTOS, e os tres estados que precisam se ler de relance.
+ * Os TALENTOS na lista antiga, que sobrou para o cofre e a busca.
  *
- * A cor faz o trabalho, porque o botao sozinho nao diferencia: um botao
- * desabilitado pode ser "voce nao tem pontos" ou "o de cima ainda nao foi
- * destravado", e sao coisas bem diferentes para o jogador
+ * A ARVORE nova usa `.gld-no` e nao estas regras; elas continuam valendo
+ * para as linhas de texto do resto do painel, e e por isso que o bloco da
+ * arvore esta SEPARADO, mais abaixo
  */
 .gld-talent.is-done {
   border-color: var(--t-positive);
@@ -2015,6 +2540,206 @@ button:focus-visible {
   color: var(--t-text-faintest);
 }
 
+/* ============================================================================
+   A ARVORE DE TALENTOS
+   ============================================================================ */
+
+/*
+ * A casca do no e a do cartao do inventario, e a cor faz os TRES estados.
+ *
+ * Sao tres, e nao dois, porque a arvore tem um estado a mais que a lista
+ * antiga: o no pode estar destravado E sem saldo. Com dois estados
+ * (aberto e trancado) esse caso cairia no "trancado" e o jogador pensaria
+ * que precisa subir o pai quando na verdade so precisa esperar o ponto
+ *
+ *   is-locked  o pai nao subiu — nao ha nem como tentar
+ *   is-ready   subiu o quanto pode agora, e o botao acende
+ *   is-max     chegou no Nv. 5 e nao ha mais o que subir
+ */
+.gld-no {
+  border: 1px solid var(--t-line-2);
+  background: linear-gradient(180deg, var(--t-panel) 0%, var(--t-sunken) 100%);
+  box-shadow: var(--t-bevel);
+}
+
+.gld-no__icone {
+  border: 1px solid var(--t-line-2);
+  background: var(--t-abyss);
+  color: var(--t-gold);
+}
+
+/**
+ * O NOME e o `Nv.` na linha de cima.
+ *
+ * O nome no padrao e o `Nv.` no apagado: o nome e o que se procura e o
+ * nivel e o estado, e os dois disputam a mesma linha
+ */
+.gld-no__nome {
+  color: var(--t-text-bright);
+}
+
+.gld-no__nivel {
+  color: var(--t-text-dim);
+}
+
+/* o no travado apaga o nome inteiro, e nao so esmaece */
+.gld-no.is-locked {
+  border-style: dashed;
+  border-color: var(--t-line);
+  background: transparent;
+  box-shadow: none;
+}
+
+.gld-no.is-locked .gld-no__nome,
+.gld-no.is-locked .gld-no__icone,
+.gld-no.is-locked .gld-no__nivel,
+.gld-no.is-locked .gld-no__pct {
+  color: var(--t-text-faintest);
+}
+
+/**
+ * OS STATS do no: o premio e o incremento.
+ *
+ * O `<b>` (premio) e o `<i>` (proximo) tem cores diferentes porque sao
+ * coisas diferentes: o primeiro e o que o painel de status ja mostra no
+ * personagem, e o segundo e o que ainda nao existe
+ *
+ * O premio no dourado e a mesma cor do resto dooque a guilda constroi:
+ * o cofre, a barra da arvore, o bonus de entrega do inventario. E o
+ * incremento num dourado apagado, e nao em verde — verde no projeto e
+ * "feito" e "pode", e um bonus que o jogador ainda nao tem nao e nenhum
+ * dos dois
+ */
+.gld-no__premio b {
+  color: var(--t-gold-bright);
+}
+
+.gld-no__premio em {
+  color: var(--t-text-faintest);
+}
+
+.gld-no__proximo i {
+  color: var(--t-text-faint);
+}
+
+/* o no travado nao promete nada: nem o que ja da, nem o que vem */
+.gld-no.is-locked .gld-no__premio b,
+.gld-no.is-locked .gld-no__proximo i {
+  color: var(--t-text-faintest);
+}
+
+/**
+ * O NO MAXIMO leva o total ao dourado cheio.
+ *
+ * E o mesmo tratamento do nome: um no que chegou no fim tem o premio
+ * completo aceso, e o que sobra do apagado no incremento some com o
+ * proprio elemento
+ */
+.gld-no.is-max .gld-no__premio b {
+  color: var(--t-gold-bright);
+}
+
+.gld-no.is-locked .gld-no__icone {
+  border-color: var(--t-line);
+  background: transparent;
+}
+
+/**
+ * A BARRA do proximo degrau.
+ *
+ * O trilho e o `--t-abyss` com fio de `--t-line`, o mesmo trilho da
+ * barra de vida da party e dos gauges do HUD. Sem o fio a barra flutua
+ * sobre o fundo do cartao
+ */
+.gld-no__barra {
+  background: var(--t-abyss);
+  box-shadow: inset 0 0 0 1px var(--t-line);
+}
+
+/*
+ * A barra CHEIA e dourada, e nao verde.
+ *
+ * O verde do projeto e "feito" e "pode" (o botao de comprar, o aceitar
+ * do convite, a vida cheia da party). Aqui a barra responde "quanto ja
+ * foi investido neste no", que e construcao — e o dourado e a cor da
+ * construcao no inventario e no pause
+ */
+.gld-no__barra i {
+  background: linear-gradient(180deg, var(--t-gold) 0%, var(--t-gold-deep) 100%);
+}
+
+/*
+ * O no PRONTO acende a barra no verde.
+ *
+ * E a unica regra de cor deste bloco que muda com o estado, e e a que
+ * mais importa: ela diz "voce pode subir AGORA". O jogador passa o mouse
+ * na arvore procurando o no acionado, e nao precisa ler sete botoes para
+ * achar
+ */
+.gld-no.is-ready .gld-no__barra i {
+  background: linear-gradient(180deg, var(--t-positive) 0%, #3f9a6c 100%);
+}
+
+.gld-no.is-ready .gld-no__pct {
+  color: var(--t-positive);
+}
+
+/**
+ * O NO MAXIMO e o unico com a moldura de ouro cheia.
+ *
+ * E a recompensa visivel de ter acabado o no, e sem ela o Nv. 5 seria so
+ * um numero — o mesmo numero que a barra em 100% ja mostrava. A moldura
+ * e o que diz "isto aqui acabou"
+ */
+.gld-no.is-max {
+  border-color: var(--t-gold-line);
+  background: linear-gradient(180deg, var(--t-active) 0%, var(--t-active-deep) 100%);
+  box-shadow: var(--t-bevel-strong);
+}
+
+.gld-no.is-max .gld-no__nome {
+  color: var(--t-gold-bright);
+}
+
+.gld-no.is-max .gld-no__icone {
+  border-color: var(--t-gold-line);
+  color: var(--t-gold-bright);
+}
+
+.gld-no.is-max .gld-no__barra i {
+  background: linear-gradient(180deg, var(--t-gold-bright) 0%, var(--t-gold) 100%);
+}
+
+/**
+ * AS LIGAS entre os nos.
+ *
+ * A liga apagada e o fio de `--t-line`: ela existe para o jogador ler a
+ * dependencia, e nao para chamar atencao. A viva acende no dourado, que
+ * e o que diz "este caminho ja foi aberto" — e uma liga viva logo acima
+ * de um no travado e o que faz a arvore se ler de cima para baixo
+ */
+.gld-arvore__liga {
+  stroke: var(--t-line);
+  stroke-width: 1px;
+}
+
+.gld-arvore__liga.is-viva {
+  stroke: var(--t-gold-line);
+  stroke-width: 1.5px;
+}
+
+/*
+ * A NOTA do pe.
+ *
+ * Ela existe por causa do numero oculto: sem uma frase dizendo que o
+ * custo e secreto, o jogador ia ler "0%" e pensar que a arvore quebrou.
+ * E ela precisa ser apagada — e uma explicacao da regra, nao uma
+ * destaque
+ */
+.gld-arvore__nota {
+  color: var(--t-text-faintest);
+}
+
 .gld-pontos {
   color: var(--t-text);
 }
@@ -2029,6 +2754,81 @@ button:focus-visible {
 
 .gld-cofre__moedas {
   color: var(--t-gold);
+}
+
+/**
+ * A NOTA do rodape do cofre.
+ *
+ * E a regra do "so a diretoria deposita", e ela nao e um erro: e o que
+ * explica um cofre vazio que nao vai se encher sozinho. Por isso vai no
+ * apagado de texto, e nao na cor de aviso — nada quebrou, e o jogo
+ * funciona como foi pedido
+ */
+.gld-cofre__nota {
+  color: var(--t-text-faintest);
+}
+
+/**
+ * OS DOIS PAINEIS do cofre.
+ *
+ * A casca e a do cartao do inventario, e a mesma moldura da arvore. Sao
+ * dois paineis do mesmo cofre e nao duas superficies diferentes, entao
+ * eles se leem como um bloco so — igual a `inv-panel` e a `inv-panel` de
+ * uma lista com abas
+ */
+.gld-cofre__painel {
+  border: 1px solid var(--t-line-2);
+  background: linear-gradient(180deg, var(--t-panel) 0%, var(--t-sunken) 100%);
+  box-shadow: var(--t-bevel);
+}
+
+/**
+ * O TITULO de "Depositar" e "Retirar".
+ *
+ * Um dourado, e nao o verde de "acao liberada": os dois botoes ficam
+ * acesos ao mesmo tempo, e o verde nos dois diria "os dois estao
+ * liberados" quando o que o jogador esta escolhendo e o SENTIDO do
+ * movimento, nao a permissao — que a aba ja checou
+ */
+.gld-cofre__cabeca h4 {
+  color: var(--t-gold);
+}
+
+.gld-cofre__cabeca small {
+  color: var(--t-text-faintest);
+}
+
+/**
+ * O CAMPO de quantidade.
+ *
+ * O mesmo `--t-abyss` sobre `--t-line-2` de todo campo do projeto, e o
+ * `outline` no foco e o dourado do botao — o campo de numero e o lugar
+ * onde o jogador digita, e ele precisa mostrar onde esta o cursor
+ */
+.gld-cofre__campo {
+  border: 1px solid var(--t-line-2);
+  color: var(--t-text-bright);
+  background: var(--t-abyss);
+}
+
+.gld-cofre__campo:focus-visible {
+  outline: 2px solid var(--t-gold-bright);
+  outline-offset: 1px;
+}
+
+.gld-cofre__linha--item {
+  border-top-color: var(--t-line);
+}
+
+/**
+ * O NOME do item escolhido.
+ *
+ * No `--t-text-dim`: e a etiqueta do que o botao ao lado vai mexer, e
+ * nao o numero que ele vai mexer. O numero do item esta no proprio slot
+ * da grade, duas linhas acima
+ */
+.gld-cofre__escolhido {
+  color: var(--t-text-dim);
 }
 
 .gld-cofre {
@@ -2052,4 +2852,386 @@ button:focus-visible {
   border-color: var(--t-gold);
   color: var(--t-gold-bright);
   background: linear-gradient(180deg, var(--t-active) 0%, var(--t-active-deep) 100%);
+}
+
+/* ============================================================================
+   A PARTY
+   ============================================================================ */
+
+/*
+ * A box da party mora na MESMA coluna da de missoes, entao ela e lida como
+ * parte do mesmo bloco. Com a moldura cinza de antes, as duas caixas da
+ * coluna tinham dois materiais diferentes e o olho tinha que parar em
+ * cada uma
+ *
+ * A casca e a mesma de todo painel deste arquivo, e a barra de vida e a
+ * dos gauges do HUD. O que muda aqui sao as cores, e nao o layout — o
+ * `styles.css` deixou o grid, a largura e a posicao como estavam
+ */
+
+/* ---------------- a casca ---------------- */
+
+/*
+ * A BORDA ESQUERDA e a do convite, e nao a de um painel: quem tem convite
+ * pendente ve a box acender sem precisar ler nada
+ *
+ * O `is-invite` entra quando ha convite NA TELHA, e nao quando o `party`
+ * do painel traz um — a `ConviteBox` e a fonte, porque o evento chega
+ * antes do pacote e um convite esperando o painel perderia a maior parte
+ * dos cinco segundos
+ */
+.pty-box {
+  border: 2px solid var(--t-line-2);
+  border-left: 3px solid var(--t-line-3);
+  border-radius: var(--t-radius);
+  color: var(--t-text);
+  background: linear-gradient(180deg, var(--t-panel) 0%, var(--t-sunken) 100%);
+  box-shadow: var(--t-bevel), var(--t-drop-sm);
+}
+
+/*
+ * O CONVIDE PENDENTE acende a borda da esquerda no verde de "pode", o
+ * mesmo do `prt-box__label` e do `mkt-item__buy`. E a unica coisa que
+ * muda na casca: a caixa de cinco segundos ja traz a moldura dourada
+ * dentro dela, e uma segunda cor de casca seria duas caixas-mindinho
+ */
+.pty-box.is-invite {
+  border-left-color: var(--t-positive);
+}
+
+.pty-box__title {
+  color: var(--t-gold);
+}
+
+/*
+ * A CONTAGEM de quem esta em quantos lugares e `--t-text-faintest`: e o
+ * mesmo peso do numero do resto da tela. O `opacity` antigo tirava o
+ * numero do contraste em cima do gradiente
+ */
+.pty-box__count {
+  color: var(--t-text-faintest);
+}
+
+/* ---------------- os botoes ---------------- */
+
+/*
+ * OS BOTOES tem a mesma silhueta dos outros: borda de 1px, raio do
+ * projeto e gradiente do inventario
+ *
+ * O `:disabled` e o mesmo do mercado e da colecao. O `opacity: 0.4`
+ * antigo punha o texto do botao de enviar quase ilegivel — e "Enviar"
+ * desabilitado e um estado que o jogador ve o tempo todo enquanto digita
+ * o nick
+ */
+.pty-btn {
+  border: 1px solid var(--t-line-2);
+  border-radius: var(--t-radius-sm);
+  color: var(--t-text);
+  background: linear-gradient(180deg, var(--t-raised) 0%, var(--t-sunken) 100%);
+}
+
+.pty-btn:hover {
+  border-color: var(--t-line-3);
+  background: var(--t-raised);
+}
+
+.pty-btn:disabled {
+  border-color: var(--t-line-2);
+  background: var(--t-sunken);
+  color: var(--t-text-faintest);
+  cursor: not-allowed;
+}
+
+/*
+ * O [ACEITAR] e a acao que o jogador QUER dentro da caixa de cinco
+ * segundos, entao e a unica com o verde cheio: e o mesmo
+ * tratamento do `mkt-item__buy`, a unica acao verde do painel do mercado
+ */
+.pty-btn--accept {
+  border-color: var(--t-positive);
+  color: var(--t-abyss);
+  background: var(--t-positive);
+}
+
+/*
+ * [RECUSAR], [CANCELAR] e [SAIR] sao o NEGATIVO do grupo, e por isso
+ * ficam no apagado. Um vermelho aqui brigaria com o vermelho do botao de
+ * expulsar da linha, que e onde o jogador olha quando algo da party da
+ * errado
+ */
+.pty-btn--decline,
+.pty-btn--cancel,
+.pty-btn--close,
+.pty-btn--leave {
+  color: var(--t-text-dim);
+}
+
+.pty-btn--leave:hover {
+  border-color: var(--t-danger);
+  color: var(--t-danger-text);
+}
+
+/*
+ * [CRIAR PARTY] e [ENVIAR] sao as ACOES PRINCIPAIS da caixa, e as duas
+ * brilham em dourado.
+ *
+ * Sao as duas vezes em que o botao e a unica coisa que o jogador pode
+ * fazer: na party nao formada, e no formulario de convite com o campo
+ * preenchido. Deixar as duas neutras as confundiria com [SAIR] e
+ * [RECUSAR], que ficam na mesma coluna e nao sao o que se quer fazer
+ *
+ * O dourado e o do `prt-box__go` e do `qst-action--claim`: acao que
+ * muda o estado do mundo. O [ENVIAR] e o mesmo caso — e o que cria a
+ * segunda sessao do grupo
+ */
+.pty-btn--create,
+.pty-btn--send {
+  border-color: var(--t-gold-line);
+  color: var(--t-gold-bright);
+}
+
+.pty-btn--create:hover,
+.pty-btn--send:hover {
+  border-color: var(--t-gold);
+  color: var(--t-abyss);
+  background: linear-gradient(180deg, var(--t-gold) 0%, var(--t-gold-deep) 100%);
+}
+
+/*
+ * [ENVIAR] com o campo vazio e o `:disabled` do projeto, e nao o dourado
+ * apagado: o dourado viria com `opacity` por cima do `:disabled` e o
+ * jogador veria um botao dourado que nao faz nada
+ */
+.pty-btn--send:disabled {
+  border-color: var(--t-line-2);
+  background: var(--t-sunken);
+  color: var(--t-text-faintest);
+}
+
+/*
+ * O INTERRUPTOR DO FOCO.
+ *
+ * O texto do botao JA troca entre "Focar lider" e "Foco ligado", entao a
+ * cor nao precisa carregar o estado: ela so precisa nao competir com a
+ * palavra. Apagado desligado, verde ligado — o mesmo par do
+ * `pty-member__follow.is-on` e do `bst-auto`
+ */
+.pty-btn--focus {
+  color: var(--t-text-faint);
+}
+
+.pty-btn--focus:hover {
+  border-color: var(--t-line-3);
+  color: var(--t-text-bright);
+}
+
+.pty-btn--focus.is-on {
+  border-color: var(--t-positive);
+  color: var(--t-positive);
+  background: color-mix(in srgb, var(--t-positive) 16%, var(--t-sunken));
+}
+
+/* ---------------- a caixa de cinco segundos ---------------- */
+
+/*
+ * O CONVITE e a unica caixa da party que tem cor propria, e ela a
+ * mantem: dourado de moldura sobre um banho do mesmo dourado. O
+ * `--t-gold-line` e o fio de ouro do projeto, e o banho e o mesmo do
+ * `bst-complete`, que e a outra coisa que o jogo diz "concluido"
+ */
+.pty-invite-box {
+  border: 1px solid var(--t-gold-line);
+  border-radius: var(--t-radius-sm);
+  background: linear-gradient(180deg, #322712 0%, #221b10 100%);
+}
+
+.pty-invite-box__head {
+  color: var(--t-text-bright);
+}
+
+/*
+ * A BARRA do prazo e o dourado do convite, e o numero e escuro SOBRE a
+ * barra — o mesmo do `bst-hunt__count`, que tambem e um numero em cima
+ * de um preenchimento
+ */
+.pty-invite-box__timer {
+  border: 1px solid var(--t-line);
+  border-radius: var(--t-radius-sm);
+  background: var(--t-abyss);
+}
+
+.pty-invite-box__timer i {
+  background: linear-gradient(180deg, var(--t-gold) 0%, var(--t-gold-deep) 100%);
+}
+
+.pty-invite-box__timer span {
+  color: var(--t-abyss);
+}
+
+/*
+ * O CONVITE EXPIRADO e o apagado, e nao um erro: o convite expirou
+ * sozinho, com prazo, e o jogador fez nada de errado
+ */
+.pty-invite-box__expired {
+  color: var(--t-text-faintest);
+}
+
+/* ---------------- o campo do nick ---------------- */
+
+/*
+ * O CAMPO e o mesmo `--t-abyss` sobre `--t-line-2` de todo campo do
+ * projeto. Um campo claro sobre o fundo escuro da caixa estouraria o
+ * olho no meio de uma party com tres barras de vida
+ */
+.pty-invite__input {
+  border: 1px solid var(--t-line-2);
+  border-radius: var(--t-radius-sm);
+  color: var(--t-text-bright);
+  background: var(--t-abyss);
+}
+
+.pty-invite__input:focus-visible {
+  outline: 2px solid var(--t-gold-bright);
+  outline-offset: 1px;
+}
+
+/* ---------------- a linha de um membro ---------------- */
+
+/*
+ * A LINHA DO PROPRIO tem o realce e o fio verde da esquerda.
+ *
+ * O fio e o `--t-positive` do "sou eu" e nao uma cor solta: e o que
+ * diferencia a linha num glance, e o texto "voce" saiu da tela para o
+ * nick ocupar o lugar dele
+ */
+.pty-member.is-me {
+  background: var(--t-raised);
+  box-shadow: inset 2px 0 0 var(--t-positive);
+}
+
+.pty-member__name {
+  color: var(--t-text);
+}
+
+.pty-member.is-me .pty-member__name {
+  color: var(--t-text-bright);
+}
+
+/*
+ * A ETIQUETA DE LIDERANCA e dourada, e a DE FOCO e verde.
+ *
+ * Sao dois fatos diferentes sobre a mesma pessoa — quem mandou no grupo e
+ * quem esta com o foco do lider ligado — e cada um com a cor da sua
+ * acao: o `L` e dourado, o seguir e verde
+ */
+.pty-member__tag {
+  color: var(--t-gold);
+}
+
+.pty-member__tag--foco {
+  color: var(--t-positive);
+  border-color: color-mix(in srgb, var(--t-positive) 35%, transparent);
+}
+
+/* ---------------- a vida ---------------- */
+
+/*
+ * O TRILHO e `--t-abyss` com um fio de `--t-line`, o mesmo trilho do
+ * resto do HUD. Sobre o fundo escuro da caixa, o trilho precisa de fio
+ * para existir — sem ele a barra flutua
+ */
+.pty-member__track {
+  background: var(--t-abyss);
+  box-shadow: inset 0 0 0 1px var(--t-line);
+}
+
+/*
+ * A BARRA CHEIA e o verde de "saudavel" do projeto, e o BAIXO DE VIDA
+ * vira o dourado antes do vermelho.
+ *
+ * A escada e a mesma do `hud-gauge`: verde, dourado, vermelho. Um
+ * ambar proprio aqui seria uma cor que existe so nesta caixa
+ */
+.pty-member__track i {
+  background: linear-gradient(180deg, var(--t-positive) 0%, #3f9a6c 100%);
+}
+
+.pty-member.is-low .pty-member__track i {
+  background: linear-gradient(180deg, var(--t-gold) 0%, var(--t-gold-deep) 100%);
+}
+
+.pty-member.is-low .pty-member__hp {
+  color: var(--t-gold);
+}
+
+/*
+ * O NUMERO da vida e o apagado, com o `/maxHp` ainda mais apagado: o
+ * jogador olha a barra para o estado e o numero so quando quer o valor
+ * exato
+ */
+.pty-member__hp {
+  color: var(--t-text-faintest);
+}
+
+/* ---------------- os botoes da linha ---------------- */
+
+/*
+ * OS BOTOES DA LINHA (`L`, `x`, `»`) sao de 16px e sem moldura: sao
+ * simbolos, e moldura neles viraria um cartao dentro do cartao.
+ *
+ * A COR e a diferenca entre eles que se le sem passar o mouse:
+ *   - `L`     dourado: e o comando, o mesmo dourado da lideranca
+ *   - `x`     apagado, e vermelho SO no hover: e destructivo, e nao deve
+ *             acender na linha antes de o jogador mirar nele
+ *   - `»`/`•` verde: e o seguir, a acao que o jogador liga e desliga
+ */
+.pty-member__kick {
+  color: var(--t-text-faintest);
+}
+
+.pty-member__kick:hover {
+  color: var(--t-danger-text);
+  background: color-mix(in srgb, var(--t-danger) 22%, transparent);
+}
+
+.pty-member__follow {
+  color: color-mix(in srgb, var(--t-positive) 55%, var(--t-sunken));
+}
+
+.pty-member__follow:hover {
+  color: var(--t-positive);
+  background: color-mix(in srgb, var(--t-positive) 18%, transparent);
+}
+
+/*
+ * O PONTO E O ESTADO "SEGUINDO". O `»` e o pedido, o ponto e o pedido
+ * que saiu — e sem essa diferenca o jogador clica e nao tem como saber
+ * que o servidor recebeu
+ */
+.pty-member__follow.is-on {
+  color: var(--t-positive);
+  background: color-mix(in srgb, var(--t-positive) 22%, transparent);
+}
+
+.pty-member__transfer {
+  color: var(--t-gold);
+}
+
+.pty-member__transfer:hover {
+  color: var(--t-gold-bright);
+  background: color-mix(in srgb, var(--t-gold) 18%, transparent);
+}
+
+/* ---------------- o menu do jogador mirado ---------------- */
+
+.pty-target {
+  border: 1px solid var(--t-line-2);
+  border-radius: var(--t-radius);
+  color: var(--t-text);
+  background: var(--t-sunken);
+}
+
+.pty-btn--invite-target {
+  border-color: var(--t-positive);
+  color: var(--t-positive);
 }

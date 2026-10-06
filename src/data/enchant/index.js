@@ -293,12 +293,68 @@ export function resolveEnchant(enchant, base = 0) {
 }
 
 /** Os possiveis resultados, para o painel mostrar as chances */
+/**
+ * A TABELA DE CHANCES do painel de encantar.
+ *
+ * ## `chance` E O QUE O JOGADOR QUER SABER
+ *
+ * Antes esta funcao devolvia `percent: ENCHANT_POWER * 100`, que e o
+ * QUANTO o afixo vale — 1%, 1.5%, 2%, 4%, 6% — e o painel rotulava essa
+ * coluna de "Chances". O jogador lia "Lendário 6%" e podia crer que tem
+ * 6% de chance de sair lendário, quando o sorteio real leva bem menos
+ *
+ * A chance de verdade e o `weight` do `RARITY_STYLE`, e normalizada pelo
+ * total dos pesos. O `rollRarity` e exatamente esse sorteio ponderado,
+ * entao o numero da tela e o numero que sai: um `weight` de 62 sobre um
+ * total de 200 e 31%, e 31% e a chance
+ *
+ * ## POR QUE NORMALIZAR, E NAO LER O `weight` DIRETO
+ *
+ * Os pesos sao numeros de balanceamento (62, 24, 9...) e nao somam 100.
+ * Se o painel mostrasse o peso cru, a coluna seria de "62%" para o
+ * comum e a soma passaria de 100 sem que ninguem percebesse — e um
+ * jogador que somasse as cinco linhas veria que o jogo mente
+ *
+ * A soma e calculada a partir do mesmo `RARITY_ORDER` que o `rollRarity`
+ * percorre, entao os dois nunca podem cair em ordens diferentes
+ *
+ * ## `power` CONTINUA AQUI, PARA O QUE PRECISA DELE
+ *
+ * O valor do afixo continua no retorno. Quem quiser mostrar "1% de
+ * ataque" em vez da chance tem o numero sem refazer a conta
+ */
 export function enchantOdds() {
+  const total = RARITY_ORDER.reduce(
+    (sum, raridade) =>
+      sum + (RARITY_STYLE[raridade]?.weight ?? 0),
+    0,
+  );
+
   return RARITY_ORDER.map((raridade) => ({
     rarity: raridade,
     label: RARITY_STYLE[raridade].label,
     color: RARITY_STYLE[raridade].color,
-    percent: Number((ENCHANT_POWER[raridade] * 100).toFixed(1)),
-    weight: RARITY_STYLE[raridade].weight,
+
+    /**
+     * A CHANCE, em porcento, e com uma casa.
+     *
+     * Uma casa porque a soma das cinco linhas precisa fechar em 100 de
+     * olhos: com zero casa, 30.5 viraria 31 e o painel marcaria 101
+     */
+    chance: total > 0
+      ? Number(
+          (((RARITY_STYLE[raridade]?.weight ?? 0) / total) * 100)
+            .toFixed(1),
+        )
+      : 0,
+
+    /**
+     * O QUANTO o afixo desta raridade vale, em porcento.
+     *
+     * Fica no retorno com outro nome para nao se confundir com a chance.
+     * Antes as duas coisas se chamavam `percent`, e era o que fazia o
+     * painel mostrar uma no lugar da outra
+     */
+    power: Number((ENCHANT_POWER[raridade] * 100).toFixed(1)),
   }));
 }
