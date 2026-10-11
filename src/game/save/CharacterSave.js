@@ -1,10 +1,22 @@
 import { MAX_LEVEL } from "../progression/Levels.js";
-import { getItem } from "../../data/items/index.js";
+import { getItem, ITEM_TYPE } from "../../data/items/index.js";
 import { SKILL_PACKS } from "../../data/skills/index.js";
 import { normalizeLootFilter } from "../loot/lootFilter.js";
 import { isEnchant } from "../../data/enchant/index.js";
 import { getQuest, normalizeRewards, questScopeOf } from "../../data/quests/index.js";
 import { GUILD_PONTOS_MAX } from "../../data/guild/index.js";
+import { poderDe } from "../ranking/rank.js";
+import {
+  AUTO_POCAO_LIMIAR_PADRAO,
+  AUTO_POCAO_LIMIAR_MIN,
+  AUTO_POCAO_LIMIAR_MAX,
+} from "../../data/potions/index.js";
+import {
+  passLogDoSave,
+  premiumLogDoSave,
+} from "../pass/passLog.js";
+import { PASSE_PADRAO } from "../../data/passes/index.js";
+import { sanear as sanearFarmOffline } from "../progression/OfflineFarm.js";
 
 /**
  * O personagem em um arquivo: tirar e devolver.
@@ -99,8 +111,15 @@ const enchantDoArquivo = (bruto) => {
  * puro, pronto para `JSON.stringify`.
  */
 export function snapshotSession(sessao) {
-  const { player, inventory, equipment, quests, bestiary, collection } =
-  sessao;
+  const {
+    player,
+    inventory,
+    equipment,
+    quests,
+    bestiary,
+    collection,
+    bau,
+  } = sessao;
 
   return {
     version: SAVE_VERSION,
@@ -108,15 +127,51 @@ export function snapshotSession(sessao) {
     classId: sessao.classId,
     savedAt: Date.now(),
 
-    player: {
-      level: player.level,
-      xp: Math.floor(player.xp ?? 0),
-      x: Math.round(player.x),
-      y: Math.round(player.y),
-    },
+/**
+       * O PODER, no RAIZ do save e nao dentro de `player`.
+       *
+       * E uma medida, e nao um atributo do personagem: ele nao muda quando o
+       * jogador sobe de nivel, nao e equipavel e nao volta de uma morte.
+       * Guardar dentro de `player` diria que ele e parte da ficha
+       *
+       * ## POR QUE ELE E GRAVADO E NAO RECALCULADO NA LEITURA
+       *
+       * Porque o save nao guarda os stats de combate, entao recalcular
+       * devolveria zero para todo mundo que nao esta conectado. E o poder
+       * e medido com uma tabela de pesos: se ela mudar amanha, quem foi medido
+       * com a tabela antiga continua com o numero antigo
+       */
+      poder: poderDe(player),
+
+      player: {
+        level: player.level,
+        xp: Math.floor(player.xp ?? 0),
+        x: Math.round(player.x),
+        y: Math.round(player.y),
+      },
 
     inventory: {
       coins: Math.floor(inventory.coins ?? 0),
+
+      /**
+       * O STEEL ENTRA JUNTO DO GOLD, E O `?? 0` NAO E EXCESSO
+       *
+       * E o que faz um save antigo — gravado antes de existir a
+       * mineracao — carregar steel em 0 sem precisar de migracao. Sem o
+       * `??`, o `inteiro` de `undefined` seria `NaN`, e o `NaN` no steel
+       * quebraria o badge da HUD para sempre, porque `NaN + 1` e `NaN`
+       */
+      steel: Math.floor(inventory.steel ?? 0),
+
+      /**
+       * O DIAMANTE ENTRA DO MESMO JEITO, E O MOTIVO E O MESMO
+       *
+       * Todo save anterior a moeda carrega 0 sem migracao, pelo mesmo `?? 0`
+       * do `steel`. Sem ele o `inteiro` de `undefined` seria `NaN`, e um saldo
+       * em `NaN` na barra de saldo do mercado mostraria "NaN" em vez de "0"
+       */
+      diamonds: Math.floor(inventory.diamonds ?? 0),
+
       overflow: Math.floor(inventory.overflow ?? 0),
       stacks: inventory.stacks.map((pilha) => ({
         itemId: pilha.itemId,
@@ -136,6 +191,30 @@ export function snapshotSession(sessao) {
          * invalido dentro do stat do jogador
          */
         enchant: enchantParaSalvar(pilha.enchant),
+
+        /**
+         * O APRIMORAMENTO da peca na mochila.
+         *
+         * Pelo mesmo motivo do afixo: e um campo da PECA e nao do slot,
+         * entao precisa de uma linha a parte no arquivo. Sem ela o
+         * jogador reconectava e perdia todos os niveis pagos
+         *
+         * Vai cru e nao por um validador, diferente do afixo: o
+         * `enhance` e um INTEIRO de contagem, nao um objeto com schema.
+         * O `inteiro` abaixo e o que garante que um arquivo editado a mao
+         * nao trave o `bonuses` com uma string
+         */
+        enhance: Math.max(0, Math.trunc(Number(pilha.enhance) || 0)),
+
+    /**
+     * A COMERCIALIZAVEL, ou `false`.
+     *
+     * Vem crua e nao por um `Boolean()` sem filtro: um save antigo, de antes
+     * desta regra, nao tem o campo, e o `|| false` e o que faz esse arquivo
+     * continuar carregando com a peca nao comercializavel em vez de quebrar
+     * a leitura inteira
+     */
+    comercializavel: pilha.comercializavel === true,
       })),
     },
 
@@ -183,21 +262,99 @@ export function snapshotSession(sessao) {
     },
 
     /**
-     * As COLECOES entregues e o bonus de stat que elas deram.
+     * O PASSE: os resgates e o interruptor do premium.
      *
-     * `done` e o que o jogador viu; `bonus` e o que ele ganhou. Os
-     * dois entram, e o `Collection.fromSave` reconstroi um a partir do
-     * outro quando o campo novo ainda nao existe num save antigo — o
-     * bonus das colecoes entregues nao pode evaporar por causa de uma
-     * migracao
+     * ## POR QUE ISSO PRECISA DE SAVE E O RESTO DO PAINEL NAO
      *
-     * A `pending` das colecoes foi embora com a recompensa em item:
-     * ela so existia para o item que nao coubesse na mochila, e nao ha
-     * o que nao couba numa recompensa de stat
+     * Porque o resto do painel e VISUAL: fechar e abrir o passe redesenha a
+     * mesma tela a partir do catalogo. Um resgate nao e visual — e um item
+     * que o jogador JA TEM na mochila. Sem este campo, fechar o navegador
+     * depois de resgatar o dia 3 devolveria o dia 3, e o jogador ganharia
+     * o mesmo item todas as vezes que logasse
+     *
+     * ## POR QUE O PREMIUM VEM JUNTO
+     *
+     * Porque ele muda QUEM pode resgatar: com ele ligado, os dias premium
+     * entram em `disponivel`. Guardar os resgates sem o interruptor daria um
+     * personagem que nao consegue pegar o premio que a propria tela mostra
+     * como disponivel
      */
-    collection: {
-      done: [...collection.done],
-      bonus: collection.bonus,
+passe: {
+    premium: { ...sessao.passe.premium },
+    resgatados: { ...sessao.passe.resgatados },
+  },
+
+/**
+ * As COLECOES entregues e o bonus de stat que elas deram.
+ *
+ * `done` e o que o jogador viu; `bonus` e o que ele ganhou. Os
+ * dois entram, e o `Collection.fromSave` reconstroi um a partir do
+ * outro quando o campo novo ainda nao existe num save antigo — o
+ * bonus das colecoes entregues nao pode evaporar por causa de uma
+ * migracao
+ *
+ * ## E AS PARCELAS, EM `entregues`
+ *
+ * `done` sozinho NAO GUARDA uma entrega parcial. Ele so vira `true`
+ * quando a colecao INTEIRA fecha — entao um card de duas parcelas com
+ * uma paga e uma nao era gravado como nada, e o relog mostrava as duas
+ * de novo para entregar
+ *
+ * E o `entregues` e um objeto de `colecaoId -> [indices]`, que e o
+ * formato que o `Collection.fromSave` ja le (e que o `Collection`
+ * valida contra o catalogo). `done` continua indo junto porque e o
+ * que um save antigo tem, e o `fromSave` precisa dele para refazer o
+ * bonus
+ *
+ * A `pending` das colecoes foi embora com a recompensa em item:
+ * ela so existia para o item que nao coubesse na mochila, e nao ha
+ * o que nao couba numa recompensa de stat
+ */
+  collection: {
+    ...collection.toSave(),
+  },
+
+    /**
+     * O QUE ESTA GUARDADO NO BAU.
+     *
+     * ## POR QUE UM CAMPO DE TOPO E NAO DENTRO DO `inventory`
+     *
+     * Porque sao dois espacos com regras diferentes. A mochila tem 20 slots
+     * e e o que o jogador carrega lutando; o bau tem 60 e e o que ele
+     * deixou na base. Se os dois dividissem o campo, o save nao saberia
+     * dizer em qual espaco cada pilha estava, e restaurar tudo na mochila
+     * daria ao jogador um personagem que nao cabe em lugar nenhum
+     *
+     * ## POR QUE O `uid` NAO ENTRA
+     *
+     * Porque o `uid` e um contador de instancia, e o arquivo nao deve
+     * prometer que o mesmo `uid` volta. O `add` gera um novo do mesmo
+     * jeito — e e o `player.attack` do equipment que depende do numero,
+     * nao o `uid`. Salvar o `uid` faria dois saves do mesmo personagem
+     * terem ids diferentes para a mesma peca, e o id nao e consulted por
+     * nada depois do restore
+     *
+     * O `enchant` e o `enhance` entram pelo mesmo caminho do inventario:
+     * o `add` do baU nao sabe deles, entao sao religados na linha de baixo
+     */
+    bau: {
+      stacks: (bau?.stacks ?? []).map((pilha) => ({
+        itemId: pilha.itemId,
+        rarity: pilha.rarity,
+        count: pilha.count,
+        enchant: enchantParaSalvar(pilha.enchant),
+        enhance: Math.max(0, Math.trunc(Number(pilha.enhance) || 0)),
+
+    /**
+     * A COMERCIALIZAVEL, ou `false`.
+     *
+     * Vem crua e nao por um `Boolean()` sem filtro: um save antigo, de antes
+     * desta regra, nao tem o campo, e o `|| false` e o que faz esse arquivo
+     * continuar carregando com a peca nao comercializavel em vez de quebrar
+     * a leitura inteira
+     */
+    comercializavel: pilha.comercializavel === true,
+      })),
     },
 
     /**
@@ -235,6 +392,22 @@ export function snapshotSession(sessao) {
     lootFilter: sessao.lootFilter ?? null,
 
     /**
+     * A CONFIGURACAO DO USO AUTOMATICO DA POCAO.
+     *
+     * E a unica preferencia do painel de configuracao, e ela entra no save
+     * pelo mesmo motivo do `lootFilter`: e uma escolha do jogador que ele
+     * fez de proposito, e nao um estado de partida
+     *
+     * Um save antigo, sem o campo, recomeca em `null` — e o painel mostra
+     * "escolha uma pocao" em vez de ligar o automatico sozinho
+     */
+    autoPocao: {
+      ligado: Boolean(sessao.autoPocao?.ligado),
+      limiar: sessao.autoPocao?.limiar ?? AUTO_POCAO_LIMIAR_PADRAO,
+      itemId: sessao.autoPocao?.itemId ?? null,
+    },
+
+    /**
      * Os pontos de guilda, e o relogio deles.
      *
      * Guardar o `ultimoPontoEm` no save e o que faz o accrue offline
@@ -249,6 +422,28 @@ export function snapshotSession(sessao) {
     guilda: {
       pontos: sessao.guilda?.pontos ?? 0,
       ultimoPontoEm: sessao.guilda?.ultimoPontoEm ?? null,
+    },
+
+    /**
+     * O FARM OFFLINE: o relogio e o relatorio que o jogador ainda nao viu.
+     *
+     * E o mesmo desenho da guilda acima, e pelo mesmo motivo: guardar o
+     * `ultimoEm` e o que faz o accrue sobreviver a uma conexao que caiu.
+     * Sem ele, quem ligou o farm e reconectou com o servidor no meio
+     * recomecaria a contar do zero
+     *
+     * O `relatorio` tambem vai no save, e nao so na sessao, por um motivo
+     * diferente: o accrue acontece ANTES do primeiro pacote, e o modal so
+     * aparece depois. Entre um e outro o relatorio passa pelo `disconnect`
+     * e pelo autosave de 30s — se ele so vivesse na sessao em memoria,
+     * um servidor que reiniciasse nesse meio perderia a tela de "voce
+     * voltou e ganhou isto" sem que o jogador pudesse mais ver
+     */
+    farmOffline: {
+      ativo: sessao.farmOffline?.ativo === true,
+      ultimoEm: sessao.farmOffline?.ultimoEm ?? null,
+      mapaId: sessao.farmOffline?.mapaId ?? null,
+      relatorio: sessao.farmOffline?.relatorio ?? null,
     },
   };
 }
@@ -279,14 +474,38 @@ export function snapshotSession(sessao) {
  * personagem aparecer no chao em vez de encostado na parede
  */
 export function applyCharacterSave(
-  sessao,
-  dados,
-  { limites = null, spawn = { x: 1200, y: 800 } } = {},
-) {
+sessao,
+      dados,
+      {
+        limites = null,
+        spawn = { x: 1200, y: 800 },
+
+        /**
+         * O RELOGIO, e ele e injetavel pelo mesmo motivo do resto do jogo.
+         *
+         * O `sanear` do farm offline precisa do "agora" para CORTAR um
+         * `ultimoEm` escrito no futuro. Usar `Date.now()` aqui punha o
+         * servidor com o relogio proprio do motor, que e o `config.agora`
+         * dele: um teste que mexe no relogio e um servidor de producao
+         * leriam relogios diferentes na mesma restauracao
+         *
+         * O padrao continua `Date.now()` para quem chama sem relogio
+         */
+        agora = Date.now(),
+      } = {},
+    ) {
   const bruto = objeto(dados);
 
-  const { player, inventory, equipment, quests, bestiary, collection } =
-  sessao;
+  const {
+    player,
+    inventory,
+    equipment,
+    quests,
+    bestiary,
+    collection,
+    bau,
+    passe,
+  } = sessao;
 
   // --- personagem ---
   //
@@ -304,6 +523,25 @@ export function applyCharacterSave(
 
   inventory.stacks = [];
   inventory.coins = inteiro(inv.coins, 0);
+
+  /**
+   * O STEEL VOLTA COM 0 QUANDO O SAVE E ANTIGO.
+   *
+   * O `inteiro(..., 0)` e o mesmo do `coins`: um save sem o campo devolve
+   * zero em vez de `NaN`. E `Math.max(0, ...)` porque um save editado a mao
+   * com steel negativo mostraria um saldo negativo no badge, e nao ha
+   * caminho no jogo que produza steel negativo
+   */
+  inventory.steel = Math.max(0, inteiro(inv.steel, 0));
+
+    /**
+     * O DIAMANTE VOLTA COM 0 QUANDO O SAVE E ANTIGO.
+     *
+     * Pelo mesmo motivo e pelo mesmo `Math.max` do `steel`: nenhum caminho do
+     * jogo produz diamante negativo, e um save antigo nao tem o campo
+     */
+    inventory.diamonds = Math.max(0, inteiro(inv.diamonds, 0));
+
   inventory.overflow = inteiro(inv.overflow, 0);
 
   for (const pilha of lista(inv.stacks)) {
@@ -320,7 +558,6 @@ export function applyCharacterSave(
 
     // o `add` respeita a capacidade e o maximo de pilha: um arquivo
     // com 300 stacks volta truncado em vez de estourar o inventario
-    inventory.add(itemId, count, texto(item.rarity, 32));
 
     /**
      * O afixo volta NA PILHA que o `add` acabou de criar.
@@ -334,15 +571,172 @@ export function applyCharacterSave(
      * para este `itemId` e `raridade`. Nao ha indice de pilha no save
      * para casar, entao este e o melhor que o formato permite
      */
-    if (!enchantDoArquivo(item.enchant)) continue;
+    /**
+     * O AFIXO E O APRIMORAMENTO voltam NA PILHA que o `add` criou.
+     *
+     * O `add` monta uma pilha nova com `uid` novo, entao nenhum dos dois
+     * pode ser aplicado pelo `itemId` do arquivo: duas pecas iguais do
+     * mesmo item e mesma raridade sao DUAS pilhas, e o dado da segunda
+     * acabaria na primeira
+     *
+     * Por isso os dois sao lidos DEPOIS do `add`, da ultima pilha criada
+     * para este `itemId` e `raridade`. Nao ha indice de pilha no save
+     * para casar, entao este e o melhor que o formato permite
+     *
+     * ## POR QUE O `continue` VIROU UM `if`
+     *
+     * Antes ele era `if (!afixo) continue`, e isso pulava a pilha INTEIRA
+     * quando a peca nao tinha afixo. Com o aprimoramento na mesma volta,
+     * o `continue` teria deixado de fora toda peca aprimorada e sem afixo
+     * — que e a maioria depois de usar a aba
+     */
+/**
+         * O `add` RECEBE O APRIMORAMENTO E O AFIXO, E NAO SO O `itemId`.
+         *
+         * ## O QUE ESTAVA QUEBRADO
+         *
+         * A chamada era `add(itemId, count, rarity)` e o `enhance` e o
+         * `enchant` eram colados DEPOIS, na pilha que o `add` achasse. Com
+         * peca sem aprimoramento — o caso comum — isso funcionava.
+         *
+         * Com peca APRIMORADA, nao: o `add` nao sabia do nivel e FUNDEU a
+         * peca numa pilha existente do mesmo item e mesma raridade. As duas
+         * viravam UMA, e o afixo acabava na pilha errada — a que o jogador
+         * ja tinha
+         *
+         * ## POR QUE IMPORTA
+         *
+         * Duas pecas iguais do mesmo item e mesma raridade sao DUAS pilhas, e
+         * cada uma tem o seu afixo e o seu nivel. O `findStack` devolve a
+         * primeira, e o afixo da segunda era aplicado na primeira. Depois de
+         * recarregar, a peca encantada aparecia sem afixo e a errada com o
+         * afixo dos dois
+         *
+         * E o `add` ja sabia fazer isso: ele cria uma pilha SO quando o
+         * `enhance` e maior que zero, justamente para o afixo nao ser
+         * compartilhado. Bastava passar o numero
+         */
+      const nivel = Math.max(0, Math.trunc(Number(item.enhance) || 0));
 
-    const criado = inventory.findStack(
-      itemId,
-      texto(item.rarity, 32),
-    );
+      const afixo = enchantDoArquivo(item.enchant);
 
-    if (criado) criado.enchant = enchantDoArquivo(item.enchant);
+      /**
+       * A COMERCIALIZAVEL VOLTA NO `add`, E O RESTO DO BLOCO DEPENDE DISSO.
+       *
+       * ## O QUE FALTAVA AQUI
+       *
+       * O `toCharacterSave` grava `comercializavel: pilha.comercializavel ===
+       * true` em cada pilha do arquivo — o dado estava sendo salvo desde sempre.
+       * Mas o `add` desta linha recebia so `enhance` e `enchant`, e o
+       * `comercializavel` ficava no `false` do default
+       *
+       * O sintoma era: o jogador dropar uma peca comercializavel, ver o selo
+       * na mochila, recarregar, e a peca voltar sem o selo. O item estava
+       * intacto — o que se perdia era a PERMISSAO de vender, e ela nao tem
+       * visivel nenhum alem do selo
+       *
+       * ## POR QUE NAO BASTAVA REAPLICAR DEPOIS, COMO O AFIXO
+       *
+       * Porque o `add` funde pilhas de material, e o bloco de reforco aqui
+       * (linha 596) so reescreve `enchant` e `enhance`. Um
+       * `criado.comercializavel = ...` depois do `add` apareceria no codigo
+       * como conserto de uma coisa que o `add` ja resolve certo
+       *
+       * ## E POR QUE O `=== true` E REPETIDO AQUI
+       *
+       * Porque um arquivo editado a mao pode ter `comercializavel: "sim"`, e
+       * um truthiness solto aceitaria a string. A regra e do SERVIDOR: so
+       * `true` de verdade, igual ao `toCharacterSave`
+       */
+      const comercializavel = item.comercializavel === true;
+
+      inventory.add(itemId, count, texto(item.rarity, 32), {
+        comercializavel,
+        enhance: nivel,
+        enchant: afixo,
+      });
+
+      /**
+       * O REFORCO, e ele e quase sempre desnecessario.
+       *
+       * O `add` ja recebeu o afixo e o nivel, entao a pilha esta correta.
+       * Este bloco existe para o caso em que o `add` FUDIU a peca numa pilha
+       * que ja existia — e, depois da correcao acima, isso so acontece quando
+       * a peca NAO tem aprimoramento, caso em que o `add` ja levou o afixo
+       *
+       * E ele nao pode mais ser um `continue`: um `continue` aqui pularia a
+       * pilha INTEIRA, e com ele o `count` que o `add` acabou de gravar. A
+       * pilha sumiria do inventario
+       */
+      const criado = inventory.findStack(
+        itemId,
+        texto(item.rarity, 32),
+      );
+
+      if (!criado) continue;
+
+      if (afixo && !criado.enchant) criado.enchant = afixo;
+
+      if (nivel && !criado.enhance) criado.enhance = nivel;
   }
+
+    /**
+     * --- bau ---
+     *
+     * O bloco INTEIRO do inventario acima, repetido com `bau` no lugar
+     * de `inventory`. E a repeticao que o projeto aceita de proposito:
+     *
+     * `bau` e um `Inventory` como o outro, com as mesmas tres coisas que
+     * um arquivo pode adulterar — `itemId` fora do catalogo, `count`
+     * negativo e afixo com `stat` desconhecido. Um `helper` que fizesse
+     * `restaurarPilha(alvo, dados)` resolveria as duas metades em uma
+     * funcao, e o `bau` e a coisa que mais vai crescer no jogo: quando
+     * vier o bau de conta compartilhada, esse helper e o que precisa
+     * ganhar o parametro
+     *
+     * O `bau.stacks = []` comeca zerado porque a sessao pode ja ter
+     * recebido um `add` antes do restore: o `entrar` monta a sessao,
+     * chama `applyCharacterSave` e so depois da o primeiro pacote. Sem
+     * esta linha, um restore em uma sessao reaproveitada somaria as duas
+     * listas
+     */
+    const bauSalvo = objeto(bruto.bau);
+
+    if (bau) {
+      bau.stacks = [];
+
+      for (const pilha of lista(bauSalvo.stacks)) {
+        const item = objeto(pilha);
+        const itemId = texto(item.itemId, 64);
+
+        /**
+         * As MESMAS TRES RECUSAS do inventario acima, e pelas MESMAS
+         * razoes: id fora do catalogo viraria um item invisivel ocupando
+         * slot do bau, e `count` negativo faria o `add` receber um numero
+         * que ele nao sabe tratar
+         */
+        if (!itemId || !getItem(itemId)) continue;
+
+        const count = inteiro(item.count, 0);
+
+        if (count <= 0) continue;
+
+        /**
+         * O BAU LEVA A MESMA COERENCIA DO INVENTARIO: os tres campos
+         * que o arquivo guarda, os tres no `add`.
+         *
+         * O `add` do bau recebia os tres argumentos de posicao e NADA mais —
+         * a comercializavel ficava no `false` do default, pelo mesmo motivo
+         * do inventario acima
+         */
+        bau.add(itemId, count, texto(item.rarity, 32), {
+          comercializavel: item.comercializavel === true,
+          enhance: Math.max(0, Math.trunc(Number(item.enhance) || 0)),
+          enchant: enchantDoArquivo(item.enchant),
+        });
+      }
+    }
+
 
   // --- equipamento ---
   for (const slot of equipment.slots) {
@@ -460,6 +854,31 @@ export function applyCharacterSave(
       .filter(Boolean),
   );
 
+  // --- passe ---
+  //
+  // O resgate e o que impede o jogador de pegar o MESMO item de novo, e o
+  // save e a unica coisa que sobrevive ao relogin: se um resgate nao
+  // voltasse, fechar o navegador devolveria o dia inteiro. O `passLogDoSave`
+  // descarta o que nao for lista de dias e tira o dia repetido, entao um
+  // arquivo adulterado nao vira resgate repetido em memoria
+  const pv = objeto(bruto.passe);
+
+  /**
+  * O PREMIUM E POR PASSE, e o save antigo nao sabe disso.
+  *
+  * Um `premium: true` de quando o campo era global nao tem passe nenhum
+  * junto. Ele vira o passe PADRAO ligado: e o passe que o jogador ve aberto
+  * quando entra no painel, entao dar o premium a ele e a leitura que menos
+  * o engana — em vez de dar os dias pagos dos tres passes de graca, ou de
+  * perder o que o jogador pagou
+  */
+  passe.premium = premiumLogDoSave(
+    objeto(pv.premium) ? pv.premium : pv.premium === true
+      ? { [PASSE_PADRAO.id]: true }
+      : null,
+  );
+  passe.resgatados = passLogDoSave(pv.resgatados);
+
   // --- colecoes ---
   //
   // Mesmo cuidado do bestiario: o `done` e um conjunto de id, e um id
@@ -473,6 +892,19 @@ export function applyCharacterSave(
     done: lista(c.done)
       .map((id) => texto(id, 64))
       .filter(Boolean),
+
+    /**
+     * AS PARCELAS JA PAGAS.
+     *
+     * Sem esta linha o `done` sozinho devolvia a colecao INTEIRA, e uma
+     * entrega parcial — a primeira de duas — se perdia: o relog mostrava
+     * as duas parcelas de novo, e o jogador entregava o mesmo material
+     * duas vezes para receber o mesmo stat
+     *
+     * O `fromSave` e quem valida: ele confere o id contra o catalogo e
+     * o indice contra o total de requisitos, e descarta o que nao bate
+     */
+    entregues: objeto(c.entregues),
 
     /**
      * O bonus de stat do arquivo.
@@ -521,6 +953,44 @@ export function applyCharacterSave(
     ? null
     : normalizeLootFilter(f);
 
+  // --- uso automatico da pocao ---
+  //
+  // Os tres campos do arquivo sao nao confiaveis como o resto. O `itemId`
+  // passa pelo catalogo, e nao pela lista de pocoes de cura do motor: o
+  // `getItem` devolve `null` para um id que nao existe, e e esse `null` que
+  // recusa o item. Um arquivo com `itemId: "arco"` nao viraria uma pocao
+  // magica
+  //
+  // E o `ligado` so sobrevive COM pocao: um save escrito a mao com
+  // `ligado: true` e `itemId: null` deixaria o automatico ligado sem nada
+  // para beber, e o painel mostraria "ligado" com o slot vazio
+  const autoPocao = objeto(bruto.autoPocao);
+
+  const itemIdDaPocao = texto(autoPocao.itemId, 64);
+
+  const ePocaoDeCura =
+    itemIdDaPocao !== null &&
+    (() => {
+      const item = getItem(itemIdDaPocao);
+
+      if (item?.type !== ITEM_TYPE.POTION) return false;
+
+      return Boolean(item.use?.heal || item.use?.regeneration);
+    })();
+
+  const limiarDaPocao = Math.round(
+    numero(autoPocao.limiar, AUTO_POCAO_LIMIAR_PADRAO),
+  );
+
+  sessao.autoPocao = {
+    ligado: ePocaoDeCura && autoPocao.ligado === true,
+    limiar: Math.max(
+      AUTO_POCAO_LIMIAR_MIN,
+      Math.min(AUTO_POCAO_LIMIAR_MAX, limiarDaPocao),
+    ),
+    itemId: ePocaoDeCura ? itemIdDaPocao : null,
+  };
+
   // --- pontos de guilda ---
   //
   // Tratados como nao confiaveis como o resto: um `ultimoPontoEm`
@@ -544,6 +1014,23 @@ export function applyCharacterSave(
         ? null
         : Math.floor(numero(g.ultimoPontoEm)),
   };
+
+  // --- farm offline ---
+  //
+  // O `sanear` do `OfflineFarm` e quem valida isto, e nao uma sequencia de
+  // `numero()` espalhada aqui: ele ja sabe o que e um relogio absurdo, e
+  // a lista de itens do relatorio tem um teto de tamanho que o painel
+  // respeita. Duplicar essas regras neste arquivo faria as duas
+  // versao divergirem — e a que diverge e a que o jogador ve
+  //
+  // Um save antigo, sem o campo, entra com `estadoInativo`: farm desligado,
+  // relogio `null`, sem relatorio. Que e o mesmo estado de quem nunca
+  // tocou no botao
+  sessao.farmOffline = sanearFarmOffline(
+    bruto.farmOffline,
+    agora,
+    sessao.mapId ?? null,
+  );
 
   // --- onde ---
   //

@@ -46,9 +46,9 @@
 import {
   ITEM_TYPE,
   RARITY,
-  RARITY_ORDER,
-  getItem,
-} from "../items/index.js";
+RARITY_ORDER,
+    getItem,
+  } from "../items/index.js";
 import { STAT_BY_ID } from "../../game/stats/StatSheet.js";
 import { ESCADA_MAPA_1, ESCADA_MAPA_2 } from "../quests/index.js";
 
@@ -83,10 +83,32 @@ export function describeRequirement(requirement) {
   const unidade =
     count === 1 ? "unidade" : `${count} unidades`;
 
-  if (type === REQUIREMENT_TYPE.EQUIPMENT) {
-    const rotulo =
-      RARITY_RARITY_LABEL[requirement.rarity] ??
-      requirement.rarity;
+if (type === REQUIREMENT_TYPE.EQUIPMENT) {
+      /**
+       * O NOME DA PECA VEM DO CATALOGO, e nao e escrito aqui.
+       *
+       * E o mesmo `getItem` que a mochila, o craft e o tooltip usam. Um
+       * nome escrito nesta linha seria a segunda versao do mesmo dado, e
+       * as duas divergiriam no dia em que o item fosse renomeado
+       *
+       * O `+5` aparece no texto porque e a parte que o jogador esquece: ele
+       * ve a peca na mochila com +3, e sem o "+5" escrito na tela so
+       * descobriria que a peca esta errada depois de clicar e ler o aviso
+       */
+      if (requirement.itemId) {
+        const item = getItem(requirement.itemId);
+
+        const alvo =
+          requirement.enhance > 0
+            ? `${item?.name ?? requirement.itemId} +${requirement.enhance}`
+            : (item?.name ?? requirement.itemId);
+
+        return `${unidade} de ${alvo}`;
+      }
+
+      const rotulo =
+        RARITY_RARITY_LABEL[requirement.rarity] ??
+        requirement.rarity;
 
     /**
      * O "EXATAMENTE" esta escrito no rotulo, e nao so nas regras.
@@ -188,9 +210,11 @@ function baseDoDegrau(nivel) {
  * A EXIGENCIA de material, com a conta feita aqui.
  *
  * `criatura` e de quem vem o material — o limo daPantano e o ogre da
- * Cripta medem base diferente, e e por isso que o parametro existe
+ * Cripta medem base diferente, e e por isso que o parametro existe. O nome
+ * entra no requisito e nao se vira campo: e o que a `degrauDaCriatura`
+ * le, e o card nao usa esse dado
  */
-function entrega(criatura, itemId, indice = 0) {
+function entrega(criatura, itemId, indice = 0, rewards = null) {
   const base = baseDoDegrau(degrauDaCriatura(criatura));
 
   const fator = FATORES[indice % FATORES.length];
@@ -201,162 +225,226 @@ function entrega(criatura, itemId, indice = 0) {
     count: base * fator,
     baseDaMissao: base,
     fator,
+
+    /**
+     * O BONUS DESTA PARCELA.
+     *
+     * E o que faz a entrega ser por item: o jogador paga por parcela, e o
+     * bonus e dado na hora. Sem ele, a primeira parcela seria trabalho sem
+     * recompensa e o card mostraria "Vai receber" sobre material que ele ja
+     * tem na mao
+     */
+    rewards,
   };
 }
 
+/**
+   * A EXIGENCIA DE UM ITEM DE EQUIPAMENTO, com aprimoramento opcional.
+   *
+   * E o `itemId` que diz QUAL peca, e nao a raridade: a entrega e do arco do
+   * arqueiro, e um arco de outro tipo nao serviria — seria uma entrega de arco
+   * que aceita qualquer arco, e o nome do card mentiria
+   *
+   * `enhance` e o MINIMO por padrao, e nao o valor exato: um arco +8 satisfaz
+   * um "+5 ou mais", e o jogador nao deve perder a entrega por ter investido
+   * demais
+   *
+   * Nao usa `entrega()` porque aquela conta material pelo degrau da criatura,
+   * e uma peca de equipamento nao vem de caçar bicho nenhum
+   *
+   * ## POR QUE EXISTE O TERCEIRO ARGUMENTO
+   *
+   * Porque duas colecoes podem pedir a MESMA peca com aprimoramentos
+   * diferentes, e ai o minimo deixa de funcionar
+   *
+   * A "Aljava do Arqueiro" pede `enhance: 0` e a "Aljava Aprimorada" pede
+   * `enhance: 5`. Com o minimo, as duas eram satisfeitas pela mesma peca: o
+   * jogador com uma aljava +5 via a primeira entrega como pronta — sem nunca
+   * ter entregado nada — e as duas colecoes cobram a mesma coisa
+   *
+   * Com `exato`, a primeira so aceita +0 e a segunda so aceita +5. E o que
+   * faz as duas serem "duas COISAS diferentes de pedir", que e o que o
+   * comentario delas promete
+   */
+  function peca(itemId, enhance, rewards, { exato = false } = {}) {
+    return {
+      type: REQUIREMENT_TYPE.EQUIPMENT,
+      itemId,
+      enhance,
+
+      /**
+       * `true` quando o `enhance` e o VALOR, e nao o piso.
+       *
+       * Fica no requisito em vez de virar parametro solto porque ele
+       * viaja com o requisito para a contagem e para o consumo — e os dois
+       * precisam do mesmo criterio, senao o `deliver` announces uma peca e
+       * nao tira nenhuma
+       */
+      enhanceExato: exato,
+
+      count: 1,
+      rewards,
+    };
+  }
+
+/**
+ * AS ENTREGAS DA COLECAO.
+ *
+ * ## A PRIMEIRA, DO MESMO ESQUELETO DA PRIMEIRA MISSAO
+ *
+ * A colecao e a missao principal da zona repetida: as duas cobram material
+ * do mesmo bicho. A missao paga 10 esqueletos de nivel 1, e esta entrega
+ * cobra o DOBRO — os dois primeiros fatores da `FATORES`, o mesmo 2 que
+ * a missao usava
+ *
+ * ## POR QUE DUAS EXIGENCIAS DO MESMO MATERIAL
+ *
+ * Porque as tres exigencias dentro de uma entrega sao doses crescentes do
+ * MESMO item, e e a soma delas que fecha a barra. Com uma exigencia so, a
+ * entrega seria a missao de novo so que maior — e o jogador teria duas
+ * telas fazendo o mesmo trabalho
+ *
+ * ## POR QUE 20 E 40, E NAO OS 10 DA MISSAO
+ *
+ * E a conta do `entrega()`: base do degrau 1, que sao 10, multiplicada
+ * pelos fatores 2 e 4. A soma das duas e 60 materiais, e a missao paga 10
+ * unidades de material — o jogador tem que voltar a cacar para fechar a
+ * entrega, e e esse o proposito
+ *
+ * ## POR QUE OSSO QUEBRADO E NAO OUTRO GRAU
+ *
+ * Porque o esqueleto solta osso base. Uma entrega de "Osso Quebrado
+ * Reforcado" aqui seria uma entrega que so fecha depois de cinco caadas —
+ * e uma colecao e o destino do material ACUMULADO, nao do material rarity
+ * raro
+ */
 export const COLLECTIONS = [
   {
-    id: "col_cacos",
-    name: "Restos do Brejo",
-    icon: "◍",
-    summary: "Junte os restos do primeiro slime.",
-    requirements: [
-      // 2x os 10 do degrau 1
-      entrega("slime", "slime_gel"),
-    ],
-    rewards: { vit: 2, maxHp: 40 },
-  },
-
-  /**
-   * A COLECAO DO RATO E DO ESQUELETO SAIRAM.
-   *
-   * As duas eram de material que o mapa 1 nao dropa mais: o rato e o
-   * esqueleto foram removidos do `ZONE_ROSTER` quando as cinco zonas do
-   * meio passaram a ser so de ogre
-   *
-   * Um material que ninguem dropa e uma entrega que nunca fecha. A
-   * colecao ficava na tela com a barra parada em zero e nenhuma
-   * explicacao — o jogador nao tinha como saber que aquilo era
-   * impossivel, so que nao estava="_indo"
-   *
-   * O `skeleton_bone` ainda aparece no loot do SLIME, com peso 1, entao
-   * sobrou material de osso no mundo. Ele virou materia de remendo na
-   * colecao do limo, abaixo, em vez de uma entrega impossivel
-   */
-
-  {
-    id: "col_primeira_ferra",
-    name: "Primeira Ferramenta",
-    icon: "⚒",
-    summary: "Um equipamento raro na mochila, e materia para remendo.",
-    requirements: [
-      {
-        type: REQUIREMENT_TYPE.EQUIPMENT,
-        rarity: RARITY.RARE,
-        count: 1,
-      },
-
-      /**
-       * O `goblin_cloth` era o segundo material, e o goblin saiu do
-       * mapa. Trocado pelo `slime_core`, que o limo ainda dropa com
-       * peso 15
-       */
-      entrega("slime", "slime_core", 1),
-    ],
-    rewards: {
-      str: 5,
-      attack: 14,
-      attackSpeed: 0.06,
-      accuracy: 10,
-    },
-  },
-
-  {
-    id: "col_couro_ogro",
-    name: "Couro de Ogro",
-    icon: "◪",
-    summary: "A ultima penca do material mais pesado do jogo.",
-    requirements: [
-      // o ogre so entra no degrau 8, onde a missao pede 24: 2x e 4x
-      entrega("ogre", "ogre_hide", 0),
-      entrega("ogre", "ogre_pebble", 1),
-    ],
-    rewards: {
-      vit: 6,
-      wis: 3,
-      maxHp: 180,
-      defense: 18,
-    },
-  },
-
-  /**
-   * AS ENTREGAS DO MAPA 2.
-   *
-   * A sentinela e o arqueiro zumbi dropam osso, cranio, podre e garra.
-   * O cranio vem so dos dois: o limo e o ogre nao tem, entao e a entrega
-   * que so fecha no mapa 2
-   */
-  {
-    id: "col_ossario",
-    name: "Ossario Antigo",
+    id: "col_restos_do_esqueleto",
+    name: "Restos do Esqueleto",
     icon: "☠",
-    summary: "O que sobra de um esqueleto nao serve para o craft.",
-    requirements: [
-      // a sentinela entra no degrau 13, onde a missao pede 34
-      entrega("skeleton", "skeleton_bone", 0),
-      entrega("skeleton", "skeleton_skull", 1),
-    ],
-    rewards: {
-      vit: 4,
-      defense: 8,
-      magicDefense: 5,
-      hpRegen: 2,
+    summary:
+      "Junte osso de esqueleto para o esqueleto da campanha.",
+requirements: [
+        // 2x os 10 do degrau 1
+        entrega("slime", "osso_quebrado", 0, { vit: 2, maxHp: 40 }),
+        // 4x os 10 do degrau 1
+        entrega("slime", "osso_quebrado", 1, { attack: 3, defense: 2 }),
+      ],
+      rewards: {},
     },
-  },
 
-  {
-    id: "col_flecha_podre",
-    name: "Flecha Podre",
-    icon: "➶",
-    summary: "O arqueiro zumbi atira coisa que nao se reutiliza.",
-    requirements: [
-      // o arqueiro so entra no degrau 18, onde a missao pede 44
-      entrega("zumbi_arbalist", "ghoul_rot", 0),
-      entrega("zumbi_arbalist", "ghoul_claw", 1),
-    ],
-    rewards: {
-      dex: 4,
-      attackSpeed: 0.06,
-      critRate: 0.02,
-      critDamage: 0.1,
+    /**
+     * A SEGUNDA COLECAO, DO LIMOS E DO ESQUELETO.
+     *
+     * ## POR QUE OUTRA COLECAO E NAO MAIS UMA ENTREGA DA PRIMEIRA
+     *
+     * Porque a primeira cobra duas doses do MESMO material: ela e a
+     * missao principal da zona repetida. Uma segunda colecao com material
+     * diferente e de outra criatura faz o painel mostrar para que ele
+     * existe — que e ter mais de um destino para o mesmo material
+     *
+     * ## POR QUE O LIMOS E O ESQUELETO
+     *
+     * Porque sao as duas criaturas com loot de material BASE: o limo e o
+     * degrau 1 e o esqueleto e o primeiro de ferro. Um material de grau
+     * alto aqui viraria uma entrega de cinco caadas, e a segunda colecao
+     * e justamente a que o jogador deve conseguir fechar cedo
+     *
+     * E o esqueleto que a primeira colecao NAO usa: ela pede osso do
+     * limo. Assim os dois cards puxam de creatures diferentes, e o jogador
+     * ve que caçar uma coisa ajuda uma entrega e nao as duas
+     */
+    {
+      id: "col_lodo_e_ferro",
+      name: "Lodo e Ferro",
+      icon: "⚗",
+      summary:
+        "Tendao do lodo e ferro do esqueleto: o que sobra de quem cai na fronteira.",
+      requirements: [
+        // 2x os 10 do degrau 1
+        entrega("slime", "tendao_ressecado", 0, { defense: 3 }),
+        // 4x os 10 do degrau 1
+        entrega("slime", "tendao_ressecado", 1, { maxHp: 60, vit: 1 }),
+      ],
+      rewards: {},
     },
-  },
 
-  {
-    id: "col_cacador_ocre",
-    name: "Cacador do Ocre",
-    icon: "🗡",
-    summary: "A ultima entrega: um lendario e couro da predeira.",
-    requirements: [
-      {
-        type: REQUIREMENT_TYPE.EQUIPMENT,
-        rarity: RARITY.LEGENDARY,
-        count: 1,
-      },
-
-      /**
-       * O `ghoul_claw` era o material de ca here, e o ghoul saiu do mapa 1
-       * quando as cinco zonas do meio passaram a ser so de ogre.
-       *
-       * Trocado pelo couro do ogre da PREDEIRA, que e o bicho mais duro
-       * do topo da campanha — o que mantem a entrega como a mais cara do
-       * jogo, que e o que a recompensa pedia
-       */
-      entrega("ogre_da_predeira", "ogre_hide", 1),
-    ],
-    rewards: {
-      str: 7,
-      dex: 6,
-      int: 3,
-      attack: 26,
-      critRate: 0.06,
-      critDamage: 0.25,
-      enhanceSuccess: 0.03,
-      dropRate: 0.02,
+    /**
+     * A TERCEIRA COLECAO, DE UMA PARCELA SO.
+     *
+     * ## POR QUE ELA EXISTE
+     *
+     * Porque as duas primeiras tem duas parcelas, e o card nunca aparece
+     * com um icone so. Uma entrega unica mostra o card mais curto que ele
+     * pode ser — e mostra que o icone e a entrega, sem a segunda dose
+     *
+     * ## POR QUE O GOBLIN
+     *
+     * Porque e material BASE de uma criatura de nivel 5, e e um material
+     * que nenhuma das outras duas colecoes pede. As duas primeiras usam
+     * osso e tendao, ambos do limo; esta e a que puxa de fora da zona de
+     * inicio
+     *
+     * E `couro_goblin`, e nao `fragmento_de_ferro`: o goblin solta couro de
+     * goblin, e uma entrega que o jogador preenche com o drop de outro bicho
+     * seria uma entrega que o nome do card nao descreve
+     */
+    {
+      id: "col_couro_goblin",
+      name: "Pele de Goblin",
+      icon: "◑",
+      summary: "Couro de goblin saqueador, pelado e esticado.",
+      requirements: [
+        entrega("goblin", "couro_goblin", 0, { attack: 4, critRate: 5 }),
+      ],
+      rewards: {},
     },
-  },
 
-];
+    /**
+     * A ENTREGA DO ARCO DO ARQUEIRO, E A DO MESMO ARCO APRIMORADO.
+     *
+     * ## POR QUE DUAS COLECOES E NAO UMA SO
+     *
+     * Porque sao duas COISAS diferentes de pedir. A aljava e um item comum,
+     * que o jogador cria no craft; a mesma aljava com +5 e trabalho, porque
+     * ele tem que aprimorar antes de entregar. Uma entrega so seria as duas
+     * metades amarradas — o jogador teria que ter a peca E o +5 para ganhar
+     * a recompensa da peca, e o card mostraria uma coisa so
+     *
+     * ## POR QUE O `itemId` E NAO A RARIDADE
+     *
+     * Porque a entrega e desta peca. A aljava e `uncommon`, e a regra antiga
+     * de equipamento por raridade aceitaria QUALQUER `uncommon` do
+     * inventario — o jogador entregaria um colete e receberia o bonus do
+     * arco. O `itemId` diz a peca, e o texto do card sai do catalogo, entao
+     * ele nunca mente sobre o que esta sendo pedido
+     *
+     * E a `aljava_arbalist` e a peca do arqueiro: ela e feita de madeira
+     * de lanca, que e o drop do arqueiro zumbi, e e o arco que o craft faz
+     */
+    {
+      id: "col_aljava_arqueiro",
+      name: "Aljava do Arqueiro",
+      icon: "🎯",
+      summary: "A aljava que o arqueiro carrega: uma peca, uma entrega.",
+      requirements: [
+        peca("aljava_arbalist", 0, { attack: 5, accuracy: 5 }, { exato: true }),
+      ],
+      rewards: {},
+    },
+
+    {
+      id: "col_aljava_aprimorada",
+      name: "Aljava Aprimorada",
+      icon: "➶",
+      summary: "A mesma aljava, com +5 de aprimoramento.",
+      requirements: [
+        peca("aljava_arbalist", 5, { attack: 8, critDamage: 10 }, { exato: true }),
+      ],
+      rewards: {},
+    },
+  ];
 
 export const COLLECTION_IDS = COLLECTIONS.map(
   (collection) => collection.id,
@@ -387,8 +475,18 @@ export function rewardError(rewards) {
 
   const chaves = Object.keys(rewards);
 
+  /**
+   * RECOMPENSA VAZIA E VALIDA.
+   *
+   * A entrega e por parcela, entao o bonus vive no requisito e o bonus da
+   * colecao fica vazio de proposito — ele e o que sobra depois das
+   * parcelas, e numa colecao que nao tem "depois" ele nao existe
+   *
+   * Rejeitar o objeto vazio obrigaria a colecao a pagar um bonus duplicado
+   * no fim, senao o `rewardError` acusaria o dado legitimo
+   */
   if (chaves.length === 0) {
-    return "rewards nao pode ser vazio: a entrega custa material";
+    return null;
   }
 
   for (const stat of chaves) {
@@ -430,7 +528,7 @@ export function requirementError(requirement) {
     return "requisito invalido";
   }
 
-  const { type, itemId, rarity, count } = requirement;
+  const { type, itemId, rarity, enhance, count } = requirement;
 
   if (count === undefined || !Number.isInteger(count) || count <= 0) {
     return "count precisa ser um inteiro maior que zero";
@@ -454,17 +552,43 @@ export function requirementError(requirement) {
     return null;
   }
 
-  if (type === REQUIREMENT_TYPE.EQUIPMENT) {
-    if (itemId !== undefined) {
-      return "equipamento nao pode declarar itemId";
+if (type === REQUIREMENT_TYPE.EQUIPMENT) {
+      /**
+       * A PECA PELO ID, e nao pela raridade.
+       *
+       * A regra antiga aceitava QUALQUER equipamento da raridade pedida, e
+       * isso e um problema quando a entrega e de uma peca especifica: o
+       * jogador entregaria um colete `uncommon` e receberia o bonus do arco
+       *
+       * O `enhance` e o mesmo campo em ambos os caminhos, e o `rarity`
+       * continua valendo para quem nao declara `itemId` — assim uma entrega
+       * por raridade exata continua existindo para o que ela serve
+       */
+      if (itemId !== undefined) {
+        const item = getItem(itemId);
+
+        if (!item) return `item inexistente: ${itemId}`;
+
+        if (item.type !== ITEM_TYPE.WEAPON) {
+          return `${itemId} e ${item.type}, nao equipamento`;
+        }
+
+        if (
+          enhance !== undefined &&
+          (!Number.isInteger(enhance) || enhance < 0)
+        ) {
+          return `aprimoramento invalido: ${enhance}`;
+        }
+
+        return null;
+      }
+
+      if (!RARITY_ORDER.includes(rarity)) {
+        return `rarity invalida: ${rarity}`;
+      }
+
+      return null;
     }
 
-    if (!RARITY_ORDER.includes(rarity)) {
-      return `rarity invalida: ${rarity}`;
-    }
-
-    return null;
+    return `tipo invalido: ${type}`;
   }
-
-  return `tipo invalido: ${type}`;
-}

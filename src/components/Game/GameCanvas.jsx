@@ -3,6 +3,10 @@ import { GameEngine } from "../../game/engine/GameEngine.js";
 import { getMap, DEFAULT_MAP_ID } from "../../data/maps/index.js";
 import { NetworkWorld } from "../../game/net/NetworkWorld.js";
 import { digitandoEm } from "../../game/ui/typing.js";
+import {
+  TECLAS_DO_NAVEGADOR,
+  acaoDaTecla,
+} from "../../game/input/keybinds.js";
 
 /**
  * O canvas do jogo.
@@ -97,50 +101,24 @@ export default function GameCanvas({
   }, [estado, engineRef]);
 
   /**
-   * O teclado vai para o servidor, nao para o motor.
-   *
-   * O `bindDomEvents` do motor escreve em `engine.input`, que
-   * ninguem le no modo rede: a intencao que vira movimento e a do
-   * cliente de rede. Ligar os dois caminhos faria o motor e o
-   * servidor discordarem sobre a tecla, e o jogador veria o
-   * personagem ir para um lado e voltar.
-   */
-  /**
-   * As teclas que sao ORDEM, e nao movimento.
-   *
-   * O movimento (WASD, setas) vira INTENCAO, que e o caminho certo.
-   * Estas viram um pedido do tipo proprio, porque online quem
-   * executa e o servidor: o motor da tela nao tem sessao e nao
-   * simula, entao tratar a tecla aqui dentro nao fazia NADA.
-   *
-   * A `T` era a mais visivel do problema: apertar T nao ligava o
-   * auto de cacar perto, e o auto da missao, que ja estava ligado,
-   * continuava puxando o personagem. Parecia que o botao tinha
-   * virado o auto da missao.
-   */
-  const CODES_DE_ORDEM = new Set([
-    "Space",
-    "KeyR",
-    "KeyT",
-
-    /**
-     * O `Backspace` e CONTROLADO sem ser ORDEM.
+     * O teclado vai para o servidor, nao para o motor.
      *
-     * Ele esta na lista para ser engolido: estar na lista faz o
-     * `enviarOrdem` devolver `true`, e `true` quer dizer "esta tecla ja
-     * foi tratada, nao encaminha como movimento". Fora da lista ele
-     * viraria tecla de andar e o servidor receberia um `Backspace` a
-     * cada aperto
+     * O `bindDomEvents` do motor escreve em `engine.input`, que
+     * ninguem le no modo rede: a intencao que vira movimento e a do
+     * cliente de rede. Ligar os dois caminhos faria o motor e o
+     * servidor discordarem sobre a tecla, e o jogador veria o
+     * personagem ir para um lado e voltar.
      *
-     * E o atalho de ressuscitar os bonecos foi removido: o `Backspace`
-     * e a tecla que o jogador precisa para apagar um caractere do campo
-     * onde esta digitando, e um atalho em cima dele e um atalho em
-     * cima de qualquer tecla de texto
+     * ## POR QUE A LISTA FIXA DE ORDENS FOI PARA
+     *
+     * Existia um `CODES_DE_ORDEM` aqui, e ele tinha um problema que so
+     * apareceu quando os binds ficaram editaveis: ele dizia quais teclas
+     * eram ordem, mas nao dizia o que elas FAZIAM. Uma tecla nova de
+     * ordem, vinda do painel, passava por ele como se fosse movimento
+     *
+     * Quem responde agora e `acaoDaTecla`, a mesma funcao do motor no
+     * single player — entao trocar uma bind vale nos dois modos
      */
-    "Backspace",
-  ]);
-
-  const DIGITO_DE_SKILL = /^Digit([1-8])$/;
 
   useEffect(() => {
     const canvas = canvasRef.current;
@@ -150,59 +128,73 @@ export default function GameCanvas({
     /**
      * `true` quando a tecla era uma ordem e ja foi tratada.
      *
-     * O `repeat` e o que segura o auto: o navegador repete o
-     * `keydown` umas 30 vezes por segundo enquanto a tecla estiver
-     * apertada, e sem o guarda o auto piscava a cada repeticao.
+     * O `repeat` e o que segura o auto: o navegador repete o `keydown`
+     * umas 30 vezes por segundo enquanto a tecla estiver apertada, e sem o
+     * guarda o auto piscava a cada repeticao.
+     *
+     * ## A ORDEM E RESOLVIDA PELO `keybinds`, E NAO PELO `code`
+     *
+     * Era uma cadeia de `if (code === "Space")`, `if (code === "KeyR")` e
+     * companhia, com a tecla escrita no codigo. Agora e `acaoDaTecla(code)`,
+     * a mesma funcao que o motor usa no single player — entao trocar uma
+     * bind no painel vale nos dois modos
      */
     const enviarOrdem = (code, repetida) => {
-      if (repetida) return CODES_DE_ORDEM.has(code);
+      const acao = acaoDaTecla(code);
+
+      if (repetida) return acao !== null;
 
       const intencao = onIntentRef.current;
       const motor = engineRef.current;
 
       if (!intencao) return false;
 
-      if (code === "Space") {
-        // o alvo e o escolhido: e o mesmo que o `useBasicAttack` do
-        // motor usaria, e quem aplica a mira e o servidor
+      /**
+       * O `Backspace` e engolido sem virar pedido nem movimento.
+       *
+       * Ele e controlado pelo motor — que cancela o evento para o
+       * navegador nao "voltar" — e nao e atalho de nada. O `return true`
+       * impede que caia no `tecla` abaixo e vire ordem de andar
+       */
+      if (TECLAS_DO_NAVEGADOR.includes(code) && !acao) return true;
+
+      if (!acao) return false;
+
+      // o alvo e o escolhido: e o mesmo que o `useBasicAttack` do
+      // motor usaria, e quem aplica a mira e o servidor
+      if (acao === "atacar") {
         intencao.atacar?.(motor?.selectedTargetId ?? null);
         return true;
       }
 
-      if (code === "KeyR") {
+      if (acao === "ultimate") {
         intencao.ultimate?.(motor?.selectedTargetId ?? null);
         return true;
       }
 
-      if (code === "KeyT") {
+      if (acao === "auto") {
         intencao.alternarAutoPlay?.();
         return true;
       }
 
-      /**
-       * O `Backspace` e engolido, sem virar pedido nem movimento.
-       *
-       * Ele e controlado pelo motor — que cancela o evento para o
-       * navegador nao "voltar" — mas nao e atalho de nada. O
-       * `return true` e o que impede que caia no `tecla` abaixo e vire
-       * ordem de andar
-       */
-      if (code === "Backspace") return true;
+      if (acao === "dash") {
+        intencao.dash?.();
+        return true;
+      }
 
-      const digito = DIGITO_DE_SKILL.exec(code);
+      if (acao.startsWith("slot")) {
+        // o numero no dedo e o mesmo em todas as paginas. o que muda e a
+        // pagina, que o HUD troca no botao, e o slot que viaja e absoluto
+        // porque quem decide a habilidade e o servidor
+        intencao.habilidade?.(
+          Number(acao.slice(4)),
+          motor?.selectedTargetId ?? null,
+        );
 
-      if (!digito) return false;
+        return true;
+      }
 
-      // o numero no dedo e o mesmo em todas as paginas. o que
-      // muda e a pagina, que o HUD troca no botao, e o slot que
-      // viaja e absoluto porque quem decide a habilidade e o
-      // servidor
-      intencao.habilidade?.(
-        (motor?.skillPage ?? 0) * 8 + Number(digito[1]),
-        motor?.selectedTargetId ?? null,
-      );
-
-      return true;
+      return false;
     };
 
     const aoPressionar = (evento) => {
@@ -280,6 +272,31 @@ export default function GameCanvas({
 
     return () => {
       engine.onTargetClick = null;
+    };
+  }, [engineRef]);
+
+  /**
+   * O CLIQUE NA PEDIDA DE STEEL, pelo mesmo caminho do alvo.
+   *
+   * E um `useEffect` separado e nao uma linha dentro do de cima porque o
+   * motor nao sabe falar em `op` de painel: ele acha a prop e entrega.
+   * Quem conhece o protocolo e a camada de rede
+   *
+   * O `propId` que viaja e o da prop REAL, e nao um indice. O servidor
+   * procura esse id no mapa em que o jogador esta, entao um id inventado
+   * pela nao acha nada e a mineracao simplesmente nao comeca
+   */
+  useEffect(() => {
+    const engine = engineRef.current;
+
+    if (!engine) return;
+
+    engine.onMineClick = (prop) => {
+      onIntentRef.current?.minerar(prop.id);
+    };
+
+    return () => {
+      engine.onMineClick = null;
     };
   }, [engineRef]);
 

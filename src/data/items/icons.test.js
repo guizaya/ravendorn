@@ -18,15 +18,20 @@ import {
 /**
  * Os icones de item desenhados, e a raridade que escolhe o arquivo.
  *
- * O icone dos 13 itens restantes e um glifo de TEXTO, e o do arco de
- * galho e um PNG que muda com a raridade. A troca acontece num mapa
- * de nomes de arquivo, e esse mapa e o tipo de coisa que falha sem
- * erro: um `typo` em `RARITY_ICON_FILE` nao estoura nada, vira uma
- * URL que da 404 no navegador, e o item aparece sem imagem nenhuma.
+ * O arco de galho e o UNICO item com um PNG por raridade. A troca
+ * acontece num mapa de nomes de arquivo, e esse mapa e o tipo de
+ * coisa que falha sem erro: um `typo` em `RARITY_ICON_FILE` nao
+ * estoura nada, vira uma URL que da 404 no navegador, e o item
+ * aparece sem imagem nenhuma.
  *
  * Por isso o teste central deste arquivo nao verifica o que o
  * resolvedor DEVOLVE, e sim se o arquivo que ele aponta EXISTE no
  * disco, para as cinco raridades. E o que pega o `typo`
+ *
+ * Os itens de arte UNICA — aljava e as cinco armaduras — nao passam
+ * por aqui: estao no `ITEM_ICON_SIMPLES` e respondem iguais em
+ * qualquer raridade, porque a cor da raridade ja e pintada no fundo
+ * do slot. O `describe` no fim deste arquivo e o que os confere
  */
 /**
  * O caminho em disco que a URL do resolvedor aponta.
@@ -53,7 +58,19 @@ const ASSINATURA_PNG = [
  * verificacao que pega o `typo` de caminho. Com o `for`, o item novo
  * entra no teste pelo simples fato de existir arte para ele
  */
-const [BOW, ALJAVA] = ICON_ITEM_IDS;
+const [BOW] = ICON_ITEM_IDS;
+
+/**
+ * A aljava saiu de `ICON_ITEM_IDS` quando passou a ter arte unica, mas
+ * os testes do slot dela continuam necessarios: e a peca que garante
+ * que a secundaria nao ocupe a mao principal.
+ *
+ * O id fica aqui declarado explicitamente em vez de ser lido do indice,
+ * porque ler a posicao 1 de uma lista que hoje tem um elemento so daria
+ * `undefined` sem erro — o teste passaria comparando `undefined` com
+ * `undefined`, que e o pior jeito de um teste falhar
+ */
+const ALJAVA = "aljava_arbalist";
 
 describe.each(ICON_ITEM_IDS)("a arte de %s", (itemId) => {
   it("esta no catalogo", () => {
@@ -128,22 +145,17 @@ describe.each(ICON_ITEM_IDS)("a arte de %s", (itemId) => {
 });
 
 describe("a lista de itens com arte", () => {
-  it("sao as sete pecas do arbalist e a pocao de cura", () => {
-    // A lista e o que decide se um item mostra imagem. Sao as sete
-    // pecas do arbalist - arco, aljava, e as cinco armaduras - mais a
-    // pocao de cura, que e a primeira arte de um item de consumo.
-    // Este teste deixa isso explicito para a lista crescer de proposito
-    // e nao por engano
-    expect(Object.keys(ITEM_ICON_ASSET)).toEqual([
-      "willow_bow",
-      "aljava_arbalist",
-      "botas_arbalist",
-      "calca_arbalist",
-      "capuz_arbalist",
-      "luvas_arbalist",
-      "peito_arbalist",
-      "pocao_cura",
-    ]);
+  it("agora so o arco de galho tem arte por raridade", () => {
+    // O arco e a unica peca com CINCO arquivos, uma por raridade. As
+    // seis demais (aljava e as cinco armaduras) foram para o
+    // `ITEM_ICON_SIMPLES`, com UM arquivo cada: a cor da raridade ja
+    // e pintada no fundo do slot, e a arte repetindo isso em 30 PNGs
+    // custava 30 arquivos para dizer a mesma coisa duas vezes
+    //
+    // E `pocao_cura` saiu daqui tambem — ele ja estava no
+    // `ITEM_ICON_SIMPLES` e aparecia nesta lista por engano do teste,
+    // nao por ter arte por raridade
+    expect(Object.keys(ITEM_ICON_ASSET)).toEqual(["willow_bow"]);
   });
 
   it("a ordem do mapa e a ordem declarada", () => {
@@ -229,6 +241,84 @@ describe("o mapa de raridade", () => {
   });
 });
 
+/**
+ * AS SEIS PECAS QUE VIRARAM ARTE UNICA.
+ *
+ * O `describe.each` do topo deste arquivo confere CINCO arquivos por
+ * item, um por raridade. Estas pecas tem UM arquivo so, e por isso o
+ * caminho delas nao passa por `RARITY_ICON_FILE` — se o mesmo codigo
+ * fosse aplicado aqui, ele leria `undefined` no mapa de raridade e
+ * cairia no glifo sem erro nenhum
+ *
+ * E o que este bloco confere: que o arquivo existe no disco, e que a
+ * MESMA arte responde para as cinco raridades. A segunda e a
+ * verificacao que prova a mudanca — se algum dia alguem declarar uma
+ * destas pecas em `ITEM_ICON_ASSET` por engano, ela volta a pedir um
+ * arquivo por raridade e este teste acusa
+ */
+describe.each([
+  "aljava_arbalist",
+  "botas_arbalist",
+  "calca_arbalist",
+  "capuz_arbalist",
+  "luvas_arbalist",
+  "peito_arbalist",
+])("a arte unica de %s", (itemId) => {
+  it("esta no catalogo", () => {
+    expect(getItem(itemId), itemId).toBeTruthy();
+    expect(hasItemIcon(itemId), itemId).toBe(true);
+  });
+
+  it("aponta para um arquivo que EXISTE", () => {
+    const url = itemIconUrl(itemId, RARITY.COMMON);
+
+    expect(url, itemId).toBeTruthy();
+    expect(
+      existsSync(arquivoDa(url)),
+      `falta o arquivo de ${itemId}: ${url}`,
+    ).toBe(true);
+  });
+
+  it("e a MESMA arte nas cinco raridades", () => {
+    // A raridade nao esta na arte: ela esta no fundo do slot. Se estas
+    // pecas voltassem a ter um desenho por raridade, seriam 30 arquivos
+    // dizendo de novo o que a cor do fundo ja diz
+    const urls = RARITY_ORDER.map((rarity) =>
+      itemIconUrl(itemId, rarity),
+    );
+
+    expect(new Set(urls).size, itemId).toBe(1);
+  });
+
+  it("responde mesmo sem raridade, e para uma raridade inventada", () => {
+    // O caminho de arte unica e consultado ANTES do mapa de raridade,
+    // entao nem `null` nem "mitico" derrubam a peca para o glifo
+    expect(itemIconUrl(itemId, null), itemId).toBeTruthy();
+    expect(itemIconUrl(itemId, "mitico"), itemId).toBeTruthy();
+  });
+
+  it("o arquivo e um PNG de verdade", () => {
+    const buffer = readFileSync(
+      arquivoDa(itemIconUrl(itemId, RARITY.COMMON)),
+    );
+
+    expect(
+      [...buffer.subarray(0, 8)],
+      `assinatura de ${itemId}`,
+    ).toEqual(ASSINATURA_PNG);
+  });
+
+  it("cada peca tem a SUA arte, e nao a da outra", () => {
+    // Sem isto, as seis podiam apontar para o mesmo PNG por copia e
+    // colete — e o slot do peito mostraria uma bota sem nenhum erro
+    const urls = PECAS_ARTE_UNICA.map((id) =>
+      itemIconUrl(id, RARITY.COMMON),
+    );
+
+    expect(new Set(urls).size).toBe(PECAS_ARTE_UNICA.length);
+  });
+});
+
 describe("itens sem arte continuam com glifo", () => {
   it("devolve null para um item que nao tem pasta de arte", () => {
     // Os outros 13 itens do catalogo nao tem imagem. O icone deles
@@ -248,9 +338,14 @@ describe("itens sem arte continuam com glifo", () => {
   it("devolve null quando a raridade nao e uma das cinco", () => {
     // `new URL` de arquivo inexistente NAO da erro: vira uma URL
     // que so quebra no navegador. Este e o caso que mais escaparia
-    expect(itemIconUrl(ALJAVA, "mitico")).toBe(null);
+    //
+    // E o teste usa o ARCO, nao a aljava: a aljava passou a ter arte
+    // unica, que responde igual para qualquer raridade, entao
+    // `itemIconUrl("aljava_arbalist", "mitico")` devolveria a arte em
+    // vez de null. E o comportamento certo dela, testado no fim
+    expect(itemIconUrl(BOW, "mitico")).toBe(null);
 
-    expect(itemIconUrl(ALJAVA, null)).toBe(null);
-    expect(itemIconUrl(ALJAVA, undefined)).toBe(null);
+    expect(itemIconUrl(BOW, null)).toBe(null);
+    expect(itemIconUrl(BOW, undefined)).toBe(null);
   });
 });

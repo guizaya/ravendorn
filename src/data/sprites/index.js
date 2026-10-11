@@ -26,6 +26,96 @@ const ARBALIST_SHEET = new URL(
   import.meta.url,
 ).href;
 
+/**
+ * A FLECHA DO ARBALIST, e o efeito que vai no LUGAR do tiro.
+ *
+ * ## ESTA E A FLECHA ISOLADA, E NAO A DO GIF
+ *
+ * A primeira versao usava a animacao de 8 quadros de `hit_basic/hit.gif`, com
+ * o rastro verde pulsando. Trocada pela `flecha_isolada.png`, que e a MESMA
+ * flecha sem a trilha de rastro — o jogador pediu a troca por ela ficar
+ * melhor, e concorda: a arte isolada le como uma flecha em vez de um efeito
+ *
+ * ## O QUE A TROCA CUSTOU: A ANIMACAO
+ *
+ * O PNG tem UM quadro, entao a animacao do rastro foi com ele. O tiro agora
+ * e uma seta estatica que voa. `frames: 1` abaixo e o que declara isso, e e
+ * de proposito — nao e um valor que esqueci de atualizar
+ *
+ * ## POR QUE 90 GRAUS A MAIS
+ *
+ * O arquivo vem de pe: 70x295, com a ponta em cima. O motor gira o projetil
+ * com `atan2(vy, vx)`, o que so funciona com a arte ja apontando para a
+ * DIREITA. `tools/girar-flecha.mjs` faz esse giro e mede a arte
+ *
+ * ## POR QUE NAO ENTRA NA FOLHA DO ARBALIST
+ *
+ * Porque a folha do arquiro e uma grade DIRECIONAL de celulas 84x84. Esta
+ * imagem e 295x70 depois de girada — um retangulo de 4:1. O
+ * `resolveFrameRect` fatia a folha com `frameWidth` do sprite INTEIRO, e uma
+ * linha desto leria um pedaco de cada quadro, e a flecha sairia cortada
+ *
+ * ## POR QUE UM PNG E NAO UMA FOLHA
+ *
+ * Porque com UM quadro nao ha linha para varrer: o eixo X era o tempo na
+ * animacao do rastro, e sem rastro o eixo sumiu
+ */
+export const ARBALIST_FLECHA = {
+  src: new URL(
+    "../../assets/sprites/arbalist-flecha.png",
+    import.meta.url,
+  ).href,
+
+  frameWidth: 295,
+  frameHeight: 70,
+
+  /** UM quadro. A arte do rastro foi trocada por uma imagem so */
+  frames: 1,
+
+  /**
+   * O `fps` NAO E USADO com `frames: 1`, mas fica declarado.
+   *
+   * Sem ele, um `fps` faltando viraria `NaN` no `resolveFrame` e o motor
+   * deixaria de desenhar o tiro inteiro. Um numero morta e melhor que um
+   * buraco no objeto
+   */
+  fps: 1,
+
+  /**
+   * A ESCALA, e ela e o que decide o tamanho da flecha na tela.
+   *
+   * A arte visivel mede 282x50 (`girar-flecha.mjs`). A primeira versao casou
+   * exatamente o tiro vetorial antigo — 23px, e `23 / 282 = 0,082` — e ficou
+   * fina demais na tela: o tiro e rapido e o jogador quase nao via a arte
+   *
+   * Este valor da ~30px, o TEORICO de tamanho util. Acima disso a flecha
+   * comeca a cobrir o mob que ela acerta, e um tiro que esconde o alvo e pior
+   * do que um tiro pequeno
+   *
+   * ## O QUE FALTA AUMENTAR AGORA
+   *
+   * O comprimento. A 30px a flecha esta no limite, e o que continua magro e a
+   * ALTURA: 5,3px contra os 12px do tiro vetorial antigo. Se ela ainda parecer
+   * pequena depois deste aumento, o proximo passo nao e mais o `scale` — e dar
+   * uma `alturaMinima` para a arte, ou trocar por uma arte mais encorpada
+   */
+  scale: 0.107,
+
+  /**
+   * O CENTRO DA ARTE, e nao o canto nem o centro da celula.
+   *
+   * O `projectile.x/y` do motor e o PONTO que voa, e a arte tem 10px de
+   * margem transparente em cima e 10 em baixo (visivel de y=10 a y=59 numa
+   * celula de 70). Ancorar no canto colocaria a flecha inteira deslocada, e o
+   * tiro pareceria errar o alvo
+   */
+  anchorX: 147,
+  anchorY: 35,
+
+  /** quem usa esta arte; as outras classes seguem com o tiro vetorial */
+  classId: "arbalist",
+};
+
 const WARRIOR_SHEET = new URL(
   "../../assets/sprites/warrior-sheet.png",
   import.meta.url,
@@ -83,30 +173,33 @@ export const WARRIOR_SPRITE = {
  * O sorcerer com a imagem, a partir do sorcerer SEM imagem.
  *
  * Mesmo contrato do guerreiro: o `layout.js` traz celula, ancora,
- * direcoes e as linhas de animacao, e aqui so entram a URL e a caixa
- * do desenho. O `attack` do sorcerer aponta para a linha de idle
- * enquanto nao houver arte de ataque — ver `SORCERER_SPRITE` no
- * `layout.js`
+ * direcoes, escala e as linhas de animacao, e aqui so entram a URL e
+ * a caixa do desenho
  */
 export const SORCERER_SPRITE = {
   ...SORCERER_LAYOUT,
   src: SORCERER_SHEET,
 
   /**
-   * A caixa do DESENHO dentro da celula de 68x68, medida do PNG.
+   * A caixa do DESENHO dentro da celula de 132x132, medida do PNG.
    *
-   * O sorcerer ocupa 41x47 no idle inteiro, os oito quadros: 14px de
-   * margem transparente de cada lado, 10 em cima e 11 embaixo. E o
-   * `contentBox` que faz o retrato da tela de selecao preencher o
-   * quadrado com o PERSONAGEM, e nao com a margem
+   * ## POR QUE MUDOU COM A ARTE NOVA
    *
-   * A caixa e a maior de todos os quadros porque o cajado entra e sai
-   * de lado a lado: o quadro 5 chega em x=54 e o quadro 3 para em
-   * x=49. Uma caixa medida so num quadro mais estreito cortaria o
-   * cajado pela metade, e o quadro mais largo sairia com mais
-   * transparente de cada lado
+   * A caixa antiga era de uma celula de 68 com arte de 41x47. A arte nova
+   * ocupa 112x102 numa celula de 132, e a caixa antiga deixaria de envolver o
+   * personagem: o retrato da tela de selecao mostraria o boneco cortado
+   *
+   * E e a UNICA coisa que esta caixa faz: e ela que enche o quadrado do
+   * retrato com o PERSONAGEM, e nao com a margem transparente. Sem ela, o
+   * sorcerer sairia pequeno e levemente alto no retrato
+   *
+   * ## E POR QUE A MAIOR DE TODOS OS QUADROS
+   *
+   * Porque o cajado entra e sai de lado a lado, e o golpe e o ciclo que mais
+   * alarga. Medir num quadro de caminhada daria uma caixa estreita, e o
+   * cajado do golpe sairia cortado pela metade
    */
-  contentBox: { x: 14, y: 10, width: 41, height: 47 },
+  contentBox: { x: 7, y: 13, width: 112, height: 102 },
 };
 
 /**
@@ -146,68 +239,128 @@ export const ARBALIST_SPRITE = createDirectionalSpriteDefinition(
     walkBob: { amplitude: 4, frequency: 1.5 },
 
     /**
-     * A CELULA SUBIU DE 64 PARA 84.
+     * A CELULA SUBIU DE 84 PARA 96.
      *
-     * A arte de `new_arbalist_2` tem 84x84 em todas as 17 lanes, e a
-     * folha gerada sai 756x1428 (9 colunas x 17 linhas de 84) em vez de
-     * 576x1088. Sem declarar isto, o `resolveFrameRect` leria um pedaco
-     * de 64x64 de cada quadro de 84 e o boneco sairia cortado — e nao
-     * deslocado, que e o defeito mais enganoso: parece arte ruim e e
+     * A arte de `new_arbalist_2` foi regerada maior: as 25 lanes medem 92x92
+     * e a folha saiu de 84x84 porque o arco do arquiro encosta na borda em
+     * quatro quadros das diagonais. Sem declarar isto, o `resolveFrameRect`
+     * leria um pedaco de 84 de cada quadro de 96 e o boneco sairia cortado —
+     * e nao deslocado, que e o defeito mais enganoso: parece arte ruim e e
      * numero velho
      *
-     * O `DIRECTIONAL_SCALE` continua 1. A celula maior NAO e personagem
-     * maior: o `scale` e que encolhe o desenho na tela, e o arquiro tem de
-     * continuar do mesmo tamanho que o guerreiro, do lancer e do sorcerer
+     * ## O `scale` E 1.1 E NAO O 0.952 DO `layout.js`
+     *
+     * A constante `ARBALIST_SCALE`, no `layout.js`, ainda vale 0.952, mas
+     * este bloco monta o sprite FINAL e sobrescreve o valor. Quem precisar do
+     * tamanho na tela do arqueiro tem de usar o 1.1 daqui
+     *
+     * Com 1.1, a celula sai com 105.6px e o personagem com 62.7px. Foi esse
+     * numero que calibrou a `SORCERER_SCALE`: usar o 0.952 por engano deixa o
+     * sorcerer 13% menor que o arqueiro na tela
      */
-    frameWidth: 84,
-    frameHeight: 84,
+    frameWidth: 96,
+    frameHeight: 96,
+    scale: 1.1,
 
     /**
-     * A ancora da arte NOVA, medida na folha gerada.
+     * A ANCORA da arte, medida na folha gerada.
      *
-     * Os numeros sao os que o `gif-to-sheet.mjs` mediu e imprimiu: o pe
-     * do arquiro esta a **68** na celula de 84, e nao a 51 como na arte de
-     * celula 64. Sem declarar isto, o arquiro andaria 17px dentro do chao
-     * em todas as direcoes — um erro grande e bem visivel, que faria o
-     * personagem parecer estar enterrado em vez de pisando
+     * Estes numeros sao os que o `gif-to-sheet.mjs` mediu e imprimiu na
+     * geracao da arte nova: o pe do arquiro esta a **75** na celula de 96,
+     * e nao a 77 como na arte anterior. O `anchorY` e o que decide a
+     * altura do boneco no chao — sem declarar isto, o arquiro andaria 2px
+     * dentro do chao em todas as direcoes
      *
-     * A `X` tambem mudou, de 31.5 para 41.5: o mesmo motif do `pe`, com
-     * a celula 20px mais larga o desenho inteiro foi para a direita
+     * O `anchorX` foi de 47.5 para 48: o desenho novo esta meia unidade a
+     * mais para a direita, e o `alignAnchors` alinha o centro do corpo pela
+     * mediana das oito lanes
      */
-    anchorX: 41.5,
-    anchorY: 68,
+    anchorX: 48,
+    anchorY: 75,
 
     /**
-     * A caixa do DESENHO dentro da celula de 84x84, medida na folha.
+     * A caixa do DESENHO dentro da celula de 96x96, medida na folha.
      *
-     * O arquiro ocupa 47x61 no idle inteiro: 19px de margem transparente
-     * ate a arte, 8 em cima e 15 embaixo. E o `contentBox` que deixa o
-     * retrato da tela de selecao com a arte preenchendo o quadrado e
-     * centrada no PERSONAGEM, e nao na margem
+     * E a UNIAO das oito lanes de idle — 26..71 na horizontal e 17..75 na
+     * vertical — e nao a caixa do tiro, que e muito mais larga: com o arco
+     * estendido o `south` do tiro vai de 25 a 84, e usar essa caixa faria o
+     * arquiro sair pequeno no retrato da tela de selecao, com o arco
+     * ocupando metade do quadrado vazio
      *
-     * A caixa e a MAIOR entre os quadros, e nao a medida num so: a arte
-     * muda de altura entre os quadros do idle, que e a propria animacao de
-     * respirar, e um quadro mais curto sai com uma linha transparente
+     * E a MAIOR entre os quadros de cada lane, e nao a medida num so: a
+     * arte muda de altura entre os quadros do idle, que e a propria
+     * animacao de respirar, e um quadro mais curto sai com uma linha
+     * transparente
+     *
+     * ## ESTA CAIXA MUDOU COM A ARTE NOVA
+     *
+     * Era `20..76 x 13..77` (57x65). A arte nova e mais ENTAIXADA: o
+     * desenho ocupa 46x65 em vez de 57x65. Nao e a mesma arte encolhida —
+     * o `south` do tiro chega a 84 de largura, quase o dobro do idle, e o
+     * arco de verdade e a prova de que a folga nao foi perdida
+     *
+     * E o que deixa o retrato com a arte preenchendo o quadrado e centrada
+     * no PERSONAGEM, e nao na margem transparente
      */
-    contentBox: { x: 19, y: 8, width: 47, height: 61 },
+    contentBox: { x: 26, y: 17, width: 46, height: 59 },
 
     animations: {
       /**
-       * O idle tem **8** quadros, e nao 7.
+       * O idle tem **9** quadros, e e **POR DIRECAO**.
        *
-       * O gif novo trouxe um quadro a mais. Com `length: 7` o ultimo
-       * quadro ficava fora do balanco parado: o arquiro respirava em
-       * sete passos e o oitavo so aparecia quando a animacao voltava
-       * do tiro
+       * A pasta `idle/` trouxe um gif para cada um dos oito angulos, igual
+       * a `walk/`. Antes era um `idle.gif` unico na raiz, lido por `row`
+       * fixo; agora cada angulo ocupa a sua linha e o bloco usa `rowOffset`
+       *
+       * Sao dois jeitos diferentes de apontar a mesma folha. Deixar `row`
+       * aqui mostraria sempre o idle do leste, com o boneco parado de lado
+       * enquanto o jogador olha para o norte
+       *
+       * ## E O `length` SUBIU DE 8 PARA 9
+       *
+       * A arte nova de `idle/` tem nove quadros em todas as oito direcoes.
+       * Deixar em 8 nao dava erro: a folha tem os nove, e o ciclo so
+       * ignorava o ultimo. O sintoma era o arquiro perdendo a volta final
+       * da respiracao — uma animacao que nao fecha, visivel mais no idle
+       * do sul, que e o angulo mais parado do jogo
        */
-      idle: { row: 8, start: 0, length: 8, fps: 5 },
+      idle: {
+        rowOffset: 8,
+        start: 0,
+        length: 9,
+        fps: 5,
+      },
       walk: { start: 0, length: 8, fps: 12 },
       attack: {
-        rowOffset: 9,
+        rowOffset: 16,
         start: 0,
         length: 9,
         fps: 20,
         needsTarget: true,
+      },
+
+      /**
+       * A PICARETA, EM LOOP, POR DIRECAO, a partir da linha 24.
+       *
+       * ## POR QUE `rowOffset: 24`, E NAO `row: 24`
+       *
+       * Era uma linha so, lida por `row`: a arte de mineracao tinha vindo
+       * so do sul. Agora `mining/` tem um gif por angulo, e o ciclo segue
+       * o lado de onde o jogador chegou na pedra — quem chega pelo norte
+       * soca para o norte, e nao para baixo
+       *
+       * A folha foi de 25 para 32 linhas: as sete novas sao esses angulos.
+       * `rowOffset` sem elas apontaria para o tiro, que fica em 16..23
+       *
+       * Sem `holdLast`: o bloco segura a animacao no ultimo quadro, e ele e
+       * da MORTE. Aqui faria o arquiro socar uma vez e ficar com a picareta
+       * no chao ate parar de minerar
+       */
+      mining: {
+        rowOffset: 24,
+        start: 0,
+        length: 9,
+        fps: 10,
       },
     },
   },

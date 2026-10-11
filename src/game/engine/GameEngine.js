@@ -1,5 +1,13 @@
 import { createTrainingDummies } from "../entities/TrainingDummy.js";
-import { createPlayerSession } from "./PlayerSession.js";
+import {
+  BAU_CAPACITY,
+  createPlayerSession,
+} from "./PlayerSession.js";
+import {
+  AUTO_POCAO_LIMIAR_PADRAO,
+  AUTO_POCAO_LIMIAR_MIN,
+  AUTO_POCAO_LIMIAR_MAX,
+} from "../../data/potions/index.js";
 import { PARTY_MAX } from "../../shared/protocol.js";
 import { EnemyAI } from "../enemies/EnemyAI.js";
 import {
@@ -17,6 +25,10 @@ import { isAutoCompletable } from "../../data/quests/index.js";
 import {
   canEnchantItem,
   enchantCost,
+  enhanceBloqueio,
+  enhanceCost,
+  enhanceRisco,
+  enhanceSteelCost,
   rollEnchant,
 } from "../../data/enchant/index.js";
 import {
@@ -38,16 +50,36 @@ import {
   saveLootFilter,
 } from "../loot/lootFilter.js";
 import { TerrainRenderer } from "../terrain/TerrainRenderer.js";
+import TileMapRenderer from "../maps/TileMapRenderer.js";
+import { temCamadaDeTile, tiledDoMapa, colisaoDoMapa, zonasDoMapa } from "../maps/registroDeTiles.js";
+import { prepararMinimapa, minimapaDe } from "../maps/minimapaTiled.js";
 import { PropRenderer } from "../props/PropRenderer.js";
 import { NpcRenderer } from "../npc/NpcRenderer.js";
 import { getNpcType } from "../../data/npc/index.js";
 import { PortalRenderer } from "../portais/PortalRenderer.js";
+import { TelegraphSystem } from "../enemies/TelegraphSystem.js";
+import { TelegraphRenderer } from "../enemies/TelegraphRenderer.js";
+import {
+  TECLAS_DO_NAVEGADOR,
+  TECLAS_ORDEM_PADRAO,
+  acaoDaTecla,
+  vetorDeMovimento,
+} from "../input/keybinds.js";
 import { portalsOf } from "../../data/portais/index.js";
+import {
+  MIRA,
+  MIRA_TAMANHO,
+  MIRA_OFFSET,
+} from "../../data/cursor/index.js";
 import {
   dadosDaTrava,
   portalLiberado,
 } from "../../data/quests/index.js";
-import { findMap, getMap } from "../../data/maps/index.js";
+import {
+  ARENA_ID,
+  findMap,
+  getMap,
+} from "../../data/maps/index.js";
 import {
   getItem,
   ITEM_TYPE,
@@ -143,9 +175,26 @@ const EMPTY_PARTY_SNAPSHOT = {
   convite: null,
 };
 
+/**
+ * O BAU de quem nao tem bau nenhum.
+ *
+ * Existe pelo mesmo motivo do `EMPTY_PARTY_SNAPSHOT`: o painel do bau e
+ * montado para TODO jogador a cada pacote, e ele precisa de uma lista
+ * vazia e nao de `undefined` quando a sessao ainda nao foi montada — o
+ * `bauSnapshot` roda antes do `withPlayer` na primeira entrada
+ *
+ * O `capacity` e o `BAU_CAPACITY` de verdade e nao `0`: o painel mostra
+ * "0/60" nessa janela, e um "0/0" diria que o baU esta cheio
+ */
+const BAU_VAZIO = Object.freeze({
+  used: 0,
+  capacity: BAU_CAPACITY,
+  isFull: false,
+  items: Object.freeze([]),
+});
+
 const EMPTY_GUILD_SNAPSHOT = {
-  guilda: null,
-  ehLider: false,
+  guilda: null,  ehLider: false,
   ehDiretoria: false,
   pontos: 0,
   pontosMax: GUILD_PONTOS_MAX,
@@ -175,18 +224,50 @@ import {
   talentProgresso,
 } from "../../data/guild/index.js";
 import { SpriteSheet } from "../sprites/SpriteSheet.js";
-import { resolveHurtShake } from "../sprites/animation.js";
-import { getClassSprite } from "../../data/sprites/index.js";
+import {
+  resolveHurtShake,
+  resolveDeathElapsed,
+} from "../sprites/animation.js";
+import {
+  getClassSprite,
+  ARBALIST_FLECHA,
+} from "../../data/sprites/index.js";
 import { getEnemySprite } from "../../data/sprites/enemies.js";
+import { temMorte } from "../../data/sprites/enemyLayout.js";
+import { getPropType } from "../../data/props/index.js";
+import {
+  MINERACAO_TRAVA_S,
+  RECALCULA_CAMINHO_S,
+  batidasDe,
+  distanciaAteArte,
+  encostadoNaPedida,
+  mineravel,
+  steelMaximoDe,
+  superficieDaArte,
+} from "../../data/props/mineracao.js";
+import {
+  ESTADO_TEXTO,
+  estadoDoDia,
+  getDiaDoPasse,
+  getPasse,
+  PASSE_PADRAO,
+  PASSE_PREMIUM_DIAMANTES,
+} from "../../data/passes/index.js";
+import {
+  diaResgatado,
+  desligarPremium,
+  ligarPremium,
+  premiumAtivo,
+  resgatarDia,
+} from "../pass/passLog.js";
 import { digitandoEm } from "../ui/typing.js";
 import {
   computeMinimapTransform,
   drawMinimap,
+  MINIMAP_BOTTOM,
   MINIMAP_HEIGHT,
-  MINIMAP_RIGHT,
-  MINIMAP_SLIDE,
+  MINIMAP_LEFT,
   MINIMAP_TOP_IDLE,
-  MINIMAP_TOP_TARGETED,
   MINIMAP_WIDTH,
 } from "../ui/minimap.js";
 import { getZoneById } from "../../data/maps/index.js";
@@ -196,6 +277,7 @@ import {
   BEHAVIOR,
   createCreature,
   createCreatureRoster,
+  rosterOf,
 } from "../../data/enemies/index.js";
 
 /**
@@ -380,14 +462,50 @@ const RAIO_DO_JOGADOR = 16;
  * ela aparece — inclusive com o auto recem-ligado e com o destino do
  * outro lado de um portal
  *
- * ## POR QUE 600, E NAO O `TRAVEL_CHEGADA` DE 24
+ * ## POR QUE 1800, E NAO O `TRAVEL_CHEGADA` DE 24
  *
  * `TRAVEL_CHEGADA` e o raio de chegada de UMA etapa, e a pergunta aqui
  * e outra: "o jogador ja esta vendo o destino". Quem abriu o pergaminho
  * a 500px do ponto final gastaria o item para atravessar o comprimento
  * de uma arvore
+ *
+ * E POR QUE NAO 600
+ *
+ * Porque a box nao e mais sobre "chegou", e sobre "vale a pena teleportar".
+ * A 600px o destino ja esta visivel na tela e o auto caminha em poucos
+ * segundos: a box此时 era um aviso de algo que ja estava acontecendo. A
+ * 1800px o destino ainda esta longe o bastante para a box justificar o
+ * botao, e perto o bastante para a conta nao ser absurda
  */
-const TELEPORTE_PERTO = 600;
+/**
+
+  this.effects.line(
+    player.x,
+    player.y,
+    angulo,
+    DASH_DISTANCIA,
+    14,
+    "#9fd8ff",
+    DASH_DURACAO_S + 0.1,
+  );
+
+  this.effects.burst(
+    player.x,
+    player.y,
+    "#9fd8ff",
+    DASH_DURACAO_S,
+  );
+}
+
+/**
+ * O COOLDOWN DO CHEFE, E NAO O `TELEPORTE_PERTO`.
+ *
+ * A 1800px o auto para quando a box do teleporte aparece, e a box estava
+ * ligada ao auto e nao ao dash. Sao numeros de coisas diferentes: um e
+ * "quando a distancia a mais avise o jogador", o outro e "quando o dash
+ * recarrega"
+ */
+const TELEPORTE_PERTO = 1800;
 
 /**
  * DE QUANDO EM QUANDO o caminho de perseguicao e refeito.
@@ -412,40 +530,28 @@ const CACA_RECALCULA = 0.5;
  */
 const MAX_FLECHAS = 256;
 
+/**
+ * As teclas que o motor CANCELA no navegador.
+ *
+ * ## POR QUE NAO E O MAPA DE BINDS
+ *
+ * Porque esta lista nao e sobre o jogo: e sobre o NAVEGADOR. `Space` rola
+ * a pagina, as setas movem o cursor, `Backspace` volta. Essas teclas
+ * precisam ser canceladas INDEPENDENTEMENTE de quem tem bind para elas
+ *
+ * Se a lista fosse o mapa de binds, trocar `atacar` de `Space` para `KeyF`
+ * tiraria o `Space` daqui — e o `Space` voltaria a rolar a pagina, sem
+ * nenhuma acao de jogo nele
+ *
+ * ## E POR QUE VEM DO `keybinds`
+ *
+ * Porque o `TECLAS_DO_NAVEGADOR` do modulo e a fonte unica. Duplicar a
+ * lista aqui seria o caminho para as duas divergirem — e a segunda a
+ * divergir e sempre a que o jogador nao lembra de mexer
+ */
 const CONTROLLED_CODES = new Set([
-  "KeyW",
-  "KeyA",
-  "KeyS",
-  "KeyD",
-  "ArrowUp",
-  "ArrowLeft",
-  "ArrowDown",
-  "ArrowRight",
-  "Space",
-  "Digit1",
-  "Digit2",
-  "Digit3",
-  "Digit4",
-  "Digit5",
-  "Digit6",
-  "Digit7",
-  "Digit8",
-  "KeyR",
-  "KeyT",
-
-  /**
-   * O `Backspace` esta aqui sem ser atalho de nada.
-   *
-   * Ele e a tecla que o jogador precisa para APAGAR um caractere, e o
-   * navegador antigo tratava `Backspace` como "voltar". Cancelar o
-   * evento fora do campo e o que impede essa navegacao — e dentro do
-   * campo o `digitandoEm` deixa passar, que e onde apagar tem que
-   * funcionar
-   *
-   * O atalho que existia em cima dele — ressuscitar os bonecos de
-   * treino — foi removido. Cancelar o evento e o que sobrou
-   */
-  "Backspace",
+  ...TECLAS_DO_NAVEGADOR,
+  ...TECLAS_ORDEM_PADRAO,
 ]);
 
 const STATUS_COLORS = {
@@ -458,8 +564,6 @@ const STATUS_COLORS = {
   weaken: "#b574d8",
   slow: "#7ba8c9",
 };
-
-const SKILL_CODE_PATTERN = /^Digit([1-8])$/;
 
 const ACTIVE_RANGE = 1700;
 
@@ -523,12 +627,6 @@ const JANELA_DO_LAST_HIT_MS = 10_000;
 const ALCANCE_CREDITO_ABATE = 320;
 const EMPTY_LIST = [];
 
-const BEHAVIOR_COLORS = {
-  [BEHAVIOR.PASSIVE]: "#6fbf8a",
-  [BEHAVIOR.SEMI_PASSIVE]: "#f2c14d",
-  [BEHAVIOR.ACTIVE]: "#e05a4a",
-};
-
 const COIN_COLOR = "#ffc857";
 
 const ZONE_BEHAVIOR_COLORS = {
@@ -569,7 +667,216 @@ function descreverRecompensa(reward) {
 
 export class GameEngine {
   /**
-   * Entra no mundo compartilhado.
+    /**
+     * O DASH: o empurrao, e o que dura.
+     *
+     * ## POR QUE 220 E NAO A VELOCIDADE DE ANDAR
+     *
+     * Porque o dash nao e "andar mais rapido por um instante" — e um
+     * DESLOCAMENTO, e o que o jogador sente e o espaco coberto. Andar a
+     * velocidade normal durante os 0,18s do dash daria 27px: menos que o
+     * raio do proprio jogador, e o boneco nao sairia do lugar
+     *
+     * ## POR QUE `pushVelocity` E NAO `x`/`y` DIRETO
+     *
+     * Porque `pushVelocity` e o MESMO campo que o golpe do inimigo usa, e ele e
+     * consumido pelo `update` a cada quadro com o decaimento certo. Escrever
+     * `player.x += 220` moveria o boneco mas deixaria a colisao e o rastro
+     * para tras — e o dash pararia de sentir como um golpe no instante em que
+     * o inimigo empurrasse o jogador junto
+     */
+    DASH_DISTANCIA = 220;
+    DASH_DURACAO_S = 0.18;
+
+    /**
+     * O COOLDOWN DO DASH, EM SEGUNDOS.
+     *
+     * ## POR QUE 4 E NAO 3
+     *
+     * Porque o dash de 0,18s precisa de um tempo de recarga que o jogador
+     * consiga CONFERIR. Com 4s, sao 22 usos possiveis em um minuto de briga; com
+     * 1s, o botao quase nunca aparecia na tela e o jogador parava de olhar
+     * para ele. A 4s ele raramente esta pronto — que e o que faz o icone valer
+     * o lugar que ocupa ao lado do auto
+     *
+     * E o mesmo numero para todas as classes: o dash nao e uma habilidade de
+     * classe, e um recurso de locomocao. A classe muda QUANTO voce corre e se
+     * atravessa, nunca QUANDO pode
+     */
+    DASH_COOLDOWN_S = 4;
+
+    /**
+     * O DASH EXECUTADO.
+     *
+     * ## POR QUE O COOLDOWN E UM CAMPO DA SESSAO E NAO UM LOCAL
+     *
+     * Porque o icone da HUD le o numero de quatro em quatro tiques, e um
+     * contador dentro deste metodo sumiria assim que o jogador andasse para
+     * outro mapa. O `sessao.dashAte` e o mesmo relogio do servidor que decide
+     * o resto do estado privado, entao o botao e o motor nunca discordam
+     *
+     * ## POR QUE RECUSA INSTEAD DE ESPERAR
+     *
+     * Porque apressar `E` nao pode contar como o proximo dash: o jogador
+     * segurando a tecla testaria a recarga e o cooldown de 4s viraria
+     * milliseconds. Recusar e o que mantem os 4s
+     */
+    useDash() {
+      const player = this.world.player;
+
+      if (!player || player.hp <= 0) return false;
+
+      const agora = this.world.time;
+
+      if ((this.world.session?.dashAte ?? 0) > agora) return false;
+
+      this.world.session.dashAte = agora + this.DASH_COOLDOWN_S;
+
+      /**
+       * A MIRA JA VEM PRONTA no `input.aim`, e o mesmo vetor que a skill
+       * atira. Reutilizar ele e o que garante que o dash saia para onde o
+       * tiro sairia
+       */
+      /**
+       * A MIRA VEM DO `pointer`, e nao de um campo `aim`.
+       *
+       * O input da sessao tem `keys` e `pointer`, e nao `aim`. Um `aim`
+       * inexistente seria `undefined`, a soma daria `NaN`, e o boneco
+       * sumiria do mapa — o dash mais teimoso do jogo
+       *
+       * E no online o `pointer` e preenchido pelo `INPUT` a 45Hz, com o
+       * servidor convertendo a mira do cliente em um ponto no mundo. Por
+       * isso o dash nao precisa de vetor no pedido: o servidor JA sabe para
+       * onde o jogador esta olhando
+       */
+      const ponteiro = this.input?.pointer ?? {
+        x: 0,
+        y: 0,
+        inside: false,
+      };
+
+      const jogador = this.world.player;
+
+      const dx = ponteiro.x - (jogador?.x ?? 0);
+      const dy = ponteiro.y - (jogador?.y ?? 0);
+
+      const distancia = Math.hypot(dx, dy);
+
+      /**
+       * A ZONA MORTA, e ela e a mesma do `aimFromPointer` do cliente: 6px.
+       *
+       * Sem ela, o ponteiro em cima do boneco daria um vetor de comprimento
+       * qualquer e de direcao instavel — dois pixels de tremor mudariam o
+       * dash de lado. E dividir por zero daria `NaN`
+       */
+      const mira =
+        ponteiro.inside && distancia > 6
+          ? { x: dx / distancia, y: dy / distancia }
+          : { x: 0, y: 0 };
+
+      const olhou = distancia > 6;
+
+      /**
+       * SEM MIRA, O DASH VAI PARA ONDE O JOGADOR OLHA.
+       *
+       * O ponteiro em cima do boneco e a zona morta de 6px, e ali nao ha
+       * direcao para escolher. O `facing` e a ultima direcao real do
+       * boneco, entao o dash sai para frente em vez de sumir
+       */
+      const ux = olhou ? mira.x : Math.cos(player.facing ?? 0);
+      const uy = olhou ? mira.y : Math.sin(player.facing ?? 0);
+
+      /**
+       * A VELOCIDADE E DISTANCIA / DURACAO, e nao a distancia.
+       *
+       * Porque o `pushVelocity` e uma VELOCIDADE: o `update` multiplica por
+       * `deltaTime` a cada quadro. Escrever 220 ali daria um arranhao de 2px no
+       * primeiro quadro e o cooldown de 4s para um dash de 0,18s
+       */
+      const velocidade = this.DASH_DISTANCIA / this.DASH_DURACAO_S;
+
+      player.pushVelocity.x += ux * velocidade;
+      player.pushVelocity.y += uy * velocidade;
+
+      if (!olhou) {
+        player.facing = Math.atan2(uy, ux);
+      }
+
+      this.mostrarRastroDoDash(ux, uy);
+
+      this.sendSnapshot();
+
+      return true;
+    }
+
+    /**
+     * O RASTRO DO DASH.
+     *
+     * E o que o jogador ve de si mesmo, e sem ele o dash e um teletransporte
+     * silencioso: o boneco sai de um ponto e aparece em outro, e o jogador nao
+     * sabe se foi o jogo ou ele
+     *
+     * ## POR QUE UM RISO E NAO UM BORDAO
+     *
+     * Porque o rastro do dash e a DIRECAO, e um risco circular nao diz para
+     * onde. O `line` nasce no jogador e corre para a frente pelo comprimento do
+     * dash — o jogador le o movimento antes de o boneco chegar nele
+     *
+     * ## POR QUE O EFEITO E DO MOTOR E NAO DO CLIENTE
+     *
+     * Porque o dash acontece no servidor. Um rastro desenhado pelo cliente
+     * chegaria sempre um pacote atrasado, e o jogador veria o boneco andar SO
+     * e o rastro aparecer depois — o oposto do que o efeito deveria provar
+     */
+    mostrarRastroDoDash(dx, dy) {
+      const player = this.world.player;
+
+      this.effects.dash(
+        player.x,
+        player.y,
+        Math.atan2(dy, dx),
+        this.DASH_DISTANCIA,
+        "#9fd8ff",
+        this.DASH_DURACAO_S + 0.12,
+      );
+    }
+
+    /**
+     * O EFEITO DO DASH ACOMPANHA O JOGADOR, e nao nasce parado.
+     *
+     * ## POR QUE ESTA ATUALIZACAO AQUI E NAO DENTRO DO `EffectSystem`
+     *
+     * Porque o `EffectSystem` nao conhece o jogador: ele desenha o que
+     * recebe, e um efeito que se move sozinho precisaria de um alvo. O
+     * `update` deste metodo ja e o lugar onde o mundo se resolve, entao e
+     * ele que reposiciona o efeito do dash no boneco
+     *
+     * Sem esta linha o rastro ficaria no ponto de origem, e o boneco
+     * correria para fora de uma marca parada — o oposto do que o efeito
+     * existe para provar
+     *
+     * ## E POR QUE O FILTRO E SO PELO `kind`
+     *
+     * Porque "dash" e um tipo unico: nenhum outro efeito cria `rastro`, e
+     * nenhum outro precisa de um alvo. A passagem pela lista de 400 efeitos
+     * e um comparacao de string por quadro, e o mais barato que da para
+     * fazer aqui
+     */
+    acompanharDash() {
+      const player = this.world.player;
+
+      if (!player) return;
+
+      for (const effect of this.effects.effects) {
+        if (effect.kind !== "dash") continue;
+
+        effect.x = player.x;
+        effect.y = player.y;
+      }
+    }
+
+    /**
+     * Entra no mundo compartilhado.
    *
    * No single player e o proprio jogador local. Online o servidor
    * chama isto uma vez por conexao, e todas as secoes apontam
@@ -742,8 +1049,9 @@ export class GameEngine {
    * As acoes candidatas do auto-play: o basico mais as
    * habilidades da classe, menos as vazias.
    *
-   * E uma lista nova a cada chamada de proposito. Sao quatro
-   * acoes por jogador, num metodo que roda umas 20 vezes por
+   * E uma lista nova a cada chamada de proposito. Sao cinco
+   * acoes por jogador — o basico mais as quatro habilidades de slot, num
+   * metodo que roda umas 20 vezes por
    * segundo: guardar em cache exigiria invalidar quando o foco
    * muda, e um cache errado aqui significa offercer a habilidade
    * de outro jogador. O preco de refazer a lista e uma alocacao
@@ -967,6 +1275,18 @@ export class GameEngine {
      */
     this.personagensSalvos = opcoes.personagensSalvos ?? null;
 
+    /**
+     * O MOTOR NAO TEM O ESTADO DAS PEDIDAS, E POR ISSO PERGUNTA.
+     *
+     * O contador de batidas e do servidor — o `minasPorMapa` dele. O motor
+     * monta o painel do jogador e precisa mostrar `3/5`, entao pergunta
+     * quem sabe, em vez de manter uma segunda copia que so se desincroniza
+     *
+     * Com o gancho ligado, `null` no cliente: la o estado vem no pacote de
+     * 20Hz e o painel ja chega pronto, sem passar por aqui
+     */
+    this.lerPedida = opcoes.lerPedida ?? null;
+
     // No modo rede o motor vira so DESENHO. `GameEngine` continua
     // sendo a unica fonte de layout de sprites, terreno, props e
     // barras de vida, para o online e o offline olharem igual; o
@@ -1072,6 +1392,30 @@ export class GameEngine {
      */
     this.navGrid = null;
 
+    /**
+     * AS PEDRAS FORAS DE CADA MAPA, e a VISTA do mapa em foco.
+     *
+     * `pedidasPorMapa` e o dono: um `Set` por mapa, nunca substituido. E
+     * `pedidasForaDoMapa` e a referencia para o do mapa em foco, a mesma que
+     * o `CollisionSystem` em uso carrega — entao desenho, minimapa e colisao
+     * leem sempre a mesma lista e nunca podem discordar
+     *
+     * O veiculo e o SERVIDOR: e ele que sabe que a pedra caiu, e o cliente
+     * recebe a lista pelo pacote de 20Hz
+     */
+    this.pedidasPorMapa = new Map();
+    this.pedidasForaDoMapa = new Set();
+
+    /**
+     * QUANTO RESTA DE UMA PEDIDA. Vem do servidor; no cliente e `null`.
+     *
+     * O contador de batidas e do MUNDO, nao do motor: o motor nao anda o
+     * jogador e nao sabe o que o servidor ja concessionou a outro jogador
+     * na mesma pedra. `onSnapshot`, `onNpcClick` e `onTargetClick` sao o
+     * mesmo desenho — um gancho que o dono do dado escreve
+     */
+    this.lerPedida = opcoes.lerPedida ?? null;
+
 /**
    * O ESTADO DE CADA MAPA, cacheado pelo OBJETO do mapa.
    *
@@ -1162,6 +1506,20 @@ export class GameEngine {
      * acao de combate dispara por efeito colateral
      */
     this.painelSolicitado = false;
+
+    /**
+     * A TAG DA GUILDA DO JOGADOR LOCAL, para o desenho no canvas.
+     *
+     * Comeca `null` e nao `{}` porque o primeiro quadro acontece antes do
+     * primeiro pacote de painel: o jogador ve o boneco andando por um instante
+     * sem placa nenhuma, e o que ele veria e um objeto vazio desenhando
+     * "[]" no lugar do nome
+     *
+     * E escrita pelo `sendSnapshot`, que e o unico lugar do codigo que ja
+     * tem a guilda na ma. Ver `guildaDoJogadorLocal`
+     */
+    this.tagLocal = null;
+
     this.canvasRect = null;
 
     this.world = {
@@ -1208,6 +1566,19 @@ export class GameEngine {
       delayedEffects: [],
       drops: [],
 
+      /**
+       * OS TELEGRAPHS VIVOS, e a lista que o `TelegraphSystem` avanca.
+       *
+       * Vive no `world` e nao no `TelegraphSystem` porque e o MESMO estado
+       * que o servidor serializa e o cliente reproduz: a lista esta aqui
+       * para que o `estadoInimigos` e o desenho leiam a mesma fonte, sem
+       * duas copias que podem divergir
+       *
+       * E lista vazia em vez de `undefined`: o `update` percorre com `for` e
+       * conta `.length`, que e o estado que o resto do motor ja sabe tratar
+       */
+      telegraphs: [],
+
       map: null,
       collision: null,
       statuses: null,
@@ -1245,6 +1616,28 @@ export class GameEngine {
       get collection() {
         return this.session?.collection ?? null;
       },
+
+      /**
+       * O PASSE do jogador em foco.
+       *
+       * ## POR QUE ESTE GETTER PRECISAVA EXISTIR
+       *
+       * Porque o `world` nao guarda o estado de ninguem: ele tem os inimigos,
+       * o mapa e uma sessao em foco, e cada estado privado e lido de la por
+       * um getter. Sem esta linha, `this.world.passe` era `undefined` e o
+       * painel quebrava com "Cannot read properties of undefined" ao montar —
+       * e o erro aparecia no painel, longe da causa, que e uma linha a mais
+       * nesta lista
+       *
+       * ## E POR QUE ELE E `?? null` E NAO UM OBJETO VAZIO
+       *
+       * Pelos mesmos motivos dos outros sete: antes de existir sessao em foco
+       * nao ha passe de ninguem. Um objeto vazio aqui fingiria um passe
+       * inteiro e o resgate aceitaria um dia de um passe que nao existe
+       */
+      get passe() {
+        return this.session?.passe ?? null;
+      },
     };
 
     // no single player o motor ja e um jogador. o servidor cria o
@@ -1265,7 +1658,28 @@ export class GameEngine {
     this.addPlayer(sessaoLocal, { focus: true });
 
     this.effects = new EffectSystem();
-    this.statuses = new StatusSystem();
+
+    /**
+     * O `onHeal` do StatusSystem.
+     *
+     * ## POR QUE O `?.` E POR QUE A ARROW
+     *
+     * Porque o `this.damage` e construido DEPOIS desta linha. A arrow
+     * fecha sobre o `this` do MOTOR e nao sobre o objeto de agora, entao
+     * quando o tick rodar — muito depois do construtor — ela ja enxerga o
+     * `DamageSystem` pronto. O `?.` cobre o intervalo em que um tique
+     * dispara antes de o motor terminar de montar
+     *
+     * A alternativa seria reordenar os dois construtores, e nao da: o
+     * `DamageSystem` recebe `statuses: this.statuses`, entao o
+     * `StatusSystem` precisa existir primeiro
+     */
+    this.statuses = new StatusSystem({
+      onHeal: (entity, amount) => {
+        this.damage?.heal(entity, amount);
+      },
+    });
+
     this.loot = new LootSystem(this.world);
     // so o filtro do JOGADOR LOCAL semeia a sessao dele, e vem do
     // `localStorage` porque no single player o navegador e o dono do
@@ -1347,6 +1761,90 @@ export class GameEngine {
     this.world.damage = this.damage;
     this.world.collision = null;
 
+    /**
+     * O INICIO DE UM TELEGRAPH, e a ponte entre a IA e o sistema.
+     *
+     * E o `EnemyAI` que decide QUANDO comeca, e o `TelegraphSystem` que sabe
+     * o QUE acontece ate o impacto. O motor so carrega a referencia para um
+     * dos dois: sem este campo o `EnemyAI` teria que conhecer a classe do
+     * sistema, e o `TelegraphSystem` conhecer a IA
+     *
+     * ## E POR QUE O ALVO ENTRA AQUI, E NAO DENTRO DO `TelegraphSystem`
+     *
+     * Porque a escolha do alvo e uma DECISAO de IA — "quem eu marco" — e nao
+     * uma conta de geometria. O sistema recebe o alvo ja escolhido e so
+     * resolve a forma em volta dele
+     */
+    this.world.onIniciarTelegraph = (
+      enemy,
+      habilidade,
+      agora,
+      alvo,
+    ) => this.telegraphs.iniciar({
+      inimigo: enemy,
+      habilidade,
+      agora,
+      alvo,
+    });
+
+    /**
+     * O DANO DE UM TELEGRAPH, no MESMO `applyDamage` do golpe comum.
+     *
+     * ## E POR QUE NAO UM CAMINHO NOVO
+     *
+     * Porque o pedido e explicito: "aplique dano apenas aos alvos validos,
+     * conforme as regras de combate existentes". Um segundo caminho de dano
+     * seria o lugar onde a mitigacao, a esquiva, os status e o numero que
+     * sobe na tela ficam de fora — e o chefe passaria a ignorar as proprias
+     * regras de defesa do jogo
+     *
+     * O `id` do golpe carrega o `execucaoId` do telegraph. E o que impede o
+     * mesmo impacto de contar duas vezes: o `DamageSystem` deduplica por id,
+     * entao uma execucao reprocessada nao gera um segundo numero na tela
+     */
+    this.world.onDanoDoChefe = (
+      inimigo,
+      dano,
+      jogador,
+      execucao,
+    ) => {
+      this.damage.applyDamage(inimigo, jogador, {
+        id: `${execucao.id}_telegraph`,
+        damage: dano,
+        damageType: execucao.habilidadeId === "energy_beam" ? "energy" : "physical",
+        color: execucao.cor,
+      });
+
+      /**
+       * O EMPURRAO, e ele e do MESMO `pushVelocity` do resto do motor.
+       *
+       * O `shock_ring` com 320 de empurrao e a habilidade que existe para
+       * empurrar: sem isto a onda acerta e nao afasta, e o jogador fica
+       * parado dentro de um ataque que so serve para tirar vida
+       */
+      const knockback = execucao.knockback ?? 0;
+
+      if (knockback > 0) {
+        const dx = jogador.x - execucao.x;
+        const dy = jogador.y - execucao.y;
+        const tamanho = Math.hypot(dx, dy) || 1;
+
+        jogador.pushVelocity = jogador.pushVelocity ?? { x: 0, y: 0 };
+        jogador.pushVelocity.x += (dx / tamanho) * knockback;
+        jogador.pushVelocity.y += (dy / tamanho) * knockback;
+      }
+    };
+
+    /**
+     * O IMPACTO VISUAL, que o `EffectSystem` desenha no mundo do cliente.
+     *
+     * E a unica coisa que o motor anuncia do telegraph no lado do servidor:
+     * o resto da apresentacao e reproduzida pelo pacote de inimigos
+     */
+    this.world.onImpactoDoTelegraph = (execucao, inimigo) => {
+      this.effects?.registrarImpactoTelegraph?.(execucao);
+    };
+
     this.skillSystem = new SkillSystem(
       this.world,
       (message) => this.showMessage(message, true),
@@ -1355,7 +1853,27 @@ export class GameEngine {
     this.spriteSheet = null;
     this.spriteTime = 0;
     this.minimapCache = null;
+
+    /**
+     * O INDICE DE INIMIGOS, espelhado no `world`.
+     *
+     * O indice e do MOTOR (`this.indiceInimigos`), montado no `setMap`, e
+     * ele serve para `findEnemyById` e `getLiveTarget`. O `TelegraphSystem`
+     * tambem precisa dele — para achar o dono de uma execucao e soltar a
+     * trava `telegraphAtivo` quando o golpe termina — e ele e criado com o
+     * `world`, nao com o motor
+     *
+     * Sem este espelho, o telegraph buscava o chefe num `world.byId` que
+     * nunca existiu, devolvia `null` sempre, e a trava ficava ligada para
+     * sempre: o chefe ficava em `attack` sem se mover e sem atacar de novo
+     *
+     * E uma REFERENCIA, nao uma copia: o `setMap` troca o `Map` inteiro, e
+     * o espelho e apontado de novo logo abaixo, no mesmo lugar onde o motor
+     * guarda o seu
+     */
+    this.world.indiceInimigos = this.indiceInimigos;
     this.terrain = new TerrainRenderer();
+    this.tiles = new TileMapRenderer();
     this.props = new PropRenderer();
 
     /**
@@ -1369,9 +1887,54 @@ export class GameEngine {
     this.npcs = new NpcRenderer();
 
     this.portals = new PortalRenderer();
+
+    /**
+     * O SISTEMA DE TELEGRAPH DO CHEFE, e o dono das execucoes vivas.
+     *
+     * Ele roda aqui, no motor, e nao no `EnemyAI`: o `EnemyAI` escolhe QUANDO
+     * comeca uma habilidade, e este sistema responde O QUE acontece entre o
+     * começo e o impacto. Sao papeis distintos, e a separacao deixa o
+     * `EnemyAI` sem nenhuma referencia ao tempo de preparo
+     *
+     * E o motor e o lugar porque o `GameServer` instancia este mesmo motor:
+     * o telegraph nasce no servidor, o dano e aplicado no servidor, e o
+     * cliente so recebe o estado pronto para desenhar
+     */
+    this.telegraphs = new TelegraphSystem(this.world);
+
+    /**
+     * O RENDERIZADOR dos telegraphs, no mesmo lugar dos outros.
+     *
+     * Fica aqui para o motor poder desenhar na ordem do mapa sem que o
+     * `TelegraphSystem` saiba que existe canvas
+     */
+    this.telegraphRenderer = new TelegraphRenderer();
+
+    /**
+     * A MIRA, CARREGADA UMA VEZ POR CONEXAO.
+     *
+     * E uma `Image` solta e nao um renderer: nao ha cull, nao ha estado e
+     * nao ha o que variantar. Um `CrosshairRenderer` seria uma classe com
+     * um metodo e uma imagem dentro
+     *
+     * Comeca em `null` e so vira imagem depois do `onload`. A `drawCrosshair`
+     * e chamada em TODO quadro, e um `drawImage` de uma imagem a meio
+     * caminho laneca `InvalidStateError` no meio do `render` — o quadro
+     * morre, e o `render` seguinte tenta de novo, para sempre
+     *
+     * O `typeof Image` e o mesmo guarda do `PortalRenderer`: o motor
+     * tambem roda no Node, nos testes e no servidor, onde nao existe
+     * `Image`, e o `new` Lancaria ReferenceError na construcao
+     */
+    this.mira =
+      typeof Image === "undefined" ? null : new Image();
+
+    if (this.mira) {
+      this.mira.src = MIRA;
+    }
+
     this.world.sort = [];
     this.frameErrors = 0;
-    this.minimapY = MINIMAP_TOP_IDLE;
     this.frameDelta = 1 / 60;
 
     const spriteDefinition = getClassSprite(
@@ -1382,6 +1945,29 @@ export class GameEngine {
       this.spriteSheet = new SpriteSheet(
         spriteDefinition,
       );
+    }
+
+    /**
+     * A FLECHA DO ARBALIST, quando a classe e a dele.
+     *
+     * E uma imagem SEPARADA da folha do boneco, porque a folha e uma grade
+     * direcional de 84x84 e a flecha e um retangulo de 256x120 — nao ha como
+     * espremer um no outro
+     *
+     * O `typeof Image` e o mesmo guarda da mira acima, pelo mesmo motivo: o
+     * motor roda no Node, nos testes e no servidor, onde `Image` nao existe.
+     * Sem este guarda o `new Image()` derrubaria a construcao do motor inteiro
+     * no servidor — que e o que o `new URL` de `data/sprites/index.js` ja
+     * tentar abrir um asset de cliente
+     */
+    this.flechaSprite =
+      classDefinition.id === ARBALIST_FLECHA.classId &&
+      typeof Image !== "undefined"
+        ? new Image()
+        : null;
+
+    if (this.flechaSprite) {
+      this.flechaSprite.src = ARBALIST_FLECHA.src;
     }
 
     this.enemySprites = new Map();
@@ -1413,6 +1999,17 @@ export class GameEngine {
     // duas copias. E o que mantem a animacao deles igual a do
     // jogador local, em vez de virarem uma figura generica.
     this.playerSprites = new Map();
+
+    /**
+     * A ESCALA DAS FOLHAS DO MAPA INICIAL, agora que elas existem.
+     *
+     * O `aplicarContexto` do comeco do construtor rodou ANTES deste ponto:
+     * nao havia `spriteSheet` nem `playerSprites` para aplicar, entao a
+     * escala do primeiro mapa se perderia. O jogador entraria no hub com o
+     * arquiro no tamanho do vale e so corrigiria ao atravessar um portal e
+     * voltar
+     */
+    this.aplicarEscalaDosSprites(this.world.map);
 
     this.buildEnemySprites();
 
@@ -1553,23 +2150,102 @@ export class GameEngine {
    * E o corpo antigo do `setMap`, com o destino trocado: cada campo
    * nasce dentro do contexto em vez de sobrescrever o do mundo
    */
-  montarContexto(map) {
-    const npcs = (map.npcs ?? []).map((npc) => {
-      const tipo = getNpcType(npc.typeId);
+montarContexto(mapa) {
+      /**
+       * AS ZONAS VEM DO TILED, E O MAPA QUE O RESTO DO MOTOR VAI LER.
+       *
+       * ## POR QUE UM MAPA NOVO, E NAO UM ARRAY NO LUGAR
+       *
+       * Porque `map.zones` e lido por um monte de gente: o roster que sorteia
+       * as criaturas, o minimapa, a busca de zona por nome. Mexer no array do
+       * mapa exigiria lembrar de cada um desses leitores, e o primeiro que
+       * ficasse de fora mostraria o retangulo antigo
+       *
+       * Trocando o MAPA, todos leem a versao nova sem nenhum deles mudar
+       *
+       * ## POR QUE UM MAPA NOVO E NAO MUTAR O `MAP_1`
+       *
+       * Porque `MAP_1` e um objeto de modulo, compartilhado por todos os
+       * contextos e pelo servidor inteiro. Alterar as zonas dele mudaria o
+       * mapa para todo mundo que ja tivesse uma referencia — e nao ha como
+       * desfazer, porque ninguem guardou a versao antiga
+       *
+       * ## POR QUE O JOGO CONTINUA DECIDINDO QUEM
+       *
+       * Porque o retangulo e do mapa, mas quantos esqueletos e de que nivel
+       * continua sendo do `ZONE_ROSTER`. O `.tmj` decide onde, o codigo
+       * decide quem. Sao duas perguntas diferentes e nao se misturam
+       *
+       * ## E SE O MAPA NAO TIVER CAMADA
+       *
+       * O mapa 2, o hub e a base nao tem `.tmj`, entao `zonasDoMapa` devolve
+       * lista vazia e o mapa segue com as zonas escritas no codigo. E o que
+       * mantem os outros mapas intactos sem nenhum ramo que so exista para
+       * eles
+       */
+      const zonasDoTiled = zonasDoMapa(
+        mapa.id,
+        rosterOf(mapa).map((linha) => linha.zone),
+      );
 
-      if (!tipo) return null;
+      const zonas = zonasDoTiled.length
+        ? [
+            ...(mapa.zones ?? []).filter(
+              (zona) => !zonasDoTiled.some((doTiled) => doTiled.id === zona.id),
+            ),
+            ...zonasDoTiled,
+          ]
+        : mapa.zones;
 
-      return {
-        ...npc,
-        ...tipo,
-        typeId: npc.typeId,
-      };
-    }).filter(Boolean);
+      const map = zonas === mapa.zones ? mapa : { ...mapa, zones: zonas };
 
-    const collision = new CollisionSystem(
-      map,
-      npcs.filter((npc) => npc.blocking).map((npc) => this.npcs.blockBoxOf(npc)),
-    );
+      const npcs = (map.npcs ?? []).map((npc) => {
+        const tipo = getNpcType(npc.typeId);
+
+        if (!tipo) return null;
+
+        return {
+          ...npc,
+          ...tipo,
+          typeId: tipo.typeId,
+        };
+      }).filter(Boolean);
+
+      /**
+       * O `CollisionSystem` NASCE COM O `Set` COMPARTILHADO DO MAPA.
+       *
+       * Sao os MESMOS objetos, e nao uma copia: este `Set` e reatribuido a
+       * cada `aplicarContexto`, e `aplicarContexto` roda a cada
+       * `focusPlayer` — que e a cada jogador, a cada tique. Um `Set` novo a
+       * cada vez zeraria a lista de pedras foras no primeiro jogador que
+       * entrasse em foco depois de uma pedra cair, e o cristal invisivel
+       * voltaria a barrar o caminho
+       */
+      const collision = new CollisionSystem(
+        map,
+        [
+          /**
+           * AS PAREDES DESENHADAS NO TILED.
+           *
+           * Elas entram como `extraSolids` e se somam aos solidos do mapa. O
+           * caminho e o mesmo que as arvores usam, e nao um novo: a
+           * `CollisionSystem` so conhece retangulo, e parede pintada no mapa
+           * e um retangulo como qualquer outro
+           *
+           * Vem do REGISTRO e nao de `map.solids` porque o arquivo do Tiled
+           * nao e importavel pelo motor: o servidor roda em Node, onde o
+           * plugin do Vite que le `.tmj` nao existe. O servidor registra o
+           * mesmo arquivo lendo do disco, e este trecho e o caminho unico
+           * para os dois lados
+           */
+          ...colisaoDoMapa(map.id),
+          ...npcs
+            .filter((npc) => npc.blocking)
+            .map((npc) => this.npcs.blockBoxOf(npc)),
+        ],
+      );
+
+      collision.pedidasFora = this.pedidasForaDoMapaDe(map.id);
 
     /**
      * O ELENCO vai para uma variavel so porque ele e usado duas vezes:
@@ -1596,6 +2272,34 @@ export class GameEngine {
        */
       ...createBosses(map),
     ];
+
+    /**
+     * MARCA OS CHEFES, UMA VEZ POR MAPA.
+     *
+     * ## POR QUE MARCAR AQUI E NAO CONSULTAR `map.bosses` A CADA QUADRO
+     *
+     * O resto do motor descobre chefe por `map.bosses.some(...)` — o
+     * minimapa e o `onChefeDerrotado` fazem isso. Para a HUD, nao: ela
+     * precisa da resposta em TODO quadro do snapshot, e um `some` com
+     * closure por inimigo por quadro e trabalho jogado fora para o mesmo
+     * resultado
+     *
+     * ## POR QUE `map.bosses` E NAO UM `boss: true` NA CRIATURA
+     *
+     * Porque quem e chefe e uma propriedade do MAPA. O mesmo bicho pode
+     * ser um mob comum no vale e o guardian da arena, e o catalogo nao
+     * pode saber disso
+     *
+     * O campo e `chefe`, e nao `boss`, para nao colidir com nada que o
+     * catalogo ja traga no inimigo
+     */
+    for (const chefe of map.bosses ?? []) {
+      for (const inimigo of inimigos) {
+        if (inimigo.typeId === chefe.creature) {
+          inimigo.chefe = true;
+        }
+      }
+    }
 
     return {
       map,
@@ -1660,10 +2364,89 @@ export class GameEngine {
    * o mesmo que trocar de mapa — so que agora o mapa anterior fica
    * intacto para quem ainda esta nele
    */
+/**
+   * A LISTA DE PEDRAS FORAS DE UM MAPA, sempre o MESMO `Set`.
+   *
+   * ## POR QUE UM `Set` POR MAPA E NAO UM SO
+   *
+   * Porque o servidor tem um motor so para todos os jogadores e todos os
+   * mapas, e cada jogador pode estar num mapa diferente. Uma lista unica
+   * misturaria as pedras do vale com as da base
+   *
+   * ## POR QUE NUNCA E SUBSTITUIDO, SO ALTERADO
+   *
+   * Porque o `CollisionSystem` e RECONSTRUIDO a cada `aplicarContexto`, e
+   * o `focusPlayer` roda por jogador dentro do tique. Se este metodo
+   * devolvesse um `Set` novo, cada reconstrucao perderia a lista e o
+   * cristal invisivel voltaria a barrar o caminho — de forma intermitente,
+   * que e o tipo de defeito mais dificil de ver
+   *
+   * Quem escreve nele: o servidor, quando demole e quando ressuscita; e o
+   * cliente, pelo `aplicarPedidasFora` do pacote de 20Hz
+   */
+  pedidasForaDoMapaDe(mapId) {
+    let lista = this.pedidasPorMapa.get(mapId);
+
+    if (!lista) {
+      lista = new Set();
+      this.pedidasPorMapa.set(mapId, lista);
+    }
+
+    return lista;
+  }
+
+  /**
+   * TROCA O CONTEUDO DA LISTA DE PEDRAS FORAS DE UM MAPA.
+   *
+   * Altera o `Set` existente em vez de trocar o objeto, pelo motivo do
+   * `pedidasForaDoMapaDe`. E o que os dois lados usam para escrever a mesma
+   * verdade: o servidor quando uma pedra cai, o cliente quando o pacote
+   * chega
+   */
+  sincronizarPedidasFora(mapId, ids) {
+    const lista = this.pedidasForaDoMapaDe(mapId);
+
+    lista.clear();
+
+    for (const id of ids ?? []) lista.add(id);
+
+    return lista;
+  }
+
   aplicarContexto(contexto) {
-    this.world.map = contexto.map;
-    this.world.collision = contexto.collision;
-    this.world.npcs = contexto.npcs;
+      this.world.map = contexto.map;
+      this.world.collision = contexto.collision;
+
+      /**
+       * A LISTA DE PEDRAS FORAS PASSA A SER A DO MAPA EM FOCO.
+       *
+       * E o MESMO `Set` que o `CollisionSystem` recebeu no `montarContexto`,
+       * entao o desenho e a colisao leem sempre a mesma lista. Trocar por
+       * um objeto novo aqui deslinkaria os dois: o cristal sumia da tela e
+       * continuava barrando o jogador — que era exatamente o sintoma
+       */
+      this.pedidasForaDoMapa = this.pedidasForaDoMapaDe(contexto.map.id);
+
+      /**
+       * O TAMANHO DOS SPRITES NESTE MAPA.
+       *
+       * E lido do mapa e aplicado as folhas do JOGADOR, que sao as que o
+       * `escalaSprites` do mapa governa. Os mob nao entram: o mapa declara
+       * por classe de JOGADOR, e um `escalaSprites: { arbalist }` reachando
+       * um slime nao faria sentido nenhum
+       *
+       * A folha local e a folha da classe em `playerSprites` recebem as
+       * duas. Deixar so uma delas e o defeito que nao apareceria em quem
+       * esta sozinho: o outro jogador da sala apareceria com o tamanho velho
+       *
+       * E o valor e aplicado na TROCA de mapa, e nao a cada quadro. A
+       * camera ja e lida por `getter` todo quadro, mas isso aqui e uma
+       * escrita em duas folhas, e refazer 60 vezes por segundo seria
+       * trabalho sem motivo
+       */
+      this.aplicarEscalaDosSprites(contexto.map);
+
+      this.world.npcs = contexto.npcs;
     this.world.props = contexto.props;
     this.world.portals = contexto.portals;
     this.world.enemies = contexto.enemies;
@@ -1676,6 +2459,16 @@ export class GameEngine {
      * do tick pagaria o preco de O(E) duas vezes
      */
     this.indiceInimigos = contexto.indiceInimigos ?? null;
+
+    /**
+     * O ESPELHO no `world` anda junto, e e obrigatorio.
+     *
+     * O `TelegraphSystem` foi criado com o `world` e usa este indice para
+     * achar o dono de uma execucao. O indice e um `Map` NOVO a cada
+     * `setMap` — entao o espelho precisa apontar para o novo, ou o telegraph
+     * ficaria olhando para o elenco do mapa anterior
+     */
+    this.world.indiceInimigos = this.indiceInimigos;
     this.world.drops = contexto.drops;
     this.world.projectiles = contexto.projectiles;
     this.world.pendingPulses = contexto.pendingPulses;
@@ -1707,6 +2500,70 @@ export class GameEngine {
 
     this.enemySprites.clear();
     this.buildEnemySprites();
+  }
+
+  /**
+   * O FATOR DE `escalaSprites` DESTA CLASSE NO MAPA QUE ESTA NA TELA.
+   *
+   * ## POR QUE UM METODO, E NAO A LEITURA DIRETA NOS DOIS LUGARES
+   *
+   * Porque o fator e lido em dois momentos e eles nao podem discordar: na
+   * troca de mapa, para as folhas que ja existem, e na criacao de uma folha
+   * nova, quando alguem de outra classe entra na sala. A regra do "numero
+   * quebrado vira 1" tambem mora so aqui
+   */
+  fatorDeEscalaDaClasse(classId) {
+    if (!classId) return 1;
+
+    const fatores = this.world.map?.escalaSprites ?? null;
+    const fator = fatores?.[classId];
+
+    return typeof fator === "number" && fator > 0 ? fator : 1;
+  }
+
+  /**
+   * A ESCALA DE CADA FOLHA NESTE MAPA.
+   *
+   * `escalaDoMapa` na folha e `1` por padrao, entao um mapa sem
+   * `escalaSprites` deixa o personagem no tamanho da definicao — que e o
+   * comportamento de antes desta propriedade existir
+   *
+   * ## O QUE ESTA ERRADO NESTA REGRA, E O QUE O JOGADOR VIU
+   *
+   * Ela pegava o fator da classe do JOGADOR LOCAL e aplicava so na folha
+   * local e na folha daquela mesma classe. Com duas pessoas na base, cada uma
+   * via a outra grande: o Arbalist via o Sorcerer sem o fator de 0.7, e o
+   * Sorcerer via o Arbalist sem o dele — e cada um via o outro 43% maior,
+   * sem nenhum dos dois notar que o proprio boneco estava certo
+   *
+   * A razao do defeito era o comentario de cima dizer que a folha da classe
+   * resolvia os remotos. Resolvia so quando o remoto era DA MESMA classe do
+   * local, que e o caso em que nao se ve nada de errado
+   *
+   * ## E POR QUE AGORA SAO TODAS
+   *
+   * Porque o fator e POR CLASSE, e cada folha do `playerSprites` tem a chave
+   * da sua. Um mapa que encolhe duas classes encolhe as duas, para quem
+   * entrou antes e para quem entrar depois
+   */
+  aplicarEscalaDosSprites(mapa) {
+    const fatores = mapa?.escalaSprites ?? null;
+    const classeLocal = this.classDefinition?.id ?? null;
+
+    if (this.spriteSheet) {
+      this.spriteSheet.escalaDoMapa = fatores?.[classeLocal] ?? 1;
+    }
+
+    /**
+     * O `playerSprites` pode nao existir ainda: o `aplicarContexto` do começo
+     * do construtor roda antes dele ser criado, e sem este guarda a construcao
+     * do motor cairia num `undefined.get`
+     */
+    if (this.playerSprites) {
+      for (const [id, sheet] of this.playerSprites) {
+        sheet.escalaDoMapa = fatores?.[id] ?? 1;
+      }
+    }
   }
 
   setMap(map, { chegada = null } = {}) {
@@ -1769,6 +2626,18 @@ export class GameEngine {
    *
    * O cache e por `classId`, entao dez Arbalist na tela
    * compartilham uma imagem.
+   *
+   * ## A FOLHA NASCE JA COM O FATOR DO MAPA
+   *
+   * Porque as folhas sao criadas a DEMORA, quando alguem de outra classe
+   * entra na sala, e nao na troca de mapa. Uma folha criada depois do
+   * `aplicarEscalaDosSprites` nascia com `escalaDoMapa` em 1 e ficava assim
+   * para sempre: o jogador aparecia do tamanho errado e so voltava ao certo
+   * ao atravessar um portal
+   *
+   * Era o mesmo furo do `aplicarEscalaDosSprites`, pelo outro lado: um
+   * corrigia as folhas que ja existiam e o outro cuidava das que iam
+   * nascer. Com os dois, o fator vale para quem entrou antes e depois
    */
   spriteDeClasse(classId) {
     if (!classId) return null;
@@ -1784,6 +2653,8 @@ export class GameEngine {
     if (!definition) return null;
 
     const sheet = new SpriteSheet(definition);
+
+    sheet.escalaDoMapa = this.fatorDeEscalaDaClasse(classId);
 
     this.playerSprites.set(classId, sheet);
 
@@ -1846,7 +2717,37 @@ export class GameEngine {
   drawNomeDeRemoto(context, remoto) {
     if (!remoto.name) return;
 
+    /**
+     * A PLACA SOME QUANDO O PLAYER ESTA APONTANDO PARA ESTE BONECO.
+     *
+     * E o que resolve a duplicata sem mexer em nenhuma coordenada. A placa
+     * fixa e a barra do hover sempre Bennyaram pela mesma faixa, e o jeito
+     * de nao ter duas e nao勝 empilhar as duas — e sim deixar uma delas
+     * assumir o lugar da outra
+     *
+     * Quem assume e a BARRA, porque ela so aparece com o mouse em cima e
+     * some sozinha quando o mouse sai. A placa faz o contrario: e o que o
+     * jogador ve o tempo todo, sem o mouse. E o que some na hora e o que
+     * estava competindo com ela
+     *
+     * E a comparacao e pelo `id` e nao por `isRemote`: sao os dois
+     * discriminadores do MESMO jogador, e comparar o id garante que some a
+     * placa deste boneco — e nao a de outro remoto que o jogador esteja
+     * olhando ao mesmo tempo
+     */
+    if (this.getInspectedEnemy()?.id === remoto.id) return;
+
     const base = this.enemyHeadTop(remoto);
+
+    /**
+     * A TAG empurra o NOME PARA BAIXO.
+     *
+     * E e o unico jeito de as duas linhas caberem sem uma ficar em cima da
+     * outra: a tag ocupa a posicao de sempre, e o nome desce para a linha
+     * seguinte. Sem isto, o nome em `base - 6` ficaria exatamente onde a tag
+     * foi desenhada
+     */
+    const temTag = Boolean(remoto.guilda?.tag);
 
     context.save();
     context.textAlign = "center";
@@ -1855,6 +2756,26 @@ export class GameEngine {
     // um contorno grosso porque o texto passa por cima de
     // qualquer sprite, incluindo o escuro
     context.lineWidth = 3;
+    context.lineJoin = "round";
+
+    if (temTag) {
+      const texto = `[${remoto.guilda.tag}]`;
+
+      /**
+       * A TAG NA COR DA GUILDA, e a unica coisa da placa que usa a cor.
+       *
+       * E a cor que o LIDER escolheu, e ela vem do servidor validada contra
+       * o catalogo. O contorno preto atras e obrigatorio: sem ele, uma tag
+       * de cor clara em cima de um sprite claro vira um borrão, e o jogador
+       * do outro lado nao le nada
+       */
+      context.strokeStyle = "rgba(0,0,0,0.85)";
+      context.strokeText(texto, remoto.x, base - 17);
+
+      context.fillStyle = remoto.guilda.cor ?? "#e5bb68";
+      context.fillText(texto, remoto.x, base - 17);
+    }
+
     context.strokeStyle = "rgba(0,0,0,0.75)";
     context.strokeText(remoto.name, remoto.x, base - 6);
 
@@ -1862,6 +2783,136 @@ export class GameEngine {
     context.fillText(remoto.name, remoto.x, base - 6);
 
     context.restore();
+  }
+
+  /**
+   * A PLACA DE NOME DO JOGADOR LOCAL.
+   *
+   * ## POR QUE ESTA FUNCAO EXISTE AGORA
+   *
+   * Porque ate aqui o jogador local nao tinha NENHUM nome desenhado sobre o
+   * boneco dele: o `drawPlayer` nao escreve texto nenhum. O unico nome no
+   * mundo era o de quem estava longe, no `drawNomeDeRemoto`
+   *
+   * ## E POR QUE O LOCAL E DIFERENTE DO REMOTO
+   *
+   * Por tres razoes que nenhuma delas e "porque e o dono":
+   *
+   * 1. a placa so aparece se o jogador LIGAR a tag. Sem isso, ele teria o
+   *    proprio nome flutuando na tela o tempo todo, e o nome dele ja esta
+   *    na caixa de vitais do canto
+   * 2. a tag e a cor da guilda, na cor que o LIDER escolheu
+   * 3. quando a tag esta ligada, o nome tambem desce uma linha, para a
+   *    posicao que o remoto usa — senao os dois bonecos lado a lado
+   *    mostrariam o nome em alturas diferentes
+   *
+* ## POR QUE NAO REAPROVEITAR O `drawNomeDeRemoto`
+     *
+     * Porque ele exige `remoto.isRemote` para a ancora da cabeca
+     * (`enemyHeadTop` usa a folha da classe do remoto). O jogador local tem
+     * `player.definition` e o caminho dele ja estava certo no `drawPlayer`
+     *
+     * ## E POR QUE O NOME LOCAL DESCE NESTE CASO E NO REMOTO TAMBEM
+     *
+     * Porque os dois bonecos precisam do nome na MESMA altura quando os dois
+     * estao com tag. Se o local usasse `base - 6` com a tag em cima e o
+     * remoto usasse outra coisa, os dois nomes andariam em alturas
+     * diferentes ao lado um do outro
+     */
+  drawNomeDoLocal(context) {
+    const player = this.world.player;
+
+    if (!player?.name || player.hp <= 0) return;
+
+    /**
+     * A TAG do local vem do SNAPSHOT DA GUILDA, e nao do payload de
+     * jogadores.
+     *
+     * Porque o payload de jogadores nao tem o jogador local: ele e o `eu`,
+     * que entra pelo `aplicarJogador` — e aquele la le de proposito so o que
+     * e movimento. A guilda do jogador e uma coisa de PAINEL, a 4Hz, e e de
+     * la que vem a preferencia dele
+     */
+    const guilda = this.guildaDoJogadorLocal();
+
+    if (!guilda?.tag) return;
+
+    const base = this.ancoraDaCabecaLocal();
+
+    context.save();
+    context.textAlign = "center";
+    context.font = "700 11px Inter, sans-serif";
+    context.lineWidth = 3;
+    context.lineJoin = "round";
+
+    const texto = `[${guilda.tag}]`;
+
+    context.strokeStyle = "rgba(0,0,0,0.85)";
+    context.strokeText(texto, player.x, base - 17);
+
+    context.fillStyle = guilda.cor ?? "#e5bb68";
+    context.fillText(texto, player.x, base - 17);
+
+    /**
+     * O NOME DO LOCAL e mais apagado que o do remoto.
+     *
+     * Porque o nome do jogador local ele ja sabe de cor, e o que importa ali
+     * e a tag. O remoto precisa do nome destacado, porque e a unica
+     * informacao que diz QUEM e aquele boneco na tela
+     */
+    context.strokeStyle = "rgba(0,0,0,0.7)";
+    context.strokeText(player.name, player.x, base - 6);
+
+    context.fillStyle = "#b9c2ce";
+    context.fillText(player.name, player.x, base - 6);
+
+    context.restore();
+  }
+
+  /**
+   * A GUILDA DO JOGADOR LOCAL, com a opcao dele.
+   *
+   * ## POR QUE ISTO LE DO `this.tagLocal` E NAO DO PAINEL
+   *
+   * Porque o canvas precisa da tag a CADA QUADRO, e o painel so existe no
+   * instante em que o pacote e montado — a 4Hz. Se o desenho pedisse o
+   * painel, ele chamaria `guildaSnapshot`, que dispara
+   * `sincronizarPontos`: a regra de pontos por tempo decorrido, sessenta
+   * vezes por segundo
+   *
+   * O `tagLocal` e escrito uma vez por pacote, no `sendSnapshot`, que e o
+   * unico lugar do codigo que ja tinha a guilda na ma
+   *
+   * ## E POR QUE ELE E `null` E NAO UM OBJETO VAZIO
+   *
+   * Porque "sem guilda" e "com guilda mas sem a opcao ligada" dao o mesmo
+   * desenho: nada. Um objeto vazio faria o desenho testar `.tag` em duas
+   * linhas para chegar no mesmo lugar
+   */
+  guildaDoJogadorLocal() {
+    return this.tagLocal ?? null;
+  }
+
+  /**
+   * O TOPO DA CABECA do boneco local.
+   *
+   * E o mesmo calculo do `enemyHeadTop`, pela mesma definicao: a ancora da
+   * arte da classe, com o `scale` do desenho aplicado. Sem o `scale`, a
+   * placa subiria ou desceria conforme o tamanho do sprite da classe — e as
+   * seis classes nao tem o mesmo tamanho
+   */
+  ancoraDaCabecaLocal() {
+    const player = this.world.player;
+
+    const definition = player?.definition;
+
+    if (!definition) return (player?.y ?? 0) - (player?.radius ?? 12);
+
+    return (
+      player.y +
+      (definition.footOffset ?? 0) -
+      definition.anchorY * definition.scale
+    );
   }
 
   destroy() {
@@ -2105,6 +3156,27 @@ screenToWorld(clientX, clientY) {
           (enemy.radius + 18) ** 2,
     );
 
+    /**
+     * A PEDIDA DE STEEL, e SO DEPOIS DO INIMIGO.
+     *
+     * A ordem e deliberada e invertida em relacao ao tamanho da arte. O
+     * cristal lendario tem 139x180 de desenho, entao a caixa dele passa por
+     * cima de qualquer inimigo que esteja perto. Se a pedra ganhasse, um
+     * mob encostado nela viraria mineracao em um clique — e atacar e a
+     * acao urgente, com o machado
+    
+     * O que vem depois nao e do mesmo tipo: o inimigo e o jogador remoto
+     * tem RADIUS de acerto, e a pedra tem CAIXA de arte
+     */
+    if (!target) {
+      const pedida = this.pedidaEm(point);
+
+      if (pedida) {
+        this.onMineClick?.(pedida);
+        return;
+      }
+    }
+
     const targetId = target?.id ?? null;
 
     // ONLINE: o clique vira um PEDIDO e quem executa e o servidor.
@@ -2191,6 +3263,9 @@ screenToWorld(clientX, clientY) {
 
     if (event.repeat) return;
 
+    if (this.networked) return;
+
+
     // ONLINE, as teclas de ORDEM nao sao do motor.
     //
     // `Space`, `1`-`8`, `R` e `T` sao pedidos, e quem executa pedido e
@@ -2200,25 +3275,46 @@ screenToWorld(clientX, clientY) {
     // acharia que o botao nao fez nada.
     if (this.networked) return;
 
-    if (event.code === "Space") {
+    /**
+     * A ACAO DESTA TECLA, resolvida pelo `keybinds`.
+     *
+     * ## O QUE MUDA
+     *
+     * Antes eram cinco `if (event.code === "...")`, com a tecla escrita no
+     * codigo. Agora a tecla e resolvida por QUEM A DETENTA, e o jogador
+     * pode trocar essa dona pelo painel de pausa
+     *
+     * O movimento (`this.input.keys`) continua lido por `code`: ele precisa
+     * saber "o W esta apertado AGORA" a cada quadro, e um mapa de teclas por
+     * acao nao serve para isso
+     */
+    const acao = acaoDaTecla(event.code);
+
+    if (!acao) return;
+
+    if (acao === "atacar") {
       this.useBasicAttack();
       return;
     }
 
-    const match = SKILL_CODE_PATTERN.exec(event.code);
-
-    if (match) {
-      this.useSkillSlot(this.skillPage * 8 + Number(match[1]));
+    if (acao === "dash") {
+      this.useDash();
       return;
     }
 
-    if (event.code === "KeyR") {
+    if (acao.startsWith("slot")) {
+      this.useSkillSlot(Number(acao.slice(4)));
+      return;
+    }
+
+    if (acao === "ultimate") {
       this.useUltimate();
       return;
     }
 
-    if (event.code === "KeyT") {
+    if (acao === "auto") {
       this.toggleAutoPlay();
+      return;
     }
   }
 
@@ -2285,6 +3381,116 @@ screenToWorld(clientX, clientY) {
     this.cacadaRelogio = 0;
 
     this.bestiaryTargetType = null;
+  }
+
+  /**
+   * ANDAR NA MAO DESLIGA O AUTO.
+   *
+   * ## O QUE ESTA REGULA FAZ
+   *
+   * Quando o jogador aperta W, A, S ou D — ou as setas — enquanto ha
+   * piloto ligado, viagem automatica ou waypoint, tudo isso e solto na
+   * mesma hora. Ele volta a ser dono do boneco
+   *
+   * ## POR QUE ISTO VIVE AQUI E NAO NO `handleKeyDown`
+   *
+   * Porque e o unico lugar que ve os DOIS jeitos de andar:
+   *
+   * - OFFLINE, o motor le `input.keys` e o `handleKeyDown` popula o set
+   * - ONLINE, o `keys` do motor fica VAZIO de proposito. Quem manda e o
+   *   pacote `INPUT`, que chega como `moveX`/`moveY` e sobrescreve o
+   *   que o teclado calculou
+   *
+   * Se a regra ficasse no `handleKeyDown`, o auto so pararia no modo
+   * offline, e o jogador online seguraria o W vendo o boneco do piloto
+   * continuar andando
+   *
+   * ## POR QUE CHECA "HA ALGO LIGADO" ANTES
+   *
+   * Porque isto roda em TODO quadro em que a tecla estiver pressionada.
+   * `soltarPiloto` mexe em oito campos da sessao, e fazer isso sessenta
+   * vezes por segundo sem necessidade seria trabalho jogado fora
+   *
+   * ## POR QUE `soltarPiloto` E NAO SO `setAutoPlay(false)`
+   *
+   * Porque o auto de ATAQUE e o de DESLOCAMENTO sao coisas diferentes:
+   * `setAutoPlay` cuida do flag e do piloto, e o waypoint e o plano de
+   * viagem vivem fora dele. Sem o `soltarPiloto`, apertar W parava o
+   * ataque mas deixava o boneco seguindo o ponto no mapa — o pior
+   * resultado possivel, porque o jogador acha que eiou o auto e ele
+   * continua andando sozinho
+   */
+  soltarAutoAoAndar() {
+    /**
+     * O AUTO LIGADO PELO BOTAO NAO E SOLTO ANDANDO.
+     *
+     * ## O QUE O JOGADOR PEDIU
+     *
+     * Ligou o auto pelo botao acima da ultimate e, andando com WASD, o
+     * personagem desligava o auto sozinho. Quem liga algo espera que ele
+     * fique ligado: o cancelamento de um autoplay e um clique no MESMO botao,
+     * e nao um esbarrao de dedo numa tecla que o jogador usa para tudo
+     *
+     * ## POR QUE SO O `autoPlay`, E NAO TODO AUTO
+     *
+     * Porque o `autoPlay` e o unico que o jogador liga com UM BOTAO
+     * CAHOLHO. Os outros — auto da missao, do bestiario, seguir alguem —
+     * sao consequences de uma ordem anterior (aceitar a missao, clicar em
+     * "ir cacar", clicar em seguir), e andar cancelando esses continua
+     * fazendo sentido: caçar e seguir sao estados de INTENCAO, e o dedo no
+     * teclado e o jogador dizendo "muda de ideia"
+     *
+     * ## E POR QUE O AUTO DA MISSAO TAMBEM CAI AQUI
+     *
+     * Porque `soltarPiloto` limpa os campos de sessao, e a missao escreve em
+     * `world.quests` — separado. O `setAuto(false)` da ultima linha existe
+     * justo para isso: sem ele, o `runTravelPlan` reconstruia o caminho no
+     * quadro seguinte e o boneco voltava a andar sozinho, que e o bug
+     * descrito no bloco acima. As DUAS linhas continuam, e sao o que garante
+     * que "andar cancela" continue valendo para a missao
+     */
+    if (this.autoPlay) return;
+
+    /**
+     * A GUARDA E `isAutoActive`, E NAO UMA LISTA DE CAMPOS.
+     *
+     * A primeira versao desta regra olhava `autoPlay`, `autoWaypoint`,
+     * `autoMoveDirection` e `travelPlan`. Era a lista ERRADA, e o erro
+     * custou o auto de deslocamento inteiro
+     *
+     * `isAutoActive` responde "algum auto esta mandando no boneco", e ele
+     * vale como esta: `autoPlay`, `engagedTargetId`, `bestiaryTargetType`
+     * e o objetivo da missao. A lista antiga cobria dois desses quatro e
+     * ainda usava campos de estado — `autoWaypoint` e `travelPlan` mudam
+     * a cada quadro e nao dizem se ha auto ligado
+     *
+     * ## O BUG QUE A LISTA ERRADA DEIXOU PASSAR
+     *
+     * Com o auto da MISSAO ligado, `getQuestObjective()` mantinha
+     * `isAutoActive()` verdadeiro. Apos limpar o plano, o proximo quadro
+     * o `runTravelPlan` via `travelPlan.length === 0` e refazia o caminho
+     * do zero com `travelPlanParaObjetivo()`. O jogador apertava W e o
+     * boneco voltava a andar sozinho, porque o plano nunca ficava
+     * vazio tempo suficiente para o auto se desligar
+     *
+     * So que o auto da missao também precisa cair, e `setAuto(false)`
+     * e o mesmo par que `setAutoPlay(true)` ja usa para "eu assumo o
+     * comando" — ver a linha logo acima desta
+     */
+    if (!this.isAutoActive()) return;
+
+    this.setAutoPlay(false);
+    this.soltarPiloto();
+
+    /**
+     * O AUTO DA MISSAO TAMBEM SAI, e e o que fecha o caso.
+     *
+     * `soltarPiloto` limpa `autoPlay`, `engagedTargetId` e
+     * `bestiaryTargetType`. Faltava a missao: com ela ligada, o
+     * `runTravelPlan` reconstruia o plano no quadro seguinte e o
+     * deslocamento voltava sozinho
+     */
+    this.world.quests.setAuto(false);
   }
 
   setAutoPlay(enabled) {
@@ -2653,6 +3859,212 @@ screenToWorld(clientX, clientY) {
   }
 
   /**
+   * O USO AUTOMATICO DA POCAO: liga, desliga, escolhe a pocao e o limiar.
+   *
+   * E um metodo so para as tres coisas porque elas nao sao independentes:
+   * trocar a pocao com o automatico desligado, ou mexer no limiar com o
+   * automatico desligado, sao ajustes que o jogador faz ANTES de ligar e
+   * que o painel precisa poder salvar. Tres metodos transformariam o painel
+   * em tres pedidos, e um pedido que pela metade e um painel que parece
+   * ter gravado
+   *
+   * ## O QUE ELE RECUSA, E POR QUE
+   *
+   * - sem `sessao`, nao ha jogador: e o `if` de todos os metodos de intencao
+   * - um `itemId` que nao e pocao de cura: o slot da HUD passaria a mostrar
+   *   um item que o automatico nunca ia beber
+   * - um limiar fora de 5 a 95: em 100 a pocao nunca entra, e em 0 ela entra
+   *   com a vida cheia e gasta o item sem curar nada
+   *
+   * O `limiar` e CLAMPADO em vez de recusado: o jogador arrastando o botao
+   * passa por 100 e por 0 o tempo todo, e um painel que so aceita de 5 a 95
+   * teria que recusar o arraste inteiro
+   */
+  configurarAutoPocao({
+    ligado = null,
+    limiar = null,
+    itemId = undefined,
+  } = {}) {
+    const sessao = this.sessaoDeJogador;
+
+    if (!sessao) return null;
+
+    const atual = sessao.autoPocao;
+
+    /**
+     * O ITEM_ID AUSENTE E "TIRAR A POCAO", e nao "nao mexer".
+     *
+     * Sao tres estados num parametro, e o `undefined` e o terceiro. Sem
+     * essa distincao o painel nunca conseguiria esvaziar o slot: passar
+     * `null` seria lido como "deixa como esta", que e o que o `ligado` e o
+     * `limiar` NAO fazem — os dois usam `null` para "nao mexeu"
+     */
+    if (itemId !== undefined) {
+      const escolhido = itemId === null ? null : String(itemId);
+
+      if (escolhido !== null && !this.isPocaoDeCura(escolhido)) {
+        return null;
+      }
+
+      atual.itemId = escolhido;
+
+      /**
+       * ESCOLHER POCAO DESLIGA O AUTOMATICO, E ISSO E REGRA.
+       *
+       * Porque o painel liga e desliga sao coisas separadas, e o jogador
+       * que troca a pocao ligada vai ver o slot mudar E o automatico
+       * desligar. Um slot automatico vazio que bebe sozinha seria o pior
+       * estado possivel: o painel diria "ligado" e nada aconteceria, e o
+       * jogador culparia a pocao errada
+       *
+       * Vale para REESCOLHER a mesma pocao tambem: o jogador que abriu o
+       * painel para trocar e endeda no mesmo item nao estava pedindo para
+       * desligar o automatico, e o que ele estava fazendo e configurando
+       * antes de ligar
+       */
+      atual.ligado = false;
+    }
+
+    if (typeof ligado === "boolean") {
+      /**
+       * LIGAR SEM POCAO NAO LIGA.
+       *
+       * E a mesma razao do paragrafo acima pelo outro lado: o painel
+       * mostraria "ligado" com o slot vazio, e o automatico nao teria o
+       * que beber
+       */
+      atual.ligado = ligado && atual.itemId !== null;
+    }
+
+    if (limiar !== null && limiar !== undefined) {
+      const numero = Number(limiar);
+
+      if (Number.isFinite(numero)) {
+        atual.limiar = Math.max(
+          AUTO_POCAO_LIMIAR_MIN,
+          Math.min(
+            AUTO_POCAO_LIMIAR_MAX,
+            Math.round(numero),
+          ),
+        );
+      }
+    }
+
+    this.sendSnapshot();
+
+    return { ...atual };
+  }
+
+  /**
+   * O ITEM E UMA POCAO DE CURA?
+   *
+   * E o que separa "poção" de "poção de cura". O catalogo hoje so tem as
+   * tres de cura, mas quando aparecer a pocao de recurso ela vai entrar pelo
+   * mesmo `ITEM_TYPE.POTION`, e o slot do automatico de cura nao pode
+   * aceitar uma pocao que nao cura
+   */
+  isPocaoDeCura(itemId) {
+    const item = getItem(itemId);
+
+    if (item?.type !== ITEM_TYPE.POTION) return false;
+
+    const uso = item.use ?? {};
+
+    return Boolean(uso.heal || uso.regeneration);
+  }
+
+  /**
+   * BEBE A POCAO EQUIPADA, se a vida caiu abaixo do limiar.
+   *
+   * ## POR QUE ITEM_ID E RESOLVIDO AQUI, E NAO GUARDADO
+   *
+   * A sessao guarda o `itemId`, e o `uid` da pilha e procurado aqui, no
+   * momento de beber. A pilha muda de `uid` quando o jogador muda de mapa,
+   * deposita no bau ou pega de volta, e um `uid` guardado seria um ponteiro
+   * para o nada depois da primeira dessas coisas
+   *
+   * ## POR QUE O `>=` NAO E `>`
+   *
+   * Porque o limiar e o ponto ONDE a pocao entra. Com `>`, o jogador que
+   * puser 40 teria que chegar a 39 para beber, e a barra mostraria 40 com a
+   * pocao parada do lado
+   *
+   * ## E ELE CHAMA O `usarItem`, E NAO REAPLICA O EFEITO
+   *
+   * Porque o `usarItem` e o caminho de uso do item, e ele ja recusa em vida
+   * cheia, ja consome a pilha so depois do efeito e ja devolve o que
+   * aplicou. Beber a pocao por fora desse caminho gastaria o item sem
+   * aplicar o efeito, ou aplicaria duas vezes
+   */
+  tryBeberAutoPocao() {
+    const sessao = this.sessaoDeJogador;
+
+    if (!sessao?.autoPocao?.ligado) return false;
+
+    const config = sessao.autoPocao;
+
+    if (!config.itemId) return false;
+
+    const jogador = this.world.player;
+
+    if (!jogador || jogador.hp <= 0) return false;
+
+    const maxHp = jogador.maxHp ?? 0;
+
+    if (maxHp <= 0) return false;
+
+    const percentual = (jogador.hp / maxHp) * 100;
+
+    if (percentual > config.limiar) return false;
+
+    /**
+     * A PILHA SOME E O AUTOMATICO SEGUE LIGADO.
+     *
+     * Sem esta guarda, o jogador que tinha a ultima pocao bebia uma, o
+     * `usarItem` gastava, e a tentativa seguinte ia rodar de novo a cada
+     * quadro pelo resto da luta — um `findStack` por quadro atando nada.
+     * Aqui o slot vazio e um estado, e o painel e quem mostra
+     */
+    const pilha = this.world.inventory.findStack(config.itemId);
+
+    if (!pilha || pilha.count <= 0) return false;
+
+    /**
+     * JA TEM REGENERACAO CORRENDO: NAO BEBE.
+     *
+     * E a regra que impede o automatico de mudar de TRES Pocoes para
+     * TRINTA por segundo.
+     *
+     * As tres pocoes do catalogo nao curam na hora: elas aplicam
+     * regeneracao, que vai curando aos poucos durante 10 segundos. O
+     * `tryBeberAutoPocao` roda por quadro, e o efeito novo so devolve a
+     * vida no primeiro tick, 2 segundos depois. Entre a bebida e o
+     * primeiro tick a vida continua abaixo do limiar, e sem esta guarda o
+     * motor beberia uma poção POR QUADRO ate a bolsa inteira sumir
+     *
+     * E por que `apply` nao resolve: o `StatusSystem.apply` renova o
+     * efeito do mesmo tipo em vez de empilhar, e renovar nao cura nada
+     * naquele instante. Cada pocao bebida assim seria um item jogado fora
+     *
+     * O nome do efeito vem do `use` da propria pocao, e nao de uma
+     * constante solta aqui: quando existir a pocao de recurso, ela vai ter
+     * outro tipo, e o automatico de cura nao pode passar a checar o
+     * efeito errado
+     */
+    const efeitoDaPocao = getItem(config.itemId)?.use?.regeneration;
+
+    if (!efeitoDaPocao) return false;
+
+    const regenerando = (jogador.statusEffects ?? []).some(
+      (efeito) => efeito.type === efeitoDaPocao.type,
+    );
+
+    if (regenerando) return false;
+
+    return this.usarItem(pilha.uid);
+  }
+
+  /**
    * O slot onde este item tem que entrar, ou `null`.
    *
    * O painel e o auto-equip usam este para escolher o destino, em vez
@@ -2708,6 +4120,16 @@ screenToWorld(clientX, clientY) {
        * painel mostraria a peca sem afixo com ela vestida
        */
       stack.enchant,
+
+      /**
+       * O APRIMORAMENTO da peca que ENTRA, pelo mesmo motivo do afixo.
+       *
+       * Sem este quinto argumento o slot receberia `0`, e uma espada
+       * aprimorada tres vezes perderia os tres niveis no instante em que
+       * o jogador vestisse: o numero estaria na mochila, o slot nao
+       * saberia, e o badge sumiria da tela
+       */
+      stack.enhance,
     );
 
     inventory.takeUid(uid, 1);
@@ -2737,6 +4159,17 @@ screenToWorld(clientX, clientY) {
       if (devolvida && previous.enchant) {
         devolvida.enchant = previous.enchant;
       }
+
+      /**
+       * E VOLTA COM O APRIMORAMENTO, pela mesma razao e pelo mesmo `uid`.
+       *
+       * O `if` cobre o `0` de proposito: gravar zero numa pilha que ja
+       * tinha nivel seria apagar o aprimoramento de uma peca IGUAL que
+       * ja estava na mochila
+       */
+      if (devolvida && previous.enhance > 0) {
+        devolvida.enhance = previous.enhance;
+      }
     }
 
     this.applyEquipment();
@@ -2750,11 +4183,11 @@ screenToWorld(clientX, clientY) {
    * USA um item consumivel da mochila: a pocao de cura, por enquanto.
    *
    * E o caminho de uso, e nao um caso particular da pocao. O
-   * catalogo diz O QUE o item faz (`use: { heal: 120 }`) e este
-   * metodo aplica qualquer efeito declarado ali. Uma pocao de mana
-   * entra acrescentando `restoreResource`, e um item que da dano
-   * pessoal entra com `heal` negativo — sem tocar neste arquivo de
-   * novo
+   * catalogo diz O QUE o item faz (`use: { heal: 120 }` ou
+   * `use: { regeneration: {...} }`) e este metodo aplica qualquer efeito
+   * declarado ali. Uma pocao de mana entra acrescentando
+   * `restoreResource`, e um item que da dano pessoal entra com `heal`
+   * negativo — sem tocar neste arquivo de novo
    *
    * ## A POCAO NAO E GASTA COM VIDA CHEIA
    *
@@ -2816,6 +4249,31 @@ screenToWorld(clientX, clientY) {
         const curado = this.damage.heal(jogador, valor);
 
         if (curado > 0) aplicou = true;
+      } else if (efeito === "regeneration") {
+        /**
+         * A POCAO VIRA UM EFEITO, E NAO UMA CURA NA HORA.
+         *
+         * ## POR QUE ISTO E UM `else if` E NAO UM NOVO `use`
+         *
+         * Porque `use` e o que o JOGADOR escolhe e o motor aplica. Um
+         * item que aplica status e um item que faz efeito imediato sao o
+         * mesmo caminho, e o `valor` do efeito ja carrega a forma do que
+         * ele faz — o `DamageSystem.heal` acima e o `healPerTick` deste
+         *
+         * ## POR QUE A PECA SE CONSOME MESMO COM A VIDA CHEIA
+         *
+         * Porque e um efeito com DURACAO: beber na vida cheia nao
+         * desperdiça a pocao, deixa o efeito pronto para o golpe que vem.
+         * O `apply` devolve `true` mesmo sem curar nada agora, e e esse
+         * `true` que faz o item sair da mochila
+         *
+         * Beber duas vezes renova em vez de empilhar: o `StatusSystem`
+         * guarda o maior `remaining`, entao a segunda pocao estende o
+         * buff em vez de criar dois com o dobro da cura
+         */
+        const aplicado = this.statuses.apply(jogador, valor);
+
+        if (aplicado) aplicou = true;
       } else if (efeito === "teachSkill") {
         /**
          * O LIVRO ENSINA A HABILIDADE.
@@ -2924,19 +4382,29 @@ screenToWorld(clientX, clientY) {
       return false;
     }
 
-    sessao.habilidadesAprendidas.add(skillId);
+sessao.habilidadesAprendidas.add(skillId);
 
-    this.showMessage(`Voce aprendeu ${skill.name}!`);
+      this.showMessage(`Voce aprendeu ${skill.name}!`);
 
-    /**
-     * O `sendSnapshot` aqui e o que a tela ve.
-     *
-     * O `usarItem` chama `sendSnapshot` no fim de novo, entao este e
-     * redundante para o SERVIDOR — mas o motor tambem roda sozinho no
-     * navegador, e sem ele o jogador usaria o livro e a barra so
-     * atualizaria no proximo painel
-     */
-    return true;
+      /**
+       * A HABILIDADE CONTA PARA O TUTORIAL.
+       *
+       * Aqui e nao no `usarItem`: e este metodo que sabe se a skill era
+       * DA CLASSE do jogador. Contar no `usarItem` faria o tutorial fechar
+       * com o livro de outra classe, que o jogador gasta ouro para ler e nao
+       * ensina nada — e ele sairia da missao sem ter aprendido uma skill
+       */
+      this.resolveQuestProgress(this.world.quests.onAcao("learnSkill"));
+
+      /**
+       * O `sendSnapshot` aqui e o que a tela ve.
+       *
+       * O `usarItem` chama `sendSnapshot` no fim de novo, entao este e
+       * redundante para o SERVIDOR — mas o motor tambem roda sozinho no
+       * navegador, e sem ele o jogador usaria o livro e a barra so
+       * atualizaria no proximo painel
+       */
+      return true;
   }
 
   /**
@@ -2979,6 +4447,17 @@ screenToWorld(clientX, clientY) {
 
     if (devolvida && previous.enchant) {
       devolvida.enchant = previous.enchant;
+    }
+
+    /**
+     * E VOLTA COM O APRIMORAMENTO, pelo mesmo motivo do afixo acima.
+     *
+     * Sem esta linha o jogador perderia os niveis pagos no instante em
+     * que tirasse a armadura das costas — e o `unequip` zera o slot, entao
+     * nao haveria de onde recuperar o numero
+     */
+    if (devolvida && previous.enhance > 0) {
+      devolvida.enhance = previous.enhance;
     }
 
     this.applyEquipment();
@@ -3056,6 +4535,366 @@ screenToWorld(clientX, clientY) {
   }
 
   /**
+   * APRIMORA uma peca — da mochila OU do corpo.
+   *
+   * ## POR QUE UM METODO SO, E NAO DOIS
+   *
+   * Porque o `enhance` passou a morar na PECA e nao no slot. Os dois
+   * caminhos differem so em ONDE o numero esta guardado, entao existem
+   * dois metodos com o mesmo preco e a mesma validacao — e assim que um
+   * deles divergiria do outro o jogador pagaria um preco na caixa e
+   * receberia outro
+   *
+   * ## POR QUE `applyEquipment` SO NO CAMINHO DO CORPO
+   *
+   * Porque o ganho so vale enquanto a peca esta vestida: `bonuses` le a
+   * lista de equipadas. Aprimorar na mochila nao muda nenhum stat AGORA,
+   * e o numero aparece no badge e viaja com a peca quando ela for vestida
+   *
+   * ## OS TRES DESFECHOS
+   *
+   * Ate o +5 o degrau e certo. Do +6 para cima o sorteio pode dar tres
+   * coisas — subir o nivel, falhar e deixar a peca como esta, ou QUEBRAR
+   * a peca. Os tres estao em `enhanceRisco`, e e a tabela que a aba
+   * mostra antes do jogador confirmar
+   *
+   * O `gravar` e o `quebrar` sao os dois lados do risco, e quem os
+   * passes e o metodo publico da peca: a mochila apaga a pilha, o corpo
+   * esvazia o slot sem devolver
+   */
+  enhancePeca({ itemId, rarity = null, nivel = 0 }, gravar, quebrar) {
+    const bloqueio = enhanceBloqueio(nivel);
+
+    if (bloqueio) {
+      return { ok: false, reason: bloqueio };
+    }
+
+    const custo = enhanceCost(itemId, nivel, rarity);
+
+    /**
+     * O STEEL DO MESMO DEGRAU, pela MESMA tabela do painel.
+     *
+     * E um preco ADICIONAL ao ouro, nao um substituto: os dois sao
+     * debitados no mesmo passo porque e a mesma acao. Quem decide o preco e
+     * `enhanceSteelCost`, e nao esta linha — pelo mesmo motivo do
+     * `enhanceCost`: se o painel e o motor tivessem numeros separados, o
+     * jogador veria um preco na caixa e pagaria outro
+     *
+     * ## POR QUE A ORDEM E OURO DEPOIS DE STEEL
+     *
+     * E o que o jogo ja faz com `spendCoins`, entao o steel vem primeiro
+     * para nao gerar a situacao de "o ouro saiu e o steel nao cobriu". Num
+     * preco de duas moedas, debitar a que mais provavelmente falha por
+     * ultimo e o que evita ter que devolver — e nenhum dos dois saldos
+     * volta hoje, porque o preco nao volta nem quando o aprimorar FALHA
+     */
+    const custoSteel = enhanceSteelCost(nivel);
+
+    /**
+     * O DEBITO E A UNICA GAREGA DO OURO, pelo `spendCoins`.
+     *
+     * E nao `addCoins(-custo)`: `addCoins` so ADICIONa, tem
+     * `if (amount <= 0) return 0` na primeira linha, entao um valor
+     * negativo nao debita nada e nao reclama. O aprimorar ficava de graca
+     * — o preco aparecia na caixa e a carteira nunca mudava
+     *
+     * O `spendCoins` tambem evita a checagem `coins < custo` antes dele:
+     * ele ja devolve `false` sem mexer no saldo quando o ouro nao chega,
+     * e uma segunda guarda aqui so repetiria a mesma mensagem em dois
+     * lugares — um deles acabaria com o texto errado depois de uma
+     * mudanca de preco
+     */
+    /**
+     * OS DOIS SALDOS CONFIRMADOS ANTES DE DEBITAR QUALQUER UM.
+     *
+     * ## POR QUE CONFERIR ANTES, E NAO DEBITAR UM E DEPOIS TESTAR O OUTRO
+     *
+     * Porque debitar o ouro primeiro e so entao testar o steel perde a moeda
+     * do jogador num caminho que ele nao escolheu: com 300 de ouro e 1 de
+     * steel num degrau que custa 4, o `spendCoins` passava, o `spendSteel`
+     * recusava, e o ouro ja tinha saido da carteira. O jogador clicava para
+     * conectar o steel, fracassava, e abria o painel com o ouro a menos e
+     * nenhuma explicacao — e a devolucao exigiria um caminho de volta que
+     * nenhum dos dois metodos tem
+     *
+     * Conferir os dois e o que faz o preco ser tudo-ou-nada: ou os dois
+     * saldos pagam, ou nenhum deles toca
+     *
+     * ## POR QUE O STEEL E O PRIMEIRO A SER CITADO
+     *
+     * Porque ele e o recurso ESCASSO: o ouro vem de missao, venda e bau, e o
+     * steel so de bater pedra no Vale 1. Dizer "Ouro insuficiente" para um
+     * jogador com ouro de sobra e steel nenhum mandaria atras da moeda errada
+     */
+    if (this.world.inventory.steel < custoSteel) {
+      return {
+        ok: false,
+        reason: `Steel insuficiente: ${custoSteel} necessários.`,
+      };
+    }
+
+    if (this.world.inventory.coins < custo) {
+      return {
+        ok: false,
+        reason: `Ouro insuficiente: ${custo} necessários.`,
+      };
+    }
+
+    /**
+     * AGORA SIM, OS DEBITOS.
+     *
+     * Os dois `spend` vem DEPOIS das duas conferencias, e por isso nenhum
+     * deles pode falhar: o saldo ja foi lido acima e nada roda entre a
+     * leitura e a escrita. Eles continuam sendo `spend` e nao `addCoins(-x)`
+     * pelo motivo do `addCoins` — que so ADICIONa, e um valor negativo nao
+     * debita nada e nao reclama
+     */
+    this.world.inventory.spendCoins(custo);
+    this.world.inventory.spendSteel(custoSteel);
+
+    /**
+     * O DEGRAU, e o risco dele.
+     *
+     * `null` ate o +5, e e o que mantem a escada inicial sem surpresa:
+     * o jogador aprende o preco nos primeiros seis niveis e so depois
+     * precisa se preocupar em perder a peca
+     */
+    const risco = enhanceRisco(nivel);
+
+    /**
+     * UM SORTEIO SO, COMPARADO COM DOIS LIMITES.
+     *
+     * E o que mantem a razao entre quebrar e falhar igual a da tabela.
+     * Dois sorteios — um para quebrar, outro para falhar — fariam a
+     * proporcao variar de tentativa para tentativa, e o painel pararia de
+     * estar certo depois da primeira peca perdida
+     *
+     * A ordem dos `if` e a ordem da tabela: `quebra` primeiro porque e o
+     * limite menor, e os intervalos somam `falha` sem sobra
+     */
+    if (risco) {
+      const sorteio = Math.random();
+
+      if (sorteio < risco.quebra) {
+        this.quebrarPeca(quebrar, itemId, nivel);
+
+        return { ok: true, quebrou: true, nivel };
+      }
+
+      if (sorteio < risco.falha) {
+        /**
+         * FALHOU E A PECA FICOU.
+         *
+         * O preco JA foi debitado e nao volta: essa e a metade da falha
+         * que existe para o jogador ter uma perda menor que a peca. O
+         * numero continua no mesmo nivel, entao o proximo clique tenta de
+         * novo com a mesma tabela
+         */
+        this.showMessage(
+          `Aprimoramento falhou: ${itemId} continua em +${nivel}.`,
+          true,
+        );
+
+        return { ok: true, falhou: true, nivel };
+      }
+    }
+
+    if (!gravar()) {
+      /**
+       * O DEBITO SEM O CREDITO.
+       *
+       * Atinge so se a peca sumisse entre a leitura e a escrita, o que
+       * nao acontece num tick. A guarda existe para o caso inverso
+       * acontecer — e devolver o ouro e mais honesto do que sumir com ele
+       */
+      this.world.inventory.addCoins(custo);
+
+      return { ok: false, reason: "Não foi possível aprimorar." };
+    }
+
+    /**
+     * O SNAPSHOT, E O QUE FAZ O JOGADOR VER O RESULTADO.
+     *
+     * Sem esta linha o numero e do SERVIDOR e o cliente nunca fica
+     * sabendo: o preco sai da carteira na tela seguinte, o `applyEquipment`
+     * roda no motor local, e o badge continua escondido porque o
+     * `snapshot` que o alimentaria nunca foi enviado
+     *
+     * ONLINE esta chamada e um no-op, e isso e esperado: com
+     * `painelExterno` ligado o `sendSnapshot` volta cedo a nao ser que
+     * `painelSolicitado` esteja alta. Quem manda o painel do pedido de
+     * aprimorar e o `aplicarPainel` do `GameServer`, no fim do `case`
+     *
+     * OFFLINE e onde ela conta: sem `painelExterno` a guarda nao existe,
+     * e este `sendSnapshot` e o unico que atualiza a tela local
+     */
+this.sendSnapshot();
+
+      /**
+       * O APRIMORAMENTO CONTA PARA O TUTORIAL.
+       *
+       * Aqui e nao no `enhanceItem`: os DOIS caminhos — a peca da mochila e
+       * a vestida — passam por este metodo, entao e o unico lugar que ve os
+       * dois
+       *
+       * E ele vem DEPOIS do `sendSnapshot`, e nao antes: o tutorial de
+       * aprimorar pede +5, e a missao so se cumpre quando a peca chega
+       * la. Contar no `enhanceItem` faria o tutorial fechar no primeiro
+       * clique, com a peca em +1
+       *
+       * ## O QUE O `count: 5` CONTA
+       *
+       * Cinco aprimoramentos BEM-SUCEDIDOS, e nao "chegar no +5". Um
+       * clique pode falhar — o `enhanceRisco` devolveu `falhou` e o preco
+       * ja foi debitado — e esse clique nao chega ate aqui: o metodo
+       * retorna antes. O contador so anda quando a peca subiu de nivel
+       *
+       * Contar assim e o que faz o tutorial fechar para o jogador que
+       * começou com uma peca em +2: ele precisa de mais tres degraus, e o
+       * texto da missao diz "aprimore 5 vezes" em vez de prometer um +5 que
+       * nao depende so do que ele fez
+       */
+      this.resolveQuestProgress(
+        this.world.quests.onAcao("enhance"),
+      );
+
+      return { ok: true, nivel: nivel + 1 };
+    }
+
+  /**
+   * EXECUTA a quebra de uma peca, e avisa o jogador.
+   *
+   * ## POR QUE UM METODO E NAO DUAS LINHAS NO `enhancePeca`
+   *
+   * Porque a mensagem e a parte que o jogador precisa ler, e ela e a
+   * mesma nos dois caminhos. So o `quebrar` muda: a mochila apaga a
+   * pilha, o corpo esvazia o slot. Deixar a frase num lugar so evita a
+   * mensagem dizer "quebrou" num caminho e sumir no outro
+   *
+   * O nome da peca vai na mensagem de proposito: "quebrou" sozinho nao
+   * diz QUEM quebrou, e com a mochila e o corpo na tela ao mesmo tempo o
+   * jogador nao teria como saber o itemId que someu
+   */
+  quebrarPeca(quebrar, itemId, nivel) {
+    const destruida = quebrar?.();
+
+    this.showMessage(
+      `${itemId} +${nivel} QUEBROU no aprimoramento e foi perdido.`,
+      true,
+    );
+
+    this.sendSnapshot();
+
+    return destruida;
+  }
+
+  /**
+   * APRIMORA a peca da MOCHILA, por `uid`.
+   *
+   * E o caminho que o painel usa quando a selecao veio da aba "Aprimorar"
+   * com a peca nao vestida
+   *
+   * ## POR QUE A QUEBRA SAI PELO `takeUid`
+   *
+   * Porque o `takeUid` com a contagem INTEIRA da pilha e o unico jeito
+   * de o `Inventory` esquecer a pilha. Nao ha `removeUid`, e criar um so
+   * para isto duplicaria o splice que o `takeUid` ja faz — com o risco
+   * de os dois divergirem e um item quebrado continuar na mochila
+   *
+   * O `count` e lido ANTES, porque e a propria pilha que some: ler
+   * `stack.count` de dentro do callback encontraria a pilha ja removida
+   */
+  enhanceItem(uid) {
+    const stack = this.world.inventory.findByUid(uid);
+
+    if (!stack) {
+      return { ok: false, reason: "Item não encontrado." };
+    }
+
+    const total = stack.count;
+
+    return this.enhancePeca(
+      {
+        itemId: stack.itemId,
+        rarity: stack.rarity,
+        nivel: stack.enhance ?? 0,
+      },
+      () => {
+        stack.enhance = (stack.enhance ?? 0) + 1;
+
+        return true;
+      },
+
+      /**
+       * QUEBRAR NA MOCHILA E APAGAR A PILHA INTEIRA.
+       *
+       * O `count` inteiro, e nao 1: a peca quebrada e a pilha, e deixar
+       * as outras copias ali seria o jogador ver o item "quebrado" ainda
+       * na mochila com o mesmo nome e a mesma arte
+       */
+      () => this.world.inventory.takeUid(uid, total),
+    );
+  }
+
+  /**
+   * APRIMORA a peca VESTIDA de um slot.
+   *
+   * ## POR QUE `applyEquipment` NO FIM
+   *
+   * Porque o ganho e um MULTIPLICADOR sobre os stats que a peca ja tem
+   * (ver `Equipment.bonuses`). Sem recalcular, o `player.attack`
+   * continuaria com o numero do nivel anterior e a melhoria so apareceria
+   * no proximo `applyEquipment` — o jogador pagaria e nao veria nada
+   *
+   * A ordem importa: o preco e conferido ANTES do `applyEquipment`,
+   * porque e ele que muta o estado dos slots
+   */
+  enhanceSlot(slotId) {
+    const slot = this.world.equipment.getSlot(slotId);
+
+    if (!slot?.itemId) {
+      return { ok: false, reason: "Slot vazio." };
+    }
+
+    const resultado = this.enhancePeca(
+      {
+        itemId: slot.itemId,
+        rarity: slot.rarity,
+        nivel: slot.enhance ?? 0,
+      },
+      () => this.world.equipment.enhanceSlot(slotId),
+
+      /**
+       * QUEBRAR NO CORPO E VAZIO, E NAO DEVOLVER.
+       *
+       * O `breakSlot` limpa o slot e nao entrega a peca para ninguem
+       * devolver. Passar pelo `unequip` aqui colocaria o item de volta na
+       * mochila no mesmo instante em que a mensagem diz que ele foi
+       * perdido
+       */
+      () => this.world.equipment.breakSlot(slotId),
+    );
+
+    /**
+     * SO O CAMINHO DO CORPO RECALCULA OS STATS.
+     *
+     * Porque `bonuses` le a lista de vestidas, e uma peda na mochila nao
+     * esta nela. Sem este `if`, aprimorar na mochila custaria ouro sem
+     * mudar um numero na tela — e o jogador culparia o jogo
+     *
+     * O recalculo tambem roda na QUEBRA, e e obrigatorio: a peca saiu do
+     * corpo, entao os stats tem que DESCER sem esperar o proximo
+     * `applyEquipment`. Sem isso o ATQ da tela continuaria contando uma
+     * peca que o jogo ja destruiu
+     */
+    if (resultado.ok) {
+      this.applyEquipment();
+    }
+
+    return resultado;
+  }
+
+  /**
    * O comum dos dois caminhos de encantar.
    *
    * Sorteia, cobra e devolve o resultado. O que muda entre a mochila e
@@ -3094,13 +4933,24 @@ screenToWorld(clientX, clientY) {
 
     inventory.spendCoins(custo);
 
-    gravar(enchant);
+gravar(enchant);
 
-    this.applyEquipment();
-    this.sendSnapshot();
+      this.applyEquipment();
 
-    return { ok: true, enchant, custo };
-  }
+      /**
+       * O ENCANTAMENTO CONTA PARA O TUTORIAL.
+       *
+       * Aqui e nao no `enchantItem`: os DOIS caminhos — a peca da mochila e
+       * a que esta vestida — passam por este metodo, entao e o unico lugar
+       * que ve os dois. Contar no `enchantItem` faria o tutorial de encantar
+       * funcionar so para o que estava na mochila
+       */
+      this.resolveQuestProgress(this.world.quests.onAcao("enchant"));
+
+      this.sendSnapshot();
+
+      return { ok: true, enchant, custo };
+    }
 
   /**
    * Tira do corpo as pecas vestidas na posicao errada.
@@ -3662,19 +5512,31 @@ guildBonuses() {
       return false;
     }
 
-    const item = getItem(result.recipe.itemId);
-    const style = RARITY_STYLE[result.variant?.rarity];
+const item = getItem(result.recipe.itemId);
+      const style = RARITY_STYLE[result.variant?.rarity];
 
-    this.showMessage(
-      `${item?.name ?? result.recipe.itemId} criado${
-        style ? ` (${style.label})` : ""
-      }.`,
-    );
+      this.showMessage(
+        `${item?.name ?? result.recipe.itemId} criado${
+          style ? ` (${style.label})` : ""
+        }.`,
+      );
 
-    this.sendSnapshot();
+      /**
+       * O CRAFT CONTA PARA O TUTORIAL.
+       *
+       * E logo DEPOIS do aviso, e nao antes: o `onAcao` pode concluir a
+       * missao, e a concludeda chama `resolveQuestProgress`, que manda
+       * mensagem. Se o tutorial fosse contado antes do aviso, o jogador
+       * leria "Osso Quebrado criado" e DEPOIS "missao concluida", que e a
+       * ordem certa. Invertido, a missao aparece concluida antes de o
+       * jogador ver o que ele criou
+       */
+      this.resolveQuestProgress(this.world.quests.onAcao("craft"));
 
-    return true;
-  }
+      this.sendSnapshot();
+
+      return true;
+    }
 
   /**
    * Entrega uma COLECAO.
@@ -3690,9 +5552,10 @@ guildBonuses() {
    * isso para saber se vale mandar o snapshot; a recusa vem no
    * `snapshot` seguinte, com o que falta
    */
-  deliverCollection(collectionId) {
+deliverCollection(collectionId, indice = null) {
     const resultado = this.world.collection.deliver(
       collectionId,
+      indice,
       this.world.inventory,
       this.world.equipment,
     );
@@ -3709,18 +5572,39 @@ guildBonuses() {
      *
      * O `deliver` ja somou no `collection.bonus`, e e o
      * `applyEquipment` abaixo que leva esse bonus para o jogador. A
-     * ordem importa: sem ele, o painel mostraria a colecao como
-     * entregue e os stats ainda sem o valor novo, no exato instante em
-     * que o jogador olha para os dois
+     * ordem importa: sem ele, o painel mostraria a parcela como paga e os
+     * stats ainda sem o valor novo, no exato instante em que o jogador olha
+     * para os dois
      */
     this.applyEquipment();
 
-    this.showMessage(
-      `Colecao entregue: ${resultado.collection.name}. ` +
-        describeStatBonus(resultado.reward),
-    );
+    /**
+     * O AVISO DIZ O ITEM, E NAO A COLECAO.
+     *
+     * Com entrega por parcela, "Colecao entregue" lie: so uma das duas
+     * saiu da mochila, e o jogador veria o card completo num instante em
+     * que ainda tem material para buscar
+     */
+this.showMessage(
+        resultado.itemLabel
+          ? `${resultado.itemLabel} entregue. ` +
+              describeStatBonus(resultado.reward)
+          : `Colecao entregue: ${resultado.collection.name}. ` +
+              describeStatBonus(resultado.reward),
+      );
 
-    this.sendSnapshot();
+      /**
+       * A ENTREGA CONTA PARA O TUTORIAL.
+       *
+       * Aqui e nao dentro do `deliver`: o `Collection` nao conhece a
+       * `QuestLog`, e o que ele devolve e o resultado da entrega, nao a
+       * lista de missoes que ela concluiu. Ligar os dois la dentro criaria
+       * uma dependencia do `Collection` no log de missoes, e ele ja depende
+       * do inventario e do equipamento
+       */
+      this.resolveQuestProgress(this.world.quests.onAcao("deliver"));
+
+      this.sendSnapshot();
 
     return true;
   }
@@ -3770,6 +5654,285 @@ guildBonuses() {
       this.world.inventory,
       this.world.player.classId,
     );
+  }
+
+  /**
+   * O PAINEL DO BAU: o que esta guardado, e quanto cabe.
+   *
+   * ## POR QUE `sessaoDeJogador` E NAO `this.world.bau`
+   *
+   * Porque `this.world` e o ACESSOR que troca com o `withPlayer`: um
+   * `this.world.bau` leria o baU de quem o motor esta focando, e o painel
+   * e montado pelo `enviarPainel` de UM cliente. A sessao e o lugar do
+   * estado privado, pelo mesmo motivo de `lootFilter`, da guilda e da
+   * `collection`
+   *
+   * ## POR QUE O `summary` SEM `equipment`
+   *
+   * O primeiro argumento do `summary` e o EQUIPAMENTO, usado para marcar
+   * `is-equipped` nas pilhas. Passando a mochila ali, o `Inventory` chamava
+   * `mochila.isEquipped` e o snapshot inteiro quebrava — o baU e lido a
+   * cada pacote, entao isso derrubaria o painel do servidor inteiro
+   *
+   * E nao ha o que marcar: uma peca guardada esta NO BAU por definicao,
+   * e o `equipped: false` que o `summary` devolve sem equipamento e a
+   * resposta certa. O painel do inventario e que precisa da marca, e ele
+   * recebe o `equipment` de verdade
+   */
+  bauSnapshot() {
+    const bau = this.sessaoDeJogador?.bau;
+
+    if (!bau) return BAU_VAZIO;
+
+    const { coins, ...resto } = bau.summary();
+
+    /**
+     * O `coins` SAI do pacote.
+     *
+     * O `Inventory` sempre teve moedas, e o bau ainda nao decidiu o que
+     * fazer com elas. Repassar o campo faria o painel receber um numero
+     * que ele nao tem onde mostrar, e o primeiro uso dele seria o jogador
+     * achando que da para guardar ouro
+     */
+    void coins;
+
+    return resto;
+  }
+
+  /**
+   * DEPOSITA OU RETIRA do bau, conforme a acao.
+   *
+   * ## POR QUE ESTE METODO E NO MOTOR, E NAO NO `GameServer`
+   *
+   * Porque o bau e do NPC da BASE, e a base existe no single player. O
+   * cofre de guilda mora no `GameServer` porque precisa do `GuildStore`,
+   * que so existe online; o bau nao depende de store nenhum, entao a
+   * logica dele roda nos dois modos sem `if (online)`
+   *
+   * O `GameServer` so traduz o pedido em `bauAcao` e chama isto — igual
+   * ao `equipItem`, que tambem e do motor e nao do servidor
+   *
+   * ## POR QUE UM METODO SO PARA OS DOIS SENTIDOS
+   *
+   * Porque os dois sao o MESMO movimento em direcoes opostas, e as tres
+   * coisas que dao errado neles sao as mesmas: item que nao existe, item
+   * que nao cabe no destino e afixo/aprimoramento que se perde na volta.
+   * Duas metodos teriam duas listas para lembrar de acertar as tres
+   *
+   * ## O QUE ESTE METODO NAO FAZ
+   *
+   * Nao decide se o jogador esta perto do bau. Quem decide e o `GameServer`
+   * online — la o painel so abre com o NPC da base na tela. No single
+   * player o painel abre pelo mesmo clique, entao a proximidade e a
+   * distancia de um clique, e forcar isso aqui exigiria saber onde o NPC
+   * esta no mapa
+   */
+  mexerNoBau(bauAcao, uid, quantidade) {
+    const sessao = this.sessaoDeJogador;
+
+    if (!sessao?.bau) {
+      return { ok: false, reason: "Sem bau." };
+    }
+
+    return bauAcao === "depositar"
+      ? this.depositarNoBau(uid, quantidade)
+      : this.retirarDoBau(uid, quantidade);
+  }
+
+  /**
+   * A METADE QUE DEPOSITA: mochila -> bau.
+   *
+   * ## A ORDEM DAS TRES LINHAS
+   *
+   * Confere espaco, tira da mochila, poe no bau. Inverter a ordem
+   * deixaria o item num espaco que ja estava cheio e o `add` jogaria o
+   * excedente no `overflow` do bau — o item sumiria da mochila e nao
+   * apareceria em lugar nenhum
+   *
+   * O `cabe` e uma PREDICAO, e ela e o que fecha o caso de boa: entre a
+   * conferencia e o `add` nada muda num tick, entao a previsao nunca erra
+   * aqui. O que protege o online e o `add` logo abaixo checando o
+   * `added`, porque ali quem manda e o estado do servidor
+   */
+  depositarNoBau(uid, quantidade) {
+    const sessao = this.sessaoDeJogador;
+    const inventory = this.world.inventory;
+    const stack = inventory.findByUid(uid);
+
+    if (!stack) {
+      return { ok: false, reason: "Item nao encontrado na mochila." };
+    }
+
+    const total = this.quantidadeDoBau(quantidade, stack.count);
+
+    if (total === null) {
+      return { ok: false, reason: "Quantidade invalida." };
+    }
+
+    if (total > stack.count) {
+      return { ok: false, reason: "A pilha nao tem essa quantidade." };
+    }
+
+    if (!sessao.bau.cabe(stack.itemId, total, stack.rarity)) {
+      return { ok: false, reason: "O bau esta cheio." };
+    }
+
+    const guardado = inventory.takeUid(uid, total);
+
+    if (!guardado) {
+      return { ok: false, reason: "Nao deu para tirar da mochila." };
+    }
+
+    const destino = sessao.bau.add(
+      guardado.itemId,
+      guardado.count,
+      guardado.rarity,
+    );
+
+    /**
+     * O AFIXO E O APRIMORAMENTO VOLTAM PARA A PILHA CERTA.
+     *
+     * O `add` cria a pilha do zero, com `enchant` e `enhance` zerados e
+     * um `uid` novo. Sem estas duas linhas uma peca guardada voltaria da
+     * base sem o afixo que o jogador pagou para colocar, e sem o +12 que
+     * ele comprou — e o jogador so descobriria isso quando vestisse a
+     * peca de novo, na outra ponta do mapa
+     *
+     * E o `findStack` e por item e raridade porque e assim que o `add`
+     * decide fundir: se a peca entrar numa pilha que ja existia, o
+     * afixo que estava naquela pilha e o que o jogador tem
+     */
+    const pilha = sessao.bau.findStack(guardado.itemId, guardado.rarity);
+
+    if (pilha) {
+      if (guardado.enchant) pilha.enchant = guardado.enchant;
+      if (guardado.enhance > 0) pilha.enhance = guardado.enhance;
+    }
+
+    /**
+     * O QUE SOBROU NO BAU VOLTA PARA A MOCHILA.
+     *
+     * A previsao do `cabe` deveria tornar isso impossivel, e por isso o
+     * bloco e um caminho de volta e nao o caminho normal: ele existe
+     * porque um item guardado em silencio e o pior resultado que um baU
+     * pode dar. Se o `add` recusou parte, o jogador precisa ter o item
+     * na mao, e precisa de um aviso
+     */
+    const devolvido = destino.dropped ?? 0;
+
+    if (devolvido > 0) {
+      inventory.add(guardado.itemId, devolvido, guardado.rarity);
+    }
+
+    this.sendSnapshot();
+
+    if (devolvido > 0) {
+      return {
+        ok: true,
+        parcial: true,
+        guardado: guardado.count - devolvido,
+        devolvido,
+      };
+    }
+
+    return { ok: true, guardado: guardado.count };
+  }
+
+  /**
+   * A METADE QUE RETIRA: bau -> mochila.
+   *
+   * A espelhar a deposicao, e o espelhamento e exato: o espaco e conferido
+   * no destino, o item sai do bau e volta para a mochila pelo `add`, que
+   * refaz o `uid`.
+   *
+   * A diferenca e o `findStack` do destino: aqui ele e NECESSARIO e nao
+   * so porBear afixo, porque o `uid` da pilha do bau e destruido no
+   * `add` da mochila. E o `add` funde por item e raridade, entao uma peca
+   * recem-retirada pode acabar dentro de uma pilha que ja existia — e e
+   * nessa pilha que o afixo tem que ficar
+   */
+  retirarDoBau(uid, quantidade) {
+    const sessao = this.sessaoDeJogador;
+    const inventory = this.world.inventory;
+    const stack = sessao.bau.findByUid(uid);
+
+    if (!stack) {
+      return { ok: false, reason: "Item nao encontrado no bau." };
+    }
+
+    const total = this.quantidadeDoBau(quantidade, stack.count);
+
+    if (total === null) {
+      return { ok: false, reason: "Quantidade invalida." };
+    }
+
+    if (total > stack.count) {
+      return { ok: false, reason: "A pilha nao tem essa quantidade." };
+    }
+
+    if (!inventory.cabe(stack.itemId, total, stack.rarity)) {
+      return { ok: false, reason: "A mochila esta cheia." };
+    }
+
+    const retirado = sessao.bau.takeUid(uid, total);
+
+    if (!retirado) {
+      return { ok: false, reason: "Nao deu para tirar do bau." };
+    }
+
+    const destino = inventory.add(
+      retirado.itemId,
+      retirado.count,
+      retirado.rarity,
+    );
+
+    const pilha = inventory.findStack(retirado.itemId, retirado.rarity);
+
+    if (pilha) {
+      if (retirado.enchant) pilha.enchant = retirado.enchant;
+      if (retirado.enhance > 0) pilha.enhance = retirado.enhance;
+    }
+
+    const devolvido = destino.dropped ?? 0;
+
+    if (devolvido > 0) {
+      sessao.bau.add(retirado.itemId, devolvido, retirado.rarity);
+    }
+
+    this.sendSnapshot();
+
+    if (devolvido > 0) {
+      return {
+        ok: true,
+        parcial: true,
+        guardado: retirado.count - devolvido,
+        devolvido,
+      };
+    }
+
+    return { ok: true, guardado: retirado.count };
+  }
+
+  /**
+   * O PEDIDO DE QUANTIDADE, normalizado.
+   *
+   * Devolve `null` para um pedido quebrado, e nao o numero como veio.
+   * E o que impede o `total` de chegar negativo: `takeUid` com numero
+   * negativo nao remove nada e devolve a pilha inteira, o que faria o
+   * deposito de "-3" guardar 3 a mais em vez de recusar
+   *
+   * Sem quantidade e a pilha INTEIRA, e nao 1: e o que o jogador quer
+   * quando clica num botao sem numero, e o que o `listarNoMarket` faz
+   * pelo mesmo motivo
+   */
+  quantidadeDoBau(quantidade, count) {
+    if (quantidade === null || quantidade === undefined) return count;
+
+    const inteiro = Math.floor(Number(quantidade));
+
+    if (!Number.isFinite(inteiro) || inteiro < 1) return null;
+
+    return inteiro;
   }
 
   craftFailureMessage(result) {
@@ -3842,18 +6005,121 @@ guildBonuses() {
     sessao.morte.restante = BALANCE.morte.prazoSegundos;
 
     /**
-     * A CACADA PARA.
+     * TUDO QUE ANDA OU BATE SOZINHO DESLIGA AQUI.
      *
-     * O auto e ligado com um alvo vivo. Sem derrubar o alvo junto, o
-     * auto continuaria andando o boneco morto pelo mapa — e o
-     * `updatePlayer` ja retorna cedo com `hp <= 0`, entao o jogador
-     * ficaria PARADO, mas ainda marcado como "auto ligado" num alvo
-     * que nao existe. Ao reviver, ele voltaria cacando o fantasma
+     * O `updatePlayer` ja retorna cedo com `hp <= 0`, entao nada se MOVE
+     * com o jogador morto. O que continuava ligado era o ESTADO: os flags
+     * que dizem "este jogador esta cacando", "esta minerando", "esta
+     * seguindo alguem". Sem derruba-los, o jogador ficava parado no chao
+     * com o auto marcado como ligado, e ao reviver voltaria cacando o
+     * fantasma do alvo, andando sozinho para a mina que ele nao estava
+     * mais encostado, ou perseguindo o outro jogador que ele ja nao
+     * seguia
+     *
+     * ## POR QUE NAO BASTAVA DESLIGAR O `autoPlay`
+     *
+     * Porque o auto nao e um so. Sao cinco modos independentes, e cada um
+     * tem o seu flag:
+     *
+     * - `autoPlay` — o auto que escolhe alvo proprio
+     * - `bestiaryTargetType` — a cacada de bestiario, que escolhe a
+     *   CRIATURA e nao o bicho: sobrevive ao `autoPlay` desligado
+     * - `skillAuto` — as skills arrastadas para a barra de auto, que
+     *   batem em qualquer coisa que entre no alcance
+     * - `mineracao` — a mineração, com o caminho ate a pedida
+     * - `seguindoId` — o auto que persegue outro jogador
+     *
+     * Cada um e desligado abaixo, e na ordem de quem manda no
+     * movimento: o alvo, a viagem, o caminho da mina, e por ultimo os
+     * flags que o jogador teria de religar na mao
+     *
+     * ## E POR QUE ISSO NAO E UM PREJUIZO PARA O JOGADOR
+     *
+     * Porque nada disso volta ligado depois do respawn. O revive e o
+     * `voltarParaBase` nao restauram nenhum destes campos, e cada modo
+     * so volta com o comando que o liga: apertar T de novo, arrastar a
+     * skill de volta, clicar na pedida. Um jogador que morre no meio de
+     * uma mineracao longa tem de clicar na pedra outra vez — e e o
+     * comportamento certo: ele morreu, e o servidor nao vai minerar no
+     * nome de um corpse
      */
+    // o alvo e a viagem: e o que faz o auto escolher bicho e andar ate ele
     this.engagedTargetId = null;
+    this.bestiaryTargetType = null;
+    this.selectedTargetId = null;
     this.autoWaypoint = null;
     this.travelPlan = [];
-    this.seguindoId = null;
+    this.travelParado = 0;
+
+    /**
+     * O CAMINHO DA CACADA, e o relogio que o recalcula.
+     *
+     * Sao o par que o `updateAutoPlay` reescreve a cada 0.25s com o caminho
+     * do bicho ate o alvo. Como `bestiaryTargetType` acima ja foi para
+     * `null`, o auto nao escolhe ninguem e nao recalcula — mas o caminho
+     * antigo ficava guardado, e era ele que sobrava quando o jogador
+     * religava o auto no respawn: o boneco ia direto para o ultimo spot
+     * do mob morto em vez de recalcular
+     */
+    this.cacadaCaminho = null;
+    this.cacadaRelogio = 0;
+
+    /**
+     * O CAMINHO DA MINERACAO.
+     *
+     * E um caminho de verdade, uma fila de pontos ate a pedida, e ele
+     * sobrevive a `setMap` justamente por isso. Sem esta linha o
+     * jogador voltaria a andar ate a pedra no respawn, e o `runMineracao`
+     * — que so tem `player.hp <= 0` como guarda, e nao checa se a
+     * sessao ainda QUER minerar — continuaria contando o relogio
+     *
+     * O `sessao` e o do topo do metodo, e nao `sessaoDeJogador`: os dois
+     * apontam para a mesma sessao em foco, e declarar os dois aqui daria
+     * "Identifier 'sessao' has already been declared" e derrubaria o motor
+     * inteiro no primeiro `registrarMorte`
+     */
+    if (sessao) {
+      sessao.mineracao = null;
+      sessao.mineracaoCaminho = [];
+      sessao.mineracaoRecalcula = 0;
+      sessao.mineracaoTravado = 0;
+      sessao.mineracaoMelhor = Infinity;
+      sessao.mineracaoRandom = null;
+      sessao.mineracaoSteelNoTique = 0;
+      sessao.mineracaoSteelEm = 0;
+    }
+
+    /**
+     * O AUTO QUE PERSEGUE OUTRO JOGADOR.
+     *
+     * Este e o unico dos cinco que NAO passa por um getter do motor:
+     * `seguindoId` vive na sessao e e escrito direto por
+     * `comecarSeguir`/`pararDeSeguir`, sem acessorio. O `this.seguindoId = null`
+     * que estava aqui criava um campo NO MOTOR — um `seguindoId` propio,
+     * paralelo ao da sessao, que ninguem lia. O auto continuava seguindo o
+     * outro jogador depois do respawn, porque o auto le
+     * `sessao.seguindoId`
+     */
+    if (sessao) sessao.seguindoId = null;
+
+    // a direcao e o rosto automaticos: sao reescritos a cada tique, mas
+    // um frame com eles dentro ja desloca o boneco morto pelo mapa
+    this.autoMoveDirection = null;
+    this.autoFacing = null;
+    this.autoDecisionTimer = 0;
+
+    // e os dois flags que o jogador teria de religir na mao
+    this.autoPlay = false;
+
+    /**
+     * AS SKILLS DE AUTO, e o `Set` inteiro.
+     *
+     * Uma a uma seria `setSkillAuto(id, false)` para cada item, e o
+     * `Set` nao tem o que percorrer aqui: ele e por sessao justamente
+     * para nao ser compartilhado. Limpar e o que desliga as skills
+     * arrastadas, e o jogador as arrasta de volta
+     */
+    if (sessao) sessao.skillAuto.clear();
   }
 
   /**
@@ -3972,13 +6238,75 @@ guildBonuses() {
     player.pushVelocity = { x: 0, y: 0 };
     player.statusEffects = [];
 
-    this.voltarParaAcampamento();
+    /**
+     * A MORTE DO CHEFE VOLTA AO PORTAL, e nao ao acampamento.
+     *
+     * ## POR QUE O DESTINO MUDA
+     *
+     * Porque o jogador escolheu este mapa. Morreu na arena, e o
+     * acampamento o joga num mapa onde nao ha nada do que ele precisa —
+     * a campanha do mapa 1 continua la, e ele teria de andar de volta
+     *
+     * E o portal e o lugar onde ele apertou "Enfrentar o chefe". Voltar
+     * para la deixa ele exatamente onde a tentativa comecou, e a missao do
+     * chefe continua na fila: ele pode tentar de novo
+     *
+     * ## POR QUE SO QUANDO HA `arenaOrigem`
+     *
+     * Porque a arena nao tem portal dentro dela, e o `irParaArena` so grava
+     * a origem quando o jogador SAI. Quem entrou por outro caminho — um
+     * comando de teste, um `setMap` — nao tem de onde voltar, e nesse caso o
+     * acampamento e o melhor destino disponivel
+     */
+    const voltouDaArena = this.voltarDaArenaParaOrigem();
+
+    if (!voltouDaArena) {
+      this.voltarParaAcampamento();
+    }
+
+    const destino = voltouDaArena ? "o portal" : "o acampamento";
 
     this.showMessage(
       perdido > 0
-        ? `Voltou para o acampamento. Perdeu ${perdido} de XP.`
-        : "Voltou para o acampamento.",
+        ? `Voltou para ${destino}. Perdeu ${perdido} de XP.`
+        : `Voltou para ${destino}.`,
     );
+
+    return true;
+  }
+
+  /**
+   * DEVOLVE O JOGADOR AO PORTAL DE ONDE ELE ENTROU NA ARENA.
+   *
+   * E o par do `irParaArena` do servidor, que grava a origem antes de
+   * trocar de mapa. Aqui a troca e lida: o `arenaOrigem` vira mapa de destino
+   * e posicao, e o registro e apagado para nao deixar a proxima entrada em
+   * um mapa morto
+   *
+   * Devolve `false` — e nao faz nada — quando nao ha origem, ou quando o
+   * mapa gravado nao existe mais. O chamador cai no acampamento
+   */
+  voltarDaArenaParaOrigem() {
+    const sessao = this.world.session;
+
+    const origem = sessao?.arenaOrigem ?? null;
+
+    if (!origem) return false;
+
+    const mapa = findMap(origem.mapId);
+
+    if (!mapa) return false;
+
+    sessao.arenaOrigem = null;
+
+/**
+     * O `setMap` chama o parametro de `chegada`, e nao de `x`/`y`.
+     *
+     * Passando `{ x, y }` o `setMap` ignoraria a chave e usaria o spawn do
+     * mapa — que e o meio do hub. O jogador voltaria do chefe para o
+     * centro da cidade, e nao para o portal de onde entrou
+     */
+    this.setMap(mapa, { chegada: { x: origem.x, y: origem.y } });
 
     return true;
   }
@@ -4047,11 +6375,123 @@ guildBonuses() {
 
     const player = this.world.player;
 
+return {
+        morto: true,
+        custoReviver: reviveCost(player.level),
+        custoVoltar: xpPerdidoNaMorte(player),
+        restante: Math.max(0, Math.ceil(sessao.morte.restante)),
+
+        /**
+         * A MORTE FOI NA LUTA DO CHEFE?
+         *
+         * E o que troca o painel: sem este campo a arena usaria o painel
+         * comum, que oferece "Reviver" e "Voltar para a base" — e nenhum dos
+         * dois serve. Reviver aqui devolve o jogador ao meio da arena, com o
+         * Hulk vivo, e o preco do ouro seria a unica coisa entre ele e uma
+         * segunda derrota identica
+         *
+         * E `arenaOrigem` decide se ha para onde voltar: ele guarda o mapa e
+         * a posicao de onde o jogador entrou. Sem origem, a arena nao tem
+         * saida registrada, e o `voltarParaBase` cai no acampamento — que e o
+         * melhor destino disponivel, e nao a falha que o painel descreveria
+         */
+        chefe:
+          sessao.mapId === ARENA_ID && Boolean(sessao.arenaOrigem),
+      };
+  }
+
+  /**
+   * O CAMPO `mineracao` DO PAINEL, ou `null`.
+   *
+   * ## POR QUE O TEMPO SAI REPRIMIDO, E NAO COMO O RESTANTE
+   *
+   * `restante` sai em segundos inteiros de ceil, porque e uma contagem
+   * que o jogador ve BAIXAR. O tempo da mineracao e diferente: o painel
+   * precisa prometer "faltam 1min20" e continuar TRUE a cada 250ms ate a
+   * hora, senao o numero piscaria entre 80 e 79 a cada tique
+   *
+   * E o `proximoGolpeEm` que vai no pacote, e nao o tempo restante. E o
+   * relogio do servidor, entao o cliente faz a conta com o relogio DELE:
+   * se o jogador tem o relogio adiantado, o painel mostra o tempo certo
+   * mesmo assim
+   *
+   * ## POR QUE O `steelNoTique` VAI AQUI
+   *
+   * Porque e o que faz o numero do steel PISCAR na hora da batida. Sem
+   * ele, o jogador veria o saldo subir na batida mas nao saberia de onde
+   * veio, e com 10s entre batidas e 1 a 3 de premio, um saldo que so
+   * cresce nao se distingue de um saldo que cresce sozinho
+   */
+  mineracaoSnapshot() {
+    const sessao = this.world.session;
+    const min = sessao?.mineracao;
+
+    if (!min) return null;
+
+    /**
+     * O `encostado` E O QUE FAZ O PAINEL ABRIR.
+     *
+     * Sem este campo, o painel abriria no CLIQUE — e no vale com 40
+     * cristais clicar no errado e comum, e o jogador andaria dez segundos
+     * pelo campo com um painel de 50s na tela que nao era a pedra dele.
+     * Com ele, o painel abre quando ele chega, que e onde a promessa de
+     * tempo faz sentido
+     *
+     * E a MESMA conta do `runMineracao`, com a MESMA folga do servidor.
+     * Sao tres lugares usando o mesmo numero — o dado, e nao o acaso
+     *
+     * ## POR QUE TAMBEM EXIGE `contando`
+     *
+     * Porque o relogio so arma no tique DEPOIS do lacre. Se o painel
+     * abrisse no mesmo tique em que o boneco parou, ele receberia um
+     * `proximoGolpeEm` que ainda valeria `null` e o
+     * `(proximoGolpeEm - agora)` viraria `NaN` na tela. Exigir `contando`
+     * e o que garante que o painel so existe com um relogio de verdade
+     * atras — e e a MESMA condicao que o `mineracaoPainel` do servidor usa,
+     * entao os dois nao podem discordar
+     */
+    const prop = this.pedidaMineravel(
+      sessao.mapId,
+      min.propId,
+    );
+
+    /**
+     * O RESTANTE VEM DO MUNDO, E NAO DA SESSAO.
+     *
+     * O contador de batidas pertence a PEDIDA e mora no servidor. O motor
+     * nao tem esse estado — e nao pode fazer a conta dele, porque ai seriam
+     * duas respostas para a mesma pergunta
+     *
+     * E por isso que existe o `lerPedida`: o servidor escreve no motor uma
+     * funcao que responde "quanto resta nesta pedra", e o motor so formata
+     * o que ela devolve. Sem o gancho, a sessao seria a unica fonte e o
+     * contador voltaria a morrer a cada cancelamento
+     *
+     * Sem o gancho — no cliente, ou se o servidor nao ligar — o motor cai
+     * no `batidasDe`, que e o total cheio. E o melhor palpite disponivel:
+     * o numero so aparece no painel quando o servidor ja mandou o valor
+     */
+    const leitura = this.lerPedida?.(min.propId) ?? null;
+
+    const batidas = leitura?.batidas ?? batidasDe(min.type);
+
+    const batidasRestantes =
+      leitura?.batidasRestantes ?? batidas;
+
+    const encostado =
+      min.contando === true &&
+      Boolean(prop) &&
+      this.encostadoNaPedida(this.world.player, prop);
+
     return {
-      morto: true,
-      custoReviver: reviveCost(player.level),
-      custoVoltar: xpPerdidoNaMorte(player),
-      restante: Math.max(0, Math.ceil(sessao.morte.restante)),
+      propId: min.propId,
+      type: min.type,
+      batidas,
+      batidasRestantes,
+      steelMaximo: steelMaximoDe(batidas),
+      proximoGolpeEm: min.proximoGolpeEm,
+      steelNoTique: sessao.mineracaoSteelNoTique ?? 0,
+      encostado,
     };
   }
 
@@ -4231,6 +6671,70 @@ guildBonuses() {
     enemy.hp = enemy.maxHp;
     enemy.alive = true;
     enemy.respawnTimer = 0;
+
+    /**
+     * O MOB VOLTA PARA O PONTO DE SPAWN, E NAO PARA ONDE MORREU.
+     *
+     * ## O QUE ACONTECIA ANTES
+     *
+     * Nada aqui mexia na posicao, e o cadaver e o mesmo objeto que
+     * renasce. O goblin abatido a 300px do seu spawn voltava de pe a 300px
+     * do seu spawn — o `spawnX`/`spawnY` existiam desde o `createCreature`
+     * e so eram lidos pelo `EnemyAI`, como a casa do pastoreio. O
+     * `wanderTarget` e zerado aqui, entao o novo alvo de passeio nascia em
+     * volta de uma casa que o proprio mob nao estava mais perto
+     *
+     * ## POR QUE O PONTO FIXO E A REGRA, E NAO UM DETALHE
+     *
+     * Porque o jogador usa o spawn como referencia. Ele sabe que o goblin
+     * fica do lado do Brejo, e e por isso que ele sabe onde ir caçar. Um
+     * goblin que migra de sitio a cada morte quebra essa referencia e
+     * manda o jogador para o Brejo findingar vazio
+     *
+     * E porque o spawn e o que garante o pastoreio: o `leash` do
+     * `EnemyAI` mede a distancia ate o `spawnX`. Deixar o mob renascer
+     * longe de casa entregava a ele um pastoreio medido a partir de um
+     * ponto que ele ja tinha abandonado
+     *
+     * ## POR QUE A GUARDA NOS DOIS NUMEROS
+     *
+     * Porque `x` e `y` nao vem sempre em par. Uma criatura montada fora
+     * do `createCreature` pode ter um deles e nao o outro, e escrever
+     * `NaN` na posicao de um mob real o apaga da tela para sempre, sem
+     * erro nenhum no console. Com a guarda, uma criatura sem ponto de
+     * spawn apenas fica onde estava — o comportamento antigo, e nao um
+     * buraco
+     */
+    if (
+      Number.isFinite(enemy.spawnX) &&
+      Number.isFinite(enemy.spawnY)
+    ) {
+      enemy.x = enemy.spawnX;
+      enemy.y = enemy.spawnY;
+
+      /**
+       * O ROSTO VOLTA PARA O SUL, que e o do `createCreature`.
+       *
+       * O `EnemyAI` roda o `facing` todo quadro de um mob vivo, entao isto
+       * so e visivel no primeiro quadro depois do renascimento. Sem ele,
+       * o goblin volta de pe virado para o lado de onde morreu, olhando
+       * para o jogador que o matou
+       */
+      enemy.facing = { x: 0, y: 1 };
+    }
+
+    /**
+     * O RELOGIO DA MORTE VOLTA A ZERO JUNTO COM A VIDA.
+     *
+     * O goblin renascido precisa comecar em `deathDuration +
+     * deathFade` de novo quando levar o proximo golpe. Deixar o valor
+     * antigo — que ja estava em 0 apos a morte — faria o proximo
+     * abate nao ter cadaver nenhum
+     */
+    enemy.deathTimer = null;
+    enemy.deathFade = 0;
+    enemy.deathDuration = 0;
+
     enemy.statusEffects = [];
     enemy.pushVelocity = { x: 0, y: 0 };
     enemy.hitFlash = 0;
@@ -4238,6 +6742,22 @@ guildBonuses() {
     enemy.alerted = false;
     enemy.provoked = false;
     enemy.wanderTarget = null;
+
+    /**
+     * A TRAVA DE ALVO MORRE COM A CRIATURA.
+     *
+     * Sem estas duas linhas o esqueleto renasceria ja com alvo: o
+     * `targetId` apontaria para o jogador que o matou, e ele atravessaria
+     * o mapa perseguindo um corpse. E o `lastHitById` traria o proximo
+     * alvo junto — que e pior, porque o jogador que o matou ficaria como
+     * alvo valido assim que outro jogador encostasse nele
+     *
+     * E `provoked`/`alerted` sozinhos nao limpam nada disto: eles sao o
+     * estado do mob, e o alvo travado e o estado da REGRA de retaliação
+     */
+    enemy.targetId = null;
+    enemy.lastHitById = null;
+
     // o proximo abate deste mob precisa poder ser premiado de
     // novo, e o loot do ciclo anterior nao pode sobrar para
     // informar quem matou da proxima vez
@@ -4245,6 +6765,81 @@ guildBonuses() {
     enemy.lastHitBy = null;
 
     return enemy;
+  }
+
+  /**
+   * DESFAZ O AGGRO DE UM MAPA INTEIRO, sem ressuscitar ninguem.
+   *
+   * ## O QUE ESTE FAZ E POR QUE EXISTE
+   *
+   * Ao atravessar um portal, o jogador cai em outro mapa — mas o mob que
+   * estava perseguindo ele na tela ANTERIOR continua com o `targetId`
+   * apontado para aquele jogador. Como o `targetId` e um id de sessao e nao
+   * uma posicao, o mob nao percebeu a teleporte: ele simplesmente continuou
+   * com um alvo que sumiu do mundo dele
+   *
+   * O sintoma era o pior dos dois: o jogador atravessava o portal e, no mapa
+   * de destino, ouvia o mob perseguindo e perdia vida antes de ver a tela —
+   * a morte logo apos o teleporte, sem ter feito nada
+   *
+   * ## E POR QUE NAO REAPROVEITA O `reviveEnemy`
+   *
+   * Porque o `reviveEnemy` RESSUSCITA. Estas criaturas estao VIVAS: se
+   * passassem por ele, cada mob do mapa receberia `hp = maxHp` e
+   * `alive = true` — e um mob que o jogador ja tinha ferido voltaria cheio
+   * de vida no meio do telescopio
+   *
+   * E por isso que o `hp` NAO entra aqui: o reset e sobre ONDE o mob esta e
+   * no QUE ele quer, nunca sobre QUANTO ele tem
+   *
+   * ## E POR QUE VOLTA PARA O SPAWN, E NAO SO ESQUECE O ALVO
+   *
+   * Porque esquecer o alvo sem voltar ao spawn deixa o mob parado no meio
+   * do territorio, e o jogador que chegar no mapa acha que a zona esta vazia.
+   * O spawn e a referencia que o jogador usa para saber onde caçar — ver o
+   * bloco do `reviveEnemy`, que e o mesmo argumento pelo mesmo campo
+   */
+  resetarAggroDoMapa() {
+    /**
+     * OS CHEFES NAO ENTRAM.
+     *
+     * E o arena: o chefe tem uma sala, e o `setMap` da arena e outro caminho
+     * que nao passa por aqui. Se algum dia passar, o chefe nao tem `spawnX`
+     * util para voltar — ele fica onde a arena o colocou
+     */
+    for (const enemy of this.world.enemies ?? []) {
+      if (!enemy?.alive) continue;
+
+      if (enemy.isBoss) continue;
+
+      enemy.targetId = null;
+      enemy.lastHitById = null;
+      enemy.alerted = false;
+      enemy.provoked = false;
+      enemy.aiState = "idle";
+      enemy.wanderTarget = null;
+      enemy.facing = { x: 0, y: 1 };
+
+      /**
+       * OS EFEITOS DE STATUS TAMBEM CAEM.
+       *
+       * Porque o jogador atravessa o portal com o que tinha: um stun de uma
+       * armadilha do mapa anterior nao pode seguir ele para o proximo. E o
+       * `pushVelocity` vai junto, que e o que impede um empurrao de resultado
+       * de continuar depois da teleporte
+       */
+      enemy.statusEffects = [];
+      enemy.pushVelocity = { x: 0, y: 0 };
+      enemy.hitFlash = 0;
+
+      if (
+        Number.isFinite(enemy.spawnX) &&
+        Number.isFinite(enemy.spawnY)
+      ) {
+        enemy.x = enemy.spawnX;
+        enemy.y = enemy.spawnY;
+      }
+    }
   }
 
   /**
@@ -4289,7 +6884,103 @@ guildBonuses() {
     return this.world.quests.objective();
   }
 
-  getQuestZone(quest) {
+  /**
+ * ONDE FICA O PORTAL QUE ABRE A ARENA, quando a missao em foco e do CHEFE.
+ *
+ * ## POR QUE O PORTAL E NAO A ARENA
+ *
+ * Porque a arena e um destino que o auto nao sabe alcancar. Nao ha `zone`
+ * nela, e nao ha portal apontando para `boss_1` — a entrada dela e o botao
+ * "Enfrentar o chefe" do portal selado, que e um pedido do servidor
+ *
+ * Apontar o auto direto para a arena faria o `rotaDeMapas` procurar um
+ * portal inexistente, e o plano de viagem sairia vazio
+ *
+ * ## POR QUE ACHAR O PORTAL PELO DADO E NAO PELO NOME
+ *
+ * Porque o portal que abre a arena e o mesmo que abre o mapa 2 — o
+ * `portal_floresta`, com `exigeMissaoDe: "map_1"`. E ele ja esta no
+ * `portals` do mapa, e o auto pode ler de la
+ *
+ * A chave do mapa e `portals`, em ingles, com um "s" — e nao `portais`.
+ * Escrever em portugues daria `undefined` no acesso, e o `?? []` engoliria
+ * o erro: o auto simplesmente nunca acharia portal nenhum, sem nenhuma
+ * pista do motivo
+ *
+ * A busca e pelo `exigeMissaoDe` porque e a MESMA regra que tranca o
+ * portal. Um portal que nao exige nada abre para todo mundo, e nao seria a
+ * porta do chefe
+ *
+ * ## O QUE ELE DEVOLVE
+ *
+ * O CENTRO do portal. E nao o `x`/`y` dele: o `destino` e um ponto dentro
+ * do mapa, e o auto chega andando ate ele
+ *
+ * E `null` quando nao ha portal — sem chefe na frente, a missao volta ao
+ * caminho normal pela zona
+ */
+destinoDoChefe(objective) {
+      if (!objective?.chefe) return null;
+
+      const sessao = this.world.session;
+
+      if (!sessao) return null;
+
+      /**
+       * O MAPA E O DO OBJETIVO, E NAO O MAPA ONDE O JOGADOR ESTA.
+       *
+       * ## O QUE ESTAVA ERRADO
+       *
+       * Buscava `findMap(sessao.mapId)` — o mapa onde o jogador esta. E o
+       * jogador esta na BASE quando liga o auto, e o `portal_floresta` vive
+       * no `map_1`. Os dois portais estao em mapas diferentes, entao a busca
+       * rodava, nao achava nenhum, e o `destinoDoChefe` devolvia `null`
+       *
+       * E o `null` caia no `getQuestZone`, que devolve `null` tambem (a missao
+       * tem `location: "arena"`). Sem destino, `travelPlanParaObjetivo`
+       * devolvia `false`, o `runTravelPlan` nao andava, e o boneco ficava
+       * parado — sem mensagem, porque um destino ausente e um estado valido
+       *
+       * ## POR QUE E O MAPA DO OBJETIVO
+       *
+       * Porque a missao DIZ onde o destino esta: `chefe.arena` e `boss_1`, e
+       * o portal que abre a arena esta no `map_1`, que e o mapa da campanha
+       * da missao. O mapa do jogador e so onde ele esta agora — e no meio da
+       * caminhada ele troca, entao procurar nele daria um destino diferente a
+       * cada passo
+       *
+       * E a busca e por `destino === arena` OU por `exigeMissaoDe === "map_1"`,
+       * e nao so pelo primeiro: o portal que abre a arena e o mesmo que abre
+       * o mapa 2, entao os dois nomes descrevem o mesmo objeto
+       */
+      const mapaDoChefe = findMap(objective.chefe.arena);
+
+      /**
+       * O MAPA DA CAMPANHA, e nao o da arena.
+       *
+       * O `boss_1` e um mapa sem portais — e o destino do portal, nao a casa
+       * dele. O portal fica no mapa que o jogador alcanca a pe, que e o da
+       * campanha onde a missao esta
+       */
+      const mapaDaCampanha = findMap("map_1");
+
+      const mapa = mapaDaCampanha ?? mapaDoChefe;
+
+      const portal = (mapa?.portals ?? []).find(
+        (p) => p.exigeMissaoDe === "map_1" || p.destino === objective.chefe.arena,
+      );
+
+      if (!portal) return null;
+
+      return {
+        x: portal.x,
+        y: portal.y,
+        mapId: mapa.id,
+        portal,
+      };
+    }
+
+getQuestZone(quest) {
     if (!quest?.location) return null;
 
     return getZoneById(quest.location);
@@ -4727,11 +7418,33 @@ guildBonuses() {
 
     if (seguindo) return seguindo;
 
-    const objective = this.getAutoObjective();
+const objective = this.getAutoObjective();
 
-    if (!objective) return null;
+  if (!objective) return null;
 
-    const zona = this.getQuestZone(objective);
+  /**
+   * A MISSAO DO CHEFE NAO TEM ZONA: ELA TEM ARENA.
+   *
+   * A arena nao tem zona de mob — e um retangulo com o chefe no meio, sem
+   * `zones`. O `getQuestZone` abaixo devolveria `null` e o auto ficaria sem
+   * destino: o jogador apertava o auto, o personagem andava ate o limite do
+   * mapa e parava, sem nenhuma pista do que aconteceu
+   *
+   * E a arena nao e um portal: nao existe `portal` apontando para
+   * `boss_1`. Quem entra nela e pelo botao "Enfrentar o chefe", que e um
+   * pedido do SERVIDOR, e nao um passo de rota. Entao nao adianta apontar o
+   * auto para um destino em outro mapa: o `rotaDeMapas` procuraria um portal
+   * que nao existe
+   *
+   * O que o auto faz e levar o jogador ate o PORTAL — o `portal_floresta`,
+   * que e o que abre a arena. Da la em diante o auto e o jogador seguem o
+   * caminho normal
+   */
+  const destinoDoChefe = this.destinoDoChefe(objective);
+
+  if (destinoDoChefe) return destinoDoChefe;
+
+  const zona = this.getQuestZone(objective);
 
     if (!zona) return null;
 
@@ -4896,10 +7609,10 @@ const alvo = this.world.players.get(id);
    * nao ha objetivo com zona — e nos tres casos o piloto deve seguir o
    * caminho normal
    */
-  travelPlanParaObjetivo() {
-    const destino = this.destinoDoObjetivo();
+travelPlanParaObjetivo() {
+      const destino = this.destinoDoObjetivo();
 
-    if (!destino) return false;
+      if (!destino) return false;
 
     /**
      * O MAPA em que a etapa atual acontece.
@@ -5046,16 +7759,61 @@ const alvo = this.world.players.get(id);
      * zona. Uma criatura do outro tipo, ou fora da zona, nao cancela a
      * caminhada: o objetivo continua sendo chegar na zona
      *
-     * ## POR QUE ISSO NAO VALE QUANDO ESTA SEGUINDO
-     *
-     * Quem segue quer ir atras de uma PESSOA, e nao de um slime. Sem
-     * esta guarda, um bicho vivo no caminho cancelava o plano de ir ate
-     * o outro e o jogador ficava parado lutando no meio do caminho —
-     * o botao parecia quebrado
-     */
-    if (!this.world.session?.seguindoId && this.pickAutoTarget()) {
-      return false;
-    }
+       * ## POR QUE ISSO NAO VALE QUANDO ESTA SEGUINDO
+       *
+       * Quem segue quer ir atras de uma PESSOA, e nao de um slime. Sem
+       * esta guarda, um bicho vivo no caminho cancelava o plano de ir ate
+       * o outro e o jogador ficava parado lutando no meio do caminho —
+       * o botao parecia quebrado
+       *
+       * ## E POR QUE O CHEFE INVERTE ESTA REGRA
+       *
+       * Porque o `pickAutoTarget` exige que a criatura esteja DENTRO da
+       * zona do objetivo, e a missao do chefe tem `location: "arena"` — que
+       * nao existe como zona. O `getQuestZone` devolvia `null`, e com a zona
+       * nula o `pickAutoTarget` aceita QUALQUER criatura viva perto
+       *
+       * E ai esta o inverso do comportamento: o jogador ligava o auto no
+       * hub, o primeiro bicho do caminho era aceito como alvo, a
+       * caminhada era cancelada, e o boneco ficava parado sem se mexer
+       *
+       * ## POR QUE AINDA ASSIM, E NAO SIMPLESMENTE "NUNCA CACAR"
+       *
+       * Porque a MISSAO do chefe e `type: "kill"`, e o `target` dela e o
+       * `hulk`. Quando o jogador ja tiver chegado na arena, o `hulk` sera o
+       * alvo legitimo, e o `runTravelPlan` precisa devolver `false` para
+       * deixar o `runAutoHunt` pegar o controle
+       *
+       * Entao a regra e: a cacada vence **so quando ha um alvo do tipo
+       * certo**. Com a zona nula, o `pickAutoTarget` tem que recusar os
+       * bichos que nao sao o hulk — e nao aceitar qualquer um
+       */
+      const objetivo = this.getAutoObjective();
+
+      if (!this.world.session?.seguindoId) {
+        /**
+         * O ALVO PRECISA SER O DO OBJETIVO, e nao "um bicho".
+         *
+         * A guarda original aceitava qualquer alvo vivo, e isso era verdade
+         * enquanto toda missao tinha zona: dentro dela so havia as criaturas
+         * do objetivo. A missao do chefe quebrou a premissa — o
+         * `location: "arena"` nao existe como zona, o `getQuestZone` devolve
+         * `null`, e com a zona nula o `pickAutoTarget` aceita qualquer
+         * criatura viva perto
+         *
+         * O sintoma era o pior possivel: o jogador ligava o auto no hub, o
+         * primeiro slime do caminho servia de alvo, a caminhada era
+         * cancelada, e o boneco ficava parado sem se mexer
+         */
+        const alvo = this.pickAutoTarget();
+
+        const eDoObjetivo =
+          alvo &&
+          objetivo?.target &&
+          alvo.id.replace(/_\d+$/, "") === objetivo.target;
+
+        if (eDoObjetivo) return false;
+      }
 
     if (this.travelPlan.length === 0) {
       if (!this.travelPlanParaObjetivo()) return false;
@@ -5165,7 +7923,8 @@ const alvo = this.world.players.get(id);
       }
     }
 
-    const etapa = this.travelPlan[0];
+      const etapa = this.travelPlan[0];
+
 
     /**
      * O PLANO VELHO.
@@ -5337,49 +8096,139 @@ const alvo = this.world.players.get(id);
    * `autoWaypoint` — mas nao toca no `travelPlan`, entao a etapa seguinte
    * ja esta esperando com o mapa novo
    */
-  #concluirEtapa(etapa) {
-    /**
-     * A ETAPA FINAL: o destino foi alcancado.
-     *
-     * O plano e esvaziado e o piloto recebe de volta o
-     * `autoPlayTarget`, que vai passar a cacar a criatura da zona. A
-     * proxima linha e o `return true`, e ele impede o `updateAutoPlay`
-     * de cair no `runAutoHunt` no MESMO quadro — o que daria um quadro
-     * de cacada em um mapa onde a criatura da zona pode nao estar, e o
-     * piloto andaria para tras
-     */
-    if (etapa.portalId === null) {
-      this.travelPlan = [];
-      this.travelParado = 0;
-
+    #concluirEtapa(etapa) {
+      /**
+       * A ETAPA FINAL: o destino foi alcancado.
+       *
+       * O plano e esvaziado e o piloto recebe de volta o
+       * `autoPlayTarget`, que vai passar a cacar a criatura da zona. A
+       * proxima linha e o `return true`, e ele impede o `updateAutoPlay`
+       * de cair no `runAutoHunt` no MESMO quadro — o que daria um quadro
+       * de cacada em um mapa onde a criatura da zona pode nao estar, e o
+       * piloto andaria para tras
+       */
+      if (etapa.portalId === null) {
+        this.travelPlan = [];
+        this.travelParado = 0;
+  
+        return true;
+      }
+  
+      /**
+       * A TRAVESSIA.
+       *
+       * `travessarPortal` refaz a conferencia de posicao e de destino: se
+       * o portal debaixo do jogador nao for o desta etapa, ele devolve
+       * `false` e a etapa fica para a proxima tentativa. E o que impede
+       * o piloto de atravessar o portal errado — num mapa com dois portais
+       * para o mesmo destino, e no caso em que um inimigo empurrou o
+       * jogador para dentro do portal vizinho
+       */
+      if (this.travessarPortal()) {
+        this.travelPlan.shift();
+        this.travelParado = 0;
+  
+        return true;
+      }
+  
+      /**
+       * O PORTAL ESTAVA TRANCADO, E A TRAVESSIA VAI ACONTECER SO DEPOIS.
+       *
+       * ## O QUE ACONTECIA
+       *
+       * O `return true` de cima devolvia o controle sem consumir a etapa.
+       * E o plano era refeito no quadro seguinte com a MESMA etapa, porque
+       * `destinoX/Y` nao tinha mudado: o piloto andava ate o portal, o
+       * `travessarPortal` recusava pela trava, e o ciclo recomecava. O
+       * jogador via o boneco arrivedo portal e ficar parado, indefinidamente,
+       * com o auto ligado e nenhuma explicacao
+       *
+       * ## POR QUE A ETAPA PRECISA SER CONSUMIDA
+       *
+       * Porque o objetivo aqui nao e ATRAVESSAR: e CHEGAR. A arena e o
+       * destino final, e a travessia dela e um pedido do servidor (o botao
+       * "Enfrentar o chefe"), nao um passo de rota. O auto leva ate a porta
+       * e para — quem abre a porta e o jogador
+       *
+       * E quando a etapa e a ultima, o plano fica vazio e o `firmar` na
+       * proxima chamada monta um plano novo a partir do MESMO destino: o
+       * boneco fica parado no portal ate a missao mudar, que e o estado
+       * correto
+       *
+       * ## POR QUE NAO E SO "GASTAR A ETAPA E SAIR"
+       *
+       * Porque o jogador pode estar em cima de um portal que nao e o desta
+       * etapa. Gastar a etapa aqui jogaria fora o resto do caminho e o
+       * auto pararia longe do destino. A travessia recusada por POSICAO e
+       * um caso diferente da travessia recusada por TRAVA, e as duas
+       * precisam de respostas diferentes
+       */
+      if (this.portalDebaixoEstaTrancado(etapa)) {
+        this.travelPlan.shift();
+        this.travelParado = 0;
+  
+        /**
+         * O AVISO, e ele e obrigatorio.
+         *
+         * Sem ele o boneco chega no portal e para, e o jogador nao distingue
+         * "chegou" de "desistiu" — a duvida e a mais cara do painel, porque
+         * o auto esta ligado e o boneco parado nao parece nenhuma das duas
+         * coisas por si so
+         *
+         * E a frase diz o QUE fazer, nao so o que aconteceu: a missao do
+         * chefe termina neste portal, e quem abre a arena e o botao
+         */
+        this.showMessage(
+          "Portal selado. Use o botao para enfrentar o chefe.",
+        );
+      }
+  
       return true;
     }
 
     /**
-     * A TRAVESSIA.
-     *
-     * `travessarPortal` refaz a conferencia de posicao e de destino: se
-     * o portal debaixo do jogador nao for o desta etapa, ele devolve
-     * `false` e a etapa fica para a proxima tentativa. E o que impede
-     * o piloto de atravessar o portal errado — num mapa com dois portais
-     * para o mesmo destino, e no caso em que um inimigo empurrou o
-     * jogador para dentro do portal vizinho
-     */
-    if (!this.travessarPortal()) return true;
-
-    this.travelPlan.shift();
-    this.travelParado = 0;
-
-    return true;
-  }
+   * O PORTAL DESTA ETAPA ESTA DEBAJO DO JOGADOR E ESTA TRANCADO?
+   *
+   * E a distincao entre "o piloto esta no lugar errado" e "o lugar certo
+   * esta fechado": a primeira repete a tentativa, a segunda consome a etapa
+   *
+   * Sem ela as duas respostas seriam a mesma, e o caso do portal trancado
+   * seria tratado como se o boneco tivesse errado o caminho
+   */
+    #portalDebaixoEstaTrancado(etapa) {
+      const emCima = this.portalSobOsPes();
+  
+      if (!emCima) return false;
+  
+      if (emCima.portal.id !== etapa.portalId) return false;
+  
+      return !portalLiberado(
+        emCima.portal.exigeMissaoDe,
+        this.world.quests?.mainIndex ?? 0,
+      ).ok;
+    }
 
   runEngagedTarget(player) {
     let target = this.findEnemyById(this.engagedTargetId);
 
+    /**
+     * SEM AVISO DE "ALVO ELIMINADO".
+     *
+     * Antes esta linha mostrava a mensagem quando o alvo morria. Era
+     * redundante com a tela: a barra de vida some sozinha no mesmo quadro
+     * que o alvo morre, porque a secao do alvo so existe com alvo vivo
+     *
+     * E o pior momento possivel para uma notificacao. A lootNotification
+     * do servidor — a coleta do que o bicho dropou — aparece junto, e as
+     * duas disputam a mesma posicao no alto central. O jogador matou um
+     * mob, viu o "Alvo eliminado." e a coleta do drop embaixo dele, e o
+     * que ele queria ler era o drop
+     *
+     * O silencio tambem diz a verdade: se a barra sumiu, o alvo morreu
+     */
     if (!target) {
       this.engagedTargetId = null;
       this.selectedTargetId = null;
-      this.showMessage("Alvo eliminado.");
       return;
     }
 
@@ -5520,21 +8369,393 @@ const alvo = this.world.players.get(id);
     this.approachTarget(player, target);
   }
 
-  /** true enquanto ainda ha caminho, false quando chegou */
-  walkToward(player, point) {
-    const dx = point.x - player.x;
-    const dy = point.y - player.y;
+    /** true enquanto ainda ha caminho, false quando chegou */
+    walkToward(player, point) {
+      const dx = point.x - player.x;
+      const dy = point.y - player.y;
 
-    if (Math.hypot(dx, dy) < 24) return false;
+      if (Math.hypot(dx, dy) < 24) return false;
 
-    this.autoFacing = { x: dx, y: dy };
+      this.autoFacing = { x: dx, y: dy };
 
-    if (!this.statuses.canMove(player)) return true;
+      if (!this.statuses.canMove(player)) return true;
 
-    this.autoMoveDirection = normalize(dx, dy);
+      this.autoMoveDirection = normalize(dx, dy);
+
+      return true;
+    }
+
+
+    /**
+     * A MINERACAO: O JOGADOR INDO PARA A PEDIDA, E DEPOIS PARADO NELA.
+     *
+     * ## POR QUE O CAMINHO E CONSUMIDO, E NAO RECALCULADO
+     *
+     * O A* deste mapa e caro: a grade tem 40px de celula sobre 5920x4120,
+     * e refaze-lo a cada tique de 20Hz para um jogador atravessando o vale
+     * seria 20 buscas por segundo para um caminho que nao mudou. O
+     * caminho entra em `mineracaoCaminho` e sai com `shift()`, igual ao
+     * `travelPlan`
+     *
+     * ## POR QUE SO RECALCULA QUANDO O CAMINHO ACABA
+     *
+     * Porque enquanto o caminho dura ele e a melhor informacao que existe.
+     * Refazer no meio do trajeto produziria um caminho possivelmente
+     * diferente a cada tique, e o jogador andaria em zigue-zague perto da
+     * pedra, visivel na tela
+     */
+    runMineracao(deltaTime) {
+      const sessao = this.world.session;
+      const min = sessao?.mineracao;
+
+      if (!min) return;
+
+      const player = this.world.player;
+
+      if (player.hp <= 0) return;
+
+      const prop = this.pedidaMineravel(sessao.mapId, min.propId);
+
+      /**
+       * A PEDIDA SUMIU DO MAPA DEBAIXO DO JOGADOR.
+       *
+       * Acontece quando outro jogador a demoliu por último enquanto este
+       * estava encostado. O servidor fecha o painel no mesmo tique, mas o
+       * motor nao pode ficar andando em direcao a uma pedra que nao esta
+       * mais la
+       */
+      if (!prop) return;
+
+      /**
+       * JA ENCOSTOU: PARA E AVISA O SERVIDOR.
+       *
+       * ## POR QUE O `alcancado` SO LIGA E NUNCA DESLIGA
+       *
+       * Porque e um LACRE, e nao um estado. Ele responde a "o jogador ja
+       * chegou nesta pedra", nao a "o jogador esta na pedra agora"
+       *
+       * O servidor usa este campo para decidir se a DISTANCIA manda: antes
+       * de chegar, a distancia nao manda — senao o proprio tick soltava o
+       * pedido antes do primeiro passo. Depois de chegar, e ela que manda,
+       * e e ela que solta quando o jogador se afasta
+       *
+       * Se o motor limpasse o lacre ao ver o jogador longe, o servidor leria
+       * `false` no tique seguinte e nao soltaria nunca: o jogador poderia
+       * atravessar o vale inteiro com a mineracao aberta, sem receber steel
+       * e sem o painel
+       *
+       * Quem zera o lacre e o `minerar` do servidor, no pedido novo
+       */
+      if (this.encostadoNaPedida(player, prop)) {
+        min.alcancado = true;
+
+        return;
+      }
+
+      /**
+       * O JOGADOR ESTA EMPURRANDO E NAO CHEGANDO?
+       *
+       * Ver o `vigiarAvancoDaMineracao`. A medicao vem ANTES de escrever a
+       * direcao deste tique, entao o boneco pode estar um passo atras do
+       * relogio — e o que importa e que ele solte, nao que solte no tique
+       * exato
+       */
+      if (this.vigiarAvancoDaMineracao(sessao, prop, deltaTime)) {
+        return;
+      }
+
+      const alvo = superficieDaArte(
+      player.x,
+      player.y,
+      prop,
+      prop.type,
+    );
+
+      /**
+       * O CAMINHO VIVE NA SESSAO, e nao em `this`.
+       *
+       * Uma versao anterior leu `this.mineracaoCaminho`, que nao existe:
+       * o campo foi declarado no `PlayerSession`. O `undefined` era lido
+       * no `.length` da linha seguinte e derrubava o `runMineracao` — o
+       * jogador clicava na pedra, o boneco nao andava e o servidor soltava
+       * a mineracao no mesmo tique por ele nunca ter chegado
+       *
+       * E `sessao.mineracaoCaminho ?? []` porque o `caminho()` da NavGrid
+       * devolve `null` quando nao ha rota. Um `null` no `.shift()` da linha
+       * de baixo derrubaria o tick do servidor inteiro
+       */
+      const caminho = sessao.mineracaoCaminho ?? [];
+
+      if (caminho.length === 0) {
+        sessao.mineracaoRecalcula -= deltaTime;
+
+        if (sessao.mineracaoRecalcula <= 0) {
+          sessao.mineracaoRecalcula = RECALCULA_CAMINHO_S;
+
+          sessao.mineracaoCaminho =
+            this.gradeDoMapa().caminho(
+              { x: player.x, y: player.y },
+              alvo,
+            ) ?? [];
+        }
+      }
+
+      const proximo = (sessao.mineracaoCaminho ?? []).shift();
+
+      /**
+       * O CAMINHO ACABOU E O JOGADOR AINDA NAO CHEGOU.
+       *
+       * E o caso normal dos ultimos 30px, e nao um erro. O `caminho()` da
+       * NavGrid termina no ponto mais proximo que a grade deixa, que fica
+       * uns 70px da arte — dentro da zona onde a celula de 40px nao cabe
+       * com a folga de 8px
+       *
+       * ## POR QUE O ALVO E A PROPRIA SUPERFICIE DA PEDIDA
+       *
+       * Antes ele era um ponto DO LADO de onde o jogador ja estava, uns 48px
+       * da arte. Um alvo externo so e alcancavel em linha reta, e a ultima
+       * perna empurrava o jogador contra o vazio: com outra pedra no meio, o
+       * `moveEntity` recusava o eixo e ele escorregava para frente e para
+       * tras sem nunca travar na rocha
+       *
+       * Apontar para a PRÓPRIA pedra mata a classe inteira do problema: a
+       * direcao e sempre para a rocha, nao depende de um ponto de fora, e quem
+       * para o jogador e a colisao na borda — a 22px da arte, dentro dos 40px
+       * do `encostadoNaPedida`
+       */
+      if (!proximo) {
+        /**
+         * A ULTIMA PERNA NAO USA O `walkToward`.
+         *
+         * Porque o `walkToward` considera "chegou" a 24px do alvo, e o alvo
+         * esta SOBRE a arte: o jogador pararia a 24px da pedra, o `walkToward`
+         * diria que chegou e o `encostado` — que exige 40px — nunca seria
+         * verdade. O painel nunca abriria
+         *
+         * Aqui a chegada e o `encostadoNaPedida` do topo deste metodo, e
+         * nao a proximidade do alvo. A direcao e escrita direto, sem raio de
+         * chegada: quem para o jogador e o `moveEntity` na borda do solido
+         */
+        const dx = alvo.x - player.x;
+        const dy = alvo.y - player.y;
+        const comprimento = Math.hypot(dx, dy);
+
+        if (comprimento <= 0.001) return;
+        if (!this.statuses.canMove(player)) return;
+
+        this.autoFacing = { x: dx, y: dy };
+        this.autoMoveDirection = normalize(dx, dy);
+
+        return;
+      }
+
+      this.walkToward(player, proximo);
+    }
+
+    /**
+     * A PICARETA DO ARBALIST, LIGADA E DESLIGADA AQUI.
+     *
+     * E o unico lugar do motor que escreve `player.isMining`, e ele escreve
+     * SEMPRE — `true` ou `false` — porque o campo e um estado de quadro, e
+     * nao um evento. O `resolveAnimation` le o booleano a cada desenho; se
+     * este metodo so ligasse, o boneco ficaria com a picareta no ar para
+     * sempre no primeiro tique em que a pedra acabasse
+     *
+     * ## A REGRA E A MESMA DO PAINEL, DE PROPOSITO
+     *
+     * `contando` E `encostado`, os dois. Sao as mesmas duas condicoes que o
+     * `mineracaoSnapshot` usa para decidir se o painel abre, e nao uma conta
+     * nova: se o painel ainda esta aberto na tela, o boneco tem que estar
+     * socando, e se o boneco esta socando o painel tem que estar aberto
+     *
+     * As duas sao necessarias porque cada uma cobre um caso que a outra
+     * nao pega. `contando` sozinho liga a picareta no tique em que o
+     * jogador e CLIQUE para andar ate a pedra, com ele ainda a metros dela.
+     * So o `encostado` liga no instante em que ele chega
+     *
+     * ## POR QUE `!prop` APAGA TUDO
+     *
+     * Porque a pedra pode ter sido demolida por outro jogador enquanto este
+     * estava encostado. O `runMineracao` devolve nesse caso, sem tocar no
+     * booleano, e sem esta linha o boneco socaria o ar ate o servidor
+     * mandar fechar a sessao
+     */
+    atualizaMineracaoVisual() {
+      const sessao = this.world.session;
+      const player = this.world.player;
+      const min = sessao?.mineracao;
+
+      if (!min) {
+        player.isMining = false;
+        return;
+      }
+
+      const prop = this.pedidaMineravel(sessao.mapId, min.propId);
+
+      player.isMining =
+        min.contando === true &&
+        Boolean(prop) &&
+        player.hp > 0 &&
+        this.encostadoNaPedida(player, prop);
+    }
+
+  /**
+   * O MOTOR DEIXA O JOGADOR PARADO QUANDO A PEDIDA NAO DEIXA.
+   *
+   * ## O PROBLEMA
+   *
+   * A ultima perna aponta para a pedra, e quem para o jogador e a colisao.
+   * Isso resolve o caso comum, mas nao o raro: se o espaco entre o jogador e
+   * a rocha for MENOR que o diametro dele, o `moveEntity` recusa os dois
+   * eixos e o boneco empurra a pedra para sempre, sem chegar perto o bastante
+   * para o `encostadoNaPedida` passar
+   *
+   * ## O QUE ESTE METODO FAZ
+   *
+   * Mede o AVANCO: a menor distancia a arte que o jogador ja alcanca. Cada
+   * vez que a distancia cai, o relogio zera. Se passarem quatro segundos sem
+   * nenhum avanco novo, o pedido e solto — o mesmo caminho que o
+   * cancelamento por tecla usa
+   *
+   * ## POR QUE SOLTAR E MELHOR QUE INSISTIR
+   *
+   * Porque insistir e o sintoma que o jogador reclamou: o boneco tremendo
+   * contra a pedra. Soltar devolve o controle na hora, e o jogador clica de
+   * novo se quiser. Um pedido de mineracao que trava a locomocao e pior que
+   * um pedido que nao atende
+   */
+  vigiarAvancoDaMineracao(sessao, prop, deltaTime) {
+    const distancia = distanciaAteArte(
+      this.world.player.x,
+      this.world.player.y,
+      prop,
+      prop.type,
+    );
+
+    /**
+     * UM `0.5px` DE TOLERANCIA, e nao `> 0`.
+     *
+     * Sem ela, o avanco minimo que o `moveEntity` produz em um tique de
+     * 50ms seria lido como travamento. Com ela, o jogador andando a 165px/s
+     * marca avanco de 8px por tique e o relogio nunca dispara
+     */
+    if (distancia < (sessao.mineracaoMelhor ?? Infinity) - 0.5) {
+      sessao.mineracaoMelhor = distancia;
+      sessao.mineracaoTravado = 0;
+
+      return false;
+    }
+
+    sessao.mineracaoTravado = (sessao.mineracaoTravado ?? 0) + deltaTime;
+
+    if (sessao.mineracaoTravado < MINERACAO_TRAVA_S) return false;
+
+    sessao.mineracao = null;
+    sessao.mineracaoCaminho = [];
+    sessao.mineracaoRecalcula = 0;
+    sessao.mineracaoTravado = 0;
+    sessao.mineracaoMelhor = Infinity;
+
+    this.autoMoveDirection = null;
+    this.autoFacing = null;
 
     return true;
   }
+
+    /**
+     * A PEDIDA MINERAVEL DEBAIXO DO PONTEIRO, ou `null`.
+     *
+     * ## POR QUE A CAIXA E DA ARTE, E NAO O `radius`
+     *
+     * Porque e a imagem que o jogador ve. O `radius` do cristal lendario
+     * e 69px — metade da largura da arte de 139px — e uma caixa circular
+     * de 69px deixaria de fora a ponta da esquerda e da direita, e o
+     * clique no meio da imagem nao pegaria em nada
+     *
+     * E a MESMA caixa que o solido cobre, de proposito: o que da para
+     * clicar e exatamente o que barra o jogador. Com as duas caixas
+     * diferentes haveria uma faixa onde o clique pegava numa pedra em que
+     * o jogador nem podia encostar
+     */
+    pedidaEm(point) {
+      const fora = this.pedidasForaDoMapa;
+
+      for (const prop of this.world.props ?? []) {
+        if (!mineravel(prop.type)) continue;
+        if (fora instanceof Set && fora.has(prop.id)) continue;
+
+        const type = getPropType(prop.type);
+
+        if (!type) continue;
+
+        const meiaLargura = (type.drawWidth ?? 0) / 2;
+        const altura = type.drawHeight ?? 0;
+
+        /**
+         * A CAIXA ANCORADA NO PE DA PROPS, e nao no ponto.
+         *
+         * A prop esta no `y` do PE do cristal (`base: 1`), e a arte sobe
+         * dali. Uma caixa centrada na prop pegaria metade do vazio que fica
+         * embaixo da rocha — e o jogador mineraria clicando no chao ao lado
+         */
+        if (
+          point.x < prop.x - meiaLargura ||
+          point.x > prop.x + meiaLargura ||
+          point.y < prop.y - altura ||
+          point.y > prop.y
+        ) {
+          continue;
+        }
+
+        return prop;
+      }
+
+      return null;
+    }
+
+    /**
+     * A PEDIDA MINERAVEL DESTE MAPA, PELO ID, ou `null`.
+     *
+     * E a MESMA consulta que o servidor faz no `minerar`, e pelos mesmos
+     * motivos: a lista vem do mapa em que o jogador esta, e o id nao e
+     * confiavel
+     *
+     * E ela que esconde a pedra ja demolida. Devolver `null` para uma
+     * pedra esgotada e o que faz o `drawProps` nao desenhar aquela prop
+     */
+    pedidaMineravel(mapId, propId) {
+      const mapa = getMap(mapId);
+      const esgotadas = this.pedidasForaDoMapa;
+
+      return (
+        mapa?.props?.find(
+          (prop) =>
+            prop.id === propId &&
+            mineravel(prop.type) &&
+            !(esgotadas instanceof Set && esgotadas.has(propId)),
+        ) ?? null
+      );
+    }
+
+    /**
+     * O JOGADOR ESTA ENCOSTADO NESTA PEDIDA?
+     *
+     * A MESMA conta que o servidor faz, e pelos mesmos numeros: o raio da
+     * pedra, o raio do jogador, e a mesma folga de 18px. A tolerao tem de
+     * ser a MESMA nos dois lados, senao o servidor veria o jogador
+     * longe enquanto o motor o considerava parado na pedra, e a batida
+     * cairia com o boneco a um passo de distancia
+     */
+    encostadoNaPedida(player, prop) {
+      return encostadoNaPedida(
+        player.x,
+        player.y,
+        prop,
+        player.radius ?? 20,
+      );
+    }
+
+
 
   approachTarget(player, target) {
     const targetDistance = distance(player, target);
@@ -5703,6 +8924,30 @@ const alvo = this.world.players.get(id);
       this.updatePresentation(deltaTime);
 
       /**
+       * O RELOGIO DO TELEGRAPH, e ele e o `spriteTime`, nao o `world.time`.
+       *
+       * ## POR QUE NAO O `world.time`
+       *
+       * Porque `world.time` so avanca no ramo de SIMULACAO — a linha que
+       * esta depois do `return` deste bloco. No cliente ele fica congelado em
+       * zero, e um telegraph desenhado com ele nunca chegaria no instante do
+       * impacto: o disco ficaria crescendo para sempre
+       *
+       * ## E POR QUE ISSO NAO QUEBRA A SINCRONIA ENTRE DOIS JOGADORES
+       *
+       * Porque os dois lados andam com o MESMO `deltaTime` por quadro, e
+       * `spriteTime` e `world.time` crescem identicos no motor que simula. O
+       * numero que importa — o `impactoEm` do pacote — e medido no relogio do
+       * SERVIDOR, e o cliente so o reproduz. Um relogio local, parado e
+       * crescente, e o que permite isso
+       *
+       * A divergencia entre os dois so apareceria se um dos lados pulasse
+       * quadro, e ai o `progresso` se refaria pelo `impactoEm` absoluto —
+       * que e a razao de o instante ser absoluto e nao um tempo restante
+       */
+      this.telegraphs.update(deltaTime, this.spriteTime);
+
+      /**
        * Os EFEITOS andam com o tempo no modo rede tambem.
        *
        * `effects.update` estava depois do `return` deste ramo, e o
@@ -5715,7 +8960,7 @@ const alvo = this.world.players.get(id);
        * Aqui dentro e nao la embaixo porque este ramo e o unico que
        * roda no cliente, e o cliente e quem tem o canvas
        */
-      this.effects.update(deltaTime);
+this.effects.update(deltaTime);
 
       this.snapshotAccumulator += deltaTime;
 
@@ -5756,7 +9001,40 @@ const alvo = this.world.players.get(id);
       this.withPlayer(id, () => {
         this.updateCooldowns(deltaTime);
         this.updateAutoPlay(deltaTime);
-        this.updatePlayer(deltaTime);
+
+        /**
+         * A MINERACAO ENTRE O PILOTO E O MOVIMENTO, E NESSE LUGAR POR
+         * UM MOTIVO CONCRETO.
+         *
+         * O `updateAutoPlay` ZERA o `autoMoveDirection` na primeira linha
+         * e depois pode sair por qualquer um dos seus `return`. A mineracao
+         * escreve no mesmo campo, entao precisa vir DEPOIS dele para o
+         * passo nao ser apagado — e ANTES do `updatePlayer`, que e quem
+         * transforma o `autoMoveDirection` em deslocamento de verdade
+         *
+         * Ela nao depende do piloto automatico ligado: quem manda e a
+         * sessao, com `sessao.mineracao`, e o `updateAutoPlay` so sai
+         * cedo quando o auto esta desligado, o que e o caso comum de quem
+         * esta minerando
+         */
+this.runMineracao(deltaTime);
+
+    /**
+     * A PICARETA, E ONDE ESSE BOOLEANO NASCE.
+     *
+     * Fica DEPOIS do `runMineracao` e ANTES do `updatePlayer` porque e o
+     * tique do desenho: o primeiro move o jogador para a pedra, o segundo
+     * resolve a animacao. Sem o `updatePlayer` antes, o boneco entraria na
+     * picareta um quadro atras do movimento
+     *
+     * E um metodo separado, e nao uma linha no fim do `runMineracao`, por
+     * causa dos RETORNOS antecipados daquele: sem mineracao, com o jogador
+     * morto e com a pedra demolida por outro, ele sai antes da ultima linha
+     * e o booleano ficaria preso em `true` com a picareta no ar, sem pedra
+     */
+    this.atualizaMineracaoVisual();
+
+    this.updatePlayer(deltaTime);
 
         this.skillSystem.update(deltaTime);
 
@@ -5768,6 +9046,23 @@ const alvo = this.world.players.get(id);
           this.world.player,
           deltaTime,
         );
+
+        /**
+         * O AUTOMATICO DA POCAO, DEPOIS DO STATUS E NAO ANTES.
+         *
+         * A ordem importa: o `statuses.update` e o que aplica a regeneracao
+         * que a propria pocao deixa. Bebendo antes dele, a pocao seria
+         * aplicada no mesmo quadro em que o efeito antigo ainda estava
+         * contando, e o `heal` do jogador veria mais vida do que a barra
+         * mostraria
+         *
+         * E dentro do `withPlayer` de proposito: o `usarItem` consome da
+         * mochila do jogador em foco, e fora daqui ele gastaria da pilha do
+         * jogador errado
+         */
+        if (this.tryBeberAutoPocao()) {
+          this.sendSnapshot();
+        }
       });
     }
 
@@ -5808,7 +9103,28 @@ const alvo = this.world.players.get(id);
       });
     }
 
-    this.effects.update(deltaTime);
+this.effects.update(deltaTime);
+
+    /**
+     * OS TELEGRAPHS AVANCA UMA VEZ, e nao uma vez por jogador.
+     *
+     * O laço acima roda `updateEnemies` dentro de um `withPlayer` por sessao,
+     * porque cada jogador tem o seu agro e o seu alvo. O telegraph nao tem
+     * nada disso: a execucao pertence ao CHEFE e a um instante, e o dano
+     * dela e aplicado para todo mundo que estiver na forma
+     *
+     * ## E POR QUE O `world.time` AQUI, E O `spriteTime` NO RAMO DE REDE
+     *
+     * Porque este e o ramo de SIMULACAO, e nele o `world.time` avanca (a
+     * linha logo depois do `return` do ramo de rede). O `world.time` e o
+     * relogio do SERVIDOR, e e nele que o `impactoEm` e medido
+     *
+     * No ramo de rede o relogio e o `spriteTime`, porque o `world.time` fica
+     * congelado no cliente — ver o comentario da chamada no ramo de rede
+     */
+    this.telegraphs.update(deltaTime, this.world.time);
+
+    this.acompanharDash();
 
     /**
      * O PAINEL SO SAI DAQUI SE O MOTOR FOR O DONO DELE.
@@ -5903,26 +9219,73 @@ const alvo = this.world.players.get(id);
       return;
     }
 
-    const keys = this.input.keys;
+/**
+   * O EMPURRAO DO DASH E DO GOLPE, e ele e CONSUMIDO AQUI.
+   *
+   * ## POR QUE ESTE `if` E NO MEIO DO `updatePlayer`
+   *
+   * Porque o `pushVelocity` do jogador nunca foi lido em lugar nenhum do
+   * motor: so o do INIMIGO tem o `damping` e a aplicacao, em `updateEnemy`.
+   * O campo existia, era zerado na morte, e nao fazia nada — o golpe do
+   * inimigo no jogador simplesmente nao empurrava
+   *
+   * Aqui o dash e esse empurrao encontrou um consumidor. E o damping e o
+   * MESMO do inimigo, para que o dash pare na velocidade em que comecou em
+   * vez de travar de repente no fim da duracao
+   */
+  if (
+    player.pushVelocity.x !== 0 ||
+    player.pushVelocity.y !== 0
+  ) {
+    const damping = Math.exp(-8 * deltaTime);
 
-    let movementX = 0;
-    let movementY = 0;
+    this.world.collision.moveEntity(
+      player,
+      player.pushVelocity.x * deltaTime,
+      player.pushVelocity.y * deltaTime,
+    );
 
-    if (keys.has("KeyA") || keys.has("ArrowLeft")) {
-      movementX -= 1;
+    player.pushVelocity.x *= damping;
+    player.pushVelocity.y *= damping;
+
+    /**
+     * OS DOIS CAMPOS, E NAO UM OBJETO NOVO.
+     *
+     * O mesmo cuidado do inimigo: o `pushVelocity` nao e comparado por
+     * identidade em lugar nenhum, entao trocar a referencia seria alocar um
+     * objeto por quadro sem ganho nenhum
+     */
+    if (
+      Math.abs(player.pushVelocity.x) < 0.5 &&
+      Math.abs(player.pushVelocity.y) < 0.5
+    ) {
+      player.pushVelocity.x = 0;
+      player.pushVelocity.y = 0;
     }
+  }
 
-    if (keys.has("KeyD") || keys.has("ArrowRight")) {
-      movementX += 1;
-    }
+  /**
+     * O MOVIMENTO VEM DO MAPA DE BINDS, e nao mais de quatro `keys.has`.
+     *
+     * ## O QUE ESTAVA ERRADO
+     *
+     * Aqui a tecla era lida pelo `code`: "o `KeyD` esta apertado?". Todo o
+     * resto do jogo ja perguntava "quem detem esta tecla", e o movimento ficou
+     * de fora. O resultado era que trocar o `D` por `H` no painel gravava o
+     * `H` e nao mexia no motor — o `D` continuava andando e o `H` nao
+     *
+     * ## POR QUE O VETOR VEM PRONTO DO MODULO
+     *
+     * Porque quem sabe o que "direita" e e o catalogo, e ele ja descreve cada
+     * slot de `andar` e de `mirar` com a direcao que ele move. O motor so
+     * precisa somar. Se a traducao ficasse aqui, trocaria a tecla e o
+     * significado ao mesmo tempo, e qualquer acao nova de movimento teria de
+     * ser lembrada em dois lugares
+     */
+    const movimento = vetorDeMovimento(this.input.keys);
 
-    if (keys.has("KeyW") || keys.has("ArrowUp")) {
-      movementY -= 1;
-    }
-
-    if (keys.has("KeyS") || keys.has("ArrowDown")) {
-      movementY += 1;
-    }
+    let movementX = movimento.x;
+    let movementY = movimento.y;
 
     // A intencao que o SERVIDOR recebeu tem prioridade sobre o
     // teclado. No navegador o teclado e a intencao, entao o
@@ -5931,14 +9294,117 @@ const alvo = this.world.players.get(id);
     // mover ninguem, porque o motor so sabia ler tecla.
     const intencao = this.world.session?.intent;
 
-    if (intencao && intencao.seq > 0) {
-      movementX = intencao.moveX;
-      movementY = intencao.moveY;
+if (intencao && intencao.seq > 0) {
+        movementX = intencao.moveX;
+        movementY = intencao.moveY;
+      }
+
+/**
+       * ANDAR CANCELA A MINERACAO.
+       *
+       * E o pedido do usuario, e o oposto do que este codigo fazia antes.
+       * A versao anterior ZERAVA o movimento e deixava o jogador preso na
+       * pedra, com o cancelamento so no clique de novo — a ideia era nao
+       * perder 3min20 de lendario por um esbarrao de dedo no W
+       *
+       * O que faz mais sentido num jogo que tem bicho te atacando e nao ha
+       * como fugir: a mineracao nao pode ser mais forte que o movimento.
+       * Quem precisa do machado clica de novo; quem precisa correr, corre
+       *
+       * ## POR QUE QUALQUER DIRECAO CONTA
+       *
+       * Havia uma versao que ignorava o movimento na MESMA direcao em que o
+       * boneco ja estava andando, para o jogador nao se desandar sozinho
+       * quando apertava a tecla para onde ja ia. Ela quebrava o caso comum:
+       * apertar W com a pedra ao norte NAO cancelava, que e exatamente a
+       * tecla que o jogador aperta para sair
+       *
+       * O resquicio de tecla que aquela guarda tentava evitar nao existe:
+       * o `moveFromKeys` devolve `(0, 0)` exato sem tecla nenhuma, e o
+       * `GameClient` normaliza a intencao antes de mandar. Movimento
+       * diferente de zero e sempre um dedo na tecla
+       *
+       * ## POR QUE APAGAR A SESSAO E O CANCELAMENTO
+       *
+       * Porque o servidor nao tem outro canal para isso. Ele le
+       * `sessao.mineracao` no `tick` seguinte e, vazio, para de contar
+       * batidas e nao solta mais nada. E o mesmo caminho do
+       * `engagedTargetId`, que o motor apaga sozinho quando o jogador
+       * desiste de perseguir
+       *
+       * E o `autoMoveDirection` e zerado junto: a linha de baixo da funcao
+       * da prioridade ao auto, entao sem isto o jogador daria um passo na
+       * direcao da pedra no MESMO tique em que apertou a tecla, e o passo
+       * para o lado errado seria visivel
+       *
+       * E o `alcancado` morre junto, porque e parte do objeto que some: o
+       * lacre nao sobrevive ao fim da mineracao
+       */
+      if (
+        this.world.session?.mineracao &&
+        (movementX !== 0 || movementY !== 0)
+      ) {
+        this.world.session.mineracao = null;
+        this.world.session.mineracaoCaminho = [];
+        this.world.session.mineracaoRecalcula = 0;
+this.autoMoveDirection = null;
+          this.autoFacing = null;
+        }
+
+    /**
+     * O AUTO E SOLTADO AQUI, E ANTES DA `direction`.
+     *
+     * A ordem e o que faz a regra funcionar: `soltarPiloto` zera o
+     * `autoMoveDirection`, e e ele que a linha de baixo usa quando o auto
+     * manda. Soltar depois deixaria o boneco dar o passo na direcao do
+     * piloto e so no quadro seguinte obedecer ao dedo
+     *
+     * ## E POR QUE O `autoPlay` CHEGA ATE AQUI
+     *
+     * Porque ele NAO e solto: o `soltarAutoAoAndar` volta sem mexer em nada
+     * quando o `autoPlay` esta ligado. E ai esta a consequencia que nao e
+     * obvia: o `autoMoveDirection` continua preenchido, e a linha de baixo da
+     * prioridade dele sobre o teclado. O jogador apertava W e o boneco
+     * andava SO para onde o auto mandava — nao cancelava o auto, mas o dedo
+     * virava tecla morta, que e pior do que cancelar
+     *
+     * A `direcaoDoTeclado` abaixo e o que resolve: com o auto play ligado e
+     * o jogador mexendo no teclado, o dedo manda na DIRECAO e o auto
+     * continua mandando no RESTO (alvo, ataque, escolha de acao)
+     */
+    if (movementX !== 0 || movementY !== 0) {
+      this.soltarAutoAoAndar();
     }
 
-    const direction = this.autoMoveDirection
+    const direcaoDoTeclado = normalize(movementX, movementY);
+
+    /**
+     * A DIRECAO, E QUEM VENCE.
+     *
+     * O padrao e o que ja existia: o auto manda, e o teclado so conduz quando
+     * nao ha auto. Inverter a ordem aqui quebraria o auto de deslocamento e o
+     * de viagem, que existem justamente para andar sem dedo na tecla
+     *
+     * A EXCECAO E O `autoPlay` COM O DEDO NO TECLADO. E o unico lugar onde
+     * os dois disputam de verdade: o auto de viagem tem um waypoint fixo e
+     * o jogador nao esta mexendo no teclado ao mesmo tempo, mas o autoplay de
+     * cacar e um botao que o jogador liga e DEPOIS anda — sem isso o
+     * primeiro tique de andar cancelaria a cacada que ele acabou de pedir
+     *
+     * E o `autoMoveDirection` NAO E ZERADO AQUI: zerar seria o
+     * `soltarAutoAoAndar` de novo, e com ele o ataque volta a ser cancelado
+     * no quadro seguinte, quando o `approachTarget` reescreve a direcao. O
+     * teclado vence neste quadro, o auto reescreve no proximo, e o
+     * personagem vai para o alvo — que e o comportamento pedido: andar nao
+     * desliga o auto
+     */
+    const autoManda =
+      this.autoMoveDirection &&
+      !(this.autoPlay && direcaoDoTeclado.x !== 0);
+
+    const direction = autoManda
       ? this.autoMoveDirection
-      : normalize(movementX, movementY);
+      : direcaoDoTeclado;
 
     const statusMultiplier = this.statuses.getMultiplier(
       player,
@@ -6071,6 +9537,26 @@ const alvo = this.world.players.get(id);
     for (const enemy of allEnemies) {
       if (!enemy.alive) {
         enemy.respawnTimer -= deltaTime;
+
+        /**
+         * O RELOGIO DA MORTE CORRE JUNTO COM O RESPAWN.
+         *
+         * O cadaver e o mesmo objeto que vai renascer, entao e o mesmo
+         * `updateEnemies` que gira os dois relogios. Sem este `decrement`
+         * o `deathTimer` ficaria parado em `deathDuration + deathFade`
+         * e o goblin morto nunca sumiria da tela
+         *
+         * O `Math.max` com zero importa: o relogio e lido em
+         * `eMostrandoCadaver` e em `resolveDeathAlpha`, e um valor
+         * negativo ali produziria alfa negativo e cadaver invisivel
+         * antes da hora
+         */
+        if (enemy.deathTimer > 0) {
+          enemy.deathTimer = Math.max(
+            0,
+            enemy.deathTimer - deltaTime,
+          );
+        }
 
         if (enemy.respawnTimer <= 0) {
           this.reviveEnemy(enemy);
@@ -6241,11 +9727,63 @@ const alvo = this.world.players.get(id);
     enemy.alive = false;
     enemy.respawnTimer = 5;
     enemy.aiState = "dead";
+
+    /**
+     * O RELOGIO DA MORTE COMECA AQUI.
+     *
+     * Este e o UNICO lugar que liga a animacao de morte, e ele roda
+     * DEPOIS do `alive = false` acima para que qualquer desenho do mesmo
+     * quadro ja veja o cadaver pronto
+     *
+     * O `null` na primeira linha e o estado de "nao ha arte de morte":
+     * um bicho sem o bloco `death` no layout continua aqui com
+     * `deathTimer` em `null`, que e o valor que o `eMostrandoCadaver`
+     * le para recusar o cadaver, e ele some na hora como antes
+     *
+     * O tempo e `duration + fade`, e nao so `duration`: os dois se
+     * somam porque sao relogios diferentes. O ciclo roda em `duration`,
+     * e o esmaecimento acontece nos `fade` segundos DEPOIS que ele
+     * acabou, com o cadaver parado no ultimo quadro
+     *
+     * Os numeros vem do layout da criatura, e nao sao constantes do
+     * motor: cada bicho que tiver morte no futuro declara o seu ritmo
+     * junto com a arte, que e onde o ritmo tem sentido
+     */
+    const definition = this.enemySprites.get(enemy.id)?.definition;
+
+    if (temMorte(definition)) {
+      enemy.deathDuration = definition.deathDuration;
+      enemy.deathFade = definition.deathFade;
+      enemy.deathTimer =
+        definition.deathDuration + definition.deathFade;
+    } else {
+      enemy.deathTimer = null;
+      enemy.deathFade = 0;
+      enemy.deathDuration = 0;
+    }
+
     enemy.wanderTarget = null;
     enemy.alerted = false;
     enemy.provoked = false;
     enemy.stuckTimer = 0;
     enemy.sidestepTimer = 0;
+
+    /**
+     * O ALVO TRAVADO SAI JUNTO COM A CRIATURA.
+     *
+     * O `reviveEnemy` ja zera isso, e o `killEnemy` tambem — nao por
+     * dupla paranoia, mas porque quem mata um esqueleto no meio da
+     * retaliação NAO passa pelo `revive`: o `targetId` ficaria apontando
+     * para o jogador que o matou durante os 5 segundos de `respawnTimer`,
+     * e qualquer `provocarDuelo` nesse intervalo encontraria um alvo ja
+     * travado e ignoraria quem tivesse acabado de encostar
+     *
+     * O `lastHitBy` (entidade) fica: e a autoria do abate, e o loot usa
+     * ele. Sao campos diferentes — `lastHitBy` e ENTIDADE e nao e limpo,
+     * `lastHitById` e ID de jogador e e da regra de retaliação
+     */
+    enemy.targetId = null;
+    enemy.lastHitById = null;
 
     /**
      * O DONO DO ABATE, E O `killer` E O `lastHitBy` QUE SAO COISAS
@@ -6789,13 +10327,13 @@ const alvo = this.world.players.get(id);
          *
          * Os itens ja foram sorteados uma vez, no `handleKill`, com o
          * filtro do dono. Aqui eles vao para a mochila DELE, e o que
-         * sobra cai no chao tambem com o `ownerId` dele
+         * nao cabe e descartado — nao cai no chao
          */
         const ehDono = sessionId === owner?.id;
 
         const dados = ehDono
           ? this.loot.grantItems(enemy, sessao, itens)
-          : { items: [], dropped: 0 };
+          : { items: [], descartados: 0 };
 
         if (
           dados.items.length > 0 ||
@@ -6805,7 +10343,7 @@ const alvo = this.world.players.get(id);
           this.announceLoot({
             coins: moedasDele,
             items: dados.items,
-            dropped: dados.dropped,
+            descartados: dados.descartados,
             party: idsUnicos.length > 1,
           });
         }
@@ -6898,6 +10436,28 @@ const alvo = this.world.players.get(id);
       quests = [...(quests ?? []), ...novas];
     }
 
+    /**
+     * E A MESMA COISA PARA O TUTORIAL DE HABILIDADE.
+     *
+     * O tutorial de skill era contado so por `onAcao("learnSkill")`, e o
+     * `habilidadesAprendidas` da sessao e a prova de que ele ja pode ter
+     * sido cumprido antes de a missao virar a atual — um save antigo, um
+     * jogador que voltou, ou um `onAcao` perdido num carregamento. Nos tres
+     * casos o tutorial era um no permanente: objetivo cumprido, painel
+     * mostrando 0 de 1, e nenhuma `learnSkill` para acontecer de novo
+     *
+     * O `Set` vira array porque o metodo do `QuestLog` nao conhece a
+     * sessao: ele compara o que esta pronto contra uma lista, e quem sabe
+     * traduzir o `Set` e o motor
+     */
+    const novasSkills = this.world.quests.syncHabilidades([
+      ...(this.world.session?.habilidadesAprendidas ?? []),
+    ]);
+
+    if ((novasSkills ?? []).length > 0) {
+      quests = [...(quests ?? []), ...novasSkills];
+    }
+
     if ((quests ?? []).length === 0) return;
 
     for (const quest of quests) {
@@ -6979,12 +10539,189 @@ const alvo = this.world.players.get(id);
     this.showMessage(`Nível ${level} alcançado!`);
   }
 
-  announceLoot(collected) {
-    const parts = [];
-
-    if (collected.coins > 0) {
-      parts.push(`+${collected.coins} moedas`);
+  /**
+   * Liga ou desliga o passe premium deste jogador.
+   *
+   * ## POR QUE ISTO VIVE NO MOTOR E NAO NO PAINEL
+   *
+   * Porque `premium` decide QUEM pode resgatar. Se ele morasse no
+   * `PassePanel`, o painel desenharia "Resgatar" num dia premium e o
+   * `claimPassReward` recusaria o clique — o botao ficaria la, aparecia
+   * clicavel, e nao faria nada. Os dois precisam ler o mesmo interruptor
+   *
+   * ## E POR QUE O PEDIDO TRAZ O VALOR E NAO UM "INVERTER"
+   *
+* Porque dois cliques rapidos chegam ao servidor em qualquer ordem, e cada
+   * inversao leria o valor anterior. Mandando o valor novo, os dois pedidos
+   * produzem o mesmo estado final — o botao fica onde o jogador deixou
+   */
+setPassPremium(ativo, passeId = PASSE_PADRAO.id) {
+      const premium = ativo === true;
+  
+      const alvo = passeId ?? PASSE_PADRAO.id;
+  
+      /**
+       * O PREMIUM E POR PASSE, E CADA UM CUSTA 100 DIAMANTES.
+       *
+       * ## POR QUE O `passId` ENTRA NO PEDIDO
+       *
+       * Porque o painel tem tres passes, e ligar o premium da Praga nao
+       * pode abrir os dias pagos da Cripta. Com um `premium: true` so, os
+       * tres passes se abriam de uma vez, e o preco de 100 diamantes so
+       * pagava um deles
+       *
+       * E o `passId` vem do catalogo, no servidor: o pedido traz o id, e o
+       * motor descobre o passe por ele. Um id forjado cai em
+       * `getPasse(null)` e nao cobra nem liga nada
+       *
+       * ## POR QUE DESLIGAR E DE GRAÇA
+       *
+       * Porque o premium e uma COMPRA, e cancelar uma compra nao pode
+       * custar mais que ela — senao o preco do cancelamento seria o dobro
+       * do da compra, e o jogador pagaria para desistir
+       */
+      if (premiumAtivo(this.world.passe.premium, alvo) === premium) {
+        return false;
+      }
+  
+      if (premium) {
+        if (!this.world.inventory.spendDiamonds(PASSE_PREMIUM_DIAMANTES)) {
+          this.showMessage(
+            `Diamantes insuficientes: ${PASSE_PREMIUM_DIAMANTES} sao necessarios.`,
+            true,
+          );
+  
+          this.sendSnapshot();
+  
+          return false;
+        }
+      }
+  
+      this.world.passe.premium = premium
+        ? ligarPremium(this.world.passe.premium, alvo)
+        : desligarPremium(this.world.passe.premium, alvo);
+  
+      const nome = getPasse(alvo)?.nome ?? "Passe";
+  
+      this.showMessage(
+        premium
+          ? `${nome} Premium ativado por ${PASSE_PREMIUM_DIAMANTES} diamantes.`
+          : `${nome} Premium desativado.`,
+      );
+  
+      this.sendSnapshot();
+  
+      return true;
     }
+
+  /**
+   * Paga UM dia do passe.
+   *
+   * E o unico lugar do motor que entrega premio de passe. O pedido traz
+   * `passId` e `dia` e nada mais: o item e a quantidade sao lidos do
+   * CATALOGO, entao um cliente que mandasse `quantidade: 999` seria ignorado
+   *
+   * ## A ORDEM DAS CONFERENCIAS, E POR QUE ELA E ESTA
+   *
+   * O catalogo vem primeiro, porque e ele que diz se o par existe. Depois o
+   * resgate, porque e a unica conferenca que impede pagamento dobrado. E o
+   * estado vem por ultimo, porque e o mais caro: `estadoDoDia` so precisa ser
+   * chamado quando o dia existe e ainda nao foi pego
+   *
+   * ## E POR QUE A MOCHILA CHEIA NAO DESFAZ O RESGATE
+   *
+   * Porque o dia que nao coube continua resgatado. O jogador viu "Resgatar",
+   * apertou, e o item esta no `overflow` esperando lugar — voltar o dia para
+   * `disponivel` faria o botao reaparecer e ele poderia apertar de novo, e
+   * cada aperto empurraria mais item para fora da mochila. O aviso de
+   * overflow diz o que aconteceu, que e a mesma resposta que a recompensa de
+   * missao ja dá
+   *
+   * Devolve `true` quando pagou e `false` quando recusou
+   */
+  claimPassReward(passId, dia) {
+    const passe = getPasse(passId);
+    const premio = getDiaDoPasse(passId, dia);
+
+    if (!passe || !premio) {
+      this.showMessage("Esse dia de passe não existe.", true);
+      return false;
+    }
+
+    if (diaResgatado(this.world.passe.resgatados, passId, premio.dia)) {
+      this.showMessage("Esse prêmio já foi resgatado.", true);
+      return false;
+    }
+
+      const estado = estadoDoDia(premio, {
+        resgatado: false,
+
+        /**
+         * O PREMIUM DESTE PASSE, e nao o global.
+         *
+         * Era `this.world.passe.premium`, e o resgate da Praga abria os dias
+         * pagos da Cripta. A conferencia tem que usar o MESMO passe que o
+         * painel desenhou, senao a tela e o motor discordam
+         */
+        premiumAtivo: premiumAtivo(this.world.passe.premium, passId),
+        diaAtual: passe.diaAtual,
+      });
+
+    if (estado !== "disponivel") {
+      this.showMessage(ESTADO_TEXTO[estado] ?? "Esse dia ainda não abriu.", true);
+      return false;
+    }
+
+    const item = getItem(premio.itemId);
+    const entrada = this.world.inventory.add(
+      premio.itemId,
+      premio.quantidade ?? 1,
+      premio.rarity ?? null,
+    );
+
+    /**
+     * O DIA SO MARCA DEPOIS DE O ITEM ENTRAR.
+     *
+     * A ordem e o que impede o item sumir: se o `add` falhar, marcar o dia
+     * como pego diria "ja resgatado" para um item que o jogador nunca recebeu,
+     * e ele nao teria nem o item nem o botao para pedir de novo
+     */
+    if (entrada.added <= 0) {
+      this.showMessage("Mochila cheia: o prêmio não coube.", true);
+      return false;
+    }
+
+    this.world.passe.resgatados = resgatarDia(
+      this.world.passe.resgatados,
+      passId,
+      premio.dia,
+    );
+
+    const nome = item?.name ?? premio.itemId;
+
+    this.showMessage(
+      `Prêmio do dia ${premio.dia}: ${nome} x${entrada.added}.`,
+    );
+
+    this.sendSnapshot();
+
+    return true;
+  }
+
+  announceLoot(collected) {
+    /**
+     * A MOEDA NAO ENTRA NO AVISO.
+     *
+     * O texto era `+16 moedas · Pocao x2`, e a moeda ocupava o primeiro
+     * lugar. E o contrario do que o jogador procura quando mata um bicho:
+     * ele quer saber o que dropou de ITEM. A moeda e a informacao menos
+     * util, e a unica que ele ja tem em outro lugar da tela
+     *
+     * O item continua aparecendo, porque item nao tem leitura em lugar
+     * nenhum — nao tem contador, nao aparece na barra, e a notificacao e
+     * a unica prova de que entrou na mochila
+     */
+    const parts = [];
 
     for (const entry of collected.items) {
       const item = getItem(entry.itemId);
@@ -7002,12 +10739,25 @@ const alvo = this.world.players.get(id);
       this.showMessage(parts.join(" · "));
     }
 
-    if (collected.dropped > 0) {
-      this.showMessage(
-        "Inventário cheio: o excedente ficou no chão.",
-        true,
-      );
-    }
+/**
+       * O AVISO DE MOCHILA CHEIA.
+       *
+       * ## O TEXTO MUDOU PORQUE O COMPORTAMENTO MUDOU
+       *
+       * Era "Inventário cheio: o excedente ficou no chão." — e o item nao
+       * fica mais no chão. O `LootSystem` agora pergunta `cabe()` antes do
+       * `add` e o que nao cabe simplesmente nao e criado
+       *
+       * E o texto novo diz a coisa que o jogador precisa: o loot foi
+       * PERDIDO. Um aviso que so dissesse "mochila cheia" deixaria o jogador
+       * procurando o item no chao, porque e o que ele fazia antes
+       */
+      if (collected.descartados > 0) {
+        this.showMessage(
+          `Inventário cheio: ${collected.descartados} item(ns) perdido(s).`,
+          true,
+        );
+      }
   }
 
   /**
@@ -7048,11 +10798,19 @@ const alvo = this.world.players.get(id);
       return;
     }
 
+    /**
+     * A MOEDA NAO ENTRA NO AVISO AQUI TAMBEM.
+     *
+     * Esta e a segunda rota de coleta: `announceLoot` cuida da morte do
+     * mob, e esta cuida de pegar o que ja estava no chao. As duas
+     * montavam o mesmo texto, entao tirar a moeda so de uma deixaria o
+     * "+16 moedas" aparecendo quando o jogador passesava por cima do drop
+     *
+     * O `coins <= 0` da guarda de cima ja cobre o caso de so ter moeda:
+     * com moedas e nenhum item, os dois avisos ficam vazios e nada e
+     * mostrado
+     */
     const parts = [];
-
-    if (collected.coins > 0) {
-      parts.push(`+${collected.coins} moedas`);
-    }
 
     for (const entry of collected.items) {
       const item = getItem(entry.itemId);
@@ -7113,6 +10871,31 @@ const alvo = this.world.players.get(id);
     const player = this.world.player;
     const selectedTarget = this.getLiveTarget();
 
+    /**
+     * A TAG DO LOCAL, gravada AQUI e antes do `onSnapshot`.
+     *
+     * E o unico ponto do codigo onde a guilda deste jogador ja foi montada
+     * e ainda esta em ma. O canvas precisa dela a cada quadro e nao pode
+     * pedir: pedir significaria chamar `guildaSnapshot` de novo, e isso
+     * dispara `sincronizarPontos` — a regra de pontos por tempo decorrido —
+     * sessenta vezes por segundo
+     *
+     * E ela fica como `null` quando o jogador nao ligou a opcao, e nao como
+     * um objeto com `mostrarTag: false`: o desenho so precisa saber se ha
+     * alguma coisa para pintar
+     */
+    const guildaDoPainel = this.guildaSnapshot();
+
+    const membroEu = guildaDoPainel?.guilda?.membros?.find?.((m) => m.eu);
+
+    this.tagLocal =
+      guildaDoPainel?.guilda && membroEu?.mostrarTag === true
+        ? {
+            tag: guildaDoPainel.guilda.tag,
+            cor: guildaDoPainel.guilda.cor,
+          }
+        : null;
+
     this.onSnapshot({
       time: this.world.time,
 
@@ -7153,6 +10936,18 @@ const alvo = this.world.players.get(id);
       morte: this.morteSnapshot(),
 
       /**
+       * A MINERACAO, ou `null`.
+       *
+       * Sai pelo mesmo caminho da morte: e uma leitura de tela, e o painel
+       * ja e por jogador. A pedra em si e do MUNDO e vem no snapshot de
+       * 20Hz; isto e o que o jogador encostado nela precisa ler
+       *
+       * O motor nao decide nada disto. Quem escreve `session.mineracao` e
+       * o servidor, e o que o `GameEngine` faz e dar forma para a HUD
+       */
+      mineracao: this.mineracaoSnapshot(),
+
+      /**
        * A BOX DO TELEPORTE, ou `null`.
        *
        * Aparece quando o jogador esta no meio de uma caminhada longa e
@@ -7179,6 +10974,41 @@ const alvo = this.world.players.get(id);
       party: this.partySnapshot(),
       craft: this.craftSnapshot(),
       collection: this.collectionSnapshot(),
+
+    /**
+     * A LOJA, e so os PRODUTOS JA COMPRADOS.
+     *
+     * ## POR QUE SO ISSO
+     *
+     * Porque o catalogo da loja e arquivo estatico, e o cliente ja o tem: o
+     * `LojaPanel` importa `LOJA_PACOTES` direto. Mandar os 15 produtos pelo
+     * snapshot a cada 4Hz seria 15 objetos repetidos 4 vezes por segundo
+     * para o cliente jogar fora
+     *
+     * O unico dado que ele NAO tem e quais o jogador ja pagou — e esse e
+     * estado de sessao, mora no servidor, e e o que desativa o card
+     *
+     * ## POR QUE UM ARRAY E NAO O SET
+     *
+     * Porque `Set` nao sobrevive a serializacao: o `JSON.stringify` de um
+     * Set da `{}`. O `[...set]` e o que faz o `lojaComprados.has()` do
+     * servidor virar um `.includes()` no cliente
+     */
+    loja: {
+      comprados: [
+        ...(this.world.session?.lojaComprados ?? []),
+      ],
+    },
+
+      /**
+       * O BAU, logo depois da mochila e do equipamento.
+       *
+       * A ordem nao e estetica: os tres descrevem ONDE o item esta, e o
+       * painel do bau le a mochila e o bau na mesma tela para mostrar o
+       * item nos dois lados. Mandar o baU colado na mochila evita que o
+       * painel precise de um indice solto no objeto
+       */
+      bau: this.bauSnapshot(),
 
       /**
        * O MARKET, no formato do painel.
@@ -7228,6 +11058,32 @@ market: this.marketStore
         [...this.world.players.values()],
         this.personagensSalvos?.() ?? [],
       ),
+
+      /**
+       * O PASSE, e so o estado que o painel nao tem como deduzir.
+       *
+       * O catalogo (dias, icones, descricao) ja e o mesmo para todo mundo e
+       * nao precisa vir no pacote a 4Hz. O que muda por jogador e o
+       * `resgatados` e o `premium`, e sem os dois o painel abriria mostrando
+       * todo dia como "Resgatar" — inclusive os que o jogador ja pegou
+       */
+      passe: {
+        /**
+         * O PREMIUM VAI POR PASSE, e nao como um booleano.
+         *
+         * O painel abre em um passe por vez, e cada um tem o seu
+         * interruptor. Mandar um `premium: true` unico faria o painel
+         * Mostrar o interruptor ligado em todos os tres, e o jogador nao
+         * saberia qual ele pagou
+         *
+         * E o `resgatados` logo abaixo tem o MESMO formato — mapa de
+         * `passId` para a lista. Os dois campos sao "o que o jogador fez
+         * com este passe", e divir o formato entre eles obrigaria o painel a
+         * ler dois formatos para a mesma pergunta
+         */
+        premium: { ...this.world.passe.premium },
+        resgatados: { ...this.world.passe.resgatados },
+      },
 
       /**
        * A GUILDA, do jeito que ESTE jogador a ve.
@@ -7317,10 +11173,54 @@ market: this.marketStore
         ...player.cooldowns,
       },
 
+      /**
+       * O DASH: QUANTO FALTA, em segundos.
+       *
+       * ## POR QUE SEGUNDOS E NAO O RELOGIO ABSOLUTO
+       *
+       * Porque a HUD mostra um numero que BAIXA, e o relogio absoluto seria
+       * um timestamp de 1783 seconds que o painel teria que subtrair do
+       * relogio DELE. O cliente nao tem o mesmo relogio do servidor, entao
+       * a conta sairia errada em maquina adiantada
+       *
+       * O `Math.max(0, ...)` e o que impede o negativo: quando o dash recarrega,
+       * `dashAte` fica no passado e a subtracao daria menos que zero. O icone
+       * receberia um numero negativo e o anel de recarga giraria ao contrario
+       */
+      dashRestante: Math.max(
+        0,
+        (this.world.session?.dashAte ?? 0) - this.world.time,
+      ),
+
       // quais skills estao em automatico. o HUD le isto para
       // acender o `AUTO`; sem o campo, arrastar a skill funcionava
       // e nao sinalizava nada
       skillAuto: [...(this.sessaoDeJogador?.skillAuto ?? [])],
+
+      /**
+       * O USO AUTOMATICO DA POCAO, e o que o painel de configuracao
+       * desenha e o que o slot da HUD mostra.
+       *
+       * Sao TRES campos porque o painel precisa desenh-los e o HUD precisa
+       * saber qual arte colocar no slot: o `ligado` acende o realce, o
+       * `itemId` escolhe a arte da pocao e o `limiar` e o texto do titulo.
+       *
+       * Sem o `contagem` o slot mostraria uma pocao que o jogador ja bebeu
+       * todas: ele continuaria com a arte, sem rastro de que acabou
+       */
+      autoPocao: {
+        ligado: Boolean(this.sessaoDeJogador?.autoPocao?.ligado),
+        limiar:
+          this.sessaoDeJogador?.autoPocao?.limiar ??
+          AUTO_POCAO_LIMIAR_PADRAO,
+        itemId: this.sessaoDeJogador?.autoPocao?.itemId ?? null,
+        contagem:
+          this.sessaoDeJogador?.autoPocao?.itemId
+            ? this.world.inventory.count(
+                this.sessaoDeJogador.autoPocao.itemId,
+              )
+            : 0,
+      },
 
       /**
        * AS HABILIDADES APRENDIDAS, e o nivel que abre a ultimate.
@@ -7339,6 +11239,26 @@ market: this.marketStore
         ...(this.sessaoDeJogador?.habilidadesAprendidas ?? []),
       ],
       ultimateLiberada: ultimateLiberada(player.level),
+
+      /**
+       * O FARM OFFLINE, em duas coisas separadas.
+       *
+       * `ativo` e o que a pausa usa para mostrar que o relogio esta
+       * correndo; `relatorio` e o que o modal do jogador desenha quando
+       * ele volta
+       *
+       * O relatorio viaja inteiro — itens, mobs, numeros — e ele some da
+       * sessao assim que o jogador confirma que viu (`FARM_OFFLINE_VISTO`).
+       * Sem isso ele ocuparia o `PLAYER_STATE` a 4Hz para todo mundo
+       * online, que e onde o painel pesa
+       *
+       * E o `sanear` nao roda aqui: o estado ja foi sanado na
+       * restauracao do save e reescrito pelo accrue. O painel so copia
+       */
+      farmOffline: {
+        ativo: this.sessaoDeJogador?.farmOffline?.ativo === true,
+        relatorio: this.sessaoDeJogador?.farmOffline?.relatorio ?? null,
+      },
 
       selectedTarget: selectedTarget
         ? {
@@ -7464,6 +11384,30 @@ market: this.marketStore
         enemy.attackAnimation = Math.max(
           0,
           enemy.attackAnimation - deltaTime,
+        );
+      }
+
+      /**
+       * O RELOGIO DA MORTE, e ele roda AQUI no modo rede.
+       *
+       * O `updateEnemies` que decrementa o `deathTimer` e a SIMULACAO, e a
+       * simulacao e do servidor: o cliente so desenha. Sem este decremento o
+       * relogio que o `aplicarInimigos` ligou no primeiro pacote ficaria
+       * parado no total, e o cadaver ficaria no primeiro quadro da animacao
+       * de morte para sempre, opaco, sem sumir
+       *
+       * E o `Math.max` com zero porque o `resolveDeathAlpha` divide por ele:
+       * um valor negativo ali daria alfa negativo, e o cadaver viraria um
+       * retangulo invisivel antes da hora
+       *
+       * O `alive === false` e o guarda que separa os dois modos: no offline o
+       * `updateEnemies` ja decrementou, e decrementar duas vezes gastaria o
+       * cadaver em metade do tempo
+       */
+      if (!enemy.alive && enemy.deathTimer > 0) {
+        enemy.deathTimer = Math.max(
+          0,
+          enemy.deathTimer - deltaTime,
         );
       }
 
@@ -7639,6 +11583,7 @@ market: this.marketStore
     context.translate(-player.x, -player.y);
 
     this.drawMap(context);
+    this.drawTelegraphs(context);
     this.drawAim(context);
     this.drawSelectedTarget(context);
     this.drawWorldSorted(context);
@@ -7654,15 +11599,197 @@ market: this.marketStore
     this.drawMinimap(context, width, height);
   }
 
-  drawWorldSorted(context) {
+  /**
+   * OS TELEGRAPHS, desenhados NO CHAO.
+   *
+   * ## A POSICAO NA ORDEM DE DESENHO
+   *
+   * Entre o `drawMap` e o `drawWorldSorted`, e e o unico lugar que serve:
+   * abaixo do mapa a area ficaria escondida pelo ladrilho, e acima do
+   * `drawWorldSorted` ela cobriria o jogador, os mobs e o proprio chefe — que
+   * e o oposto do que o pedido quer, onde o indicador e informacao de fundo
+   * e nunca esconde quem esta sendo atacado
+   *
+   * ## E O CULLING
+   *
+   * E o mesmo `getViewBounds` que o `PropRenderer` usa, pelo mesmo motivo:
+   * um telegraph a 2000px do jogador nao precisa ser desenhado, e o teste e
+   * uma comparacao por execucao viva — normalmente zero ou uma
+   */
+drawTelegraphs(context) {
+  const execucoes = this.world.telegraphs;
+
+  if (!execucoes?.length) return;
+
+  const limites = this.getViewBounds();
+
+  for (const execucao of execucoes) {
+    // o teste de visibilidade e o retangulo da execucao, e nao um raio
+    // solto: um cone e um anel tem forma diferente, e um cull por raio
+    // deixaria de fora um cone longo apontando para fora da tela
+    if (!this.telegraphVisivel(execucao, limites)) continue;
+
+    /**
+     * O TEMPO RESTANTE, e ele e lido no RELOGIO DO SERVIDOR, traduzido
+     * para o relogio do cliente.
+     *
+     * ## POR QUE NAO DIRETO
+     *
+     * Porque `impactoEm` e um numero do `world.time` do servidor, e o
+     * cliente conta em `spriteTime`. Sao escalas sem nenhuma relacao: o
+     * servidor pode estar em 340 e o cliente em 12, e a conta direta dava
+     * `restante: 330` num telegraph de preparo 2.0s. O `progresso` ficava
+     * `1 - 330/2`, um numero muito negativo cortado em zero pelo `Math.max`
+     *
+     * O sintoma era a AREA aparecia parada: a camada base e desenhada com o
+     * progresso zero, entao o jogador via o aviso, mas a frente luminosa
+     * nunca crescia e o pulso nunca rodava. Sem nenhuma sensacao de quando o
+     * golpe comeca e quando acaba
+     *
+     * ## A CORRECAO
+     *
+     * O pacote traz `servidorEm`, o `world.time` do servidor no instante em
+     * que ele foi enviado. O `aplicarTelegraph` do cliente guarda a
+     * diferenca em `deslocamento`, e aqui o tempo do servidor e reconstruido
+     * com o relogio local
+     *
+     * ## E POR QUE RECONSTRUIR, E NAO CONFIAR NO INSTANTE RECEBIDO
+     *
+     * O pacote chega a cada 100ms, e o telegraph nasce em um instante que
+     * pode ser ate 100ms antes de o pacote sair. Confiar no "agora do
+     * recebimento" comecaria a barra sempre atrasada, e com preparo de 1.2s
+     * isso e um quinto da animacao errada
+     */
+    const agoraNoServidor =
+      this.spriteTime + (execucao.deslocamento ?? 0);
+
+    const restante = execucao.impactoEm - agoraNoServidor;
+
+    const progresso = Math.min(
+      1,
+      Math.max(0, 1 - restante / execucao.duracao),
+    );
+
+    /**
+     * O TELEGRAPH QUE JA PASSOU DO IMPACTO E DESCARTADO AQUI.
+     *
+     * E o que fecha o buraco do relogio: se o pacote chegou atrasado e o
+     * instante do impacto ja passou, o indicador some em vez de ficar
+     * congelado no chao. Sem esta linha, um telegraph que o cliente recebeu
+     * 300ms depois do golpe ficaria visivel por um tempo indeterminado
+     */
+    if (restante <= 0) continue;
+
+    this.telegraphRenderer.desenharTelegraph(
+      context,
+      execucao,
+      progresso,
+      restante,
+    );
+  }
+}
+
+/**
+ * O TELEGRAPH ESTA DENTRO DA TELA?
+ *
+ * ## O QUE ESTAVA ERRADO
+ *
+ * O teste usava `execucao.x/y` — que e a PONTO DE ORIGEM da forma — como se
+ * fosse o centro da area. Para o circulo e o anel as duas coisas sao a mesma,
+ * mas para a `line`, a `charge` e o `cone` a origem e um PONTO na borda e a
+ * area vai 620px na direcao do golpe
+ *
+ * O efeito era o `ground_slam` sumindo com o chefe na tela: o circulo tem
+ * raio 300, a origem e o centro, e o teste passava. Ja a `charge`, com
+ * 620 de alcance para um lado so, era desenhada ou nao conforme a POSICAO
+ * do chefe na tela, e nao conforme o alcance — o inverso do que importa
+ *
+ * ## A CAIXA DE CADA FORMA
+ *
+ * Cada tipo tem uma extensao propria, e o cull usa a dela:
+ *
+ * - `circle` e `targeted`: um quadrado em torno do centro, de lado 2x o raio
+ * - `ring`: o quadrado do `raioExterno`
+ * - `line`, `charge` e `cone`: a caixa e montada no sentido do golpe, com o
+ *   comprimento do alcance somado a direcao e a largura somada de lado
+ *
+ * ## E A MARGEM DE 40
+ *
+ * Porque o contorno tem 4px e o glow chega a 9px, e um telegraph que entra
+ * so pela borda da tela e desenhado em parte — sem a margem, ele apareceria
+ * ja no proximo quadro
+ */
+telegraphVisivel(execucao, limites) {
+  const meiaLargura = (execucao.largura ?? 0) / 2;
+
+  let minX = execucao.x;
+  let maxX = execucao.x;
+  let minY = execucao.y;
+  let maxY = execucao.y;
+
+  if (execucao.tipo === "circle" || execucao.tipo === "targeted") {
+    const r = execucao.raio ?? 0;
+
+    minX -= r; maxX += r;
+    minY -= r; maxY += r;
+  } else if (execucao.tipo === "ring") {
+    const r = execucao.raioExterno ?? 0;
+
+    minX -= r; maxX += r;
+    minY -= r; maxY += r;
+  } else if (execucao.alcance !== undefined) {
+    /**
+     * A CAIXA NO SENTIDO DO GOLPE, e nao um quadrado em volta da origem.
+     *
+     * A origem e um ponto na BORDA da area — o ponto de onde o golpe sai — e
+     * a area cresce para o lado que o chefe esta virado. Um quadrado em volta
+     * da origem deixaria de fora metade do alcance
+     */
+    const alc = execucao.alcance;
+
+    minX = Math.min(execucao.x, execucao.x + execucao.dirX * alc) - meiaLargura;
+    maxX = Math.max(execucao.x, execucao.x + execucao.dirX * alc) + meiaLargura;
+    minY = Math.min(execucao.y, execucao.y + execucao.dirY * alc) - meiaLargura;
+    maxY = Math.max(execucao.y, execucao.y + execucao.dirY * alc) + meiaLargura;
+  }
+
+  const margem = 40;
+
+  return (
+    maxX + margem >= limites.x &&
+    minX - margem <= limites.x + limites.width &&
+    maxY + margem >= limites.y &&
+    minY - margem <= limites.y + limites.height
+  );
+}
+
+drawWorldSorted(context) {
     const list = this.world.sort;
     list.length = 0;
 
     if (this.props.isReady()) {
+      /**
+       * A PEDIDA DEMOLIDA NAO ENTRA NEM NA LISTA DE DESENHO.
+       *
+       * E aqui, e nao dentro do `PropRenderer`, porque a lista e ordenada
+       * por `y` junto com inimigos, NPCs e o jogador. Filtrar la dentro
+       * deixaria a pedra na lista de ordenacao sem ser desenhada, e o
+       * espaco dela na ordenacao nao mudaria nada — mas a checagem
+       * rodaria para as 40 props de todo quadro, dentro do `drawProp`
+       *
+       * E o filtro e do SERVIDOR: `pedidasForaDoMapa` e a lista de ids que
+       * o servidor mandou neste pacote. Uma pedra que o servidor nao
+       * declarou continua no mapa, porque quem decide o que existe no
+       * mundo e ele
+       */
+      const fora = this.pedidasForaDoMapa;
+
       for (const prop of this.props.collectVisible(
         this.world.props,
         this.getViewBounds(),
       )) {
+        if (fora instanceof Set && fora.has(prop.id)) continue;
+
         list.push({ y: prop.y, kind: 1, ref: prop });
       }
     }
@@ -7691,7 +11818,19 @@ market: this.marketStore
     }
 
     for (const enemy of this.world.enemies) {
-      if (!enemy.alive) continue;
+      /**
+       * O CADAVER CONTINUA SENDO DESENHADO.
+       *
+       * Antes, um inimigo morto era pulado aqui e sumia no mesmo quadro
+       * em que o HP zerava. Com arte de morte, o cadaver precisa ficar
+       * em cena ate o relogio acabar: e o que faz o jogador ver o golpe
+       * que matou e o corpo caindo, em vez de um mob que apaga
+       *
+       * `eMostrandoCadaver` ja devolve `false` para quem nao tem arte de
+       * morte, entao os outros bichos continuam sumindo na hora — que e o
+       * que o `alive === false` ja fazia
+       */
+      if (!enemy.alive && !this.eMostrandoCadaver(enemy)) continue;
 
       list.push({ y: enemy.y, kind: 3, ref: enemy });
     }
@@ -7926,6 +12065,27 @@ travessarPortal() {
 
     this.setMap(emCima.destino, { chegada });
 
+    /**
+     * O AGGRO DO MAPA DE DESTINO E ZERADO AQUI.
+     *
+     * ## POR QUE DEPOIS DO `setMap` E NAO ANTES
+     *
+     * Porque `resetarAggroDoMapa` trabalha em `world.enemies`, e o `setMap` e
+     * quem troca essa lista pela do mapa novo. Limpar antes de trocar
+     * zeraria o aggro do mapa que o jogador ESTAVA DEIXANDO — e o aggro do
+     * mapa de destino, que e o que faz o mob atacar o jogador recem-chegado,
+     * continuaria inteiro
+     *
+     * ## POR QUE O AGGRO SOBREVIVE A TELEPORTE
+     *
+     * Porque `targetId` e um ID DE SESSAO, nao uma posicao. O mob guarda
+     * "estou atacando o jogador Ana" e nao "estou a 40px daquele ponto". O
+     * teleporte muda o lugar do jogador, mas nao diz nada ao mob — que
+     * continua com o alvo, agora em outro mapa, e persegue a distancia pelo
+     * id
+     */
+    this.resetarAggroDoMapa();
+
     return true;
   }
 
@@ -8048,11 +12208,19 @@ guildaSnapshot() {
 
       if (distance > reach * reach) continue;
 
-      // sobrepostos: o alvo atual tem prioridade para a barra nao pular
-      if (enemy.id === this.selectedTargetId) {
-        return enemy;
-      }
-
+      /**
+       * O MAIS PERTO DO PONTEIRO, e nao o ALVO.
+       *
+       * Este loop voltava imediatamente quando encontrava o alvo
+       * selecionado, com o argumento de que a barra "nao pulava" entre
+       * dois mobs sobrepostos. Hoje isso atrapalha: a barra sobre o alvo
+       * nao aparece mais (ver `getInspectedEnemy`), entao devolver o alvo
+       * aqui so faria o inspetor SUMIR enquanto o jogador aponta para o
+       * outro mob que estava embaixo dele
+       *
+       * Distancia pura resolve o caso sem regra especial: o inimigo que
+       * o jogador esta apontando e o mais proximo do ponteiro
+       */
       if (distance < bestDistance) {
         best = enemy;
         bestDistance = distance;
@@ -8062,9 +12230,36 @@ guildaSnapshot() {
     return best;
   }
 
-  /** o que a barra de vida deve descrever: cursor primeiro, alvo depois */
+  /**
+   * A BARRA FLUTUANTE: so a do mob que o jogador esta APONTANDO.
+   *
+   * ## POR QUE NAO CAI NO ALVO
+   *
+   * Era `hover ?? liveTarget`, e essa segunda parte e o que mantinha a
+   * barra presa em cima do alvo depois do clique. O alvo ja tem a
+   * informacao no `target-panel` do topo da tela — nivel, barra e HP, os
+   * tres campos daqui — entao repetir a mesma coisa em cima do mob era a
+   * mesma leitura duas vezes na tela
+   *
+   * ## POR QUE SOME QUANDO O PONTEIRO ESTA NO ALVO
+   *
+   * E o `enemy.id === this.selectedTargetId` abaixo. Passar o mouse pelo
+   * alvo tem que ser um NAO, e nao um "mostra a mesma informacao em outro
+   * lugar": o painel do topo ja responde pelo alvo, e a barra flutuante
+   * existe para o mob que ele ainda NAO escolheu
+   *
+   * E o mesmo que move o mouse para outro mob mostrar a barra DELE: o
+   * hovered e outro, e a comparacao com o alvo nao bate
+   */
   getInspectedEnemy() {
-    return this.getHoveredEnemy() ?? this.getLiveTarget();
+    const hovered = this.getHoveredEnemy();
+
+    if (!hovered) return null;
+
+    // o alvo ja esta descrito no topo da tela
+    if (hovered.id === this.selectedTargetId) return null;
+
+    return hovered;
   }
 
   /** topo visual do mob, seja sprite seja corpo de fallback */
@@ -8124,38 +12319,67 @@ guildaSnapshot() {
 
     const panelWidth = Math.min(
       MINIMAP_WIDTH,
-      width - MINIMAP_RIGHT * 2,
+      width - MINIMAP_LEFT - MINIMAP_BOTTOM,
     );
 
     const panelHeight = Math.min(
       MINIMAP_HEIGHT,
-      height - MINIMAP_TOP_IDLE - MINIMAP_RIGHT,
+      height - MINIMAP_TOP_IDLE - MINIMAP_BOTTOM,
     );
 
     if (panelWidth < 80 || panelHeight < 60) {
       return;
     }
 
-    const resting = this.hasLiveTarget()
-      ? MINIMAP_TOP_TARGETED
-      : MINIMAP_TOP_IDLE;
+    /**
+     * A COLUNA ESQUERDA, E O MINIMAPA SEM ANIMACAO.
+     *
+     * ## POR QUE O MINIMAPA NAO SE MEXE MAIS
+     *
+     * Havia uma descida: com alvo vivo, o painel saltava de
+     * `MINIMAP_TOP_IDLE` para `MINIMAP_TOP_TARGETED`, interpolado por
+     * `MINIMAP_SLIDE`, e `this.minimapY` guardava a posicao do quadro.
+     * O motivo era o painel de alvo dividir o mesmo slot do minimapa, e
+     * os dois se escondiam na mesma faixa
+     *
+     * Hoje o painel de alvo e o `hud-topo`, no alto central, e o minimapa
+     * esta na coluna esquerda. Eles nunca mais se cruzam, entao a descida
+     * nao desviava de nada: era o minimapa andando sozinho a cada
+     * clique num inimigo
+     *
+     * ## POR QUE SUMIU O `this.minimapY`
+     *
+     * Porque ele existia SO para guardar o meio da interpolacao. Sem
+     * animacao nao ha meio: o `top` e uma constante, entao ler
+     * `MINIMAP_TOP_IDLE` direto diz a mesma coisa sem estado que o
+     * motor precisa manter
+     */
+    const originX = MINIMAP_LEFT;
+    const originY = MINIMAP_TOP_IDLE;
 
-    const blend = 1 - Math.pow(
-      1 - MINIMAP_SLIDE,
-      this.frameDelta * 60,
-    );
+drawMinimap(context, {
+        map: this.world.map,
 
-    this.minimapY += (resting - this.minimapY) * blend;
+        /**
+         * O MAPA DO TILED NO MINIMAPA.
+         *
+         * O canvas fora de tela e desenhado uma vez, quando a folha de tiles
+         * carrega. Aqui so se pergunta se ele existe — o desenho de 6204
+         * tiles por quadro custaria mais que o resto da tela junta
+         *
+         * E `null` para quem nao tem `.tmj`: o hub, o mapa 2 e o vale 1
+         * continuam desenhando as zonas, que e o que eles tem para mostrar
+         */
+        imagemDoMapa: this.minimapaDoMapaTiled(panelWidth, panelHeight),
 
-    if (Math.abs(resting - this.minimapY) < 0.5) {
-      this.minimapY = resting;
-    }
-
-    const originX = width - MINIMAP_RIGHT - panelWidth;
-    const originY = Math.round(this.minimapY);
-
-    drawMinimap(context, {
-      map: this.world.map,
+        /**
+         * AS PEDRAS QUE O SERVIDOR TIROU DO MAPA.
+         *
+         * Sem este campo o minimapa continuava desenhando um ponto cinza
+         * onde a pedra demolida estava, e era o unico lugar da tela que
+         * ainda mostrava uma coisa que nao existe mais
+         */
+        pedidasFora: this.pedidasForaDoMapa,
 
       /**
        * As zonas do mapa que esta carregado.
@@ -8163,6 +12387,18 @@ guildaSnapshot() {
        * Antes eram as do vale, fixas. O hub tem `zones: []`, entao
        * o minimap dele fica sem nenhuma area pintada — que e o
        * correto: nao ha zona de mob no hub
+       */
+      /**
+       * As zonas do mapa que esta carregado.
+       *
+       * Antes eram as do vale, fixas. O hub tem `zones: []`, entao
+       * o minimap dele fica sem nenhuma area pintada — que e o
+       * correto: nao ha zona de mob no hub
+       *
+       * E o mapa 1 tambem nao pinta mais: ele tem o mapa de verdade, e as
+       * zones desenhadas por cima dele eram um esquema de balanceamento
+       * visivel por cima da arte. O `drawMinimap` so usa esta lista quando
+       * NAO tem imagem de mapa
        */
       zones: this.world.map.zones ?? [],
       player: this.world.player,
@@ -8200,10 +12436,52 @@ guildaSnapshot() {
       originY,
       transform: this.getMinimapTransform(
         panelWidth,
-        panelHeight,
-      ),
-    });
-  }
+panelHeight,
+       ),
+     });
+   }
+
+/**
+ * O CANVAS COM O MAPA DO TILED PRONTO PARA O MINIMAPA, ou `null`.
+ *
+ * ## POR QUE ESTE METODO PREGUNTA, E NAO DESENHA
+ *
+ * Porque desenhar o mapa e trabalho de uma vez. Aqui so se pergunta se ja
+ * esta pronto — e o `prepararMinimapa` e quem decide, devolvendo `false`
+ * enquanto a folha de tiles ainda esta baixando
+ *
+ * ## E POR QUE ELE PRECISA DA LARGURA DO PAINEL
+ *
+ * Porque o canvas fora de tela nasce do tamanho que o minimapa vai ter. E o
+ * HUD decide esse tamanho pelo tamanho da janela, entao o canvas so pode
+ * nascer depois do `panelWidth`
+ *
+ * ## E POR QUE A FOLHA PRECISA ESTAR CARREGADA
+ *
+ * Porque sem a imagem nao ha o que desenhar. A `TileMapRenderer` ja sabe
+ * disso — e a mesma imagem, a mesma promessa de `onload`
+ */
+minimapaDoMapaTiled(larguraPainel, alturaPainel) {
+  const mapa = this.world.map;
+
+  if (!mapa) return null;
+
+  const tiled = tiledDoMapa(mapa.id);
+
+  if (!tiled) return null;
+
+  const tileset = tiled.tileset;
+
+  if (!tileset?.url) return null;
+
+  const imagem = this.tiles.imagens.get(tileset.url);
+
+  if (!imagem?.complete || !imagem.naturalWidth) return null;
+
+  prepararMinimapa(mapa.id, tiled, tileset, imagem, larguraPainel, alturaPainel);
+
+  return minimapaDe(mapa.id);
+}
 
 /**
  * A TRANSFORMACAO do minimapa: mundo -> painel.
@@ -8273,15 +12551,60 @@ getMinimapTransform(panelWidth, panelHeight) {
     };
 
     if (this.terrain.isReady()) {
-      this.terrain.draw(
-        context,
-        map,
-        map.zones ?? [],
-        view,
-      );
-    } else {
+      /**
+       * O TERRENO SO DESENHA QUANDO O MAPA NAO TEM CHAO NO TILED.
+       *
+       * ## POR QUE ISTO EXISTE, E O QUE TROCA
+       *
+       * Antes o terreno era desenhado sempre e o Tiled por cima dele. Com um
+       * mapa que tem os dois, o terreno vira trabalho jogado fora: uma
+       * textura de 64px pintada em 6016x4224 e imediatamente coberta por
+       * cima, sessenta vezes por segundo
+       *
+       * ## E POR QUE O MAPO COM TILED FICA PRECISO DE TER O TERRENO
+       *
+       * Nao fica. Ele tem a mesma area, o mesmo tamanho de tile e cobre
+       * todas as celulas — entao "nao tem chao embaixo" e a verdade, e o que
+       * se ve e so o desenho do Tiled
+       *
+       * ## E A IMAGEM QUE AINDA NAO CHEGOU
+       *
+       * Aperto do `isReady` abaixo: com a folha carregando, este bloco
+       * tambem nao desenha, e o que aparece e a cor de fundo do mapa. Uma
+       * textura faltando viraria um retangulo coloridon a tela
+       */
+      if (!temCamadaDeTile(map.id)) {
+        this.terrain.draw(
+          context,
+          map,
+          map.zones ?? [],
+          view,
+        );
+      }
+    } else if (!temCamadaDeTile(map.id)) {
       context.fillStyle = map.background;
       context.fillRect(0, 0, map.width, map.height);
+    }
+
+    /**
+ * AS CAMADAS DO TILED, AGORA SEM A PROPRIEDADE NO MAPA.
+ *
+ * A camada vem de `tiledDoMapa(map.id)`, e nao de `map.tiled`: o objeto
+ * lido carrega dois `Int32Array` de 6204 celulas, e o servidor importa o
+ * mesmo arquivo de mapa em Node puro, onde o plugin do Vite que le o
+ * `.tmj` nao existe. Deixar a camada fora do mapa e o que mantem o servidor
+ * de pe
+ *
+ * O resto do bloco e o mesmo desenho: depois do terreno, antes do portal
+ */
+const tiled = tiledDoMapa(map.id);
+
+if (tiled) {
+      this.tiles.load(tiled);
+
+      if (this.tiles.isReady(tiled)) {
+        this.tiles.draw(context, tiled, view);
+      }
     }
 
     /**
@@ -8306,7 +12629,41 @@ getMinimapTransform(panelWidth, panelHeight) {
       );
     }
 
-    for (const zone of map.zones) {
+    /**
+ * AS ZONAS DESENHADAS POR CIMA DO CHAO: o campo com opacidade e o nome.
+ *
+ * ## POR QUE ESTAO DESLIGADAS
+ *
+ * Porque o mapa 1 passou a ter arte propria. A tela do vale era uma grade de
+ * areas coloridas com o nome escrito em cima — um esquema de balanceamento
+ * desenhado na tela. Com o dungeon do Tiled, essa grade atrapalha: ela tapa o
+ * que voce pintou e escreve "Vale das Cinzas" no meio de um corredor
+ *
+ * ## POR QUE O CODIGO CONTINUA AQUI, E SO COM A FLAG DESLIGADA
+ *
+ * Porque o mapa de teste e o mapa 2 nao tem essa arte. O `mapa_teste` tem
+ * 40 cristais espalhados e precisa da zona pintada para o jogador saber onde
+ * estao, e sem o rotulo o minimo nao tem nenhuma area colorida
+ *
+ * Apagar os dois trechos faria o mapa de teste perder a orientacao, que e a
+ * unica coisa que ele tem. Entao o desenho vira opcao: cada mapa decide se
+ * quer, por `mapaDesenhaZonas`
+ */
+const ZONAS_COM_CAMPO_E_NOME = false;
+
+/**
+ * O MAPA DESENHA AS ZONAS POR CIMA DO CHAO?
+ *
+ * O padrao e `false`: a maioria dos mapas tem arte propria e nao quer um
+ * retangulo colorido em cima. Quem precisa — o mapa de teste — declara o
+ * contrario no proprio mapa, e o `drawMap` so pergunta
+ */
+function mapaDesenhaZonas(map) {
+  return map.desenhaZonas ?? ZONAS_COM_CAMPO_E_NOME;
+}
+
+if (mapaDesenhaZonas(map)) {
+  for (const zone of map.zones) {
       context.fillStyle = zone.color;
       context.fillRect(
         zone.x,
@@ -8324,19 +12681,56 @@ getMinimapTransform(panelWidth, panelHeight) {
         zone.y + 35,
       );
     }
+  }
 
     /**
-     * A LINHA CINZA DA BORDA FOI DESPENSADA.
+     * A LINHA CINZA DA BORDA.
      *
-     * Era um `strokeRect` de 8px em `#647064` desenhado em cima de
-     * `map.bounds`, e ele existia para mostrar onde o mapa acabava. Com
-     * a sebe de arbusto fechando as quatro bordas — `BORDAS`, em
-     * `src/data/maps/index.js` — a linha virou parede pintada de cinza
-     * por cima da parede de verdade
+     * ## POR QUE ELA VOLTOU, E SO PARA ALGUNS MAPAS
      *
-     * A `setMap`/`clampToBounds` continuam sendo o limite do mundo: so
-     * deixou de haver uma linha na tela dizendo onde ele esta
+     * Ela foi despensada porque a sebe de arbusto passou a fechar as
+     * quatro bordas do vale: com parede de verdade na tela, a linha era
+     * parede pintada de cinza por cima da parede de verdade
+     *
+     * O mapa de teste nao tem sebe — e um mapa vazio, sem prop
+     * nenhuma. Sem a linha, o jogador sai andando do nada: o
+     * `clampToBounds` segura ele, mas nao ha nada dizendo onde o mundo
+     * acaba
+     *
+     * Por isso ela volta com `map.limiteVisivel`, e NAO como uma regra
+     * de todo mapa. O vale e o hub tem a sebe; se a linha voltasse para
+     * todos, seria a mesma parede pintada de volta
+     *
+     * ## POR QUE O RETANGULO, E NAO A FORMA DESENHADA
+     *
+     * Houve uma tentativa de trocar o retangulo pelo contorno irregular
+     * do desenho, e ela voltou atras. O traço da imagem e um rascunho em
+     * papel: semeado em pixel de mundo ele dava segmentos de um pixel de
+     * lado e cantos que nao fechavam, e a linha saia serrilhada em vez de
+     * reta
+     *
+     * O retangulo e a forma que o desenho QUERIA, e ele ja resolve o
+     * que a linha tem de resolver: mostrar onde o mundo acaba. O que
+     * faltava era ela existir
+     *
+     * E 8px em `#647064`, as medidas de antes: a cor e a espessura que
+     * `src/data/maps/index.js` documenta quando fala da arte ficando
+     * fora da linha
      */
+    if (map.limiteVisivel && map.bounds) {
+      const limite = map.bounds;
+
+      context.save();
+      context.strokeStyle = "#647064";
+      context.lineWidth = 8;
+      context.strokeRect(
+        limite.x,
+        limite.y,
+        limite.width,
+        limite.height,
+      );
+      context.restore();
+    }
   }
 
   drawAim(context) {
@@ -8455,6 +12849,35 @@ getMinimapTransform(panelWidth, panelHeight) {
     context.restore();
   }
 
+  /**
+   * O CADAVER AINDA ESTA EM CENA?
+   *
+   * A condicao e tripla e cada parte existe por um motivo:
+   *
+   * - `deathTimer > 0` e o relogio. Ele comeca em
+   *   `deathDuration + deathFade` quando o bicho morre, e e o que
+   *   segura o corpo no lugar depois do golpe
+   * - `temMorte` garante que existe arte de morte. Sem o bloco
+   *   `death` no layout, o `resolveFrameRect` cairia no `idle` e o
+   *   cadaver apareceria DE PE no lugar dele
+   * - `!enemy.alive` garante que o vivo nunca entre por aqui. Sem
+   *   este, um goblin de pe com `deathTimer` positivo — o que acontece
+   *   no quadro entre o `reviveEnemy` e a proxima limpeza — desenharia
+   *   a animacao de morte em vez do idle
+   *
+   * E o unico lugar que decide se o morto aparece, e ele e chamado tanto
+   * pela lista de desenho quanto pelo `drawEnemy`, para que os dois
+   * concordem sobre quem esta em cena
+   */
+  eMostrandoCadaver(enemy) {
+    if (enemy.alive) return false;
+    if (!(enemy.deathTimer > 0)) return false;
+
+    const definition = this.enemySprites.get(enemy.id)?.definition;
+
+    return temMorte(definition);
+  }
+
   drawEnemy(context, enemy) {
     // um outro jogador esta na lista de inimigos, mas e desenhado
     // como JOGADOR: folha da classe dele e animacao de jogador.
@@ -8466,137 +12889,573 @@ getMinimapTransform(panelWidth, panelHeight) {
 
     const sheet = this.enemySprites.get(enemy.id);
 
+    /**
+     * O TEMPO DA MORTE E O PROPRIO RELOGIO, e nao o relogio do mundo.
+     *
+     * O `spriteTime` do motor e um contador continuo, entao um cadaver
+     * cairia no meio de qualquer quadro da animacao de morte: dois
+     * goblins mortos no mesmo instante mostrariam quadros diferentes.
+     *
+     * Aqui o tempo que chega no desenho e o quanto o relogio JA
+     * andou, e ele comeca em zero no golpe. E o
+     * `resolveDeathElapsed` que trava o tempo no fim do ciclo quando a
+     * animacao acaba, e sem esse piso o `resolveFrame` faria o ciclo
+     * recomecar e o cadaver voltaria ao primeiro quadro
+     */
+    const cadaver = this.eMostrandoCadaver(enemy);
+
+    const tempo = cadaver
+      ? resolveDeathElapsed(enemy, enemy.deathDuration)
+      : this.spriteTime + enemy.spriteOffset;
+
     const drawn = sheet
-      ? sheet.drawCreature(
-          context,
-          enemy,
-          this.spriteTime + enemy.spriteOffset,
-        )
+      ? sheet.drawCreature(context, enemy, tempo, cadaver)
       : false;
 
-    if (!drawn) {
+    /**
+     * O FUNDO NAO DESCE PARA O CORPO VETORIAL.
+     *
+     * Todo bicho sem folha cai no corpo desenhado a mao. Esse corpo
+     * nao tem animacao de morte, e sem este desvio o cadaver do
+     * goblin que ainda nao carregou a imagem apareceria como um boneco
+     * de pe, parado, no meio da animacao que sumiria logo depois
+     */
+    if (!drawn && !cadaver) {
       this.drawEnemyBody(context, enemy);
     }
   }
 
   /**
    * barra de vida no estilo OSRS: nome, barra e numeros.
-   * so aparece no mob sob o cursor ou no alvo, entao some com o clique.
+   *
+   * ## O QUE ELA DESCREVE, E SO ISSO
+   *
+   * O mob sob o cursor, e NADA mais. Antes eram dois: o do cursor OU o
+   * alvo selecionado, e a segunda parte segurava a barra em cima do alvo
+   * depois do clique — o jogador clicava num mob e a informacao nao
+   * saia de cima dele, so mudava de lugar para o topo da tela
+   *
+   * Agora sao tres estados, e o terceiro e o que o jogador pediu:
+   *
+   * - mouse em cima de um mob QUE NAO e o alvo: a barra aparece
+   * - mouse em cima do alvo: nada, porque o `target-panel` do topo ja
+   *   mostra nivel, barra e HP — os mesmos tres campos
+   * - mouse fora de qualquer mob: nada
+   *
+   * A regra esta em `getInspectedEnemy`, e o desenho aqui nao decide nada:
+   * ele so desenha o que aquele metodo devolveu
    */
-  drawEnemyHpBar(context) {
+drawEnemyHpBar(context) {
     const enemy = this.getInspectedEnemy();
 
     if (!enemy) return;
 
+    /**
+     * A PLACA DE VIDA, em UMA LINHA.
+     *
+     * ## POR QUE CABE TUDO NUMA LINHA SO
+     *
+     * Antes eram tres: a barra, e abaixo dela uma linha com `Nv.X` a esquerda
+     * e `hp / max` a direita, e abaixo ainda os pontos de status. Tres linhas
+     * de texto e barra em cima de um boneco ocupavam mais espaco vertical do
+     * que o proprio mob
+     *
+     * Aqui e uma faixa so: o nivel em um numero a esquerda, a barra no meio e
+     * o hp a direita. O que mudou nao e o que se mostra — sao as mesmas tres
+     * informacoes — e quantas linhas elas ocupam
+     *
+     * ## E POR QUE O NUMERO DO NIVEL FICA DENTRO DE UM RETANGULO
+     *
+     * Porque um numero solto na esquerda da barra parece parte do valor do
+     * hp: o jogador le "12 ......... 40/80" e nao sabe onde um termina e o
+     * outro comeca. O retangulo e o que separa as duas leituras sem texto
+     * entre elas
+     */
     const definition =
       this.enemySprites.get(enemy.id)?.definition;
-
-    const barWidth = Math.max(
-      78,
-      (definition?.frameWidth ?? 32) *
-        (definition?.scale ?? 1),
-    );
-    const barHeight = 9;
-
-    const left = enemy.x - barWidth / 2;
-    const top = this.enemyHeadTop(enemy) - 9;
 
     const maxHp = Math.max(1, Math.ceil(enemy.maxHp));
     const hp = Math.max(0, Math.ceil(enemy.hp));
     const ratio = Math.max(0, Math.min(1, hp / maxHp));
-    const filled = barWidth * ratio;
+    const level = Math.max(1, Math.round(enemy.level ?? 1));
+
+/**
+     * A BARRA TEM LARGURA PROPRIA, e nao a largura do sprite.
+     *
+     * Antes ela era `Math.max(78, frameWidth * scale)` — a largura do
+     * desenho do mob. Um boss de 200px de quadro ganhava uma barra de 200px,
+     * e o hp ficava a 200px do nome, longe demais para os dois numeros serem
+* lidos como um par
+     */
+    /**
+     * A LARGURA DA PLACA, e ela perdeu 44px nesta versao.
+     *
+     * ## POR QUE O `wHp` SUMIU
+     *
+     * Porque o numero do hp foi para DENTRO da barra. A coluna de 44px que
+     * existia para hospedar `840/1200` na ponta direita nao tem mais o que
+     * segurar, e deixar um vao de 44px vazio no meio da placa faria o nivel
+     * e a barra ficarem colados a esquerda de um buraco
+     *
+     * E a barra CRESCEU de 62 para 84px para compensar: o numero do hp vai
+     * ficar em cima dela, e um numero de quatro algarismos precisa de largura
+     * para caber com o contorno preto em volta
+     */
+/**
+     * A COLUNA DO NIVEL CRESCEU, PORQUE O NUMERO GANHOU O PREFIXO.
+     *
+     * Antes eram 20px para caber "12". Sao 34px agora porque o texto e
+     * `NV.12`: quatro caracteres a 10px com o contorno de 3px de cada lado.
+     * Deixar nos 20 faria o prefixo passar por cima do nome, e os dois textos
+     * da linha se encostariam com o "NV." cortado no meio
+     */
+const wNivel = 34;
+
+    const vao = 6;
+
+    const barWidth = 74;
+
+    /**
+     * A PLACA TEM DUAS LINHAS: O PAR (NIVEL E NOME) E A BARRA.
+     *
+     * ## O QUE O PEDIDO MUDOU
+     *
+     * Antes era uma faixa so: nivel, barra e hp lado a lado, com o nome
+     * ACIMA do nivel e da barra. Agora o nivel e o nome dividem a linha de
+     * cima — nivel a ESQUERDA, nome a DIREITA — e a barra desce para baixo
+     * dos dois, ocupando a largura inteira da placa
+     *
+     * ## POR QUE A PLACA FICOU MAIS ESTREITA
+     *
+     * Porque o pedido foi encurtar: `barWidth` foi de 84 para 74, e a placa
+     * saiu de 110px para 100px. A barra e a linha de cima dividem essa largura,
+     * entao encurtar `barWidth` encurta a placa inteira sem mexer na posicao
+     * do nivel nem na da ponta do nome
+     *
+     * ## E POR QUE A BARRA FICOU MAIS ALTA
+     *
+     * Porque 7px de vermelho com uma borda de 2px deixava so 3px de preenchimento
+     * visivel — a barra lia como um risco. Agora sao 9px de altura, e o
+     * preenchimento enche a borda em vez de encostar nela
+     *
+     * ## A ALTURA DA PLACA
+     *
+     * Sao duas linhas: 12px do par de cima + a barra. E `alturaTotal` nao e
+     * lida para desenhar a barra — ela serve para o bloco de status que vem
+     * DEPOIS, que se apoia nela para saber onde a placa termina
+     */
+    const hLinha = 16;
+    const barHeight = 14;
+
+    /**
+     * OS 3px ENTRE A LINHA DE CIMA E A BARRA.
+     *
+     * Sem eles as duas linhas se encostavam: o contorno preto de 3px do nivel
+     * e do nome chegava na borda preta de 2px da barra, e as duas se fundiam
+     * num traco so. Com o vao, a barra se lê como uma coisa separada da linha
+     * de cima — que e o que o jogador precisa ver para comparar "12, Goblin"
+     * com o preenchimento de baixo
+     */
+    const vaoBarra = 3;
+
+    const larguraTotal = wNivel + vao + barWidth;
+    const alturaTotal = hLinha + barHeight;
+
+    const esquerda = enemy.x - larguraTotal / 2;
+    /**
+     * A PLACA SOBE 18px, E TODA ELA JUNTO.
+     *
+     * A barra estava em cima do mob: `enemyHeadTop` devolve o topo da arte,
+     * que ja e o ponto mais alto do desenho, e a placa comecava 9px ACIMA
+     * dele — mas a placa tem 28px de altura, entao 21px dela caíam por cima
+     * da cabeca e do tronco
+     *
+     * O deslocamento e do `topo`, e nao de cada elemento: nivel, nome e barra
+     * leem todos a mesma `topo`, entao subir ela sobe o bloco inteiro e
+     * mantem o vao de 3px e a borda da barra onde estavam
+     */
+    const topo = this.enemyHeadTop(enemy) - 27;
 
     context.save();
+    context.textBaseline = "alphabetic";
     context.textAlign = "center";
+
+    /**
+     * A PLACA, SEM FUNDO.
+     *
+     * ## POR QUE NAO TEM `fillRect` NEM `strokeRect`
+     *
+     * Porque a placa virou so a BARRA. Ela deixou de ser um retangulo com
+     * nivel, barra e hp dentro, e passou a ser a barra em si — o nivel esta
+     * a esquerda dela e o hp por cima. Desenhar um fundo embaixo seria um
+     * retangulo vazio de 110x15px ao redor da barra, e o jogador veria uma
+     * caixa que nao guarda nada
+     *
+     * ## E O QUE SEGURA A LEGIBILIDADE SEM O FUNDO
+     *
+     * O contorno preto de cada texto. O numero do nivel e o do hp tem
+     * `strokeText` antes do `fillText`, e cada um carrega o proprio contorno
+     * sobre o que estiver atras — sprite, mapa ou nada. O fundo da placa era
+     * redundante com isso: ele protegia o texto em bloco, e o contorno
+     * protege letra por letra
+     */
+
+    /* ---------------- o nivel ---------------- */
+
+    /**
+     * O NIVEL, e ele NAO E DIVIDIDO POR DEZ.
+     *
+     * ## O QUE ESTAVA AQUI
+     *
+     * Era `Math.round(level / 10)`, com o piso `Math.max(1, ...)`. A ideia
+     * era mostrar as DEZENAS porque a coluna tem 20px e "40" lia melhor que
+     * "4", ja que as dezenas sao o que separa um mob fraco de um boss
+     *
+     * ## POR QUE ISSO VIROU "1" EM TODA PARTE
+     *
+     * Porque a regra foi escrita para bichos de nivel alto e o mapa tem
+     * quase nenhum. O goblin da pedreira vai do nivel 8 ao 12, e o do Campo
+     * de Provas e o 7:
+     *
+     * ```
+     *   nivel 7  ->  7 / 10 = 0.7  ->  round = 1  ->  piso = 1
+     *   nivel 8  ->  8 / 10 = 0.8  ->  round = 1  ->  piso = 1
+     *   nivel 9  ->  9 / 10 = 0.9  ->  round = 1  ->  piso = 1
+     *   nivel 12 -> 12 / 10 = 1.2  ->  round = 1  ->  piso = 1
+     * ```
+     *
+     * Todos os onze bichos do mapa 1 estao abaixo do nivel 20, entao TODOS
+     * apareciam como 1. O numero nao distinguia nada: era a mesma leitura
+     * para o esqueleto de nivel 1 e para o goblin de nivel 12
+     *
+     * ## POR QUE O NIVEL INTEIRO E O CERTO AGORA
+     *
+     * Porque e o que o jogador precisa comparar. Ele esta olhando para o
+     * mob nao para saber a dezena dele, e sim se aquele e mais forte ou
+     * mais fraco que o ultimo. Com o numero inteiro, o goblin de nivel 7 do
+     * Campo de Provas e o de nivel 12 da floresta se distinguem na placa
+     *
+     * E cabe em 20px: sao dois algarismos a 10px de fonte, e o `strokeText`
+     * com `lineWidth: 3` e o contorno preto que garante a leitura sobre o
+     * sprite, entao nao ha o que se perder
+     */
+    const nivelCurto = `NV.${level}`;
+
+    context.font = "700 10px Inter, sans-serif";
+    context.textAlign = "center";
+    context.textBaseline = "alphabetic";
+
+    /**
+     * O NIVEL NA PONTA ESQUERDA DA LINHA DE CIMA.
+     *
+     * E o centro dos `wNivel` de 34px, e nao mais o centro da placa. Com o
+     * nome a direita e a barra embaixo, o numero fica sozinho no canto
+     * esquerdo do par — e o `center` evita que ele cole na borda
+     */
+    const nivelCentro = esquerda + wNivel / 2;
+
+    const nivelBase = topo + 12;
+
+    context.lineWidth = 3;
     context.lineJoin = "round";
+    context.strokeStyle = "rgba(0, 0, 0, 0.92)";
+    context.strokeText(nivelCurto, nivelCentro, nivelBase);
 
-    // moldura preta da barra
-    context.fillStyle = "rgba(4, 6, 9, 0.92)";
-    context.fillRect(
-      left - 2,
-      top - 2,
-      barWidth + 4,
-      barHeight + 4,
-    );
-
-    context.strokeStyle = "rgba(0, 0, 0, 0.9)";
-    context.lineWidth = 1;
-    context.strokeRect(
-      left - 2.5,
-      top - 2.5,
-      barWidth + 5,
-      barHeight + 5,
-    );
-
-    // preenchimento
-    if (filled > 0) {
-      context.fillStyle =
-        ratio > 0.35 ? "#c1160f" : "#8f0f0a";
-      context.fillRect(left, top, filled, barHeight);
-
-      context.fillStyle = "rgba(255, 255, 255, 0.24)";
-      context.fillRect(left, top, filled, 2);
-    }
-
-    // faixa de comportamento das criaturas
-    if (enemy.isCreature) {
-      context.fillStyle =
-        BEHAVIOR_COLORS[enemy.behavior] ?? "#8d97a3";
-      context.fillRect(
-        left,
-        top + barHeight + 3,
-        filled,
-        2,
-      );
-    }
-
-    // nome
-    context.font = "700 11px Inter, sans-serif";
-    context.textBaseline = "bottom";
-    context.lineWidth = 3;
-    context.strokeStyle = "rgba(0, 0, 0, 0.85)";
-    context.strokeText(enemy.name, enemy.x, top - 6);
-    context.fillStyle = "#f0e6d2";
-    context.fillText(enemy.name, enemy.x, top - 6);
-
-    // numeros: nivel a esquerda e vida a direita, ancorados na barra
-    // (sem measureText: os proxies de teste nao devolvem metricas)
-    const level = Math.max(1, Math.round(enemy.level ?? 1));
-    const textY = top + barHeight + 8;
-
-    context.font = "700 9px Inter, sans-serif";
-    context.textBaseline = "top";
-    context.lineWidth = 3;
-    context.strokeStyle = "rgba(0, 0, 0, 0.85)";
-
-    const levelLabel = `Nv.${level}`;
-
-    context.textAlign = "left";
-    context.strokeText(levelLabel, left, textY);
     context.fillStyle = "#e5bb68";
-    context.fillText(levelLabel, left, textY);
+    context.fillText(nivelCurto, nivelCentro, nivelBase);
 
-    const hpLabel = `${hp} / ${maxHp}`;
+    /* ---------------- a barra ---------------- */
 
-    context.textAlign = "right";
-    context.strokeText(hpLabel, left + barWidth, textY);
-    context.fillStyle = "#cfc3ae";
-    context.fillText(hpLabel, left + barWidth, textY);
+    /**
+     * A BARRA DESCE PARA DEPOIS DO NIVEL E DO NOME.
+     *
+     * `yBarra` e `topo + hLinha`: a linha de cima tem 12px, e a barra comeca
+     * logo abaixo dela. Ela ocupa a largura INTEIRA da placa, e nao so os
+     * `barWidth`: o nome esta na direita agora, entao a barra precisa
+     * passar por baixo dos dois para nao ficar um vao vazio embaixo do nome
+     */
+    const xBarra = esquerda;
+    const yBarra = topo + hLinha + vaoBarra;
 
+    /**
+     * O FUNIL DA BARRA, desenhado ANTES do preenchimento.
+     *
+     * Porque e o fundo que o preenchimento corta. Um fundo so no
+     * `fillStyle` do preenchimento deixaria a parte vazia transparente e o
+     * boneco apareceria dentro da barra
+     */
+    context.fillStyle = "#1a1410";
+    context.fillRect(xBarra, yBarra, larguraTotal, barHeight);
+
+    if (ratio > 0) {
+      /**
+       * O VERMELHO VIVO, e nao um vermelho de tom.
+       *
+       * ## POR QUE `#FF0000` E NAO UM TOM ESCURIDO
+       *
+       * Porque era esse o pedido, e o vermelho puro e o que o jogador
+       * associou a vida em todo MMORPG: ele le "vermelha = perigo" sem
+       * traduzir nada
+       *
+       * ## E O BRILHO DE CIMA, que o vermelho puro sozocoa
+       *
+       * Porque `#FF0000` puro e chapado: um retangulo de 7px de altura em cor
+       * pura parece um bloco de tinta. A faixa clara de 2px no topo e o que da
+       * volume e a sensacao de liquido, e e ela que impede a barra de virar
+       * um quadrado chapado
+       */
+      context.fillStyle = "#ff0000";
+      context.fillRect(xBarra, yBarra, larguraTotal * ratio, barHeight);
+
+      /**
+       * O BRILHO DO TOPO, e sao 2px.
+       *
+       * E branco puro e nao o `rgba(255,255,255,0.2)` de antes: sobre o
+       * vermelho puro, um branco a 20% ficava rosa-claro e nao lia como
+       * reflexo. O branco de verdade e o que produz o brilho
+       */
+      context.fillStyle = "rgba(255, 255, 255, 0.45)";
+      context.fillRect(xBarra, yBarra, larguraTotal * ratio, 2);
+    }
+
+    /**
+     * A BORDA PRETA DA BARRA, e ela fecha a placa.
+     *
+     * ## POR QUE PRETA E NAO DA COR DO FUNIL
+     *
+     * Porque o funil e `#1a1410`, um marrom quase igual ao mapa do vale. A
+     * barra vazia sumia no chao e o jogador perdia de vista onde ela acaba.
+     * O preto e o unico traço que se destaca de qualquer mapa do jogo
+     *
+     * ## E POR QUE O DESLOCAMENTO E A METADE DA ESPESSURA
+     *
+     * Porque em pixel inteiro o `strokeRect` cai entre dois pixels e o
+     * navegador o pinta em dois tons, deixando a borda falha. O deslocamento
+     * de meia espessura joga a linha no centro dos pixels, e ela sai cheia —
+     * e ele precisa acompanhar a espessura: com 2px de borda o
+     * deslocamento e 1, e nao mais 0.5, senao a borda de cima encosta no
+     * pixel de cima e a de baixo nao fecha
+     *
+     * ## E POR QUE ELA VEM DEPOIS DO BRILHO
+     *
+     * Porque o `strokeRect` escreve em cima. Desenhado antes, o brilho de 2px
+     * do topo cobriria a borda no trecho preenchido e a barra perderia o
+     * contorno justamente onde tem cor embaixo
+     */
+    const borda = 2;
+
+    context.lineWidth = borda;
+    context.strokeStyle = "#000000";
+    context.strokeRect(
+      xBarra + borda / 2,
+      yBarra + borda / 2,
+      larguraTotal - borda,
+      barHeight - borda,
+    );
+
+    /**
+ * O HP DENTRO DA BARRA, e nao na ponta dela.
+ *
+ * ## POR QUE O NUMERO SAI DA COLUNA DE 44px
+ *
+ * Porque ele estava la para nao cobrir o preenchimento, e essa e a razao
+ * errada: o numero da vida e a informacao mais importante da placa, e ele
+ * ficava na posicao mais不易 de ler — na ponta direita, sobre fundo escuro
+ * quando a barra esta cheia, e sobre o preenchimento quando ela esta
+ * quase vazia, o que e o oposto de quando o jogador precisa do numero
+ *
+ * ## E POR QUE ISSO E O QUE TODO MMORPG FAZ
+ *
+ * Porque e o padrao aprendido: o numero vive DENTRO da barra e a barra
+ * cresce por tras dele. O jogador le "1200" no meio e o preenche como o
+ * fundo, e nao precisa ir ate a ponta
+ *
+ * ## E O QUE RESOLVE O COLISOR DE TEXTO
+ *
+ * A barra e o fundo, e o preenchimento passa por baixo. Por isso a
+ * legibilidade vem do CONTORNO preto do texto e nao de escolher uma cor
+ * clara ou escura: o contorno garante contraste nas duas metades, cheia e
+ * vazia, e o numero pode ficar creme em qualquer uma delas
+ */
+    context.font = "700 10px Inter, sans-serif";
     context.textAlign = "center";
 
-    // efeitos de status
-    const dots = Math.min(4, enemy.statusEffects.length);
+    /**
+     * O NUMERO com o contorno, e o preenchimento por baixo.
+     *
+     * E nesta ordem de proposito: o `strokeText` antes do `fillText` faz o
+     * contorno nao comer a propria letra, e o preenchimento depois faz o
+     * numero ficar por cima da barra colorida. Invertido, o numero fica
+     * atras da barra e some
+     */
+    const hpCentro = xBarra + larguraTotal / 2;
+
+    /**
+     * A BASE DO HP, e ela e o CENTRO DA BARRA MAIS A METADE DA FONTE.
+     *
+     * ## POR QUE NAO E `yBarra + barHeight - 1.5`
+     *
+     * Porque essa conta gruda o texto na BORDA de baixo. Com a barra em 14px,
+     * ela punha a base 12.5px abaixo do topo, e o texto — que tem 10px de
+     * altura e cerca de 7px acima da base — aparecia de y+5 a y+12, deixando
+     * 2px vazios em cima e nenhum embaixo. O jogador lia o numero "afundado"
+     * na barra
+     *
+     * ## POR QUE `+ 3.5`, E NAO `+ 5`
+     *
+     * Porque `textBaseline` e `alphabetic`: a base e o pe do texto, e o olho
+     * le o meio do glifo, nao a base. Uma fonte de 10px tem cerca de 3.5px de
+     * altura visivel ACIMA da base, e e isso que o `+ 3.5` empurra para
+     * baixo. Somar a altura inteira da fonte desceria o numero mais 1.5px
+     *
+     * E a conta e escrita em `barHeight / 2` para o texto continuar no centro
+     * se a barra mudar de altura de novo
+     */
+    const hpBase = yBarra + barHeight / 2 + 3.5;
+
+    /**
+     * `atual / maximo`, e nao so o atual.
+     *
+     * Porque "840" sozinho nao diz se o mob esta quase morto ou quase
+     * inteiro: um goblin com 840 de 1200 e um boss com 840 de 840 sao o
+     * MESMO numero. O maximo e o que da a escala, e a barra sozinha e uma
+     * leitura visual que o jogador teria de converter de cabeca
+     */
+    const hpTexto = `${hp}/${maxHp}`;
+
+    context.lineWidth = 3;
+    context.lineJoin = "round";
+    context.strokeStyle = "rgba(0, 0, 0, 0.92)";
+    context.strokeText(hpTexto, hpCentro, hpBase);
+
+    context.fillStyle = "#f4ece0";
+    context.fillText(hpTexto, hpCentro, hpBase);
+
+    /* ---------------- o hp ---------------- */
+
+    /**
+     * A TAG DO JOGADOR, acima do nome.
+     *
+     * ## POR QUE SO AQUI E NAO EM TODO LUGAR
+     *
+     * Porque a placa fixa — a de `drawNomeDeRemoto` — ja desenha a tag, e
+     * ela sai de cena quando o jogador aponta para o boneco. Nao ha por que
+     * repetir a tag em duas linhas diferentes: aqui e a MESMA informacao,
+     * no lugar que a placa liberou
+     *
+     * ## E POR QUE NAO NA PLACA
+     *
+     * Porque a placa se apaga. Se a tag ficasse so aqui, o boneco ficaria
+     * sem identificacao alguma quando o mouse estivesse em cima — e o
+     * jogador nao saberia de quem e a barra que acabou de aparecer
+     *
+     * ## A POSICAO
+     *
+     * E `topo - 4`, e nao mais `top - 20` da versao antiga: a placa ficou
+     * 13px mais baixa, entao o texto inteiro subiu junto. O nome fica em
+     * `topo - 17` e a tag em `topo - 30`, com os dois textos de 10-11px e
+     * 3px de folga entre eles
+     */
+    if (enemy.isRemote && enemy.guilda?.tag) {
+      const texto = `[${enemy.guilda.tag}]`;
+
+      context.font = "700 10px Inter, sans-serif";
+      context.textAlign = "center";
+      context.textBaseline = "bottom";
+      context.lineWidth = 3;
+
+      /**
+       * O MESMO CONTORNO do nome logo abaixo, e pela MESMA razao: o texto
+       * passa por cima de qualquer sprite, e um sem contorno vira um borrão
+       * em cima de um boneco claro
+       */
+      context.strokeStyle = "rgba(0,0,0,0.85)";
+      context.strokeText(texto, hpCentro, topo - 3);
+
+      context.fillStyle = enemy.guilda.cor ?? "#e5bb68";
+      context.fillText(texto, hpCentro, topo - 3);
+    }
+
+    /**
+     * O NOME DE QUEM ESTA SENDO APONTADO, remoto ou mob.
+     *
+     * Para o remoto, e o mesmo nome da placa que sumiu acima — entao o que
+     * o jogador ve no hover e a MESMA informacao que ele via parado, so que
+     * com a barra de vida em vez da placa
+     */
+    /**
+     * O NOME, no MESMO eixo da barra.
+     *
+     * ## POR QUE `centroDoTexto` E NAO `enemy.x`
+     *
+     * Porque o chip de nivel ocupa os 20px da esquerda da placa, e empurra a
+     * barra 26px para a direita do boneco: o centro dela fica em `enemy.x + 13`.
+     * Com o nome em `enemy.x`, ele ficava 13px a esquerda do centro da barra
+     * que esta logo abaixo dele — dois textos que o jogador le como um bloco
+     *so, desalinhados dentro dele
+     *
+     * E o `hpCentro` ja e exatamente isso: o centro da barra. O numero do
+     * hp, o nome e a tag passam a dividir a mesma coluna, e o chip de nivel
+     * fica ao lado como uma etiqueta em vez de puxar o bloco para a direita
+     */
+    context.font = "700 11px Inter, sans-serif";
+    context.textAlign = "right";
+    context.textBaseline = "alphabetic";
+    context.lineWidth = 3;
+    context.strokeStyle = "rgba(0,0,0,0.85)";
+
+    /**
+     * O NOME ALINHADO A DIREITA, na ponta da linha de cima.
+     *
+     * E o `right` com a borda direita da placa como ancora: o nome acaba
+     * encostado nela e cresce para a esquerda ate encontrar o numero do
+     * nivel. E o que faz o bloco ler como "12 .... Goblin da Pedreira" em vez
+     * de dois textos soltos com um vao no meio
+     *
+     * Com `center` o nome ficaria no meio da placa e o nivel na esquerda, com
+     * um buraco entre os dois que parece erro de alinhamento. Alinhar os dois
+     * pelas pontas opposite e o que fecha a linha
+     */
+    const nomeDireita = esquerda + larguraTotal;
+
+    const nomeBase = topo + 12;
+
+    context.strokeText(enemy.name, nomeDireita, nomeBase);
+    context.fillStyle = "#f0e6d2";
+    context.fillText(enemy.name, nomeDireita, nomeBase);
+
+    /**
+     * OS EFEITOS DE STATUS.
+     *
+     * ## POR QUE O `?? []` E OBRIGATORIO AQUI
+     *
+     * Porque um jogador REMOTO nao tem `statusEffects`. O `criarRemoto`
+     * monta o objeto com os campos que o desenho do boneco usa, e esse nao
+     * estava entre eles — o `enemy.statusEffects.length` estourava com
+     * `Cannot read properties of undefined` toda vez que o jogador passava o
+     * mouse sobre outro jogador, e o resto do quadro nao era desenhado
+     *
+     * E o `?? []` e nao um array fixo no `criarRemoto`: o remoto nao tem
+     * efeito nenhum, e um array vazio aqui e a representacao correta disso
+     *
+     * ## E POR QUE FICAM ABAIXO DA PLACA, e nao dentro dela
+     *
+     * Porque sao ate quatro, e quatro pontos dentro de 15px de altura nao
+     * cabem sem encolher a barra. A linha de baixo e o que mantem a placa
+     * compacta
+     */
+    const efeitos = enemy.statusEffects ?? [];
+    const dots = Math.min(4, efeitos.length);
 
     for (let index = 0; index < dots; index += 1) {
-      const effect = enemy.statusEffects[index];
+      const effect = efeitos[index];
 
       context.fillStyle = this.getStatusColor(effect.type);
 
       context.beginPath();
       context.arc(
         enemy.x - (dots - 1) * 5 + index * 10,
-        top + barHeight + 22,
+        topo + alturaTotal + 6,
         3,
         0,
         Math.PI * 2,
@@ -8708,10 +13567,17 @@ getMinimapTransform(panelWidth, panelHeight) {
     }
 
     this.world.projectiles.push({
-      id: `${enemy.id}_flecha_${this.world.time}`,
-      hostile: true,
-      sourceId: enemy.id,
-      targetId: alvo.id ?? null,
+id: `${enemy.id}_flecha_${this.world.time}`,
+        hostile: true,
+        sourceId: enemy.id,
+        targetId: alvo.id ?? null,
+
+        /**
+         * A IDADE, com o mesmo motivo do projetil do jogador: e o tempo que a
+         * arte do tiro usa para escolher o quadro, e ela nao pode sair do
+         * `remaining` que o `updateProjectiles` decrementa
+         */
+        age: 0,
 
       x: enemy.x,
       y: enemy.y,
@@ -8844,9 +13710,43 @@ getMinimapTransform(panelWidth, panelHeight) {
       context.shadowBlur = 18;
       context.fillStyle = color;
 
-      const style = action.projectileStyle;
+const style = action.projectileStyle;
 
-      if (style === "arrow" || action.rain) {
+        /**
+         * A FLECHA DO ARBALIST, COM ARTE.
+         *
+         * E o primeiro `if` porque e o caso com imagem: as classes abaixo
+         * continuam no vetorial, e nenhuma delas tem folha de tiro
+         *
+         * ## POR QUE UM QUADRO DA FOLHA E NAO A FOLHA INTEIRA
+         *
+         * Porque o tiro e um INSTANTE, e a arte do rastro dura uma fração de
+         * segundo. Desenhar a folha inteira faria o jogador ver os oito
+         * quadros sobrepostos ao mesmo tempo — o rastro viraria um borrão
+         * verde em vez de uma flecha
+         *
+         * ## POR QUE O QUADRO SAI DO TEMPO DO PROJETIL E NAO DO GLOBO
+         *
+         * Porque o projetil atravessa a tela em cerca de meio segundo, e a
+         * arte dura 0,64s. Se o quadro viesse do tempo do projetil, a flecha
+         * mostraria so os primeiros quadros e o rastro nunca cresceria — que e
+         * justamente a metade da animacao
+         */
+        if (style === "arrow" && this.flechaSprite?.complete) {
+          const quadro = this.drawFlechaArbalista(
+            context,
+            projectile,
+            color,
+          );
+
+          if (quadro) {
+            context.restore();
+
+            continue;
+          }
+        }
+
+        if (style === "arrow" || action.rain) {
         context.fillRect(
           -13,
           -2,
@@ -8891,6 +13791,149 @@ getMinimapTransform(panelWidth, panelHeight) {
     }
   }
 
+  /**
+   * Desenha UM QUADRO da folha da flecha, no ponto do projetil.
+   *
+   * Devolve `false` sem desenhar nada quando a arte nao esta pronta, para
+   * quem chamou cair no tiro vetorial. Esse e o caminho que mantem o jogo
+   * jogavel no primeiro quadro depois do load: a imagem ainda esta baixando e
+   * o tiro continua saindo, so que no estilo antigo
+   */
+  drawFlechaArbalista(context, projectile, color) {
+    const arte = this.flechaSprite;
+
+    if (!arte?.complete || !arte.naturalWidth) return false;
+
+    /**
+     * A ACAO DO TIRO, e nao a do sprite.
+     *
+     * O efeito de velocidade pertence a `Quick Shot`, nao a arte da flecha: as
+     * outras duas flechas do arquiro usam a MESMA imagem e nao podem esticar.
+     * Ler `projectile.action` e o que separa as duas coisas
+     */
+    const action = projectile.action ?? {};
+
+    const { frameWidth, frameHeight, frames, fps, anchorX, anchorY, scale } =
+      ARBALIST_FLECHA;
+
+    /**
+     * O TEMPO DA FLECHA, e nao o do projetil.
+     *
+     * O `projectile.age` cresce enquanto ele voa e zera quando nasce. Como o
+     * rastro e uma animacao de um ciclo so, ele e a leitura direta do quadro:
+     * o primeiro quadro e o rastro pequeno e o ultimo e o rastro cheio
+     */
+    const tempo = Math.max(0, projectile.age ?? 0);
+
+    const quadro = Math.min(
+      frames - 1,
+      Math.floor(tempo * fps) % frames,
+    );
+
+    /**
+     * O ESTICAMENTO DO TIRO RAPIDO.
+     *
+     * E o que faz a flecha parecer ANDAR em vez de deslizar. Uma seta rapida
+     * em movimento real aparece alongada na direcao do curso, e o game
+     * comunica isso de um jeito so: esticando no eixo do tiro
+     *
+     * ## POR QUE SO NO EIXO DO TIRO
+     *
+     * O `context` ja esta girado pelo `atan2` do projetil antes de chegar
+     * aqui. Então o eixo X do canvas JA e a direcao da flecha, e esticar em X
+     * alonga no sentido do movimento sem nenhuma conta de angulo
+     *
+     * ## POR QUE `1 + chegada` E NAO UM NUMERO FIXO
+     *
+     * Porque um tiro que nasceu nao deve parecer rapido. O efeito cresce nos
+     * primeiros `CHEGADA_EM` segundos e depois assenta em `FATOR`, e o que o
+     * jogador ve e a flecha acelerando ao sair da mao — que e exatamente o que
+     * `projectileSpeed` faz no jogo
+     */
+    const CHEGADA_EM = 0.09;
+    const FATOR = 1.45;
+
+    const chegada = Math.min(1, tempo / CHEGADA_EM);
+
+    const estica = action.speedEffect
+      ? 1 + (FATOR - 1) * chegada
+      : 1;
+
+    const largura = frameWidth * scale * estica;
+    const altura = frameHeight * scale;
+
+    /**
+     * OS RISCOS DE VELOCIDADE, ATRAS DA FLECHA.
+     *
+     * ## POR QUE DESENHADOS ANTES DA ARTE
+     *
+     * Porque eles sao o QUE FICOU ATRAS. Desenhados depois, ficariam por cima
+     * da flecha e pareceriam um arranhao
+     *
+     * ## POR QUE SAO LINHAS E NAO MAIS QUADROS DA FOLHA
+     *
+     * Porque a folha tem UM quadro agora. E um efeito de velocidade precisa ser
+     * continuo nao-vetor — linhas finas e baratas, sem textura nova
+     *
+     * ## POR QUE A COR VEM DA ACAO
+     *
+     * Porque a `Quick Shot` e a unica com o efeito, e a cor dela e o verde do
+     * arqueiro. Um branco fixo destoaria do resto do tiro
+     */
+    if (action.speedEffect) {
+      const comprimento = largura * 1.1;
+
+      context.strokeStyle = color;
+      context.globalAlpha = 0.5 * chegada;
+      context.lineWidth = Math.max(1, altura * 0.16);
+
+      context.beginPath();
+
+      /* tres riscos atras da flecha: um no eixo e dois deslocados, que e o
+         que da volume. O `x0` e a traseira do corpo desenhado, e `x1` e onde
+         o risco começa a sumir */
+      const x0 = -anchorX * scale;
+
+      for (const deslocamento of [-0.42, 0, 0.42]) {
+        const y = deslocamento * altura;
+
+        context.moveTo(x0 - comprimento, y);
+        context.lineTo(x0, y);
+      }
+
+      context.stroke();
+
+      context.globalAlpha = 1;
+    }
+
+    context.drawImage(
+      arte,
+      quadro * frameWidth,
+      0,
+      frameWidth,
+      frameHeight,
+
+      // o canto de cima esquerdo da arte, alinhado no ponto que voa
+      -anchorX * scale,
+      -anchorY * scale,
+      largura,
+      altura,
+    );
+
+    /**
+     * O BRILHO DO RASTRO, e nao da arte.
+     *
+     * O rastro verde ja vem pintado no PNG. Esta sombra e o que separa a
+     * flecha do fundo quando ela passa por cima de um mob de cor parecida, e
+     * ela usa a cor da ACAO — a mesma que o tiro vetorial usava — para o
+     * efeito combinar com o resto
+     */
+    context.shadowColor = color;
+    context.shadowBlur = 18;
+
+    return true;
+  }
+
   drawPlayer(context) {
     const player = this.world.player;
 
@@ -8926,6 +13969,16 @@ getMinimapTransform(panelWidth, panelHeight) {
     }
 
     context.restore();
+
+    /**
+     * A PLACA DE NOME, DEPOIS do `restore`.
+     *
+     * Porque o `restore` fecha o `save` que aplicava o `globalAlpha` do
+     * cloaking: dentro dele a placa sairia a 45% de opacidade junto com o
+     * boneco, e o jogador veria a propria tag apagada enquanto estava
+     * invisivel — que e o oposto do que o cloaking deveria fazer
+     */
+    this.drawNomeDoLocal(context);
 
     if (player.shield > 0) {
       context.save();
@@ -9046,7 +14099,7 @@ getMinimapTransform(panelWidth, panelHeight) {
     /**
      * A MIRA NAO EXISTE NA BASE.
      *
-     * A mira e desenhada em COORDENADA DE TELA`, colada no ponteiro, e
+     * A mira e desenhada em COORDENADA DE TELA, colada no ponteiro, e
      * nao e a arte do cursor do navegador: sao duas coisas diferentes que
      * o jogador ve no mesmo pixel. Trocar o cursor para a mao de armadura
      * nao tirou nada, porque esta continua aparecendo por cima
@@ -9055,8 +14108,24 @@ getMinimapTransform(panelWidth, panelHeight) {
      * que mirar. Um reticulo de alvo desenhado no hub seria a mesma
      * promessa que a mira de combate fazia — "aqui e um alvo" — sem
      * nenhum alvo possivel
+     *
+     * E por isso que o portao e o `emZonaDeCombate`, o MESMO metodo que
+     * barra o `useBasicAttack`: a regra de "onde tem mira" e a regra de
+     * "onde tem golpe", e nao uma lista de mapas. Um mapa novo entra na
+     * mira pelo padrao, e a base fica sem mira sem ninguem mexer nela
      */
     if (!this.emZonaDeCombate()) return;
+
+    /**
+     * SEM IMAGEM CARREGADA, NAO HÁ O QUE DESENHAR.
+     *
+     * Sem este `return`, o `drawImage` abaixo seria chamado com `null` nos
+     * primeiros quadros, que sao exatamente os quadros em que o jogador
+     * entra no vale
+     */
+    if (!this.mira || !this.mira.complete || !this.mira.naturalWidth) {
+      return;
+    }
 
     const screenX =
       this.input.pointer.x -
@@ -9068,20 +14137,22 @@ getMinimapTransform(panelWidth, panelHeight) {
       this.world.player.y +
       this.viewport.height / 2;
 
+    /**
+     * A arte e um PNG de 1254x1254 e entra no `dist` com 1,1 MB. O
+     * `drawImage` recebe o LADO, nao a largura: e o retangulo de destino
+     * quadrado de `MIRA_TAMANHO`, e ele cobre o que sobrar da proporcao
+     * original
+     */
+    const half = MIRA_TAMANHO / 2;
+
     context.save();
-    context.strokeStyle = "rgba(255,255,255,0.85)";
-    context.lineWidth = 1.5;
-    context.beginPath();
-    context.arc(screenX, screenY, 8, 0, Math.PI * 2);
-    context.moveTo(screenX - 13, screenY);
-    context.lineTo(screenX - 5, screenY);
-    context.moveTo(screenX + 5, screenY);
-    context.lineTo(screenX + 13, screenY);
-    context.moveTo(screenX, screenY - 13);
-    context.lineTo(screenX, screenY - 5);
-    context.moveTo(screenX, screenY + 5);
-    context.lineTo(screenX, screenY + 13);
-    context.stroke();
+    context.drawImage(
+      this.mira,
+      screenX - half + MIRA_OFFSET.x,
+      screenY - half + MIRA_OFFSET.y,
+      MIRA_TAMANHO,
+      MIRA_TAMANHO,
+    );
     context.restore();
   }
 

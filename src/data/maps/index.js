@@ -49,8 +49,39 @@ export function createRandom(seed = MAP_1_SEED) {
   };
 }
 
-export const MAP_1_WIDTH = 6000;
-export const MAP_1_HEIGHT = 4200;
+/**
+ * O LADO DO TILE deste mapa, em pixel de mundo.
+ *
+ * E o ladrilho da grama: `groundTileSizeFor` devolve 64 para a chave
+ * `grama`, que e a deste mapa. O valor esta aqui para o mapa ter uma grade
+ * que fecha com o chao que ele desenha
+ */
+export const MAP_1_TILE = 64;
+
+/**
+ * AS MEDIDAS EM MULTIPLO DO TILE.
+ *
+ * ## POR QUE NAO 6000 x 4200
+ *
+ * Porque 6000 e 4200 nao sao multiplos de 64: 6000 / 64 = 93,75 e
+ * 4200 / 64 = 65,625. Uma grade de tile nao fecha em numero quebrado, e o
+ * Tiled arredonda para cima — o que daria um mapa de 6016 x 4224 desenhando
+ * sobre um mundo de 6000 x 4200, com 16px de vao de um lado e 24 de outro
+ *
+ * ## POR QUE CRESCER, E NAO ENCOLHER
+ *
+ * Encolher para 5952 x 4160 tiraria 48px da direita e 40 de baixo do mapa
+ * de verdade, e as tres zonas da coluna direita — ruinas, cripta e pantano —
+ * terminam a 5880, a 5900 e a 5900, com 72 e 76px de folga. Encolher
+ * apagaria parte delas
+ *
+ * Crescendo para 6016 x 4224, oBounds vai de 40 ate 5976 na horizontal e
+ * ate 4184 na vertical. As doze zonas continuam dentro: a mais apertada e a
+ * `ruinas`, que termina a 5880 com 96px de sobra
+ */
+export const MAP_1_WIDTH = Math.ceil(6000 / MAP_1_TILE) * MAP_1_TILE;
+export const MAP_1_HEIGHT = Math.ceil(4200 / MAP_1_TILE) * MAP_1_TILE;
+
 export const MAP_1_BOUNDS = {
   x: 40,
   y: 40,
@@ -58,8 +89,157 @@ export const MAP_1_BOUNDS = {
   height: MAP_1_HEIGHT - 80,
 };
 
-export const MAP_1_SPAWN = { x: 3000, y: 2100 };
+/**
+ * O PONTO DE NASCIMENTO, e ele e o CENTRO do mapa.
+ *
+ * ## POR QUE PASSOU A SER DERIVADO
+ *
+ * Porque o `MAP_1_CENTRO` e calculado do `MAP_1_BOUNDS`, e o bounds mudou
+ * quando o mapa cresceu 16 x 24. Com o nascimento escrito a mao em 3000,
+ * 2100 ele ficaria 8px a esquerda e 12px acima do centro de verdade — o
+ * suficiente para o chefe nascer em um ponto que nao e o centro, e para o
+ * Tiled e o jogo discordarem de onde e o meio
+ *
+ * ## E POR QUE ISSO NAO MOVE O JOGADOR DE MANEIRA VISIVEL
+ *
+ * O deslocamento e de 8px na horizontal e 12 na vertical, contra um
+ * personagem de 32px de celula. Ninguem ve a diferenca; o que importa e que
+ * a conta seja uma so
+ */
+export const MAP_1_SPAWN = {
+  x: Math.round(40 + MAP_1_BOUNDS.width / 2),
+  y: Math.round(40 + MAP_1_BOUNDS.height / 2),
+};
 
+/**
+ * O CENTRO DO VALE, que e onde o chefe mora.
+ *
+ * ## E O MESMO PONTO DO `MAP_1_SPAWN`
+ *
+ * Sao o mesmo objeto de proposito. O chefe precisa nascer no centro, e o
+ * jogador precisa nascer longe do chefe — e "longe do chefe" ja e uma conta
+ * separada, o `MAP_1_SPAWN_COM_CHEFE`, que soma a distancia abaixo
+ *
+ *## POR QUE NAO REPETIR A CONTA
+ *
+ * Porque as duas contas JA existediam separadas e divergiram: o
+ * `MAP_1_SPAWN` estava escrito a mao em 3000, 2100 e o `MAP_1_CENTRO` era
+ * derivado do `bounds`. Quando o mapa cresceu 16 x 24, o centro foi para
+ * 3008, 2112 e o nascimento ficou para tras — dois numeros que deveriam
+ * ser um
+ *
+ * Usar o `MAP_1_SPAWN` aqui e o que garante que o chefe e o nascimento
+ * sejam o mesmo ponto por construcao, e nao por coincidencia
+ */
+export const MAP_1_CENTRO = MAP_1_SPAWN;
+
+/**
+ * A DISTANCIA ENTRE O NASCIMENTO E O CHEFE DO VALE.
+ *
+ * ## POR QUE O NASCIMENTO SE AFASTOU
+ *
+ * Porque o `MAP_1_SPAWN` e o CENTRO do vale, e o centro do vale e onde o
+ * pedido poe o Hulk. Deixado como estava, o jogador nascia dentro do chefe:
+ * o `hulk_val` tem `damage` de ~380 e o `MAP_TESTE` tem
+ * `resumeWhereLeftOff: false`, entao o vale SEMPRE joga o jogador no ponto
+ * de nascimento. Isso nao era "comecar perto do chefe" — era comecar a luta
+ * sem ter visto a luta
+ *
+ * ## POR QUE 760, E NAO OS 320 DA ARENA
+ *
+ * A arena resolve o mesmo problema com 320, e funciona porque o
+ * `aggroRange` do `hulk` e 520: o jogador chega, ve o chefe parado e decide
+ * chegar ou nao, e o chefe vem atras de qualquer passo
+ *
+ * Aqui o chefe e maior (raio 62), o `aggroRange` e 620 e o mapa e ABERTO —
+ * nao ha parede para fechar a briga. Com 320 o jogador apareceria a menos de
+ * meio segundo do golpe de um chefe de 380 de dano, sem tempo de ver nada.
+ * Com 760 ele chega a ~2s de.views, o que e o suficiente para ler a tela e
+ * correr
+ *
+ * E o valor cabe DENTRO da zona livre das pedras: o retangulo tem 2200 de
+ * largura, e 760 das duas metades sai dentro dele — o jogador nasce no chao
+ * limpo, sem uma pedra nas costas
+ */
+export const MAP_1_DISTANCIA_DO_CHEFE = 760;
+
+/**
+ * O NASCIMENTO DO MAPA QUE TEM CHEFE, e o `MAP_1_SPAWN` puxado para longe
+ * do centro.
+ *
+ * ## POR QUE UM `const` NOVO, E NAO MUDAR O `MAP_1_SPAWN`
+ *
+ * Porque o `MAP_1_SPAWN` e usado por QUATRO mapas — o Mapa 1, o Mapa 2, o
+ * Vale 1 e o `MAP_1_META`. Mexer nele tiraria o jogador do centro dos
+ * outros tres, e o centro deles nao tem chefe nenhum: o Mapa 1 e o Mapa 2
+ * estao vazios de mob, e o centro la e so chao
+ *
+ * Este `const` so muda o vale, que e o unico mapa com `bosses` declarado
+ */
+export const MAP_1_SPAWN_COM_CHEFE = {
+  x: MAP_1_SPAWN.x,
+  y: MAP_1_SPAWN.y + MAP_1_DISTANCIA_DO_CHEFE,
+};
+
+/**
+ * O CHEFE DO CENTRO DO VALE.
+ *
+ * ## POR QUE UM `const` E NAO UM LITERAL DENTRO DO MAPA
+ *
+ * Porque a MESMA posicao e usada por tres coisas: o `bosses` do mapa, o
+ * `getEnemySprite` nao (esse e pelo id), e o `spawn` do mapa. Se o chefe
+ * e o nascimento forem escritos a mao em lugares diferentes, o dia que um
+ * deles mexer o outro vira um chefe em cima do jogador sem ninguem ver
+ *
+ * O `creature` e `hulk_val`, nao `hulk`: sao criaturas diferentes, com
+ * numeros e arte diferentes. O `hulk` continua sendo o chefe da arena
+ */
+export const MAP_1_CHEFES = [
+  {
+    creature: "hulk_val",
+    x: MAP_1_CENTRO.x,
+    y: MAP_1_CENTRO.y,
+  },
+];
+
+/**
+ * AS ZONAS DO MAPA 1: o QUE a zona e, nao ONDE ela fica.
+ *
+ * ## O RETANGULO AGORA VEM DO `.tmj`, E ESTE FICOU SO COM O RESTO
+ *
+ * Antes cada zona trazia `x`, `y`, `width` e `height` aqui. Hoje o retangulo
+ * vem da camada de objeto com o mesmo nome no `dungeon.tmj`, e o autor move
+ * a area la, no editor, com o desenho do lado
+ *
+ * Estes numeros continuam escritos porque o MAPA 2 deriva deles — e o mapa 2
+ * nao tem `.tmj`, e nao vai ter. Apagar os campos quebraria a copia inteira
+ * do mapa 2 junto
+ *
+ * Entao o arranjo e: o retangulo daqui e a reserva, e o do Tiled e o que
+ * vale para o mapa 1. Quem junta os dois e o `getZoneById`, que e por onde
+ * a viagem automatica, o bestiario e o craft leem a zona — antes deles
+ * apontarem para a caixa antiga depois de voce mover a caixa no editor
+ *
+ * ## O QUE CONTINUA AQUI, E POR QUE
+ *
+ * `name`, `terrain`, `kind` e as cores. Nenhum deles esta no arquivo de
+ * mapa: o Tiled guarda um retangulo, e quem decide que o brejo e chao de
+ * brejo e que a cripta e ativa e o codigo
+ *
+ * ## E A GRADE DE 64
+ *
+ * Os numeros estao em multiplos de 64 porque o mapa e um Tiled de tile de 64,
+ * e a zona vai virar um retangulo desenhado nele. Um retangulo com `x: 80` ou
+ * `y: 1420` cai no meio de um tile: o Tiled deixa, o desenho sai torto contra
+ * a grade, e ninguem sabe depois se o erro foi no mapa ou no editor
+ *
+ * ## E COMO MEXER SEM QUEBRAR A ESCADA
+ *
+ * O `ZONE_ROSTER` aponta para estas zonas pelo `id`, e nao pela posicao, entao
+ * mover um retangulo nao troca criatura de lugar — o que troca e ONDE ela
+ * nasce. Por isso nenhuma zona pode invadir a vizinha, e por isso o
+ * `conferir-zonas-tiled.mjs` e o lugar de conferir
+ */
 export const MAP_1_ZONES = [
   {
     id: "treino",
@@ -95,9 +275,9 @@ export const MAP_1_ZONES = [
      * dos quatro lados
      */
     x: 2560,
-    y: 1500,
-    width: 1900,
-    height: 1200,
+    y: 1472,
+    width: 1920,
+    height: 1216,
 
     /**
      * O CHAO PADRAO do mapa, e nao um terreno de zona.
@@ -119,10 +299,10 @@ export const MAP_1_ZONES = [
     terrain: "forest",
     terrainAlt: "grass",
     altBias: 0.3,
-    x: 80,
-    y: 80,
-    width: 1300,
-    height: 1250,
+    x: 64,
+    y: 64,
+    width: 1280,
+    height: 1280,
   },
 
   {
@@ -132,10 +312,10 @@ export const MAP_1_ZONES = [
     terrain: "dirt",
     terrainAlt: "forest",
     altBias: 0.28,
-    x: 1520,
-    y: 100,
-    width: 1300,
-    height: 1150,
+    x: 1536,
+    y: 128,
+    width: 1280,
+    height: 1152,
   },
 
   {
@@ -145,10 +325,10 @@ export const MAP_1_ZONES = [
     terrain: "ice",
     terrainAlt: "stone",
     altBias: 0.26,
-    x: 3080,
-    y: 80,
-    width: 1300,
-    height: 1250,
+    x: 3072,
+    y: 64,
+    width: 1280,
+    height: 1280,
   },
 
   {
@@ -158,10 +338,10 @@ export const MAP_1_ZONES = [
     terrain: "stone",
     terrainAlt: "ash",
     altBias: 0.24,
-    x: 4560,
-    y: 100,
-    width: 1320,
-    height: 1180,
+    x: 4544,
+    y: 128,
+    width: 1344,
+    height: 1152,
   },
 
   {
@@ -171,10 +351,10 @@ export const MAP_1_ZONES = [
     terrain: "dirt",
     terrainAlt: "swamp",
     altBias: 0.26,
-    x: 100,
-    y: 1480,
-    width: 1300,
-    height: 1200,
+    x: 128,
+    y: 1472,
+    width: 1280,
+    height: 1216,
   },
 
   {
@@ -184,10 +364,10 @@ export const MAP_1_ZONES = [
     terrain: "swamp",
     terrainAlt: "forest",
     altBias: 0.3,
-    x: 1520,
-    y: 1420,
-    width: 900,
-    height: 1240,
+    x: 1536,
+    y: 1408,
+    width: 896,
+    height: 1216,
   },
 
   {
@@ -197,10 +377,10 @@ export const MAP_1_ZONES = [
     terrain: "stone",
     terrainAlt: "ice",
     altBias: 0.22,
-    x: 4620,
-    y: 1460,
+    x: 4608,
+    y: 1472,
     width: 1280,
-    height: 1200,
+    height: 1216,
   },
 
   {
@@ -219,10 +399,10 @@ export const MAP_1_ZONES = [
     terrain: "ash",
     terrainAlt: "stone",
     altBias: 0.28,
-    x: 80,
+    x: 64,
     y: 2880,
-    width: 1360,
-    height: 1200,
+    width: 1344,
+    height: 1216,
   },
 
   {
@@ -241,10 +421,10 @@ export const MAP_1_ZONES = [
     terrain: "sand",
     terrainAlt: "ash",
     altBias: 0.24,
-    x: 1560,
-    y: 2860,
-    width: 1300,
-    height: 1220,
+    x: 1536,
+    y: 2880,
+    width: 1280,
+    height: 1216,
   },
 
   {
@@ -265,10 +445,10 @@ export const MAP_1_ZONES = [
     terrain: "sand",
     terrainAlt: "stone",
     altBias: 0.3,
-    x: 3080,
+    x: 3072,
     y: 2880,
-    width: 1300,
-    height: 1200,
+    width: 1280,
+    height: 1216,
   },
 
   {
@@ -293,10 +473,10 @@ export const MAP_1_ZONES = [
     terrain: "swamp",
     terrainAlt: "ash",
     altBias: 0.26,
-    x: 4560,
-    y: 2860,
-    width: 1340,
-    height: 1220,
+    x: 4544,
+    y: 2880,
+    width: 1344,
+    height: 1216,
   },
 ];
 
@@ -382,8 +562,53 @@ const ZONE_REGISTRY = new Map([
   ...MAP_2_ZONES.map((zone) => [zone.id, zone]),
 ]);
 
+/**
+ * QUEM CORRIGE O RETANGULO DE UMA ZONA, e o `.tmj` do mapa 1.
+ *
+ * ## O PROBLEMA QUE ESTE RESOLVEDOR RESOLVE
+ *
+ * As zonas do mapa 1 tem o retangulo em dois lugares: no `.tmj`, que o autor
+ * move, e em `MAP_1_ZONES`, que e codigo. O motor ja lia o do Tiled, mas
+ * `getZoneById` devolvia o do codigo — e e por ele que a viagem automatica
+ * escolhe o destino, que o bestiario mostra a area, e que o craft diz onde o
+ * material cai
+ *
+ * Sem isto, mover a caixa no Tiled alinhava os esqueletos e deixava todo o
+ * resto do jogo apontando para a caixa antiga: o jogador voaria para o meio
+ * de um campo vazio achando que era a zona
+ *
+ * ## POR QUE UM RESOLVEDOR INJETADO, E NAO UM `import` DAQUI PARA O JOGO
+ *
+ * Porque este arquivo e dado, e `data/` nao importa `game/`. E porque o
+ * `.tmj` so existe no navegador (plugin do Vite) e no servidor (leitura do
+ * disco) — quem sabe o retangulo novo e o registro de tiles, que ja e
+ * acessivel dos dois lados
+ *
+ * ## E POR QUE SO O MAPA 1
+ *
+ * Porque so ele tem `.tmj`. O mapa 2 e uma copia escrita em codigo e nao tem
+ * camada nenhuma: para ele o resolvedor devolve `null` e o retangulo segue
+ * sendo o do codigo
+ */
+let resolvedorDeZonas = null;
+
+/**
+ * INSTALA QUEM CORRIGE O RETANGULO DAS ZONAS. Quem chama e o registro de tiles.
+ *
+ * Registrar um `.tmj` novo precisa descartar a resolucao antiga: o arquivo
+ * pode ter mudado no disco desde a ultima leitura, e um resolvedor velho
+ * devolveria a caixa de uma versao que nao existe mais
+ */
+export function definirResolvedorDeZonas(fn) {
+  resolvedorDeZonas = typeof fn === "function" ? fn : null;
+}
+
 export function getZoneById(id) {
-  return ZONE_REGISTRY.get(id) ?? null;
+  const zona = ZONE_REGISTRY.get(id) ?? null;
+
+  if (!zona || !resolvedorDeZonas) return zona;
+
+  return resolvedorDeZonas(id, zona) ?? zona;
 }
 
 /**
@@ -967,9 +1192,40 @@ function placeProps(
   accept,
   others = [],
   prefix = "prop",
+
+  /**
+   * ONDE SORTEAR, e quando nao vem o sorteio e uniforme como sempre.
+   *
+   * ## POR QUE ISTO EXISTE
+   *
+   * Porque o sorteio uniforme nao sabe "borda". Um mapa de 5920x4120 com
+   * 40 pedras sorteadas por igual chance enche o miolo — e o miolo e onde o
+   * jogador esta, onde ele anda, onde ele bate. As pedras viram obstaculo
+   * no caminho e nao recurso no canto
+   *
+   * Quem sabe onde a pedra DEVE estar e quem chama: o vale passa um
+   * amostrador de borda, os outros mapas continuam uniformes, e o
+   * `placeProps` nao ganha nenhum `if` de "e o vale?"
+   *
+   * @param {(random: () => number) => {x: number, y: number}}
+   */
+  sorteiaPosicao = null,
 ) {
   const placed = [];
   const minimumGap = 34;
+
+  /**
+   * O SORTEIO PADRAO: uniforme em toda a area, com a margem de 70px.
+   *
+   * E o comportamento de antes, e ele continua valendo para quem nao passa
+   * um amostrador. A margem existe para a arte caber dentro do limite
+   */
+  const sorteiaAqui = (rnd) => ({
+    x: MAP_1_BOUNDS.x + 70 + rnd() * (MAP_1_BOUNDS.width - 140),
+    y: MAP_1_BOUNDS.y + 70 + rnd() * (MAP_1_BOUNDS.height - 140),
+  });
+
+  const sorteia = sorteiaPosicao ?? sorteiaAqui;
 
   for (let index = 0; index < count; index += 1) {
     let attempts = 0;
@@ -978,12 +1234,7 @@ function placeProps(
     while (attempts < 40 && !accepted) {
       attempts += 1;
 
-      const x = MAP_1_BOUNDS.x + 70 + random() * (
-        MAP_1_BOUNDS.width - 140
-      );
-      const y = MAP_1_BOUNDS.y + 70 + random() * (
-        MAP_1_BOUNDS.height - 140
-      );
+      const { x, y } = sorteia(random);
 
       const entry = pickPlanEntry(plan, random());
       const type = PROP_TYPES[entry.type];
@@ -1018,6 +1269,22 @@ function placeProps(
         variant: Math.floor(
           random() * propVariantCount(type),
         ),
+
+        /**
+         * O SOLIDO DO TAMANHO DA ARTE, SO QUANDO O TIPO PEDE.
+         *
+         * O spread e o que faz a arvore e o arbusto nao ganharem tres
+         * campos a `undefined`: `solidoNaArte` e o opt-in explicito, e o
+         * `buildPropSolids` cai no quadrado de sempre quando os campos nao
+         * vem
+         */
+        ...(type.solidoNaArte
+          ? {
+              solidWidth: type.drawWidth,
+              solidHeight: type.drawHeight,
+              base: type.base,
+            }
+          : {}),
       });
 
       accepted = true;
@@ -1117,6 +1384,49 @@ export function createProps(
  */
 export function buildPropSolids(blocking = []) {
   return blocking.map((prop) => {
+    /**
+     * O SOLIDO PODE NAO SER UM QUADRADO, E NAO E POR ACASO
+     *
+     * Uma prop que declara `solidWidth` e `solidHeight` tem um solido do
+     * tamanho do RETANGULO que ela ocupa, e nao um quadrado centrado no
+     * ponto da prop. E assim que o cristal do vale 1 barra o jogador na
+     * BORDA VISIVEL da arte: com o quadrado de sempre, um cristal de
+     * 139x180 teria um bloco de 138x138 na base e o jogador subia por
+     * cima dos 40px de arte que ficavam de fora
+     *
+     * O `base` vem do tipo e e o que decide de onde a arte cresce para
+     * cima. Com `base: 1`, o pe da arte esta EM `y` e o solido vai de
+     * `y - height` ate `y`. Um tipo com `base: 0.5` cresceria para os
+     * dois lados, e o solido teria de acompanhar
+     *
+     * O quadrado de sempre e o caminho de quem nao declara nada: arvore,
+     * sebe e os tipos antigos seguem por aqui, sem mudar uma linha
+     */
+    if (prop.solidWidth && prop.solidHeight) {
+      const peX = prop.colliderX ?? prop.x;
+      const peY = prop.colliderY ?? prop.y;
+      const base = prop.base ?? 1;
+
+      return {
+        x: Math.round(peX - prop.solidWidth / 2),
+        y: Math.round(peY - prop.solidHeight * base),
+        width: Math.round(prop.solidWidth),
+        height: Math.round(prop.solidHeight),
+        kind: prop.type,
+
+        /**
+         * O ID DA PROP, e nao so o tipo.
+         *
+         * E o que permite tirar do caminho uma pedra JA DEMOLIDA sem
+         * derrubar as outras 22 do mesmo tipo. Com o `kind` sozinho — que e
+         * `cristal_comum` nas 23 — nao ha como saber QUAL delas acabou, e
+         * o cristal invisivel continuava barrando o jogador no lugar onde
+         * ele so via o chao
+         */
+        propId: prop.id,
+      };
+    }
+
     const half = prop.colliderRadius;
 
     /**
@@ -1194,6 +1504,45 @@ spawn: MAP_1_SPAWN,
   cameraZoom: 1,
 
   /**
+   * O SORCERER DESTE MAPA, 5px MAIOR QUE O PADRAO.
+   *
+   * ## A CONTA
+   *
+   * Sem este fator o sorcerer sai com `90 * 0.697 = 62.7px` no vale. O
+   * tamanho pedido agora e 67.7px, e o fator que produz isso e
+   *
+   *     67.7 / 62.7 = 1.079
+   *
+   * ## O HISTORICO DESTE FATOR
+   *
+   * Este numero ja foi 1.319 (82.7px) e depois 1.159 (72.7px), cada um
+   * dimuindo 10px a um pedido. A conta esta escrita porque o numero sozinho
+   * nao diz para que tamanho ele serve: trocar o valor sem trocar a conta
+   * deixa um comentario que promete um tamanho e entrega outro
+   *
+   * ## E POR QUE UM FATOR DO MAPA, E NAO A `SORCERER_SCALE`
+   *
+   * Porque a base tem uma exigencia propria: o sorcerer tem que sair do
+   * mesmo tamanho que o arqueiro la, e o `escalaSprites: { arbalist: 0.7,
+   * sorcerer: 0.7 }` da base resolve isso. Mudar a escala da CLASSE
+   * arrastaria a base junto e quebraria essa igualdade
+   *
+   * ## E POR QUE SO O SORCERER
+   *
+   * Porque `escalaSprites` e por classe. Guerreiro e lancer medem 36.8px e
+   * 34.4px no vale, e sao o tamanho de sempre — mexer neles aqui mudaria as
+   * outras tres classes sem ninguem pedir
+   *
+   * ## O QUE ISSO NAO MEXE
+   *
+   * Nem a base, nem o chefe e nem o mapa 2: cada um le o seu fator, e so
+   * este mapa declara um
+   *
+   * Todo mapa que nao declarar isto usa 1
+   */
+  escalaSprites: { sorcerer: 1.079 },
+
+  /**
    * A semente que espalha criaturas e arvores deste mapa.
    *
    * Vive no mapa e nao no motor: e o vale que sorteia, e nao o motor
@@ -1218,10 +1567,40 @@ spawn: MAP_1_SPAWN,
     label: zone.name,
   })),
 
-  props,
-  blocking,
-  decorative,
-  solids,
+  /**
+   * AS PROPS SUMIRAM DESTE MAPA.
+   *
+   * ## O QUE TINHA AQUI
+   *
+   * 1234 props de `createProps()` — 1173 arbustos e 61 arvores, todas
+   * `blocking`, e portanto 1234 solidos de colisao derivados delas
+   *
+   * ## POR QUE ESTE MAPA NAO TEM MAIS NENHUMA
+   *
+   * Porque o chao deste mapa passou a vir do Tiled, e a paisagem tambem. Um
+   * arbusto espalhado por semente nao conversa com um mapa pintado a mao: o
+   * jogador veria o desenho dele e, em volta, mato que ninguem colocou
+   *
+   * ## E ONDE A BORDA FICOU
+   *
+   * No desenho. As 316 celulas de borda do `dungeon.tmj` usam o tile de
+   * parede, entao o mapa continua fechados visualmente sem a sebe de arbusto
+   *
+   * O que AINDA nao existe e a colisao dessas paredes — o Tiled e so visual
+   * por enquanto. Sem ela o jogador anda pela parede e e segurado so pelo
+   * `clampToBounds`, na ultima linha de pixel da tela, o que e pior que nao
+   * ter parede nenhuma: ele ve parede e atravessa
+   *
+   * ## POR QUE O MAPA 2 CONTINUA COM AS PROPS
+   *
+   * Porque ele nao tem camada de Tiled. As duas linhas shareavam a mesma
+   * `const` de modulo, e esvaziar o array do mapa 1 sem tocar na do mapa 2 e
+   * o que mantem as duas coisas reversiveis com uma edicao so
+   */
+  props: [],
+  blocking: [],
+  decorative: [],
+  solids: [],
 
   /**
    * O portal, em (5618, 3837).
@@ -1309,12 +1688,27 @@ export const MAP_2 = {
    */
   resumeWhereLeftOff: true,
 
-  cameraZoom: 1,
+cameraZoom: 1,
+
+  /**
+   * O SORCERER DESTE MAPA, COM O MESMO TAMANHO DO MAPA 1.
+   *
+   * ## O MESMO 1.079, E POR QUE E O MESMO
+   *
+   * Porque o `cameraZoom` dos dois e 1. O fator e o que sobra para o
+   * personagem, depois que o mapa ja empurrou o zoom: com o mesmo zoom, o
+   * mesmo fator da o mesmo tamanho. Copiar o numero do mapa 1 e o que garante
+   * que o sorcerer nao mude de tamanho ao atravessar o portal
+   *
+   * O que este mapa NAO faz e usar a escala da classe: a base depende de
+   * `escalaSprites` proprio, e mudar a `SORCERER_SCALE` arrastaria ela junto
+   */
+  escalaSprites: { sorcerer: 1.079 },
 
   /**
    * A MESMA SEMENTE, e de proposito.
    *
- * E o que faz as arvores cairem nos mesmos lugares: `createProps` roda
+   * E o que faz as arvores cairem nos mesmos lugares: `createProps` roda
    * com a semente do mapa, e uma semente diferente daria outro desenho
    * de floresta — que e a primeira coisa a mexer quando este mapa comecar
    * a ser propriamente dele
@@ -1340,9 +1734,407 @@ export const MAP_2 = {
 };
 
 /**
+ * O MAPA DE TESTE.
+ *
+ * ## O QUE ELE E
+ *
+ * Um vazio do tamanho do vale, com o chao de terra do mapa 2 e sem
+ * ninguem dentro. Serve para testar camera, movimento, colisao e o
+ * desenho do limite sem nenhum mob andando por cima da medicao
+ *
+ * ## O QUE ELE COPIA DO MAPA 1, E POR QUE
+ *
+ * `width`, `height` e `bounds` sao as MESMAS constantes
+ * (`MAP_1_WIDTH`, `MAP_1_BOUNDS`), nao "o mesmo tamanho aproximado". E
+ * o que faz a camera do botao ter o mesmo alcance do vale, e comparar o
+ * mesmo teste nos dois da para ler a diferenca como diferenca do CHAO e
+ * nao como diferenca de mapa
+ *
+ * ## `cameraZoom: 1` ESTA ESCRITO, E NAO HERDADO
+ *
+ * `cameraZoom` nao tem padrao no codigo: o `getter` do motor le
+ * `map?.cameraZoom ?? 1`. Apagado daria 1 por acidente, e e o mesmo
+ * numero so que escrito fica visivel que a camera e uma escolha deste
+ * mapa e nao um sobrar
+ *
+ * ## POR QUE `zones: []` E NAO AUSENTE
+ *
+ * Porque `drawMap` percorre `map.zones` sem `?? []` — o `terrain.draw`
+ * acima usa, o laco de rotulos nao. Ausente daria
+ * `TypeError: map.zones is not iterable` na hora de desenhar, e este
+ * mapa nao tem zona nenhuma justamente por nao ter rotulo
+ *
+ * E `zones: []` tambem e o que garante o "sem nenhum mob": o elenco de
+ * criaturas sai das zonas, e uma lista vazia nao casa com nenhuma
+ * entrada do `ZONE_ROSTER`
+ *
+ * ## POR QUE AS PROPS VEM DE `criarPropsTeste()` E NAO DE `createProps()`
+ *
+ * Porque `createProps()` semeia arvore e arbusto pela semente do vale, e
+ * este mapa nao quer nenhum dos dois: ele tem um campo de cristal, e o
+ * cristal vem em quatro raridades com contagem exata. `createProps()`
+ * entregaria 180 arvores em volta do campo
+ *
+ * ## POR QUE O NOME E "VALE 1" E O ID CONTINUA `mapa_teste`
+ *
+ * O `name` e o que o jogador le, e e este que foi trocado. O `id` nao
+ * foi: ele nao e etiqueta, e chave de quatro arquivos — `protocol.js`,
+ * `GameServer`, `GameClient` e o botao da HUD comparam a string
+ * `mapa_teste`, e o save do jogador pode ter ela gravada
+ *
+ * A troca de id fica de fora deste pedido de proposito. E uma renomeacao
+ * de seis arquivos que nao muda nada na tela, e o dia em que vale a pena
+ * fazer e junto com a primeira coisa que depender do nome, e nao antes
+ *
+ * ## A LINHA DO FIM, E POR QUE SO NESTE MAPA
+ *
+ * A linha cinza que delimita o mapa foi despensada quando a sebe de
+ * arbusto passou a fechar as quatro bordas do vale — ver o bloco "A
+ * LINHA CINZA DA BORDA FOI DESPENSADA" no `GameEngine.drawMap`. Era
+ * parede pintada por cima da parede de verdade
+ *
+ * Aqui nao tem sebe: e um mapa vazio, sem prop nenhuma. Sem a linha o
+ * jogador sai andando do nada — o `clampToBounds` segura ele, mas nao
+ * ha nada na tela dizendo onde o mundo acaba
+ *
+ * Por isso a linha volta, e volta como `limiteVisivel: true`, uma
+ * propriedade deste mapa. Nao volta no `drawMap` para todos: o vale e o
+ * hub ja tem a sebe, e la a linha seria de novo a parede pintada
+ */
+/**
+ * A SEMENTE DO VALE 1.
+ *
+ * Um numero so, e nao o `MAP_1_SEED`. As duas semeaduras nao podem
+ * concordar: se usassem a mesma, o cristal cairia exatamente onde a
+ * arvore cai, e da para o jogador andar pelo campo de cristal e tropecar
+ * numa arvore invisivel
+ *
+ * O numero e arbitrario e fixo, como o do mapa 1. E o que faz os 40
+ * cristais ficarem sempre nos mesmos lugares: um campo que muda de posicao
+ * a cada entrada e impossivel de medir
+ */
+export const MAP_TESTE_SEED = 771402;
+
+/**
+ * OS 40 CRISTAIS DO VALE 1, E COMO ELES SE DISTRIBUEM.
+ *
+ * Sao 23 comuns, 10 raros, 5 epicos e 2 lendarios — 40 no total. A conta
+ * fecha, e a proporcao e de proposito: a maioria e comum porque e o que
+ * o jogador ve todo dia andando, e o lendario e rarity tao rara que dois
+ * no mapa inteiro ja sao um acontecimento
+ *
+ * ## A ORDEM DELE, E POR QUE ESTA DE MAIS RARO PARA MAIS COMUM
+ *
+ * A lista esta do lendario para o comum, e e a ordem em que o sorteio
+ * acontece. O lendario e o primeiro a escolher lugar, e por dois motivos:
+ * ele tem o raio maior, entao e o mais caro de acomodar; e se algum dia
+ * este mapa ganhar obstaculo, portal ou bau, o cristal lendario e o
+ * primeiro a poder ficar sem o melhor ponto
+ *
+ * Se o comum fosse semeado primeiro, os 23 comuns ocupaem o mapa e o
+ * lendario passaria a aceitar qualquer sobra. Com o campo poucas vezes
+ * dando conta, hoje a ordem nao muda o resultado — ela esta aqui para
+ * quando mudar
+ *
+ * ## POR QUE UM `placeProps` POR RARIDADE, E NAO UM PLAN COM PESO
+ *
+ * Porque o `pickPlanEntry` sorteia pelo PESO, e peso da proporcao, nao
+ * contagem exata. Um plan com pesos 23/10/5/2 entregaria 40 cristais, mas
+ * a distribuicao seria uma media em torno disso — e a lista abaixo pede 2,
+ * 5, 10 e 23. Sortear raridade por raridade e o que torna os numeros exatos
+ */
+const CRISTAIS_DO_VALE = [
+  { type: "cristal_lendario", quantidade: 2 },
+  { type: "cristal_epico", quantidade: 5 },
+  { type: "cristal_raro", quantidade: 10 },
+  { type: "cristal_comum", quantidade: 23 },
+];
+
+/**
+ * A ZONA LIVRE, e o retangulo no centro do vale onde nao nasce pedra.
+ *
+ * ## POR QUE SO O CENTRO, E NAO SO AS PONTAS
+ *
+ * A primeira versao destas pedras botava tudo nos quatro cantos e o vale
+ * ficou oco: 40 cristais concentrados em quatro bolsos, com um mapa enorme
+ * no meio sem nada para buscar. O caminho intermediario e o que foi pedido
+ * agora — pedra em TODO o mapa, menos o retangulo central
+ *
+ * ## POR QUE UM RETANGULO, E NAO UM CIRCULO
+ *
+ * Porque o retangulo e um contrato verificavel. Com um circulo a borda fica
+ * curva e a duvida de "isso e o centro?" so se responde medindo a distancia
+ * ate o meio. Com o retangulo, "esta fora" e uma comparacao em X e outra em
+ * Y, e da para conferir num script
+ *
+ * ## O TAMANHO: 2200 x 1700
+ *
+ * O miolo precisa caber o painel do jogador, o spawn e as zonas de mob, com
+ * folga para um dash inteiro. A area util do vale e 5700 x 3900, e isso
+ * deixa uma faixa de pedras com 1750px de espessura em cima e embaixo e
+ * 1750 nas laterais — o suficiente para as pedras se espalharem por todo o
+ * anel, e nao so nos quatro cantos
+ */
+const CRISTAIS_ZONA_LIVRE = {
+  largura: 2200,
+  altura: 1700,
+};
+
+/**
+ * O AMOSTRADOR FORA DO CENTRO, e ele sorteia uniforme e joga fora o que
+ * caiu no retangulo livre.
+ *
+ * ## POR QUE REJEICAO, E NAO ESCOLHER UM LADO
+ *
+ * Porque escolher um lado sorteia DENTRO dele — e escolher entre quatro
+ * lados e a mesma coisa que mandar tudo pros cantos. A rejeicao deixa o
+ * sorteio uniforme sobre o anel inteiro: cada ponto fora do centro tem a
+ * MESMA chance, e nao so os quatro cantos
+ *
+ * ## POR QUE 60 TENTATIVAS, E NAO AS 40 DO `placeProps`
+ *
+ * Porque sao contagens diferentes. Aqui o alvo nao e a prop repetida, e o
+ * centro vazio — e a chance de cair dentro dele e de cerca de 17%, o que
+ * da uma media de 1,2 tentativas por ponto aceito. As 60 e folga, e o
+ * sorteio do `placeProps` continua com as 40 dele, que sao para nao repetir
+ * prop
+ *
+ * ## O RETORNO DO FIM, QUANDO AS 60 FALHAM
+ *
+ * Nao e "impossivel": com 17% por tentativa, 60 seguidas tem chance de 1 em
+ * 10^47. Mas `amostrarForaDoCentro` tem que devolver um ponto VALIDO, e o
+ * contrato do chamador nao tem como pedir ponto extra. Entao, se ainda assim
+ * vier um ponto dentro, ele e empurrado para fora pela face mais proxima — e
+ * a chance de o retorno ser ruim e zero, nao pequena
+ */
+function amostrarForaDoCentro(random) {
+  const margemX = MAP_1_BOUNDS.x + 70;
+  const margemY = MAP_1_BOUNDS.y + 70;
+  const larguraUtil = MAP_1_BOUNDS.width - 140;
+  const alturaUtil = MAP_1_BOUNDS.height - 140;
+
+  const centroX = margemX + larguraUtil / 2;
+  const centroY = margemY + alturaUtil / 2;
+
+  const meiaLargura = CRISTAIS_ZONA_LIVRE.largura / 2;
+  const meiaAltura = CRISTAIS_ZONA_LIVRE.altura / 2;
+
+  const dentroDoCentro = (ponto) =>
+    Math.abs(ponto.x - centroX) <= meiaLargura &&
+    Math.abs(ponto.y - centroY) <= meiaAltura;
+
+  for (let tentativa = 0; tentativa < 60; tentativa += 1) {
+    const ponto = {
+      x: margemX + random() * larguraUtil,
+      y: margemY + random() * alturaUtil,
+    };
+
+    if (!dentroDoCentro(ponto)) return ponto;
+  }
+
+  /**
+   * O EMPURRAO, e ele sai pela face mais proxima.
+   *
+   * Mede o que sobra ate cada par de bordas e sai pela menor: sair pela face
+   * mais proxima e o menor movimento possivel, e mantem o ponto na ponta do
+   * anel em vez de teletransporta-lo para o lado oposto
+   */
+  const folga = 1;
+  const sobraX = meiaLargura - Math.abs(ponto.x - centroX);
+  const sobraY = meiaAltura - Math.abs(ponto.y - centroY);
+
+  if (sobraX < sobraY) {
+    ponto.x =
+      ponto.x >= centroX
+        ? centroX + meiaLargura + folga
+        : centroX - meiaLargura - folga;
+  } else {
+    ponto.y =
+      ponto.y >= centroY
+        ? centroY + meiaAltura + folga
+        : centroY - meiaAltura - folga;
+  }
+
+  return ponto;
+}
+
+/**
+ * O VALOR DO `placeProps` NESTE MAPA: um cristal nao entra em cima do
+ * ponto em que o jogador aparece.
+ *
+ * `placeProps` ja afasta 70px da borda do mapa, e isso basta para a arte
+ * caber dentro do limite. O que ele nao sabe e que aqui tem um `spawn`:
+ * sem este filtro, um cristal pode cair nas 5920x4120 em cima dos 3000,
+ * 2100, e o jogador entra no vale ja dentro de uma rocha
+ *
+ * O `180` alem do raio e o espaco de andar. Sem ele, o cristal respeita a
+ * borda e mesmo assim chega perto demais: o jogador apareceria a few
+ * pixels de uma parede
+ */
+const CRISTAIS_LONGE_DO_SPAWN = 180;
+
+/**
+ * SEMEIA OS 40 CRISTAIS DO VALE 1, EM TODO O MAPA MENOS NO CENTRO.
+ *
+ * ## POR QUE 40, E POR QUE FORA DO CENTRO
+ *
+ * A primeira versao botava 40 pedras uniforme, e o miolo ficava cheio de
+ * obstaculo. A segunda botou as 40 nos quatro cantos e o vale ficou oco.
+ * Esta e a terceira: as 40 voltaram, e agora o unico lugar proibido e o
+ * retangulo central — entao o mapa inteiro tem o que buscar e o meio
+ * continua limpo para o jogador andar
+ *
+ * Devolve o mesmo formato do `createProps` do mapa 1 — `props`,
+ * `blocking` e `decorative` — porque quem consome sao os mesmos tres
+ * percursos do motor, do minimapa e do `CollisionSystem`, e o contrato
+ * deles e lista vazia em vez de `undefined`
+ *
+ * `decorative` volta vazio, e nao por esquecimento: os quatro tipos de
+ * cristal sao `blocking: true`. E uma lista vazia aqui significa a coisa
+ * verdadeira, que neste mapa nao existe prop decorativa
+ */
+function criarPropsTeste() {
+  const random = createRandom(MAP_TESTE_SEED);
+
+  const props = [];
+  const blocking = [];
+  const decorative = [];
+
+  for (const { type, quantidade } of CRISTAIS_DO_VALE) {
+    const lote = placeProps(
+      [{ type, weight: 1 }],
+      quantidade,
+      random,
+      (x, y, radius) =>
+        Math.hypot(x - MAP_1_SPAWN.x, y - MAP_1_SPAWN.y) >
+        CRISTAIS_LONGE_DO_SPAWN + radius,
+      // os lotes anteriores entram como `others`: e o que impede um
+      // cristal de cair em cima de outro de raridade diferente
+      props,
+      "cristal",
+      // as pedras nascem em todo o mapa, menos no retangulo livre do centro
+      amostrarForaDoCentro,
+    );
+
+    props.push(...lote);
+    blocking.push(...lote.filter((prop) => prop.blocking));
+  }
+
+  return { props, blocking, decorative };
+}
+
+const {
+  props: propsDoVale,
+  blocking: blockingDoVale,
+  decorative: decorativeDoVale,
+} = criarPropsTeste();
+
+const solidsDoVale = buildPropSolids(blockingDoVale);
+
+export const MAP_TESTE_ID = "mapa_teste";
+
+export const MAP_TESTE = {
+  id: MAP_TESTE_ID,
+  name: "Vale 1",
+
+  /**
+   * ESTE MAPA DESENHA AS ZONAS POR CIMA DO CHAO.
+   *
+   * O vale 1 nao tem arte de dungeon: e um campo escuro com 40 cristais
+   * espalhados, e a zona pintada e a unica coisa que diz "aqui tem
+   * cristal, aqui e o brejo". Tirar o desenho e o rotulo deixaria uma tela
+   * preta sem nenhuma orientacao
+   *
+   * O mapa 1 tem o contrario — o Tiled desenhado — e por isso nao declara
+   * isto, e o `drawMap` nao pinta nada por cima dele
+   */
+  desenhaZonas: true,
+
+  width: MAP_1_WIDTH,
+  height: MAP_1_HEIGHT,
+
+  bounds: MAP_1_BOUNDS,
+
+  background: "#17221f",
+
+  /**
+   * o chao escuro que o usuario deixou: a arte da
+   * `terra_2-voce-consedue-deixar-ela-uma-terra-mais-preta.jpg`
+   */
+  groundTile: "dark",
+
+  /**
+   * O NASCIMENTO AFUADO DO CHEFE, e nao o `MAP_1_SPAWN`.
+   *
+   * Este mapa tem `resumeWhereLeftOff: false`, entao o `spawn` e onde o
+   * jogador SEMPRE entra no vale. Como o chefe fica no centro e o
+   * `MAP_1_SPAWN` e o centro, manter os dois no mesmo ponto punha o
+   * jogador dentro do `hulk_val` no instante em que o mapa carregava
+   *
+   * O `MAP_1_DISTANCIA_DO_CHEFE` e o mesmo numero que a arena usa para
+   * resolver este problema — ver o comentario da constante
+   */
+  spawn: MAP_1_SPAWN_COM_CHEFE,
+
+  /** nao tem de onde voltar, entao comeca sempre pelo meio */
+  resumeWhereLeftOff: false,
+
+  cameraZoom: 1,
+
+  /**
+   * O HULK DO VALE, NO CENTRO DO MAPA.
+   *
+   * ## O `bosses` E SEPARADO DAS ZONAS, E O MOTOR LE OS DOIS
+   *
+   * O roster espalha criaturas numa grade dentro de cada zona, e ele foi
+   * feito para o campo de mob: sete bichos por zona, todos iguais. Um
+   * chefe nao cabe nesse desenho — ele e UM, em UM ponto. Por isso o mapa
+   * tem um campo `bosses` e o `createBosses` do motor le
+   *
+   * Este vale tem `zones: []`, entao sem este campo ele nao teria NENHUMA
+   * criatura: nem mob, nem chefe. E o `hulk_val` precisa de um `typeId`
+   * proprio porque e uma criatura diferente do `hulk` da arena, com arte e
+   * numeros proprios — ver `src/data/enemies/index.js`
+   */
+  bosses: MAP_1_CHEFES,
+
+  /** o vazio nao tem semente: nada e espalhado com ela */
+  zones: [],
+
+  /**
+   * OS 40 CRISTAIS, e nao mais listas vazias.
+   *
+   * Sao quatro `placeProps`, um por raridade, e nao um `createProps()`
+   * porque este mapa nao tem arvore nem arbusto para semear: ele tem
+   * cristal, e o cristal vem em quatro raridades com contagem exata. O
+   * `createProps()` do vale semearia 180 arvores em volta de um campo que
+   * nao deveria ter arvore nenhuma
+   *
+   * ## POR QUE `solids` VEM JUNTO E NAO SO `props`
+   *
+   * Porque os dois andam juntos: `solids` e a versao colidivel de
+   * `blocking`, e um cristal visivel sem coluna nao seria um cristal, seria
+   * um cenario. Sao os quatro lotes que bloqueiam — `decorative` fica
+   * vazio porque nenhum dos quatro e decorativo
+   */
+  props: propsDoVale,
+  blocking: blockingDoVale,
+  decorative: decorativeDoVale,
+  solids: solidsDoVale,
+
+  /** sem portal: quem volta para o mapa anterior e o botao da HUD */
+  portals: [],
+
+  /** a linha do limite, que o vale nao precisa porque tem sebe */
+  limiteVisivel: true,
+};
+
+
+
+/**
  * O REGISTRO DE MAPAS.
  *
- * Sao dois mapas, e o jogo abre no `base`.
+ * Sao tres mapas de mundo e a arena, e o jogo abre no `base`.
  *
  * A chave e o `id` de cada mapa. E o que o `getMap` recebe, e o que
  * o `save` deve guardar quando o jogo saber travel entre eles
@@ -1362,6 +2154,15 @@ export const MAPS = {
    * etapa, e um `destino` viria do portal que a traz — nao da arena
    */
   boss_1: BOSS_1_MAP,
+
+  /**
+   * O MAPA DE TESTE.
+   *
+   * Sem portal e sem atalho: quem entra nele e quem sai dele e o botao
+   * da HUD, que pergunta ao servidor. Nao tem `destino` em portal
+   * porque nao e um destino — e um destino do BOTAO
+   */
+  [MAP_TESTE_ID]: MAP_TESTE,
 };
 
 /**

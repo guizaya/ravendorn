@@ -1,4 +1,4 @@
-
+﻿
 export const TILE_SIZE = 32;
 export const TILE_VARIANTS = 4;
 
@@ -47,13 +47,57 @@ export const BASE_TERRAIN = "grass";
  * 128px acontece no carregamento, num canvas fora de tela
  */
 export const GROUND_TILES = {
+  /**
+   * A GRAMA DO MAPA 1.
+   *
+   * Antes era o `grama.jpg`, de 1600x1600. A arte nova e um PNG de
+   * 1254x1254, o mesmo tamanho do baÃº e da mira, e entra no mesmo
+   * _pipeline_: o ladrilho de 128px continua sendo montado no carregamento
+   * e a arte grande nunca entra no bundle reduzida
+   *
+   * ## O TAMANHO DA ORIGEM NAO ESTA EM NENHUM CODIGO
+   *
+   * Nem aqui nem no `reduceToTile`. O ladrilho tem 128px em `GROUND_TILE_SIZE`,
+   * e a `reduceToTile` le `naturalWidth` da imagem e corta por metades ate
+   * chegar no 128 â€” 1254 vira 627, 314, 157 e 128. Nenhuma das duas medidas
+   * esta escrita em lugar nenhum, entao trocar a arte nao e um numero que
+   * precisa accompanyar
+   *
+   * O `grama.jpg` antigo continua no disco: e a arte de origem do campo de
+   * provas e a referencia de cor do resto, e some quando nenhum mapa
+   * apontar para ele
+   */
   grama: new URL(
-    "../../assets/terrain/grama.jpg",
+    "../../assets/terrain/new_grama_mapa_1.png",
     import.meta.url,
   ).href,
 
+  /**
+   * O CALCAMENTO DO MAPA BASE.
+   *
+   * Antes era o `chao_cidade.jpg`, de 1600x1600. A arte nova e um PNG de
+   * 1254x1254 â€” o mesmo tamanho da grama e da terra do mapa 1 â€” e entra no
+   * mesmo _pipeline_: o ladrilho de 128px continua sendo montado no
+   * carregamento e a arte grande nunca entra no bundle reduzida
+   *
+   * ## O TAMANHO DA ORIGEM NAO ESTA EM NENHUM CODIGO
+   *
+   * O ladrilho tem 128px em `GROUND_TILE_SIZE`, e a `reduceToTile` le
+   * `naturalWidth` da imagem e corta por metades ate chegar nele â€” 1254 vira
+   * 627, 314, 157 e 128. Nenhuma das duas medidas esta escrita em lugar
+   * nenhum, entao trocar a arte nao e um numero que precisa acompanhar
+   *
+   * ## POR QUE ESTE CALCAMENTO NAO ESTA NO ESPELHADO
+   *
+   * A nota da `boss.jpg` ao lado explica o problema que o espelhado resolve:
+   * a arte emenda mal. E o calcamento o unico do jogo que ladrilha sem
+   * costura ha anos, entao o espelhado dele e o que impede a emenda
+   *
+   * O `chao_cidade.jpg` antigo continua no disco: e a materia prima de
+   * comparacao e some quando nenhum mapa apontar para ele
+   */
   cidade: new URL(
-    "../../assets/terrain/chao_cidade.jpg",
+    "../../assets/terrain/new_chao_cidade.png",
     import.meta.url,
   ).href,
 
@@ -65,24 +109,58 @@ export const GROUND_TILES = {
   /**
    * O CHAO DA ARENA DE CHEFE.
    *
-   * 1600x1600, o mesmo tamanho das outras tres, entao entra no mesmo
-   *_pipeline_: o ladrilho de 128px e montado no carregamento e a arte
-   * grande nunca entra no bundle
+   * Antes era o `boss.jpg`, de 1600x1600. A arte nova e um PNG de
+   * 1254x1254 â€” o mesmo tamanho da grama, da terra e do calcamento â€” e
+   * entra no mesmo _pipeline_: o ladrilho de 128px continua sendo montado no
+   * carregamento e a arte grande nunca entra no bundle reduzida
    *
-   * ## ESTA ARTE EMENDA, E POR ISSO NAO ESTA NO ESPELHADO
+   * ## A EMENDA MELHOROU, E A ARTE ANTIGA JA EMENDAVA BEM
    *
-   * Comparando as bordas da imagem com as do calcamento — que ja
-   * ladrilha sem costura ha anos — a `boss.jpg` da 58 de diferenca media
-   * entre a coluna da esquerda e a da direita, contra 147 do calcamento.
-   * A emenda e MENOR que a de uma arte que ja funciona, entao ela e
-   * usada como ladrilho direto
+   * A nota antiga dizia que a `boss.jpg` emendava com 58 de diferenca media
+   * entre a coluna da esquerda e a da direita, e por isso nao estava no
+   * espelhado. Medindo agora: a antiga da 19,7 e a nova da 3,2
    *
-   * Espelhar uma arte que ja fecha so mudaria o visual de um mapa que
-   * esta certo: o espelhado e o conserto para arte que NAO fecha (a
-   * neve), e nao um padrao
+   * A nova emenda seis vezes melhor, e o espelhado continua fora â€” ele e o
+   * conserto para arte que NAO fecha (a neve), nao um padrao. Uma arte que
+   * fecha por si so nao precisa de espelho, por melhor que a emenda fique
+   *
+   * O `boss.jpg` continua no disco como materia prima de comparacao
    */
   boss: new URL(
-    "../../assets/terrain/boss.jpg",
+    "../../assets/terrain/new_chao_boss.png",
+    import.meta.url,
+  ).href,
+
+  /**
+   * O CHAO ESCURO DO VALE 1.
+   *
+   * Era a `terra_2`, que apontava para o mesmo arquivo que e a terra das
+   * ZONAS do mapa 2, em `ZONE_TILES`. Trocada pela arte escura
+   *
+   * ## POR QUE A CHAVE E `dark` E O ARQUIVO NAO
+   *
+   * Porque o arquivo se chama
+   * `terra_2-voce-consedue-deixar-ela-uma-terra-mais-preta.jpg`. O nome
+   * e um pedido, nao um rotulo: e assim que a arte chegou, com o
+   * lembrete de que o chao do vale tem de ficar mais preto
+   *
+   * Deixar a chave com esse nome seria um mapa de traducao para ninguem
+   * consultar. O arquivo guarda a conversa; a chave guarda o que o
+   * desenho e
+   *
+   * ## POR QUE A CHAVE `terra_2` SUMIU DO CHAO
+   *
+   * Porque ela foi criada aqui so para este mapa: nao servia a nenhum
+   * outro chao do jogo. O `terra_2.jpg` continua existindo e continua em
+   * uso, como terra de zona do mapa 2
+   *
+   * Sao camadas diferentes do mesmo desenho, e por isso chaves
+   * diferentes: o `groundTile` preenche a tela inteira quando o mapa nao
+   * tem zona nenhuma, e o `zoneTile` e o ladrilho que se repete dentro de
+   * cada retangulo de zona
+   */
+  dark: new URL(
+    "../../assets/terrain/terra_2-voce-consedue-deixar-ela-uma-terra-mais-preta.jpg",
     import.meta.url,
   ).href,
 };
@@ -128,7 +206,7 @@ export function groundTileEspelhadoFor(map) {
 }
 
 /**
- * O lado do tile de chao, em pixel do mundo.
+ * O lado do tile de chao, em pixel do mundo, quando o mapa nao declara outro.
  *
  * O valor e o mesmo para as duas texturas por uma razao pratica: e a
  * mesma conta de reducao, e um tile de grama com um de calcamento em
@@ -143,6 +221,89 @@ export function groundTileEspelhadoFor(map) {
  * mesmo: a 1600px cada pedra era do tamanho de um bicho
  */
 export const GROUND_TILE_SIZE = 128;
+
+/**
+ * O LADO DO TILE DAS CHAVES QUE NAO USAM O PADRAO.
+ *
+ * ## POR QUE UM TABELA E NAO SO O `GROUND_TILE_SIZE`
+ *
+ * Porque ele e global. Mexer no valor mudaria os cinco chaos do jogo de uma
+ * vez â€” e a grama e a neve ja estavam certas quando o calcamento da base
+ * entrou com a arte nova. Um ajuste que e do calcamento nao pode custar o
+ * ajuste da grama
+ *
+ * E a chave e `groundTile`, a mesma que `GROUND_TILE_ESPELHADO` le, e nao a
+ * URL: duas bases com a mesma folha mas escalas diferentes sao dois mapas de
+ * verdade, e quem decide a escala e o mapa
+ */
+const GROUND_TILE_SIZE_POR_CHAVE = {
+  /**
+   * O CALCAMENTO DA BASE, na metade do padrao de repeticao.
+   *
+   * A arte nova de 1254px, reduzida a 128px, dava uma pedra grande demais
+   * perto das outras: cada bloco media quase o tamanho de um personagem, e
+   * o calcamento lia como uma parede de tijolos em vez de um chao
+   *
+   * Desceu de 128 para 96 e depois para 64. A 64px a pedra cai para metade
+   * do lado, que e o que faz o calcamento virar chao de verdade â€” e a
+   * reducao nao vira ruido por causa do `reduceToTile`, que corta por
+   * metades (1254, 627, 314, 157, 64): cada degrau e um fator de 2, e o
+   * ultimo e de 157 para 64
+   *
+   * ## O PRECO, E ELE E JUSTO AQUI
+   *
+   * A 64px o ladrilho cabe vinte vezes na largura de uma tela de 1280. A
+   * repeticao aparece, e o espelhado que a neve usa nao esta nesta chave:
+   * `cidade` nunca entrou em `GROUND_TILE_ESPELHADO`, e o calcamento antigo
+   * ja ladrilhava sem costura ha anos. Se a emenda aparecer aqui, e o
+   * espelhado a saida â€” mas a arte nova emenda sete vezes melhor que a
+   * antiga, entao provavelmente nao vai precisar
+   *
+   * E por 64 e nao por um numero redondo menor: 64 e exatamente a metade do
+   * `GROUND_TILE_SIZE`, entao o calcamento fica em escala de 1:2 com a
+   * grama â€” e nao com o pixel art de 32px, com quem compartilha o dobro
+   */
+  cidade: 64,
+
+  /**
+   * A GRAMA DO MAPA 1, em 16px.
+   *
+   * ## POR QUE 16 E NAO 32
+   *
+   * Porque 16 e o `TILE_SIZE` deste arquivo, e o lado com quem o pixel art
+   * do jogo inteiro ja conversa: o mob, a prop e o boneco sao desenhados em
+   * celulas de 32 com metade ocupada, ou seja, a arte viva ocupa 16
+   *
+   * Com o ladrilho do chao em 16, a grade do terreno passa a bater com a
+   * grade da arte. Um ladrilho de 128 sobre celulas de 16 e um ladrilho de
+   * 16: os dois ladrilham, mas so um deles tem as contas fechando
+   *
+   * ## O QUE MUDA NA TELA
+   *
+   * O grao da grama fica 8 vezes menor e a repeticao aparece mais. E o preco
+   * do `cidade` em 64, pelo mesmo motivo: a 16px o ladrilho cabe oitenta
+   * vezes na largura de uma tela de 1280
+   *
+   * ## E SO O MAPA 1
+   *
+   * Porque a chave e `groundTile`, e o vale e o unico mapa com
+   * `new_grama_mapa_1`. A neve, o calcamento e a arena ficam no que ja
+   * estavam
+   */
+  grama: 64,
+};
+
+/**
+ * O lado do tile de um mapa, em pixel do mundo.
+ *
+ * Cai no `GROUND_TILE_SIZE` quando a chave nao esta na tabela â€” que e o
+ * caminho de qualquer mapa novo, e o mesmo do `groundTileFor`
+ */
+export function groundTileSizeFor(map) {
+  return (
+    GROUND_TILE_SIZE_POR_CHAVE[map?.groundTile] ?? GROUND_TILE_SIZE
+  );
+}
 
 /**
  * Se o chao de fora das zonas esta sendo pintado pelo tile.
@@ -163,15 +324,26 @@ export function groundTileFor(map) {
 }
 
 /**
- * O TERENO DAS AREAS DE MOB E O `terra.jpg`.
+ * O TERENO DAS AREAS DE MOB E A ARTE NOVA DE TERRA.
  *
  * Onze dos doze zonas do vale passam a ser ladrilhadas com esta textura,
- * na mesma conta da grama: 1600px reduzidos para 128px no carregamento
+ * na mesma conta da grama: a arte de origem reduzida para 128px no
+ * carregamento
+ *
+ * ## O `terra.jpg` DE 1600px SAIU DE CIRCULACAO
+ *
+ * A arte e agora o `new_terra_mapa_1.png`, de 1254x1254. O arquivo
+ * antigo continua no disco â€” e a materia prima de comparacao e a
+ * referencia de cor â€” e sai de circulacao junto com esta constante quando
+ * nenhum mapa apontar para ele
+ *
+ * O `terra_2` do mapa 2 nao foi tocado: a arte dele e a da temperatura
+ * do Vale de Cinzas, e o pedido foi so a terra do mapa 1
  *
  * O que muda em relacao ao estado anterior:
  *
  *   - as 11 zonas de mob deixaram de usar os tiles de 32px da
- *     `terrain.png` — floresta, gelo, pedra, brejo e areia saem todos do
+ *     `terrain.png` â€” floresta, gelo, pedra, brejo e areia saem todos do
  *     mesmo ladrilho de terra
  *   - o Campo de Provas, que tem `kind: "training"` e so bonecos de
  *     treino, NAO foi mudado. Ele nao e area de mob, e continua em pixel
@@ -184,7 +356,7 @@ export function groundTileFor(map) {
  * da terra fica no tamanho do chao
  */
 export const ZONE_TILE = new URL(
-  "../../assets/terrain/terra.jpg",
+  "../../assets/terrain/new_terra_mapa_1.png",
   import.meta.url,
 ).href;
 
@@ -194,11 +366,11 @@ export const ZONE_TILE = new URL(
  * O `ZONE_TILE` acima e o padrao, e continua valendo para o mapa que
  * nao declarar nada. O mapa 2 declara a sua, porque a terra do Vale de
  * Cinzas e a terra do mapa 2 sao o mesmo bioma em dois cenarios
- * diferentes — e a diferenca de temperatura se enxerga no chao, nao
+ * diferentes â€” e a diferenca de temperatura se enxerga no chao, nao
  * so no minimapa
  *
  * Same chaves, mesmo traducao: `zoneTileFor` e o `groundTileFor` do
- * chao. E a URL, e nao a imagem, que o cache guarda — assim trocar o
+ * chao. E a URL, e nao a imagem, que o cache guarda â€” assim trocar o
  * mapa nao precisa recarregar nada, e so procurar outro ladrilho
  */
 export const ZONE_TILES = {
@@ -215,7 +387,7 @@ export function zoneTileFor(map) {
   return ZONE_TILES[map?.zoneTile] ?? ZONE_TILE;
 }
 
-export const ZONE_TILE_SIZE = 128;
+ export const ZONE_TILE_SIZE = 128;
 
 /**
  * Desligar aqui faz as 11 voltarem ao pixel art de 32px, sem mexer em
@@ -228,7 +400,7 @@ export const ZONES_USE_TILE = true;
  *
  * ## TODAS AS DOZE
  *
- * Inclusive o campo de provas. Ele ja foi a unica de fora — o
+ * Inclusive o campo de provas. Ele ja foi a unica de fora â€” o
  * argumento era que o jogador precisa ver que ali e um campo de treino
  * e nao um territorio hostil. A leitura vem do que mora dentro: dois
 * bonecos parados, nenhum inimigo, nenhum ataque. E o `terra.jpg`
@@ -239,7 +411,7 @@ export const ZONES_USE_TILE = true;
  *
  * Com ele em `false`, as doze voltam ao pixel art de 32px sem mexer em
  * mais nada. O que nao e o nome da pasta de arte nem o `terrain` da
- * zona — e o mesmo ladrilho para as doze, e o `terrain` so pinta a
+ * zona â€” e o mesmo ladrilho para as doze, e o `terrain` so pinta a
  * area no minimapa
  */
 export function zoneUsesTile(zone) {
@@ -271,7 +443,7 @@ export function zoneUsesTile(zone) {
  * folha volta, e so falta o `drawZoneEdges` para desenha-la
  *
  * A BORDA DA ZONA FICOU SECA. Com o chao em grama pintada e a zona em
- * pixel art, o corte entre as duas e visivel — e a leitura de "aqui comeca
+ * pixel art, o corte entre as duas e visivel â€” e a leitura de "aqui comeca
  * uma area de mob" continua, agora por corte em vez de por mistura
  */
 export const FEATURE_LIST = [

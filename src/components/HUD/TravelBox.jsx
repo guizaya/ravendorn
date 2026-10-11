@@ -32,8 +32,6 @@
 
 export default function TravelBox({
   teleporte = null,
-  minimapTop = 84,
-  minimapHeight = 146,
   onTeleportar = null,
 }) {
   /**
@@ -61,35 +59,103 @@ export default function TravelBox({
    * Com o mapa no lugar, a box ainda diz para ONDE, que e o que o jogador
    * precisa saber antes de gastar o pergaminho
    */
-  const onde = distancia === null ? mapa : `${distancia} px`;
+  /*
+   A DISTANCIA COMO UNIDADE DE JOGO, E NAO COMO PIXEL.
+
+   ## POR QUE METROS
+
+   O mapa tem milhares de pixels de lado. "Fim em 3471 px" nao e uma
+   distancia que o jogador consiga ler: ele nao tem referencia do que e um
+   pixel do mundo. "347,1 m" e uma coisa que existe fora do jogo
+
+   ## A CONVERSA
+
+   Metros ate 999, e quilometros acima disso. Um destino a 1,4km e um destino
+   a 1,4m sao coisas que o jogador precisa distinguir de relance, e e o que
+   o digito a mais faz
+
+   ## POR QUE SO UM PONTO FLUTUANTE
+
+   Porque a box mostra UM numero, nao uma tabela. Com dois decimais, 347,13m
+   tem quatro algarismos uteis e um de ruido: o jogador nao decide o
+   teleporte comparando centimetros, ele decide se o destino e longe. Um
+   decimal ja separa "quase la" de "la", que e a unica distincao que ele
+   faz olhando
+
+   E o ponto flutuante e REQUIRED no quilometro: sem ele, 1.10 seria lido
+   como onze, e o numero diria o oposto do que mede
+   */
+  function formatarDistancia(px) {
+    const metros = Math.round(px / 10);
+
+    if (metros < 1000) {
+      return `${metros.toFixed(1).replace(".", ",")} m`;
+    }
+
+    const km = metros / 1000;
+
+    return `${km.toFixed(2).replace(".", ",")} km`;
+  }
+
+  const onde =
+    distancia === null ? mapa : formatarDistancia(distancia);
 
   return (
     <div
       className="prt-box prt-box--teleporte"
-      style={{
-        top: minimapTop + minimapHeight + 10,
-      }}
       data-teleporte="sim"
     >
-      <p className="prt-box__label">Deslocamento automatico</p>
-
       {/*
-        ONDE ESTA O DESLOCAMENTO: a distancia em pixel quando e aqui
-        mesmo, e o nome do mapa de destino quando o portal esta no meio
+        O ROTULO CURTO.
+
+        Era "Deslocamento automatico", que com 22px quebrava a linha na
+        largura de 220px e fazia a box ganhar uma altura que nao comprava
+        informacao nenhuma. O botao, o texto e o icone do HUD ja dizem que
+        isso e teleporte
       */}
-      <p className="prt-box__name">Fim em {onde}</p>
+      <p className="prt-box__label prt-box__label--linha">
+        <span>Teleporte</span>
+
+        {/*
+          A DISTANCIA AO LADO DO ROTULO, e nao numa linha propria.
+
+          ## POR QUE "FIM EM" SAIU
+
+          Porque "Fim em 1,80 km" e a frase mais longa da box, e ela ocupava
+          uma linha inteira para dizer um numero. Tirando as duas palavras,
+          sobra o numero — que e o que o jogador le
+
+          ## POR QUE NA LINHA DE CIMA
+
+          Porque o rotulo e o mais curto da box, e ele sobra vazio na
+          direita. Label na esquerda, numero na direita: e a mesma leitura
+          de qualquer par rotulo/valor da tela, e o olho ja sabe fazer
+
+          ## POR QUE A DISTANCIA SAI QUANDO O MAPA E O DE DESTINO
+
+          Porque nao ha numero para mostrar. O motor manda `distancia: null`
+          quando o destino e outro mapa, e a conta entre as coordenadas de
+          dois mapas seria inventada
+        */}
+        <span className="prt-box__label-valor">{onde}</span>
+</p>
 
       {/*
         O MOTIVO DO BOTAO DESLIGADO.
 
-        Fica ACIMA do botao e nao dentro dele, pelo mesmo motivo do
-        `DeathPanel`: e a informacao que o jogador precisa antes de
-        ler o botao, e nao uma explicacao do botao
+        ## POR QUE OS TEXTOS VIARAM CURTOS
+
+        "Voce nao tem pergaminho de teleporte. O mercador vende." ocupava
+        DUAS linhas dentro dos 220px, e eram a maior parte da altura da
+        box. E o botao desligado ja escreve "Sem pergaminho" embaixo —
+        as duas frases diziam a mesma coisa em dois lugares
+
+        Sobrou so o que o botao nao diz: o preco e onde conseguir
       */}
       <p className="prt-box__lock" role="status">
         {temPergaminho
-          ? "Gasta 1 pergaminho de teleporte."
-          : "Voce nao tem pergaminho de teleporte. O mercador vende."}
+          ? "Gasta 1 pergaminho."
+          : "O mercador vende."}
       </p>
 
       <button
@@ -97,7 +163,7 @@ export default function TravelBox({
         className="prt-box__go prt-box__go--teleporte"
         onClick={() => onTeleportar?.()}
         disabled={!temPergaminho}
-        title={
+        data-tip={
           temPergaminho
             ? "Pular para o fim do deslocamento"
             : "Voce nao tem pergaminho de teleporte"

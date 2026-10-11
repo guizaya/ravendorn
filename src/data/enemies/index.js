@@ -5,6 +5,189 @@ import {
   MAP_1_SEED,
 } from "../maps/index.js";
 import { applyDropScaling } from "../../game/balance.js";
+import { EQUIPAMENTOS_DE_DROP } from "../../game/rules/regrasDoItem.js";
+import { ITEMS } from "../items/index.js";
+import { HABILIDADES_CHEFE } from "../../game/enemies/telegraphSkills.js";
+
+/**
+ * O POOL DE EQUIPAMENTO DE TODO MONSTRO DO JOGO.
+ *
+ * ## A REGRA, INTEIRA
+ *
+ * Qualquer monstro solta qualquer peca, de qualquer classe. O `drop` nao tem
+ * mais a ver com a classe de quem matou: o esqueleto nao sabe de que classe
+ * voce e, e se soubesse nao teria porque saber
+ *
+ * ## POR QUE ISTO NAO MATA A IDENTIDADE DA CLASSE
+ *
+ * Porque o CRAFT continua sendo por classe, e e de la que sai a peca boa. O
+ * CRAFT e escolha — e qualquer escolha que sirva a qualquer classe deixa de
+ * ser uma escolha. O DROP e acaso, e acaso filtrado e acaso manipulado
+ *
+ * ## POR QUE O JOGADOR SO VESTE A DELE MESMO
+ *
+ * Porque e isso que da valor a peca que voce NAO pode usar. Voce mata o golem,
+ * cai a elmo do guerreiro, e nao da para vestir. O unico jeito de usar aquela
+ * peca e vender para um guerreiro — e assim que o mercado entre jogadores
+ * ganha valor de verdade, em vez de ser so um lugar para guardar tralha
+ *
+ * ## POR QUE O PESO E BAIXO
+ *
+ * Porque equipamento e raro. Se a peca dropada fosse comum, ela viraria a rota
+ * mais facil de equipamento e o craft perderia o sentido inteiro
+ */
+function equipamentosDoDrop() {
+  return EQUIPAMENTOS_DE_DROP.map((peca) => ({ ...peca }));
+}
+
+/**
+ * O POOL DE EQUIPAMENTO DO ANDAR DE UM NIVEL.
+ *
+ * Devolve uma COPIA das entradas, e nao o array de `EQUIPAMENTO_POR_ANDAR`
+ * direto: o `rollItems` pode escrever no objeto do item sorteado, e um pool
+ * compartilhado levaria essa escrita de um abate para o proximo
+ */
+function equipamentosDoAndar(nivel) {
+  const andar = andarDoNivel(nivel);
+
+  return (EQUIPAMENTO_POR_ANDAR[andar] ?? []).map((peca) => ({
+    ...peca,
+  }));
+}
+
+/**
+ * Junta o material da criatura com o equipamento de todo mundo.
+ *
+ * E o unico ponto onde a lista de drop e montada, para nenhuma criatura ficar
+ * com pool de equipamento vazio por esquecimento
+ */
+function poolCompleto(items, nivel = 1) {
+  return [...(items ?? []), ...equipamentosDoAndar(nivel)];
+}
+
+/**
+ * O POOL DE EQUIPAMENTO DE UM DETERMINADO ANDAR DA CAMPANHA.
+ *
+ * ## A REGRA QUE ESTE POO SUBSTITUI
+ *
+ * Antes os 19 equipamentos entravam em TODA criatura, com o mesmo peso, e a
+ * progressao de poder nao existia: um esqueleto de nivel 1 e um goblin de
+ * nivel 12 soltavam exatamente a mesma coisa. O jogador subia de nivel, mas a
+ * coisa que droppeda nao subia com ele — e ai nao ha motivo para voltar no
+ * mob mais fraco, porque ele dropa o mesmo loot
+ *
+ * ## OS TRES ANDARES
+ *
+ * - **1 — O QUEbrado**: so o arco e a aljava, os dois `uncommon`, mais os
+ *   Rings e o amuleto. E o piso do jogo: o jogador novo precisa achar o
+ *   primeiro arco, e ele so aparece aqui
+ * - **2 — O COMUM**: entra a armadura do arbalist e a do guerreiro, toda
+ *   `common`. Atinge quando o jogador ja tem arma e precisa se vestir
+ * - **3 — O REFINADO**: os mesmos ids, com peso maior. Nao e uma peca nova,
+ *   e a mesma peca aparecendo mais vezes — que e como o jogo real sinaliza
+ *   "esse slot ja esta resolvido, pare de farmar aqui"
+ *
+ * ## POR QUE A ARMADURA NAO ENTRA NO ANDAR 1
+ *
+ * Porque e armadura `common` e o arco e `uncommon`. Se os dois caissem
+ * juntos no primeiro mob, o jogador trocaria de arco por uma bota no mesmo
+ * minuto, e o arco — que e a peca que define a classe — viraria o item
+ * descartavel
+ *
+ * ## E POR QUE ANEL E AMULETO ESTAO NO ANDAR 1
+ *
+ * Porque sao `common`, nao tem classe, e servem as quatro. Sao o unico
+ * equipamento transversal do jogo, entao tem de aparecer cedo para o jogador
+ * saber que existem antes de precisar deles
+ */
+export const ANDAR_DE_CAMPANHA = {
+  QUEBRADO: "quebrado",
+  COMUM: "comum",
+  REFINADO: "refinado",
+};
+
+/**
+ * O QUE CADA ANDAR PODE SOLTAR.
+ *
+ * E um indice por `id`, e nao tres listas: o `poolCompleto` escolhe o andar
+ * pelo nivel da criatura e monta a partir daqui. Uma lista por andar
+ * duplicaria os mesmos ids tres vezes, e a proxima peca nova entraria em um
+ * lugar so
+ */
+const EQUIPAMENTO_POR_ANDAR = {
+  [ANDAR_DE_CAMPANHA.QUEBRADO]: [
+    { id: "willow_bow", weight: 14 },
+    { id: "aljava_arbalist", weight: 14 },
+    { id: "anel", weight: 6 },
+    { id: "amuleto_arqueiro", weight: 6 },
+  ],
+
+  [ANDAR_DE_CAMPANHA.COMUM]: [
+    { id: "willow_bow", weight: 8 },
+    { id: "aljava_arbalist", weight: 8 },
+    { id: "botas_arbalist", weight: 10 },
+    { id: "calca_arbalist", weight: 10 },
+    { id: "capuz_arbalist", weight: 10 },
+    { id: "luvas_arbalist", weight: 10 },
+    { id: "peito_arbalist", weight: 10 },
+    { id: "botas_warrior", weight: 10 },
+    { id: "calca_warrior", weight: 10 },
+    { id: "elmo_warrior", weight: 10 },
+    { id: "luvas_warrior", weight: 10 },
+    { id: "peito_warrior", weight: 10 },
+    { id: "anel", weight: 5 },
+    { id: "amuleto_arqueiro", weight: 5 },
+  ],
+
+  [ANDAR_DE_CAMPANHA.REFINADO]: [
+    { id: "willow_bow", weight: 5 },
+    { id: "aljava_arbalist", weight: 5 },
+    { id: "botas_arbalist", weight: 16 },
+    { id: "calca_arbalist", weight: 16 },
+    { id: "capuz_arbalist", weight: 16 },
+    { id: "luvas_arbalist", weight: 16 },
+    { id: "peito_arbalist", weight: 16 },
+    { id: "botas_warrior", weight: 16 },
+    { id: "calca_warrior", weight: 16 },
+    { id: "elmo_warrior", weight: 16 },
+    { id: "luvas_warrior", weight: 16 },
+    { id: "peito_warrior", weight: 16 },
+    { id: "anel", weight: 4 },
+    { id: "amuleto_arqueiro", weight: 4 },
+  ],
+};
+
+/**
+ * A PARTIDA QUE ESCOLHE O ANDAR.
+ *
+ * E `nivel - 1`, e nao o nivel cru, porque o primeiro mob de cada mapa e o
+ * degrau 1 da campanha dele. Sem o `-1` o esqueleto de nivel 1 cairia no
+ * andar COMUM desde o primeiro minuto, e o arco — que so existe no QUEBRADO
+ * — nunca apareceria para o jogador novo
+ *
+ * ## POR QUE O LIMITE E 7 E NAO O NIVEL DA CAMPANHA
+ *
+ * Porque os tres andares sao tres fases do JOGO, nao tres faixas de nivel
+ * exatas. O mapa 1 tem 12 degraus e o mapa 2 tem 12: com o corte em 7, os
+ * dois mapas atravessam os tres andares, e o jogador encontra a mesma
+ * progressao de loot nos dois. O corte em 12 faria o mapa 2 inteiro dropar
+ * so o andar COMUM, e o jogador sentiria que o mapa 2 e "mais fraco" quando
+ * e mais forte
+ *
+ * ## E POR QUE O ANDAR REFINADO SUBIU DE PESO, E NAO DE PECA
+ *
+ * Porque nao existe peca melhor no catalogo ainda. O sinal de "esse slot ja
+ * esta resolvido" e a FREQUENCIA, e nao a raridade — que vem do
+ * `rarityDropWeight` do `balance.js`, separado deste arquivo
+ */
+function andarDoNivel(nivel) {
+  const n = Math.max(1, Math.floor(nivel ?? 1));
+
+  if (n <= 3) return ANDAR_DE_CAMPANHA.QUEBRADO;
+  if (n <= 7) return ANDAR_DE_CAMPANHA.COMUM;
+
+  return ANDAR_DE_CAMPANHA.REFINADO;
+}
 
 export const BEHAVIOR = {
   PASSIVE: "passive",
@@ -77,8 +260,36 @@ export function resolveLevel(type, level) {
 export const CREATURE_TYPES = {
   slime: {
     id: "slime",
-    name: "Limo Preguiçoso",
+    name: "Esqueleto",
+
+    /**
+     * PASSIVO QUE RETALIA.
+     *
+     * O `behavior` continua PASSIVE: ele nao persegue ninguem por estar
+     * perto, nao tem `aggroRange` e nao vagueia para tras de um jogador.
+     * O que o campo `retalia` abaixo faz e dar uma REGRA ao primeiro
+     * golpe, e essa regra e a mesma do boneco de duelo: trava em quem
+     * bateu, vai ate la e so troca de alvo se esse morrer
+     *
+     * ## POR QUE UM CAMPO E NAO UM `behavior` NOVO
+     *
+     * Porque retaliação NAO e um quarto comportamento: e o
+     * comportamento PASSIVE com uma reacao. Um `BEHAVIOR.RETALIATOR`
+     * teria de ser tratada em todos os pontos que testam `behavior` —
+     * `updateAlert`, `isAggressive`, `updateBehavior`, a `leash` do ACTIVE,
+     * o `provoke` — e cada um deles precisaria saber a resposta certa
+     * para "e passivo mas tem alvo?". Um campo de 4 linhas e a regra
+     * inteira
+     *
+     * ## POR QUE `aggroRange` CONTINUA 0
+     *
+     * Porque e ele que impede a agressividade por proximidade. Se
+     * subisse, o esqueleto cairia no `isAggressive` do ACTIVE e
+     * atacaria o jogador mais proximo em vez de quem o bateu — que e
+     * exatamente o que a regra proibe
+     */
     behavior: BEHAVIOR.PASSIVE,
+    retalia: true,
     level: 1,
 
     /**
@@ -88,9 +299,14 @@ export const CREATURE_TYPES = {
      * do mapa era uma ameaca, e a campanha inteira era so volume. Com 22
      * sao ~44 golpes, e tres limos juntos derrubam quem fica parado
      *
-     * O HP subiu pouco de proposito: o limo e o degrau 1 e precisa cair
-     * em 2 golpes de um lvl 1, senao o primeiro degrau da campanha ja
+     * O HP subiu pouco de proposito: a criatura e o degrau 1 e precisa
+     * cair em 2 golpes de um lvl 1, senao o primeiro degrau da campanha ja
      * vira uma parede
+     *
+     * O `damage: 22` era quase decorativo enquanto o bicho era PASSIVO
+     * sem retaliação. Agora ele e o dano REAL da retaliação, e 22 contra
+     * um lvl 1 sao tres golpes — o suficiente para o jogador parar de
+     * bater e recuar, e nao tanto que ele morra sem chance
      */
     maxHp: 150,
     defense: 2,
@@ -104,16 +320,23 @@ export const CREATURE_TYPES = {
     spriteScale: 1.5,
     wanderRadius: 150,
     wanderSpeed: 30,
-    color: "#6fbf8a",
+
+    /**
+     * A cor virou a de OSSO, e nao a do limo.
+     *
+     * E o que o desenho vetorial usa quando a folha de sprite falha de
+     * carregar, entao a cor e o plano B e nao so decoracao
+     */
+    color: "#cfd3d6",
     loot: applyDropScaling({
       coins: { min: 3, max: 9 },
       itemChance: 0.34,
       maxItems: 1,
-      items: [
-        { id: "slime_gel", weight: 84 },
-        { id: "slime_core", weight: 15 },
-        { id: "skeleton_bone", weight: 1 },
-      ],
+      items: poolCompleto([
+        { id: "osso_quebrado", weight: 74 },
+        { id: "tendao_ressecado", weight: 20 },
+        { id: "essencia_necrotica", weight: 6 },
+      ]),
     }),
   },
 
@@ -139,11 +362,7 @@ export const CREATURE_TYPES = {
       coins: { min: 5, max: 14 },
       itemChance: 0.4,
       maxItems: 1,
-      items: [
-        { id: "rat_tail", weight: 80 },
-        { id: "rat_pelt", weight: 18 },
-        { id: "goblin_cloth", weight: 2 },
-      ],
+      items: poolCompleto([]),
     }),
   },
 
@@ -164,19 +383,16 @@ export const CREATURE_TYPES = {
     spriteScale: 1.25,
     wanderRadius: 90,
     wanderSpeed: 40,
-    color: "#8faf5a",
-    loot: applyDropScaling({
-      coins: { min: 12, max: 30 },
-      itemChance: 0.5,
-      maxItems: 2,
-      items: [
-        { id: "goblin_cloth", weight: 70 },
+color: "#8faf5a",
+      loot: applyDropScaling({
+        coins: { min: 12, max: 30 },
+        itemChance: 0.5,
+        maxItems: 2,
+items: poolCompleto([{ id: "dummy_wood", weight: 100 }]),
+      }),
+    },
 
-      ],
-    }),
-  },
-
-  ghoul: {
+    ghoul: {
     id: "ghoul",
     name: "Ghoul Faminto",
     behavior: BEHAVIOR.SEMI_PASSIVE,
@@ -198,18 +414,12 @@ export const CREATURE_TYPES = {
       coins: { min: 22, max: 52 },
       itemChance: 0.56,
       maxItems: 2,
-      items: [
-        { id: "ghoul_rot", weight: 78 },
-        { id: "ghoul_claw", weight: 52 },
-        { id: "ghoul_rib", weight: 30 },
-
-      ],
+      items: poolCompleto([]),
     }),
   },
 
   /**
-   * A SENTINELA ESQUELETICA: o segundo atirador, e o esqueleto de
-   * elite.
+   * A SENTINELA ESQUELETICA, que virou o Kaelen.
    *
    * Antes era um `skeleton` comum, com `attackRange` de 58 — o alcance
    * de uma chifrada. O bicho andava ate o jogador e batia de perto,
@@ -236,7 +446,17 @@ export const CREATURE_TYPES = {
    */
   skeleton: {
     id: "skeleton",
-    name: "Sentinela Esquelética",
+
+    /**
+     * O NOME NA TELA.
+     *
+     * Era a Sentinela Esqueletica. O `id` continua `skeleton` porque ele e a
+     * chave do save, das tres cacadas de bestiario e das duas entregas de
+     * colecao (osso e cranio). No mapa 2 a sentinela e o resultado da
+     * substituicao dos dois ogres, entao trocar o id mudaria o registro de
+     * abate de quem ja matou a sentinela
+     */
+    name: "Kaelen",
     behavior: BEHAVIOR.ACTIVE,
     level: 11,
     maxHp: 520,
@@ -244,45 +464,77 @@ export const CREATURE_TYPES = {
     radius: 22,
     speed: 126,
     damage: 34,
-    attackRange: 300,
+    /**
+     * O ALCANCE CAIU DE 300 PARA 92.
+     *
+     * A sentinela atirava de longe: 300px era o alcance do TIRO. O Kaelen
+     * virou corpo a corpo, entao o alcance passa a ser o do GOLPE, e o
+     * goblin usa 84 — os dois cabem na mesma regra: perto o suficiente para
+     * a espada pegar, longe o suficiente para o jogador ter um tick de
+     * reacao
+     *
+     * E o `aggroRange` de 380 que fica igual: o Kaelen ainda enxerga o
+     * jogador de longe, so nao alcanca ele de longe. Sao coisas diferentes,
+     * e so a segunda muda
+     */
+    attackRange: 92,
     aggroRange: 380,
     leash: 900,
     attackCooldown: 1.9,
-    spriteScale: 1.35,
+    spriteScale: 1,
     wanderRadius: 60,
     wanderSpeed: 30,
     color: "#cfd3d6",
 
-    // o tiro dele
-    ranged: true,
-    keepDistance: 220,
-    projectileSpeed: 370,
-    projectileRadius: 9,
-    projectileStyle: "arrow",
-    projectileColor: "#d8dde0",
+    /**
+     * ELE NAO ATIRA MAIS.
+     *
+     * A sentinela era `ranged: true` com os cinco campos de projétil. Sem o
+     * `ranged`, o `EnemyAI` nao cria o tiro e o `projectileSpeed` vira
+     * numero morto — e eles sairam juntos para ninguem achar que o Kaelen
+     * ainda atira
+     *
+     * O `keepDistance: 220` e o mais importante dos que sairam: e ele que
+     * mandava o bicho recuar quando o jogador chegava perto. Sem ele o
+     * Kaelen corpo a corpo simplesmente avanca, que e o comportamento do
+     * goblin
+     */
 
     loot: applyDropScaling({
       coins: { min: 30, max: 68 },
       itemChance: 0.62,
       maxItems: 2,
-      items: [
-        { id: "skeleton_bone", weight: 58 },
-        { id: "skeleton_skull", weight: 30 },
-
-      ],
+items: poolCompleto([
+        { id: "fragmento_de_ferro", weight: 70 },
+        { id: "couro_reforcado", weight: 24 },
+        { id: "fragmento_de_aco", weight: 6 },
+]),
     }),
   },
 
   /**
-   * O arqueiro zumbi: o primeiro inimigo que ataca de LONGE.
+   * A NYLARA, que era o Arqueiro Zumbi: a primeira inimiga que ataca de
+   * LONGE.
    *
-   * A sentinela passou a atirar tambem e subiu para o topo da lista
-   * dos atiradores, entao este deixa de ser "o primeiro"
-   * viesse antes.
+   * ## O ID CONTINUA `zumbi_arbalist`
+   *
+   * O id e a chave do save, das cacadas de bestiario e das entregas de
+   * colecao. No mapa 2 ela vem da regra `slime: "zumbi_arbalist"`, entao
+   * trocar o id mudaria o registro de abate de quem ja matou o arqueiro
+   * zumbi
+   *
+   * ## ELA CONTINUA ATIRADORA
+   *
+   * O nome mudou e a arte mudou; o comportamento nao. `ranged`,
+   * `keepDistance`, o projetil e o `attackRange` de 300 continuam, e sao
+   * eles que o layout le para exigir alvo de verdade no disparo
+   *
+   * A sentinela passou a atirar tambem e subiu para o topo da lista dos
+   * atiradores, entao esta deixa de ser "a primeira".
    */
   zumbi_arbalist: {
     id: "zumbi_arbalist",
-    name: "Arqueiro Zumbi",
+    name: "Nylara",
     behavior: BEHAVIOR.ACTIVE,
     level: 12,
     maxHp: 360,
@@ -313,13 +565,11 @@ export const CREATURE_TYPES = {
       coins: { min: 26, max: 60 },
       itemChance: 0.7,
       maxItems: 2,
-      items: [
-        { id: "ghoul_rot", weight: 44 },
-        { id: "skeleton_bone", weight: 30 },
-        { id: "ghoul_claw", weight: 18 },
-        { id: "skeleton_skull", weight: 6 },
-
-      ],
+items: poolCompleto([
+        { id: "madeira_de_lanca", weight: 70 },
+        { id: "tecido_militar", weight: 24 },
+        { id: "aco_temperado", weight: 6 },
+]),
     }),
   },
 
@@ -344,7 +594,25 @@ export const CREATURE_TYPES = {
    */
   ogre_da_predeira: {
     id: "ogre_da_predeira",
-    name: "Ogre da Predeira",
+
+    /**
+     * O NOME NA TELA.
+     *
+     * Este era o ULTIMO ogre do mapa 1: ele aparecia no Campo de Provas, o
+     * campo do meio, ao lado do esqueleto. Agora o campo tem esqueleto e
+     * goblin, que e o que o jogador ve
+     *
+     * O `id` continua `ogre_da_predeira` porque ele e a chave do save, da
+     * missao "O Gigante da Pedreira", das tres cacadas de bestiario e da
+     * entrega de colecao que pede o couro `ogre_hide` — a mais cara do
+     * jogo. Trocar o id apagaria o progresso de quem ja fez tudo isso
+     *
+     * E o MESMO goblin da pedreira, com os MESMOS stats de familia: os
+     * dois tem preco, couro e os mesmos numeros base. O que separa os
+     * dois no jogo e o nivel — este e o degrau 7 e o outro vai do 8 ao
+     * 12 — e nao a aparencia
+     */
+    name: "Goblin",
     behavior: BEHAVIOR.ACTIVE,
 
     /**
@@ -388,19 +656,32 @@ export const CREATURE_TYPES = {
     loot: applyDropScaling({
       coins: { min: 60, max: 130 },
       itemChance: 0.8,
-      maxItems: 3,
-      items: [
-        { id: "ogre_pebble", weight: 52 },
-        { id: "ogre_hide", weight: 34 },
-
-
-      ],
-    }),
+maxItems: 3,
+      items: poolCompleto([
+          { id: "couro_goblin", weight: 52 },
+          { id: "minerio_bruto", weight: 34 },
+          { id: "pedra_verde_bruta", weight: 14 },
+      ]),
+      }),
   },
 
-  ogre: {
+ogre: {
     id: "ogre",
-    name: "Ogre da Pedreira",
+
+  /**
+   * A criatura e o `goblin` na tela e tem id `ogre`. O id nao virou
+ * `goblin` por dois motivos:
+ *
+ * - ja existe uma criatura com esse id, o Goblin Saqueador, e as duas
+ *   nao podem compartir a chave: e o `id` que o bestiario, as missoes
+ *   de cacada e os `mix` de zona usam para achar a criatura
+ * - trocar o id apagaria o registro de abate de quem ja matou o ogre
+ *
+ * A arte tambem mudou: `ogre` usava a folha do `ogre_da_predeira`, o
+ * outro ogre do jogo, e agora usa a folha propria de celula 84, com
+ * idle por direcao e animacao de morte
+ */
+name: "Goblin",
     behavior: BEHAVIOR.ACTIVE,
 
     /**
@@ -440,21 +721,23 @@ export const CREATURE_TYPES = {
       coins: { min: 70, max: 160 },
       itemChance: 0.78,
       maxItems: 3,
-      items: [
-      { id: "ogre_pebble", weight: 58 },
-      { id: "ogre_hide", weight: 38 },
-
-
-      ],
+      items: poolCompleto([
+        { id: "couro_goblin", weight: 58 },
+        { id: "minerio_bruto", weight: 30 },
+        { id: "pedra_verde_bruta", weight: 12 },
+      ]),
     }),
   },
 
   /**
-   * O HULK: o CHEFE DA ARENA.
+   * A criatura e o `hulk` — o ultimo bicho do jogo, o unico que nao e
+   * dos quatro families de material novas. Ele dropa os materiais do
+   * goblin porque e do mesmo mundo, e nao por herança de receita
    *
-   * ## POR QUE ELE FICA LONGE DA ESCADA
-   *
-   * A `scaleForLevel` de todo bicho cresce com o nivel, e o `ogre` — o
+* (o bloco antigo do hulk, com ogre_hide e ogre_pebble, saiu junto com
+     * os materiais que nao existem mais)
+     *
+     * A `scaleForLevel` de todo bicho cresce com o nivel, e o `ogre` — o
    * mais forte do vale — chega ao Nv. 12 com 260 de HP. Um `level: 20`
    * aqui passaria por `steps = 20 - 8 = 12` degraus de crescimento, e o
    * numero saeria de uma conta que nao foi feita para um chefe
@@ -593,14 +876,461 @@ export const CREATURE_TYPES = {
       coins: { min: 400, max: 900 },
       itemChance: 1,
       maxItems: 3,
-      items: [
-        { id: "ogre_hide", weight: 60 },
-        { id: "ogre_pebble", weight: 30 },
-        { id: "skeleton_bone", weight: 10 },
-      ],
+items: poolCompleto([
+        { id: "couro_goblin", weight: 58 },
+        { id: "minerio_bruto", weight: 30 },
+        { id: "pedra_verde_bruta", weight: 12 },
+]),
     }),
   },
 };
+
+/**
+ * TROCA O EQUIPAMENTO DE TODA CRIATURA PELO DO ANDAR DELE.
+ *
+ * ## O BUG QUE ESTA PASSAGEM CORRIGE
+ *
+ * `poolCompleto(items, nivel = 1)` Recebia o nivel, mas as DEZ chamadas que
+ * existiam passavam so a lista de materiais. O padrao `1` assumia em todas,
+ * e todas as criaturas sairam com o pool do andar 1
+ *
+ * O efeito era invisivel e total: as nove criaturas do jogo tinham EXATAMENTE
+ * as mesmas quatro entradas de equipamento — arco de galho, aljava, anel e
+ * amuleto. Um esqueleto de nivel 11 e o limo de nivel 1 soltavam o mesmo
+ * arco
+ *
+ * `EQUIPAMENTO_POR_ANDAR` existia, correto, com os tres andares. Ele nunca
+ * entrou em lugar nenhum. A progressao de poder nao estava fraca: estava
+ * DESLIGADA
+ *
+ * ## POR QUE UMA PASSAGEM DEPOIS, E NAO O NIVEL EM CADA CHAMADA
+ *
+ * Porque `level` e um IRMAO de `loot` dentro do mesmo literal de objeto, e
+ * um objeto nao consegue ler o proprio vizinho enquanto se constroi. Passar
+ * `nivel: 11` na mao resolveria, e criaria DEZ numeros repetidos — e o dia
+ * que alguem subir o nivel do esqueleto para 12 e esquecer o `poolCompleto`,
+ * o mob volta a dropar o arco de galho sem ninguem notar
+ *
+ * Aqui o nivel e lido do proprio objeto, uma vez, depois que ele existe.
+ * Nao ha numero para desatualizar
+ *
+ * ## COMO SEPARA MATERIAL DE EQUIPAMENTO
+ *
+ * Pelo `ITEMS[id].type`: material e `material`, e todo o resto do drop e
+ * `weapon` ou `trinket`. Os materiais da criatura ficam como a lista
+ * declara, e so o equipamento e substituido — porque o peso e a quantidade
+ * dos materiais sao balanceados a mao por criatura e nao devem ser remexidos
+ */
+function trocarEquipamentoPeloAndarDaCriatura() {
+  for (const criatura of Object.values(CREATURE_TYPES)) {
+    const entradas = criatura.loot?.items;
+
+    if (!Array.isArray(entradas)) continue;
+
+    const materiais = entradas.filter(
+      (entrada) => ITEMS[entrada.id]?.type === "material",
+    );
+
+    const doAndar = equipamentosDoAndar(criatura.level);
+
+    /**
+     * A FACA, e ela precisa existir antes do `filter` dos materiais.
+     *
+     * `willow_bow` e `arco_de_galho` sao o MESMO arco com dois ids: o `arco`
+     * da historia e o `arco` do drop. Filtrar so por `type` nao separa um do
+     * outro, porque os dois tem `type: "weapon"` — e o arco do drop passaria
+     * intacto para o `materiais`, sobrando duas vezes no pool final
+     *
+     * E o RATO e o GOBLIN VAO pelo caminho errado de verdade: eles declaravam
+     * `poolCompleto([])`, sem nenhum material, entao o `materiais` deles era
+     * vazio. Um goblin de treino que dropa arco de galho — o item da historia,
+     * com o sprite de historia — e o limo de nivel 1 que dropa arco de galho
+     * tambem sao o mesmo abate, mas um e o arco que o jogador recebeu no
+     * comeco da campanha
+     *
+     * A regra e a lista de `EQUIPAMENTO_POR_ANDAR`: nada que o andar
+     * declara entra em `materiais`
+     */
+    const eEquipamento = new Set(
+      Object.values(EQUIPAMENTO_POR_ANDAR).flat().map((peca) => peca.id),
+    );
+
+    const soMaterial = materiais.filter(
+      (entrada) => !eEquipamento.has(entrada.id),
+    );
+
+    criatura.loot.items = [...soMaterial, ...doAndar];
+  }
+}
+
+/**
+ * O HULK DO CENTRO DO VALE, e ele e MAIOR e mais forte que o da arena.
+ *
+ * ## POR QUE UM TIPO NOVO, E NAO O `hulk` COM NUMEROS MAIORES
+ *
+ * Porque o `hulk` ja mora na arena (`boss_1`), e essa arena tem uma
+ * campanha em volta dela com o numero do chefe calibrado: 24 voltas, o
+ * loot, e o `boss1.js` inteiro apontando para aquele `id`. Mexer nos
+ * numeros dele mudaria a luta da arena sem ninguem pedir
+ *
+ * ## POR QUE DERIVAR, E NAO COPIAR O BLOCO
+ *
+ * O `hulk` tem 150 linhas de comentario explicando cada numero. Copiar o
+ * literal seria duplicar 150 linhas que divergem em uma manha. O derivado
+ * abaixo nasce do `hulk` e SOBRESCREVE so o que muda de proposito — o
+ * resto, inclusive o `loot`, vem junto e e reescalado pela MESMA passada de
+ * `trocarEquipamentoPeloAndarDaCriatura` que trata o `hulk`, porque esta
+ * atribuicao acontece ANTES dela (linha 965)
+ *
+ * ## POR QUE ELE EXISTE COMO TIPO SEPARADO E NAO COMO ESCALA NO MAPA
+ *
+ * Porque o desenho resolve o sprite pelo `typeId` (`getEnemySprite`), e o
+ * `spriteScale` do catalogo e documentado como inerte: nenhum renderizador
+ * le. Um chefe "do mesmo tipo, mas maior" so existe se ele TIVER um
+ * `typeId` proprio, com um sprite proprio no `enemyLayout`
+ */
+CREATURE_TYPES.hulk_val = {
+  ...CREATURE_TYPES.hulk,
+
+  /**
+   * O ID E O `typeId` DELE, e e o que separa este chefe do da arena em
+   * tres lugares ao mesmo tempo: o sprite desenhado, o registro do
+   * bestiario e o `onKill` que credita a recompensa
+   */
+  id: "hulk_val",
+  typeId: "hulk_val",
+  name: "Hulk do Vale",
+
+/**
+   * O NIVEL E 24, E OS NUMEROS SAO ESCOLHIDOS, NAO DERIVADOS.
+   *
+   * ## POR QUE ESCOLHIDOS, E NAO "SUBIU O NIVEL E DEIXOU ESCALAR"
+   *
+   * Porque o `scaleForLevel` cresce a partir do nivel base do TIPO, e o
+   * growth e de 22% de HP e 16% de dano por degrau. O `hulk` da arena tem
+   * `level: 20` e `maxHp: 9000` como numero ESCOLHIDO, com o comentario dele
+   * dizendo exatamente isso — e o motivo pelo qual ele e 9000 e nao um
+   * derivacao
+   *
+   * Se este chefe fosse derivado subindo so o nivel, cada degrau custaria
+   * +22% de HP: de 20 para 24 seriam 4 degraus, e o HP iria para 16.992 — e o
+   * dano para 476. Um golpe de 476 mata um jogador de topo num golpe so, e o
+   * chefe do centro do vale fica mais forte que o FINAL DO JOGO
+   *
+   * ## POR QUE 24
+   *
+   * O topo do Mapa 2 e o degrau 24, e o `hulk` da arena e 20. Este fica em
+   * 24 — no topo do mapa, e acima do chefe de arena — mas com HP e dano
+   * explicitamente menores que os que a curva entregaria. Ele e forte,
+   * invulneravel e grande; ele nao e um numero de multiplicacao
+   *
+   * ## E ONDE ESTAO OS 15.000 E OS 380
+   *
+   * Nos campos `maxHp` e `damage` logo abaixo, escritos a mao. O
+   * `scaleForLevel` nao os altera porque `level` e `base` sao o mesmo numero:
+   * `steps` vale zero, e o multador e 1
+   */
+  level: 24,
+
+  /**
+   * O HP E 15.000, E NAO OS 16.992 QUE A CURVA DARIA.
+   *
+   * E sao 1,66x o do `hulk` da arena. A luta contra este chefe e mais longa
+   * que a da arena, e o jogador tem o vale inteiro para kitear nele — o que
+   * so existe porque este mapa e aberto
+   */
+  maxHp: 15000,
+
+  /**
+   * O DANO E 380, E NAO OS 476 QUE A CURVA DARIA.
+   *
+   * E 1,46x o do `hulk` da arena, e o numero que mantem o chefe perigoso
+   * sem ser um one-shot: o jogador do topo do jogo aguenta tres desses
+   * golpes, e um do meio do jogo aguentaria cinco. Com os 476 da curva
+   * seriam dois — e um chefe que mata em dois golpes teacha o jogador a nao
+   * chegar perto, que e o oposto de um chefe no centro do mapa
+   */
+  damage: 380,
+
+  /**
+   * A DEFESA E 70, E NAO OS 60 DO `hulk` DA ARENA.
+   *
+   * A defesa nao precisa de derivacao: ela entra no `scaleForLevel` com o
+   * growth DELA (12% por degrau) e, como o `level` deste chefe e igual a
+   * base, `steps` vale zero — entao o numero escrito aqui e o FINAL, nao a
+   * base
+   *
+   * E por que so mais 10 contra os 60 da arena, sendo que o HP subiu 66%:
+   * a defesa e o que impede o jogador de "dar 400 de golpe e ver 12". Num
+   * chefe de arena esse numero e ponto, porque o alvo morre rapido. Num
+   * alvo de 15.000 de HP que o jogador tem o vale inteiro para kitear, a
+   * mitigacao a cada golpe importa mais
+   */
+  defense: 70,
+
+/**
+   * O RAIO E 96, E NAO OS 62.
+   *
+   * ## A CONTA, E POR QUE 96 E NAO 102
+   *
+   * A arte tem 68px de celula e o `HULK_VAL_SCALE` e 3, entao o desenho
+   * ocupa 204px. A METADE daria 102 — e 96 foi o valor escolhido, 6px para
+   * dentro, porque o desenho do chefe tem pe para o lado e o ombro e mais
+   * largo que a caixa: um colisor de 102 passaria por cima dos pes, e o
+   * jogador pararia "no vazio" de baixo
+   *
+   * ## POR QUE NAO O MESMO 46 DO `hulk`
+   *
+   * Porque o `radius` e o que o colisor usa para barrar o jogador e o que
+   * o golpe do chefe mede. Herdando 46, o chefe de arte 204pxeria
+   * empurrar o jogador a partir de um ponto no MEIO da propria imagem — o
+   * jogador encostaria no chefe e nao seria barrado, e o golpe sairia de
+   * dentro do desenho, que e o defeito que o comentario do `attackRange`
+   * original descreve
+   *
+   * E 96 o MESMO numero do `radius` do `hulk` da arena: o `hulk` tem arte
+   * de 136px (68 x 2) e raio de 46, ou seja, um terco da arte. Aqui 96 e
+   * pouco menos da metade de 204 — a proporcao cresceu porque o desenho
+   * cresceu
+   */
+  radius: 96,
+
+/**
+   * O ALCANCE E 152, E NAO OS 112.
+   *
+   * ## A CONTA: ALCANCE MENOS RAIO, O QUE SOBRA DE VERDE
+   *
+   * O `attackRange` e medido do CENTRO do chefe, e o `radius` e o que o
+   * colisor ocupa. O golpe so chega na borda de fora do colisor se:
+   *
+   *     attackRange - radius = o que sobra alem do corpo
+   *
+   * O `hulk` da arena tem 96 de alcance e 46 de raio: 50px de golpe alem do
+   * corpo dele. Aqui, com raio 96, um alcance de 112 daria 16px — o golpe
+   * bateria na borda do colisor e sairia de dentro do desenho, que e o
+   * defeito que o comentario original do `attackRange` do `hulk` descreve:
+   * o dano sai de um lugar que o jogador nao ve
+   *
+   * Com 152 sobra 56px, os mesmos ~50 da arena. E o numero que o `hulk` da
+   * arena usaria se tivesse o RAIO de 96
+   */
+  attackRange: 152,
+
+  /**
+   * A VELOCIDADE E 82, MAIS LENTA QUE OS 93 DO `hulk`.
+   *
+* O `hulk` da arena corre a 93 e a arena e uma caixa de 588 de raio: ele
+   * fecha o campo em poucos segundos e a fuga deixa de ser opcao. No vale
+   * nao ha parede — o jogador pode correr para o outro lado do mapa. Com 93
+   * ele seria imbativel num campo aberto, entao a velocidade CAI e o que
+   * segura a fuga e o `leash`
+   */
+  speed: 82,
+
+  /**
+   * O AGGRO E 620, MAIOR QUE OS 520.
+   *
+ * O `hulk` da arena tem 520 porque o jogador nasce a 320 e a briga comeca
+   * no instante em que ele entra. Aqui o jogador nasce longe (o vale foi
+   * spawned para longe do chefe), entao um aggro menor deixaria o centro
+   * do vale PARADO — um chefe parado no meio do mapa e um obstaculo, nao uma
+   * ameaca
+   */
+  aggroRange: 620,
+
+  /**
+   * O LEASH E 2600, E NAO OS 1200 DO `hulk`.
+   *
+ * O `leash` e o raio de FUGA em volta do ponto de nascimento, e o que o
+   * `EnemyAI` usa para puxar o chefe de volta. Na arena 1200 e o tamanho
+   * certo porque a arena tem 588 de raio. No vale, com 1200 o chefe ficaria
+   * preso num circulo de 2400 de diametro no meio de um mapa de 5920 — o
+   * jogador fugia para a borda e o chefe parava, deixando de ser um chefe
+   * de mundo e virando um chefe de bolsinha
+   *
+ * O 2600 da para ele passar da zona livre das pedras (que tem 2200 de
+ * largura) e ainda assim nao atravessar o mapa inteiro
+   */
+  leash: 2600,
+
+  /**
+   * O PASSEIO E 340, E NAO OS 70 DO `hulk`.
+   *
+ * O `hulk` da arena passeia num raio de 70 porque a arena e pequena. Com
+ * 70 no vale, ele ficaria parado num circulo de 140 de diametro no meio do
+ * mapa — mais ou menos o tamanho da propria arte dele, o que faz um chefe
+ * parecer uma foto em vez de uma criatura. O 340 da para ele andar pelo
+   * centro livre sem sair do `leash`
+   */
+  wanderRadius: 340,
+  wanderSpeed: 33,
+
+  /**
+   * O `spriteScale` E 3, E ESTE CAMPO AINDA NAO DESENHA NADA.
+   *
+   * Ele existe para o bestiario e para o registro, e porque o comentario do
+   * `hulk` diz que este e o numero DECLARADO do tamanho. O desenho de
+   * verdade vem do `HULK_VAL_SCALE` do `enemyLayout`, que e 3 — porque o
+   * renderizador so le o `scale` do layout
+   */
+  spriteScale: 3,
+
+  /**
+   * A VELOCIDADE DE VOLTAR PARA CASA QUANDO NAO TEM NINGUEM POR PERTO.
+   *
+   * ## O QUE ELA FAZ
+   *
+   * O `updateReturn` do `EnemyAI` anda a `enemy.speed` por padrao. Quando
+   * ninguem esta dentro do `aggroRange` do chefe, ele usa ESTE numero no
+   * lugar — o chefe volta andando, mas rapido, em vez de arrastar os pes
+   *
+   * ## POR QUE 205, E NAO O 93 DELE
+   *
+   * Porque o `speed: 82` foi escolhido para a FUGA: num mapa aberto sem
+   * parede, o jogador precisa poder sair andando mais devagar. A volta para
+   * casa nao e fuga de ninguem — e o chefe desfazendo a ronda do poste, e
+   * essa caminhada e so um travelling de camera enquanto o jogador faz o
+   * que quiser longe dele. Nao faz sentido o mesmo numero para as duas coisas
+   *
+   * E nao 200 exatos porque um chefe de 204px andando a 200 cruza o
+   * diametro do vale (1100px de uma ponta a outra da zona livre) em pouco
+   * mais de 5 segundos, e o passo ficaria visualmente mole
+   *
+   * ## E POR QUE O CAMPO E OPCIONAL
+   *
+   * Porque so este chefe tem aancia de um posto que ocupa o centro de um
+   * mapa. Um mob comum que volta para casa esta voltando porque o jogador
+   * passou perto; a diferenca de uns 2 segundos que o numero faria ali
+   * passaria BATIDO, e o campo nao declarado mantem o comportamento de todo
+   * mundo
+   */
+  velocidadeDeRetorno: 205,
+
+/**
+   * A DISTANCIA QUE FAZ ESTE CHEFE VOLTAR PARA CASA.
+   *
+   * ## O QUE ESTE CAMPO FAZ
+   *
+   * O `EnemyAI` le `enemy.teleportaParaCasa` no topo do `updateBehavior` e,
+   * se este chefe chegar a menos que (raio do chefe + raio da pedra + 40) de
+   * qualquer prop bloqueante, ele volta andando para o centro do vale
+   *
+   * ## POR QUE ESTE CHEFE PRECISA DISSO, E O `hulk` DA ARENA NAO
+   *
+   * Porque a arena e uma caixa de 588 de raio, sem prop nenhuma: o
+   * `hulk` passeia em 70 e nunca chega perto de nada. Este chefe tem
+   * `wanderRadius: 340` e o anel de pedras do vale comeca a 1100px do
+   * centro — entao o passeio dele CRUZA a linha das pedras, e sem esta
+   * regra ele empurrava ooze contra uma parede solida de 139x180 que ele
+   * nao atravessa
+   *
+   * E o `leash` de 2600 nao resolve: ele so age quando o jogador LEVA o
+   * chefe para longe, e nao quando o CHEFE vai sozinho ate a pedra
+   *
+   * ## E POR QUE 260, E NAO O RAIO DA PEDRA
+   *
+   * O campo e uma DISTANCIA DE DETECCAO, e ela e somada ao raio do chefe e
+   * ao raio da pedra pelo `EnemyAI`. 260 e folga de sobra para o chefe mudar
+   * de ideia antes de encostar: um chefe que so volta JA raspando a pedra
+   * faz a mesma coisa duas vezes por segundo na borda, porque ele cruza a
+   * linha, volta, e cruza de novo
+   */
+  teleportaParaCasa: 260,
+
+  /**
+   * AS HABILIDADES DE TELEGRAPH, e o que transforma este bicho em um chefe.
+   *
+   * ## POR QUE UM CAMPO, E NAO UMA BUSCA POR TYPEID
+   *
+   * Porque o catalogo de criaturas e o de habilidades sao coisas diferentes,
+   * e a ligacao entre elas e o `typeId`. Mas escrever o `hulk_val` dentro de
+   * `telegraphSkills` seria o mesmo id em dois arquivos, e o dia que um deles
+   * mudar o chefe fica sem habilidade nenhuma sem erro nenhum
+   *
+   * O campo e a forma que o resto do catalogo usa: cada criatura declara o
+   * que e dela, e o `habilidadesDe` devolve lista vazia para quem nao
+   * declarou
+   *
+   * ## E POR QUE SO ESTE CHEFE TEM
+   *
+   * Porque os sete bichos comuns nao tem Area of Effect. Um goblin com
+   * `ground_slam` de raio 260 seria um mob que limpa o grupo inteiro num
+   * circulo — e nao e o que eles sao. O campo e o opt-in, e so este chefe
+   * liga
+   */
+  /**
+   * AS HABILIDADES DESTE CHEFE, e nao um mapa indexado por typeId.
+   *
+   * ## POR QUE UM ARRAY, E NAO `{ hulk_val: [...] }`
+   *
+   * Porque o `createCreature` espalha o `...type` na criatura final. Com o
+   * mapa indexado, a criatura carregaria `registroHabilidades: { hulk_val:
+   * [...] }` e o `habilidadesDe` teria que fazer `[id]` dentro — uma
+   * indirecao a mais em todo caminho quente, e uma chance de o id estar
+   * errado sem o erro aparecer
+   *
+   * O array e a lista DIRETA desta criatura, e o `habilidadesDe` so decide
+   * entre "esta lista" e "lista vazia" pelo `habilidadesTelegraph`
+   */
+  /**
+ * AS HABILIDADES DESTE CHEFE, como LISTA.
+   *
+   * ## POR QUE UM ARRAY, E NAO O OBJETO `HABILIDADES_CHEFE`
+   *
+   * Porque o `...type` do `createCreature` espalha este campo na criatura, e
+   * quem consome sao a escolha de habilidade e a busca da abertura — as duas
+   * percorrem a lista. Com o objeto indexado por id, elas teriam que fazer
+   * `Object.values()` a cada consulta, alocando um array novo por quadro
+   *
+   * O objeto indexado continua sendo a FORMA DE CADASTRO (cada habilidade
+   * com o id como chave impede dois cadastros com o mesmo nome); a lista e
+   * a forma de consumo
+   */
+  habilidadesTelegraph: true,
+  registroHabilidades: Object.values(HABILIDADES_CHEFE),
+
+  /**
+   * A FASE COMECA EM 3.
+   *
+   * E o `faseMin` de cada habilidade do catalogo que decide o que esta
+   * liberado. O chefe tem UMA fase, mas ela e a 3 — o numero alto e o que
+   * mantem as cinco habilidades abertas sem duplicar a fase: as de
+   * `faseMin: 1` (ground_slam, cleave) e as de `faseMin: 2`
+   * (marked_strike, shock_ring, charge) valem a partir dai
+   *
+   * Sem isto, o chefe ficaria preso nas duas primeiras e quatro das cinco
+   * habilidades nunca apareceriam
+   */
+  fase: 3,
+
+  /**
+   * O LOOT E O DO `hulk` HERDADO, com a recompensa refeita a mao.
+   *
+   * ## POR QUE O `coins` ESTA ESCRITO DE NOVO, E NAO DEDUZIDO
+   *
+   * Porque o `applyDropScaling` nao sabe nada de nivel. Ele tem tres
+   * linhas uteis e nenhuma delas e dinheiro: ele limita o `itemChance` e o
+   * `maxItems` por BALANCE. O `coins` e um numero literal, e a unica forma
+   * de um chefe que vale o dobro na tela pagar o dobro e escrever o numero
+   *
+   * O `hulk` da arena paga 400-900. Este paga o DOBRO, e nao pelo dobro do
+   * HP (que sao 1,4x) e sim pelo que ele custa para o jogador derrubar: um
+   * chefe de nivel 24 com arte de 204px e mais lento que o pequeno, mas
+   * pega com 380 em vez de 260
+   *
+   * O `maxItems` sobe de 3 para 4, e o `applyDropScaling` ainda limita pelo
+   * `BALANCE.maxItemsPerKill` — se algum dia o balanceamento mandar menos, o
+   * limite continua valendo
+   */
+  loot: applyDropScaling({
+    coins: { min: 800, max: 1800 },
+    itemChance: 1,
+    maxItems: 4,
+    items: CREATURE_TYPES.hulk.loot.items,
+  }),
+};
+
+trocarEquipamentoPeloAndarDaCriatura();
 
 /**
  * Os BOMBOS do Campo de Provas.
@@ -1039,11 +1769,11 @@ const ESCALA_MAPA_2 = [
  * A TABELA DE TIPOS DO MAPA 2.
  *
  * O mapa 2 nao tem nenhum ogre nem nenhum limo: onde o mapa 1 tem ogre
- * e sentinela, onde o mapa 1 tem limo e arqueiro zumbi
+ * e sentinela, onde o mapa 1 tem limo e Nylara
  *
  * E uma tabela, e nao uma regra no estilo "comeca com ogre". Os dois
- * ogres viram a MESMA sentinela, e o limo vira o arqueiro — um `+1`
- * mecanico ou um `replace` por nomeacinaria o limo no arqueiro e
+ * ogres viram a MESMA sentinela, e o limo vira a Nylara — um `+1`
+ * mecanico ou um `replace` por nomeacinaria o limo na Nylara e
  * esqueceria o `ogre_da_predeira`, que e o outro ogre do jogo
  */
 const TIPOS_DO_MAPA_2 = {
@@ -1098,11 +1828,11 @@ export const MAP_2_ROSTER = ESCALA_MAPA_2.map(([zone, nivel]) => {
  * semi-passivo no treino e passivo no resto, porque um passive foge do
  * jogador a 100px e o auto de cacar perto fica sem alvo valido
  *
- * Copiar esse override para o arqueiro zumbi inverteria o comportamento
- * dele: a sentinela e ATIVA e ataca de longe, e um arqueiro zumbi
- * semi-passivo andando de costas atirando flecha seria o pior dos dois
- * mundos. O arqueiro fica com o ATIVE do proprio tipo
- */
+* Copiar esse override para a Nylara inverteria o comportamento
+   * dela: a sentinela e ATIVA e ataca de longe, e uma Nylara
+   * semi-passiva andando de costas atirando flecha seria o pior dos dois
+   * mundos. A Nylara fica com o ATIVE do proprio tipo
+   */
   const behaviors = Object.fromEntries(
     Object.entries(base.behaviors ?? {})
       .filter(([typeId]) => !trocou(typeId))
@@ -1312,6 +2042,20 @@ export function createCreature(
     hp: scaled.maxHp,
     alive: true,
 
+    /**
+     * A TRAVA DE "JA DECIDI VOLTAR PARA CASA".
+     *
+     * Comeca desligada e e ligada pela `leash` no `updateCombat`, quando a
+     * criatura passa do limite. O `isAggressive` retorna `false` enquanto
+     * ela estiver ligada, e o `updateReturn` limpa quando a criatura chega
+     * em casa
+     *
+     * Sem esse campo, a trava seria `undefined` — que e falsy, entao o
+     * primeiro quadro funcionaria por acidente e o resto do jogo dependeria
+     * de `undefined` agindo como `false`
+     */
+    retreating: false,
+
     isCreature: true,
     isDummy: false,
 
@@ -1357,6 +2101,46 @@ export function createCreature(
     alerted: false,
     attackCooldownRemaining: 0,
 
+    /**
+     * O RELOGIO DA MORTE, e nao um flag.
+     *
+     * `null` e o estado normal de quem esta vivo, e significa que
+     * NAO ha animacao de morte para rodar. Um bicho sem arte de morte
+     * nunca recebe numero aqui e continua sumindo na hora, como antes
+     *
+     * O numero e o que falta para a animacao acabar, e comeca em
+     * `deathDuration + deathFade`: o ciclo roda, e depois o cadaver
+     * esmaece. Quem escreve o valor inicial e o `killEnemy`, e so
+     * para quem tem o bloco `death` no sprite
+     *
+     * `0` e "a animacao ja acabou e o cadaver sumiu": o desenho
+     * continua pulando o bicho, mas ninguem ve diferenca
+     */
+    deathTimer: null,
+    deathFade: 0,
+    deathDuration: 0,
+
+    /**
+     * A TRAVA DE ALVO da criatura que retalia.
+     *
+     * `targetId` e o jogador travado e `lastHitById` e o ultimo que
+     * bateu — os dois nascem `null` em TODA criatura, e nao so na que tem
+     * `retalia`, para que o campo exista com o mesmo significado em
+     * qualquer bicho
+     *
+     * Antes eles so eram criados em `createTrainingDummy`, e so o boneco
+     * de duelo os usava. Sem esta linha o `provocarDuelo` gravaria em
+     * cima de `undefined` numa criatura comum — o JS criaria a propriedade
+     * e o resto passaria a funcionar por acidente, mas o respawn nao
+     * limparia e a criatura renasceria com o alvo do jogador anterior
+     *
+     * `lastHitById` e separado de `targetId` porque e o que permite a
+     * unica troca de alvo da regra: quando o alvo morre, o agro vai para
+     * quem bateu por ultimo
+     */
+    targetId: null,
+    lastHitById: null,
+
     wanderTarget: null,
     wanderWait: 0,
 
@@ -1387,10 +2171,63 @@ export function createCreatureRoster(
   map = MAP_1,
   seed = MAP_1_SEED,
 ) {
-  const random = createRandom(seed);
+const random = createRandom(seed);
   const roster = [];
 
-/**
+  /**
+   * A DISTANCIA MINIMA ENTRE UM PORTAL E UM SPAWN DE MOB.
+   *
+   * ## POR QUE EXISTE
+   *
+   * Porque o portal e o ponto de CHEGADA, e a zona embaixo dele e uma zona de
+   * mob. O jogador atravessa o portal e cai dentro do `aggroRange` de um ogro
+   * de nivel 12 — sem ter feito nada, sem chance de reacao. O sintoma era morte
+   * logo apos a teleporte, e a causa era a grade de spawn, nao o portal
+   *
+   * ## POR QUE 620 E NAO O `aggroRange` DO MOB
+   *
+   * Porque o `aggroRange` do ogre e 400, e 620 e maior que ele de proposito. Um
+   * raio igual ao agro deixaria o ogre um passo fora do alcance no instante da
+   * chegada, e no primeiro `wanderRadius` ele ja estaria em cima do jogador.
+   * O `size` do portal entra na conta porque o desenho e ancorado pelo centro:
+   * o jogador chega em cima da arte, nao da coordenada
+   *
+   * ## POR QUE VALE PARA TODO PORTAL, E NAO SO PARA O DO PAR MAPA 1 / MAPA 2
+   *
+   * Porque a regra nao e do par: e de qualquer lugar onde o jogador aparece
+   * perto de uma zona populada. Se um dia entrar um terceiro portal, ele ja
+   * nasce protegido sem ninguem lembrar deste arquivo
+   *
+   * ## E POR QUE FICA AQUI, E NAO NO MAPA
+   *
+   * Porque o roster e quem decide ONDE a criatura nasce. A regra e de
+   * nascimento, e um filtro em `data/maps` so removeria a ZONA inteira — que
+   * cortaria a floresta e o acampamento todos, nao so o quadrante do portal
+   */
+  const PORTAL_ZONA_SEGURA = 620;
+
+  /**
+   * ESSE PONTO NASCE LONGE DE TODO PORTAL?
+   *
+   * E uma funcao, e nao um `Set` de posicoes, porque o portal e um CIRCULO e a
+   * pergunta e de distancia. Um retangulo de exclusao deixaria o mob nascendo
+   * nos cantos do circulo
+   */
+  const longeDePortais = (x, y, folga = PORTAL_ZONA_SEGURA) => {
+    for (const portal of map.portals ?? []) {
+      if (!Number.isFinite(portal?.x) || !Number.isFinite(portal?.y)) {
+        continue;
+      }
+
+      const raio = (portal.size ?? 0) / 2 + folga;
+
+      if (Math.hypot(x - portal.x, y - portal.y) < raio) return false;
+    }
+
+    return true;
+  };
+
+  /**
    * Os ids das zonas deste mapa.
    *
    * Um `Set` porque a busca acontece uma vez por entrada do roster, e as
@@ -1497,7 +2334,29 @@ export function createCreatureRoster(
         };
       }
 
-const criatura = createCreature(
+/**
+     * O SPAWN NASCE PERTO DE ALGUM PORTAL? Entao essa criatura nao nasce.
+     *
+     * ## POR QUE O `continue` E ANTES DO `createCreature`
+     *
+     * Porque o filtro e sobre o PONTO, e nao sobre a criatura: o monstro e
+     * identico em qualquer lugar. Descartar aqui nao tira um ogre da floresta,
+     * tira UM ogre daquela posicao — e as outras criaturas da zona continuam
+     * nascendo
+     *
+     * ## E POR QUE ISSO NAO ESVAZIA A ZONA
+     *
+     * Porque so o quadrante do portal e excluido. A floresta tem 14 ogroes
+     * espalhados numa grade de 4x4 pela zona inteira de 1300x1250, e o
+     * portal ocupa um canto dela: a regra apaga as poucas casas que cairiam
+     * embaixo do desenho, e o resto da populacao continua la
+     *
+     * E o `index` NAO avanca no caso descartado — o id da proxima criatura
+     * continua sendo o contador, sem buraco na sequencia
+     */
+    if (!longeDePortais(position.x, position.y)) continue;
+
+    const criatura = createCreature(
           types[slot],
           position,
           index,
@@ -1530,13 +2389,9 @@ const criatura = createCreature(
 export const DUMMY_LOOT = applyDropScaling({
   coins: { min: 6, max: 18 },
   itemChance: 0.3,
-  maxItems: 1,
-  items: [
-    { id: "dummy_wood", weight: 88 },
-    { id: "goblin_cloth", weight: 9 },
-    { id: "slime_gel", weight: 3 },
-  ],
-});
+maxItems: 1,
+    items: poolCompleto([]),
+  });
 
 /**
  * O boneco de DUELO: o unico boneco de treino que revida.

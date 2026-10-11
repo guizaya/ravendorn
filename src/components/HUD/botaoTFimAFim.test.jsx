@@ -210,7 +210,7 @@ describe("o botao do T, do clique ate o servidor", () => {
     await derrubarServidor();
   });
 
-  it("com a missao ligada, o botao do T troca para caÃ§ar perto", async () => {
+  it("com a missao ligada, o botao do T troca para caçar perto", async () => {
     instalarCanvasFalso();
     await subirServidor();
 
@@ -367,9 +367,9 @@ describe("o botao do T, do clique ate o servidor", () => {
     // texto seria a falha. Verificar antes daria tempo de sobra
     // demais para o bug aparecer
     //
-    // E a CLASSE, e nao o texto: o botao de auto escreve so "auto" e
-    // nao muda de palavra conforme o estado. Quem carrega o estado e a
-    // `is-on`, que e verde e pulsando
+// E A CLASSE, e nao o texto: o botao de auto usa um ICONE, e nao uma
+// palavra, e nao muda de desenho conforme o estado. Quem carrega o
+// estado e a `is-on`, que e verde e pulsando
     expect(segundo.container.querySelector(".hud-ability").className)
       .not.toContain("is-on");
 

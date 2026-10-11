@@ -8,6 +8,7 @@ import {
   isEnchant,
   resolveEnchant,
 } from "../../data/enchant/index.js";
+import { pecaServeParaClasse } from "../rules/regrasDoItem.js";
 
 /**
  * Os slots do personagem, na ordem em que o boneco desenha.
@@ -22,6 +23,40 @@ import {
  * continua sendo do item, e nao do slot. Se um dia existir uma arma
  * que so pode ir na mao esquerda, e um filtro de slot que precisa
  * nascer — hoje nenhum item do catalogo tem essa restricao
+ *
+ * ## POR QUE TODOS OS `icon` SAO DO MESMO TIPO
+ *
+ * Sao nove glifos de TEXTO, e nenhum emoji. A versao anterior misturava as
+ * duas coisas: `🧤`, `👢` e `🗡` eram emoji, e o resto era caractere. O
+ * navegador desenha um emoji na sua propria cor e no seu proprio tamanho,
+ * ignorando o `color` e o `font-size` do slot — entao o boneco tinha uma
+ * luva colorida e um escudo cinza lado a lado, ambos do mesmo tamanho de
+ * caixa e com pesos visuais completamente diferentes. Isso e o que fez os
+ * slots vazios parecerem quebrados, e nao a escolha dos simbolos
+ *
+ * O `grayscale` do `.inv-slot--empty` resolvia so metade do problema:
+ * ele trava a COR, mas o emoji continua do tamanho que a fonte dele quiser,
+ * e um emoji e sempre maior que um caractere de texto
+ *
+ * ## POR QUE DOIS SLOTS COMPARTILHAM O MESMO GLIFO
+ *
+ * `⚔` nas duas armas e `◈`/`❖` nos dois adornos. Sao pares de slots que
+ * nao se distinguem pelo desenho: a principal e a secundaria sao as duas
+ * "arma", e o anel e o amuleto sao as duas "joia". O que separa os dois e
+ * o TEXTO — "Arma Secundária", "Amuleto" — e o texto ja estava la antes
+ * desta troca. Um glifo inventado para cada um dos quatro seria quatro
+ * desenhos novos que o jogador teria que aprender sem dizer nada
+ *
+ * ## POR QUE `⌖` NA CABECA E `⇱` NAS BOTAS
+ *
+ * Porque sao os dois glifos de texto que ja existiam no jogo e que o
+ * jogador ja viu em outra tela: `⌖` e a mira que o jogo usa na HUD, e
+ * `⇱` e a seta de descida do boneco. Reaproveitar o desenho que o jogador
+ * ja conhece e melhor que inventar um terceiro parente do capacete de obra
+ *
+ * O `⛊` do peito e o mesmo glifo da guild na prateleira — eles nao
+ * aparecem juntos, e um escudo so no jogo inteiro vale mais que um escudo
+ * novo so no boneco
  */
 export const EQUIPMENT_SLOTS = [
   {
@@ -33,19 +68,32 @@ export const EQUIPMENT_SLOTS = [
   {
     id: "weapon2",
     name: "Arma Secundária",
-    icon: "🗡",
+    icon: "⚔",
     accepts: [ITEM_TYPE.WEAPON],
   },
   {
     id: "head",
     name: "Cabeça",
-    icon: "⛑",
+
+/**
+     * A MIRA, que o jogador ja conhece da HUD.
+     *
+     * `⛑` e o capacete de obra, e nao o elmo medieval — e o triangulo dele
+     * era o que mais destoava dos outros oito. Nao ha glifo de texto de
+     * elmo no padrao Unicode que renda: `⛑` e obra, `⌂` e telhado, `⛏` e
+     * picareta
+     *
+     * `⌖` resolve sem ensinar nada: e a mira que ja aparece na HUD quando
+     * o jogador mira. O jogador ve o mesmo desenho em dois lugares e o
+     * brain dele liga sozinho
+     */
+    icon: "⌖",
     accepts: [ITEM_TYPE.ARMOR],
   },
   {
     id: "gloves",
     name: "Luvas",
-    icon: "🧤",
+    icon: "✋",
     accepts: [ITEM_TYPE.ARMOR],
   },
   {
@@ -63,7 +111,7 @@ export const EQUIPMENT_SLOTS = [
   {
     id: "boots",
     name: "Botas",
-    icon: "👢",
+    icon: "⇱",
     accepts: [ITEM_TYPE.ARMOR],
   },
   {
@@ -87,25 +135,46 @@ export const EQUIPABLE_TYPES = [
 ];
 
 /**
- * O item tem pelo menos um slot onde pode entrar?
- *
- * O painel usa para decidir se oferece "Equipar". Sem isto, um item
- * que declara uma posicao inexistente ofereceria a acao e a
- * equipamento recusaria no clique, sem nenhum aviso
- */
-export function isEquippable(item) {
-  if (!item) return false;
+   * O item tem pelo menos um slot onde pode entrar, E e da classe do jogador?
+   *
+   * ## O QUE MUDOU AQUI
+   *
+   * O `classId` e novo, e e a regra que o jogador vai sentir: o monstro
+   * solta a armadura do guerreiro para qualquer um, mas so o guerreiro a
+   * veste. As duas metades se encontram aqui — o drop e de todo mundo, o
+   * equipamento e da sua classe
+   *
+   * ## POR QUE `classId` AUSENTE NAO BLOQUEIA
+   *
+   * Porque quem chama daqui e o painel, e o painel so tem a classe quando o
+   * jogador esta logado. Sem `classId` a funcao volta ao comportamento de
+   * antes em vez de trancar o inventario inteiro — e o `equip` do motor, que
+   * valida com a sessao, continua sendo a ultima linha
+   */
+  export function isEquippable(item, classId = null) {
+    if (!item) return false;
 
-  if (!EQUIPABLE_TYPES.includes(item.type)) return false;
+    if (!EQUIPABLE_TYPES.includes(item.type)) return false;
 
-  if (item.slot) {
-    return EQUIPMENT_SLOTS.some((slot) => slot.id === item.slot);
+    /**
+     * A PECA E DE OUTRA CLASSE: nao e equipavel.
+     *
+     * A lista de tipos vem ANTES desta porque um material sem `classes` nao
+     * seria barrado por classe — seria barrado por tipo. A ordem mantem a
+     * mensagem certa para cada caso
+     */
+    if (classId && !pecaServeParaClasse(item, classId)) {
+      return false;
+    }
+
+    if (item.slot) {
+      return EQUIPMENT_SLOTS.some((slot) => slot.id === item.slot);
+    }
+
+    return EQUIPMENT_SLOTS.some((slot) =>
+      slot.accepts.includes(item.type),
+    );
   }
-
-  return EQUIPMENT_SLOTS.some((slot) =>
-    slot.accepts.includes(item.type),
-  );
-}
 
 /**
  * O nome do slot onde o item entra, para o painel dizer onde ele vai.
@@ -349,16 +418,16 @@ export class Equipment {
       .map((slot) => slot.id);
   }
 
-  /**
+/**
    * Equipa o item naquela raridade.
    *
    * Devolve `false` se recusou, `null` se o slot estava vazio e
-   * `{ itemId, rarity, enchant }` se trocou. A variante E O AFIXO
-   * voltam juntos para que a peca anterior volte para a mochila
-   * inteira: perder o encantamento so por trocar de lugar seria o
-   * defeito mais irritante que a feature inteira tem
+   * `{ itemId, rarity, enchant, enhance }` se trocou. A variante, o AFIXO
+   * e o APRIMORAMENTO voltam juntos para que a peca anterior volte para
+   * a mochila inteira: perder o encantamento so por trocar de lugar seria
+   * o defeito mais irritante que a feature inteira tem
    */
-  equip(itemId, slotId, rarity = null, enchant = null) {
+equip(itemId, slotId, rarity = null, enchant = null, enhance = 0) {
     if (!this.canEquip(itemId, slotId)) {
       return false;
     }
@@ -379,19 +448,38 @@ export class Equipment {
           rarity:
             slot.rarity ?? baseRarityOf(slot.itemId),
           enchant: slot.enchant ?? null,
+
+          /**
+           * O APRIMORAMENTO volta com a peca que sai.
+           *
+           * E o mesmo motivo do afixo acima, e o motivo pelo qual o
+           * `enhance` nao pode continuar sendo um numero do SLOT. Com ele
+           * morando aqui, trocar de lugar nao custava nada ao jogador:
+           * ele pagava por tres niveis, trocava de braco e os tres sumiam
+           */
+          enhance: slot.enhance ?? 0,
         }
       : null;
 
     slot.itemId = itemId;
     slot.rarity = target;
     slot.tier = getItem(itemId)?.tier ?? 1;
-    slot.enhance = 0;
 
     /**
-     * O afixo do SLOT e o da PECA que entrou, e o do `enhance` e
-     * zerado. Os dois nao podem ser tratados igual: o `enhance` e um
-     * multiplicador do slot e nao significa nada numa peca nua, e o
-     * afixo e uma propriedade da peca que viaja com ela
+     * O APRIMORAMENTO ENTRA JUNTO COM A PECA.
+     *
+     * Antes esta linha era `slot.enhance = 0`, e o comentario dizia que
+     * o numero "nao significa nada numa peca nua". Isso era verdade
+     * enquanto o numero vivia so aqui — e foi exatamente o que fez o
+     * aprimoramento evaporar a cada troca de lugar
+     */
+    slot.enhance = Math.max(0, Number(enhance) || 0);
+
+    /**
+     * O AFIXO E O APRIMORAMENTO sao coisas diferentes, e por isso o
+     * comentario antigo falava em "nao podem ser tratados igual": o afixo
+     * e um afixo sorteado e o aprimoramento e uma contagem de niveis
+     * pagos. Os dois viajam com a peca, cada um no seu campo
      */
     slot.enchant = isEnchant(enchant) ? enchant : null;
 
@@ -408,6 +496,15 @@ export class Equipment {
       itemId: slot.itemId,
       rarity: slot.rarity ?? baseRarityOf(slot.itemId),
       enchant: slot.enchant ?? null,
+
+      /**
+       * O APRIMORAMENTO SAI JUNTO, para a mochila gravar nele.
+       *
+       * Sem esta linha o `unequip` zerava o numero e o jogador perdia o
+       * que pagou no instante em que tirava a armadura das costas — que e
+       * a forma mais facil de ele descobrir que a feature esta errada
+       */
+      enhance: slot.enhance ?? 0,
     };
 
     slot.itemId = null;
@@ -434,6 +531,47 @@ export class Equipment {
     slot.enhance += 1;
 
     return true;
+  }
+
+  /**
+   * DESTROI a peca vestida deste slot, sem devolver nada.
+   *
+   * ## POR QUE NAO E O `unequip`
+   *
+   * Porque o `unequip` DEVOLVE a peca, e uma peca quebrada nao volta
+   * para lugar nenhum. Se a quebra passasse por ele, o jogador veria o
+   * item reaparecer na mochila depois de perder — que e o oposto de
+   * quebrar, e o jeito mais facil de o jogador achar que o risco e falso
+   *
+   * ## POR QUE UM METODO E NAO APAGAR OS CAMPOS NA CHAMADA
+   *
+   * Porque sao cinco campos, e o `unequip` acima ja mostrou que esquecer
+   * um deles vaza estado para a proxima peca vestida. `enchant` e o
+   * perigoso: um afixo que sobra num slot vazio seria encontrado pela
+   * peca seguinte, e ela apareceria encantada sem ter sido
+   *
+   * Devolve a peca destruida para o motor poder nomear a perda na
+   * mensagem, e `false` para slot vazio — igual ao `enhanceSlot`
+   */
+  breakSlot(slotId) {
+    const slot = this.getSlot(slotId);
+
+    if (!slot?.itemId) return false;
+
+    const destruida = {
+      itemId: slot.itemId,
+      rarity: slot.rarity ?? baseRarityOf(slot.itemId),
+      enhance: slot.enhance ?? 0,
+      enchant: slot.enchant ?? null,
+    };
+
+    slot.itemId = null;
+    slot.rarity = null;
+    slot.tier = 0;
+    slot.enhance = 0;
+    slot.enchant = null;
+
+    return destruida;
   }
 
   /**

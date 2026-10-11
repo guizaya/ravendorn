@@ -12,10 +12,12 @@ import {
   classesOfItem,
   isExclusiveToClass,
 } from "../../data/craft/craftPorClasse.js";
+import { sortearComercializavel } from "../rules/regrasDoItem.js";
 import {
   RARITY_ORDER,
   RARITY_STYLE,
   WEAPON_KIND_LABEL,
+  describeStats,
   getItem,
   isStackable,
   rarityOf,
@@ -36,28 +38,20 @@ const CLASS_NAME = Object.fromEntries(
   CHARACTER_CLASSES.map((entry) => [entry.id, entry.name]),
 );
 
-const FRACTION_STATS = new Set(["attackSpeed"]);
-
-const STAT_LABELS = {
-  attack: "ATQ",
-  defense: "DEF",
-  maxHp: "HP",
-  speed: "VEL",
-  attackSpeed: "VEL. ATQ",
-  resourceRegen: "REG",
-  resource: "REC",
-};
-
-function describeStats(stats) {
-  return Object.entries(stats ?? {})
-    .map(([stat, value]) => {
-      const label = STAT_LABELS[stat] ?? stat;
-      const sign = value > 0 ? "+" : "";
-
-      return FRACTION_STATS.has(stat)
-        ? `${label} ${sign}${Math.round(value * 100)}%`
-        : `${label} ${sign}${Math.round(value)}`;
-    })
+/**
+ * A LINHA DE STATS, e so ela.
+ *
+ * Este e o unico lugar que ainda junta os atributos numa frase, e ele usa
+ * o rotulo CURTO porque a frase junta tudo com `·` e tem que caber numa
+ * linha so. O painel do craft ja nao usa esta linha: ele empilha um
+ * atributo por linha e usa o rotulo LONGO, que e `entry.long`
+ *
+ * Os dois nomes saem do mesmo `describeStat` do catalogo, entao a lista e a
+ * frase nunca discordam sobre o que e "Velocidade de ataque"
+ */
+function describeStatsLine(stats) {
+  return describeStats(stats)
+    .map((entry) => `${entry.short} ${entry.text}`)
     .join("  ·  ");
 }
 
@@ -280,17 +274,38 @@ export class Craft {
       inventory.remove(ingredient.itemId, ingredient.need);
     }
 
-    inventory.spendCoins(variant.coins);
+inventory.spendCoins(variant.coins);
 
-    // a variante entra na raridade escolhida, e nao na do
-    // catalogo: foi o que o jogador pagou para criar
-    const result = inventory.add(
-      recipe.itemId,
-      1,
-      variant.rarity,
-    );
+      /**
+       * A COMERCIALIZAVEL DA PECA FEITA NA MAO.
+       *
+       * E sorteada AQUI, e nao no `Inventory.add`, porque e o CRAFT que cria a
+       * peca e o craft que decide se ela pode ir para o mercado. Sem este
+       * sorteio, `add` receberia `false` como padrao e nenhuma peca feita na
+       * mao poderia ser anunciada — que e exatamente o que a regra proibe
+       *
+       * E uma chance ALTA de proposito (25% contra 20% do drop): o jogador
+       * escolheu fazer a peca, sabe o que gastou, e o mercado e a saida para
+       * quando ela ficar obsoleta com o proximo aprimoramento
+       */
+      const comercializavel = sortearComercializavel("craft");
 
-    return { ok: true, recipe, variant, result };
+      // a variante entra na raridade escolhida, e nao na do
+      // catalogo: foi o que o jogador pagou para criar
+      const result = inventory.add(
+        recipe.itemId,
+        1,
+        variant.rarity,
+        { comercializavel },
+      );
+
+      return {
+        ok: true,
+        recipe,
+        variant,
+        result,
+        comercializavel,
+      };
   }
 
   get craftableCount() {
@@ -335,7 +350,41 @@ export class Craft {
             rarityColor: natural.color,
             value: item?.value ?? 0,
             tier: item?.tier ?? 0,
+
+            /**
+             * O SLOT que a peca ocupa, ou `null` para o material.
+             *
+             * O painel novo agrupa a grade por slot, e nao por tipo: duas
+             * botas e duas calcas sao o que o jogador procura lado a lado,
+             * e as duas respondem a "armadura" do mesmo jeito. O slot
+             * separates, e e ele que ordena os grupos na grade
+             *
+             * Sai do item do catalogo e nao da receita: a receita sabe o
+             * que sai, o item sabe onde entra
+             */
+            slot: item?.slot ?? null,
             type: recipe.itemType,
+
+            /**
+             * A FAMILIA DO MATERIAL, e o que agrupa a aba Material.
+             *
+             * ## POR QUE A GRADE DO CRAFT PRECISAVA DISSO
+             *
+             * Porque sao 60 materiais em 4 familias de 15, e a lista era uma
+             * fileira so, sem nome e em ordem alfabetica. Os tres materiais de
+             * uma familia tem a MESMA arte, entao tres quadrados vizinhos eram
+             * o mesmo desenho com bordas diferentes — e nada na tela dizia que
+             * eles andavam juntos
+             *
+             * ## E POR QUE SO O MATERIAL TRAZ ISTO
+             *
+             * Porque `familia` e `null` em qualquer peca que nao seja
+             * material. O painel usa o grupo so quando ela existe, entao
+             * equipamento continua na grade de hoje, sem cabecalho
+             */
+            familia: item?.familia ?? null,
+            familiaNome: item?.familiaNome ?? null,
+
             kind: item?.kind ?? null,
             kindLabel: item?.kind
               ? WEAPON_KIND_LABEL[item.kind] ?? null
@@ -400,7 +449,7 @@ export class Craft {
       color: style?.color ?? null,
       isBase: variant?.isBaseRarity === true,
       stats: statsAt(recipe.itemId, rarity),
-      statsLine: describeStats(statsAt(recipe.itemId, rarity)),
+      statsLine: describeStatsLine(statsAt(recipe.itemId, rarity)),
       value: valueAt(recipe.itemId, rarity),
       coins,
       haveCoins,

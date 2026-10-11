@@ -253,8 +253,8 @@ describe("todo mob do mapa tem sprite", () => {
     //
     // O ghoul porque tem idle de verdade e nenhum golpe.
     // O `rat` e o quinto, e a unica PASSIVA com arte. O `skeleton` e
-    // o sexto: a "Sentinela Esquelética" tambem nao tem arte de golpe,
-    // e e a primeira criatura que ATACA sem ela.
+    // o sexto: e o Kaelen, que tem arte de golpe e de morte, e e a
+    // criatura que substitui os dois ogres no mapa 2.
     //
     // O `slime` e o setimo: o bicho de nivel 1, o mais comum do
     // jogo, e a origem do `slime_gel` e do `slime_core` que o craft e

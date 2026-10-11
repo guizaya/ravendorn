@@ -63,19 +63,14 @@ export default function HabilidadesPanel({
       <nav className="inv-tabs">
         <span className="inv-tab is-active pocao-tab">
           <span className="pocao-tab__icon">✧</span>
-
           <small>Mestre de Habilidades</small>
-
-          <i className="pocao-tab__coins">
-            {saldo === null ? "—" : `${saldo}`}
-          </i>
         </span>
 
         <button
           type="button"
           className="inv-close"
           onClick={onClose}
-          title="Fechar"
+          data-tip="Fechar"
         >
           ✕
         </button>
@@ -169,7 +164,7 @@ function Linha({ livro, saldo, aprendida, onBuy }) {
               type="button"
               className="pocao-comprar"
               disabled
-              title="Voce ja sabe esta habilidade"
+              data-tip="Voce ja sabe esta habilidade"
             >
               Aprendida
             </button>
@@ -190,7 +185,7 @@ function Linha({ livro, saldo, aprendida, onBuy }) {
               className="pocao-comprar"
               disabled={semSaldo}
               onClick={() => onBuy(livro.itemId)}
-              title={
+              data-tip={
                 semSaldo
                   ? "Moedas insuficientes"
                   : `Comprar ${item.name}`

@@ -23,7 +23,7 @@ const DIRECTIONAL_FRAME_WIDTH = 64;
 const DIRECTIONAL_FRAME_HEIGHT = 64;
 const DIRECTIONAL_ANCHOR_X = 32;
 const DIRECTIONAL_ANCHOR_Y = 54;
-const DIRECTIONAL_SCALE = 1;
+const DIRECTIONAL_SCALE = 0.8;
 const DIRECTIONAL_FALLBACK = "south";
 
 const DIRECTIONAL_WALK_BOB = {
@@ -62,16 +62,117 @@ const DIRECTIONAL_WALK_BOB = {
  * mesmo motivo que o guerreiro tem a dele: cada celula tem a sua, e
  * `DIRECTIONAL_ANCHOR_Y` e o do arquiro ANTIGO
  */
-const ARBALIST_FRAME_SIZE = 84;
-const ARBALIST_ANCHOR_X = 41.5;
-const ARBALIST_ANCHOR_Y = 68;
+const ARBALIST_FRAME_SIZE = 96;
+
+/**
+ * A ANCORA, regerada com a arte nova.
+ *
+ * Antes: `47.5` e `77`. Agora `48` e `75`, que sao os numeros que o
+ * `gif-to-sheet.mjs` mediu e imprimiu na ultima geracao da folha.
+ *
+ * O `anchorY` e o que decide a ALTURA do boneco no chao. Caiu 2px porque o
+ * `alignAnchors` mede a MEDIANA do pe de cada lane, e a arte nova tem o
+ * pes 2px mais alto na celula de 96. Deixar em 77 punha o arquiro 2px
+ * dentro do chao em todas as direcoes
+ *
+ * O `anchorX` subiu meia unidade porque o desenho novo esta meio pixel a
+ * mais para a direita: o `alignAnchors` alinha o CENTRO do corpo pela
+ * mediana, e a mediana das oito lanes mudou
+ */
+const ARBALIST_ANCHOR_X = 48;
+const ARBALIST_ANCHOR_Y = 75;
 const ARBALIST_COLUMNS = 9;
 
+/**
+ * O TAMANHO DEPOIS DE DOIS PEDIDOS DE DIMINUICAO.
+ *
+ * A celula do arquiro subiu de 84 para 96 quando a arte foi regerada. Depois
+ * veio o pedido de dobrar, que foi para 1.4, e depois dois pedidos de diminuir:
+ * 20%, que deu `1.4 * 0.8 = 1.12`, e agora 15%, que da `1.12 * 0.85 = 0.952`
+ *
+ * Cada "diminuir X%" e lido como X% do valor ATUAL, e nao como X pontos
+ * percentuais. Sao numeros diferentes: 15 pontos tiraria 0.15 e deixaria 0.97
+ *
+ * ## ONDE ESTE NUMERO TERMINA
+ *
+ * O guerreiro, o lancer e o sorcerer continuam em `DIRECTIONAL_SCALE`, que e
+ * 0.8 sobre celula de 68, o que da 54px na tela. O arquiro em 0.952 da
+ * `96 * 0.952 = 91`px, ou seja, 1.69x os outros tres
+ *
+ * Para o arquiro ter exatamente o mesmo tamanho deles, este numero seria
+ * 0.56 — e nao 0.952
+ */
+const ARBALIST_SCALE = 0.952;
+
 const ARBALIST_FRAMES = 8;
-const ARBALIST_IDLE_FRAMES = 8;
-const ARBALIST_IDLE_ROW = 8;
+
+/**
+ * O IDLE PASSOU DE 8 PARA 9 QUADROS.
+ *
+ * A arte nova de `idle/` tem nove quadros em todas as oito direcoes. Com o
+ * `length` em 8, o nono quadro nao existia no ciclo: o arquiro ia perder a
+ * volta final da respiracao, e o `rowOffset` continuaria correto — o
+ * defeito apareceria so como uma animacao que "nao fecha"
+ *
+ * O `shoot` do norte veio com onze quadros e foi cortado para 9 pelo
+ * `normalizarFrames`, que corta no MENOR do grupo. E o que mantem o ritmo
+ * do golpe igual em todas as direcoes
+ */
+const ARBALIST_IDLE_FRAMES = 9;
+
+/**
+ * O IDLE E POR DIRECAO, entao a linha e um DESLOCAMENTO.
+ *
+ * A pasta `idle/` do arquiro tem um gif para cada um dos oito angulos, igual
+ * a `walk/`. Antes era um `idle.gif` unico, lido por `row` fixo; agora cada
+ * angulo ocupa a sua linha e o layout aponta com `rowOffset`
+ *
+ * Sao dois jeitos diferentes de apontar a mesma folha, e trocar um pelo
+ * outro sem trocar o outro mostra o boneco parado com o angulo errado
+ */
+const ARBALIST_IDLE_ROW_OFFSET = 8;
+
 const ARBALIST_SHOOT_FRAMES = 9;
-const ARBALIST_SHOOT_ROW = 9;
+const ARBALIST_SHOOT_ROW = 16;
+
+/**
+ * A MINERACAO PASSOU A SER POR DIRECAO, entao a linha e um DESLOCAMENTO.
+ *
+ * ## O QUE MUDOU
+ *
+ * Antes: uma lane so, na linha 24, lida por `row`. A arte tinha vindo so do
+ * sul — o arquiro mina virado para a pedra — entao nao havia oito angulos
+ *
+ * Agora a pasta `mining/` tem um gif para cada um dos oito angulos, e o
+ * ciclo e lido por `rowOffset`, como o `idle` e o `shoot`: a linha do
+ * angulo e a linha do ciclo MAIS o deslocamento da direcao
+ *
+ * ## POR QUE ISTO E VISIVEL, E NAO UM DETALHE
+ *
+ * O jogador chega na pedra de qualquer lado, e a picareta e a mao que ele
+ * esta olhando. Com `row: 24` fixo, quem estava de norte socava para BAIXO
+ * — o angulo errado na acao que mais se nota na tela
+ *
+ * A folha foi de 25 para 32 linhas: as sete novas sao as direcoes que
+ * entraram depois do sul
+ *
+ * ## POR QUE NAO E SO TROCAR `row` POR `rowOffset`
+ *
+ * Porque `rowOffset` sem as oito linhas na folha aponta para o tiro (16..23)
+ * ou para fora. O mesmo cuidado do `idle`, que nunca foi `row` fixo
+ */
+const ARBALIST_MINING_ROW_OFFSET = 24;
+
+/**
+ * OS QUADROS E O RITMO DA PICARETA.
+ *
+ * O `fps` e o ritmo da picareta: 9 quadros a 10 por segundo da um ciclo de
+ * 0.9s, perto do vao entre batidas que o painel de mineracao mostra. O
+ * ciclo e em LOOP, e e o que segura enquanto o jogador esta na pedra
+ */
+const ARBALIST_MINING_FRAMES = 9;
+const ARBALIST_MINING_FPS = 10;
+
 const ARBALIST_WALK_FPS = 12;
 const ARBALIST_IDLE_FPS = 5;
 const ARBALIST_SHOOT_FPS = 20;
@@ -256,12 +357,13 @@ export const ARBALIST_SPRITE = createDirectionalSpriteDefinition(
     frameHeight: ARBALIST_FRAME_SIZE,
     anchorX: ARBALIST_ANCHOR_X,
     anchorY: ARBALIST_ANCHOR_Y,
+    scale: ARBALIST_SCALE,
 
     walkBob: DIRECTIONAL_WALK_BOB,
 
     animations: {
       idle: {
-        row: ARBALIST_IDLE_ROW,
+        rowOffset: ARBALIST_IDLE_ROW_OFFSET,
         start: 0,
         length: ARBALIST_IDLE_FRAMES,
         fps: ARBALIST_IDLE_FPS,
@@ -279,6 +381,31 @@ export const ARBALIST_SPRITE = createDirectionalSpriteDefinition(
         length: ARBALIST_SHOOT_FRAMES,
         fps: ARBALIST_SHOOT_FPS,
         needsTarget: true,
+      },
+
+      /**
+       * A PICARETA, EM LOOP, E POR DIRECAO.
+       *
+       * ## POR QUE `rowOffset`, E NAO `row` FIXO
+       *
+       * Era uma linha so na 24, lida por `row`: a arte tinha vindo so do
+       * sul. Agora sao oito angulos, e o ciclo segue o angulo em que o
+       * jogador chegou na pedra — quem esta de norte soca para o norte
+       *
+       * Sem `holdLast`: o bloco e o que segura a animacao no ULTIMO quadro,
+       * e ele e da MORTE. Aplicado aqui, o arquiro socaria uma vez e
+       * ficaria com a picareta no chao ate parar de minerar
+       *
+       * Sem `needsTarget`: `needsTarget` e o que trava arte de tiro, e o
+       * alvo do arquiro e um INIMIGO. A mineracao nao tem alvo — tem uma
+       * pedra, que e um objeto do mapa, nao alguem que possa morrer. Com a
+       * flag aqui o ciclo nunca entraria
+       */
+      mining: {
+        rowOffset: ARBALIST_MINING_ROW_OFFSET,
+        start: 0,
+        length: ARBALIST_MINING_FRAMES,
+        fps: ARBALIST_MINING_FPS,
       },
     },
   },
@@ -345,56 +472,129 @@ export const WARRIOR_SPRITE = createDirectionalSpriteDefinition(
  * mundo. Um `anchorY` de 54, o do arquiro, colocaria o sorcerer 2px
  * fora do chao em relacao as outras classes
  */
-const SORCERER_FRAME_SIZE = 68;
-const SORCERER_ANCHOR_X = 33;
-const SORCERER_ANCHOR_Y = 56;
+const SORCERER_FRAME_SIZE = 132;
+const SORCERER_ANCHOR_X = 65;
+const SORCERER_ANCHOR_Y = 108;
+const SORCERER_COLUMNS = 9;
 const SORCERER_WALK_FRAMES = 8;
 const SORCERER_IDLE_FRAMES = 8;
-const SORCERER_IDLE_ROW = 8;
+const SORCERER_IDLE_ROW_OFFSET = 8;
+const SORCERER_ATTACK_FRAMES = 9;
+const SORCERER_ATTACK_ROW = 16;
 const SORCERER_WALK_FPS = 12;
 const SORCERER_IDLE_FPS = 5;
+const SORCERER_ATTACK_FPS = 20;
 
 export const SORCERER_GEOMETRY = {
   frameWidth: SORCERER_FRAME_SIZE,
   frameHeight: SORCERER_FRAME_SIZE,
   anchorX: SORCERER_ANCHOR_X,
   anchorY: SORCERER_ANCHOR_Y,
+
+  /**
+   * A ESCALA QUE DEIXA O SORCERER DO MESMO TAMANHO NA TELA QUE O ARQUEIRO.
+   *
+   * ## POR QUE A ESCALA E MENOR QUE A DO ARQUEIRO, SENDO QUE A ARTE E MAIOR
+   *
+   * A celula e o que o motor desenha, e a escala e o que encolhe essa celula.
+   * A celula do sorcerer tem 132 contra 96 do arqueiro, entao a escala tem de
+   * compensar para o PERSONAGEM sair do mesmo tamanho
+   *
+   * A conta, medindo as duas folhas do mesmo jeito:
+   *
+   * - arqueiro: 57px de arte x 1.1 = **62.7px** na tela
+   * - sorcerer: 90px de arte na caminhada
+   *
+   * 62.7 / 90 = 0.697. E o numero aqui
+   *
+   * ## E DE ONDE SAIU O 1.1, E NAO O 0.952
+   *
+   * Porque existem DOIS numeros do arqueiro no codigo, e o que vale e o do
+   * `src/data/sprites/index.js`, que monta o sprite final: la o `scale` do
+   * arqueiro e **1.1**, sobrescrevendo o `ARBALIST_SCALE = 0.952` do
+   * `layout.js`
+   *
+   * Calcular por cima do 0.952 dava 54.3px de personagem, e o sorcerer saia
+   * 13% menor que o arqueiro na tela — visivel, e foi o que aconteceu na
+   * primeira configuracao desta arte
+   *
+   * ## E POR QUE NAO IGUALAR A CELULA
+   *
+   * Porque a celula tem borda transparente, e o que o jogador ve e o boneco.
+   * Igualando a celula, o sorcerer sairia com 92px de celula contra 105.6 do
+   * arqueiro, e o personagem com 62.7px contra 62.7px: certo no que importa, e
+   * diferente so na margem invisivel
+   */
+  scale: 0.697,
 };
 
 /**
- * O idle do sorcerer, e o golpe provisorio que aponta para ele.
+ * O idle do sorcerer, que agora e uma arte por direcao.
  *
- * As duas entradas sao o MESMO objeto de proposito: enquanto o
- * sorcerer nao tiver arte de ataque, o `idle` e o que entra no
- * desenho durante o golpe, e deixar isso escrito como o mesmo bloco
- * diz o que acontece sem depender de nenhum reserva do motor
+ * Antes era um `idle.gif` solto, lido por `row`. Agora a pasta `idle/` tem os
+ * oito angulos, entao cada um ocupa a sua linha e o layout aponta com
+ * `rowOffset`
+ *
+ * ## POR QUE ISTO NAO E UM DETALHE
+ *
+ * Um idle de uma linha so lido por `row` mostraria o sorcerer parado com o
+ * angulo da linha 8 — o angulo do `east`, sempre — de qualquer lado que ele
+ * esteja olhando. O jogador para de andar para o norte e ve o bonecone virado
+ * para leste
  */
 const SORCERER_IDLE_ANIMATION = {
-  row: SORCERER_IDLE_ROW,
+  rowOffset: SORCERER_IDLE_ROW_OFFSET,
   start: 0,
   length: SORCERER_IDLE_FRAMES,
   fps: SORCERER_IDLE_FPS,
 };
 
 /**
+ * O golpe do sorcerer, que antes nao existia.
+ *
+ * ## POR QUE `needsTarget`
+ *
+ * Porque o golpe basico dele e `type: "projectile"` — e um conjurador de
+ * projeteil, e a arte e direcional. A mesma marca que o arqueiro usa: sem alvo
+ * de verdade o ciclo nao entra, e o boneco continua andando em vez de parar
+ * paraconjurar no vazio
+ *
+ * E o motor vira o personagem para o alvo durante o tiro, que e o que usa o
+ * `firingTargetId` gravado pelo `SkillSystem`
+ *
+ * ## E POR QUE 20 QUADROS POR SEGUNDO, IGUAL AO ARQUEIRO
+ *
+ * Porque sao os dois projecteis, com a mesma pose de 0.22s. O ritmo do golpe
+ * e o mesmo das duas classes, e dois numeros diferentes fariam o conjurador
+ * "piscar" em comparacao com o arqueiro
+ *
+ * ## O GOLPE DO NORTE VEI COM 11 QUADROS
+ *
+ * Cortado para 9 pelo `normalizarFrames`, que corta no MENOR do grupo — o
+ * mesmo corte que o tiro do arquiro levou. E o que mantem o passo igual nas
+ * oito direcoes
+ */
+const SORCERER_ATTACK_ANIMATION = {
+  rowOffset: SORCERER_ATTACK_ROW,
+  start: 0,
+  length: SORCERER_ATTACK_FRAMES,
+  fps: SORCERER_ATTACK_FPS,
+  needsTarget: true,
+};
+
+/**
  * O sorcerer, a partir da arte de `assets/sprites/sorcerer/`.
  *
- * Sao oito direcoes de caminhada e um `idle.gif` de verdade, com oito
- * quadros, e NADA de golpe: a pasta de origem nao tem arte de ataque.
- * A folha tem 9 linhas — 8 de caminhada, 1 de idle na linha 8.
+ * ## A FOLHA MUDOU DE 9 PARA 24 LINHAS
  *
- * O `attack` aponta para a linha de idle, e nao para uma linha de
- * golpe que nao existe. A diferenca para o ghoul, que tambem nao tem
- * arte de golpe: o ghoul OMITE o `attack` e deixa o pedido cair no
- * reserva do `resolveFrameRect`, e o sorcerer DECLARA. Com o bloco
- * declarado, o `resolveAnimation` devolve `attack` durante o golpe
- * mesmo com o personagem andando — sem ele, um sorcerer que anda e
- * ataca junto entraria no `walk`, que e a caminhada de verdade, e o
- * golpe apareceria com as pernas mexendo
+ * Sao oito de caminhada, oito de idle e oito de golpe, nesta ordem. Antes
+ * eram oito de caminhada e UMA de idle, lida por `row`
  *
- * E o que o usuario pediu enquanto nao existir a arte: parado em idle
- * enquanto ataca. Quando o `attack/` chegar na pasta, e so declarar a
- * linha e a contagem novas aqui, como o guerreiro fez
+ * ## E SEM MINERACAO
+ *
+ * A picareta e do arqueiro, e nenhuma outra classe tem essa arte. Sem o
+ * bloco `mining` aqui, o `resolveFrameRect` cai no `idle` quando o jogador
+ * chega numa pedra — o que e o comportamento certo para um conjurador
  */
 export const SORCERER_SPRITE = createDirectionalSpriteDefinition(
   "sorcerer",
@@ -415,11 +615,7 @@ export const SORCERER_SPRITE = createDirectionalSpriteDefinition(
         fps: SORCERER_WALK_FPS,
       },
 
-      /**
-       * Provisorio: o MESMO bloco do idle, e nao uma linha de golpe
-       * propria. Ver `SORCERER_IDLE_ANIMATION` acima
-       */
-      attack: SORCERER_IDLE_ANIMATION,
+      attack: SORCERER_ATTACK_ANIMATION,
     },
   },
 );
@@ -428,11 +624,12 @@ export const SORCERER_SPRITE = createDirectionalSpriteDefinition(
  * As medidas do lancer, medidas na folha gerada por
  * `node tools/gif-to-sheet.mjs lancer`.
  *
- * A celula e a do guerreiro e do sorcerer, 68px, e a ancora
- * (33.5, 53) e a que a propria folha mediu. O `anchorY` de 53 e 3px
- * menor que o do sorcerer, e e o que a arte pede: o pe do lancer fica
- * mais alto na celula. Copiar a ancora de outra classe da ao personagem
- * um deslocamento vertical em relacao as outras
+ * A celula e a do guerreiro, 68px, e a ancora (33.5, 53) e a que a
+ * propria folha mediu. O `anchorY` de 53 e 3px
+ * menor que o do sorcerer ANTIGO, e era o que a arte pedia. O sorcerer
+ * passou a ter celula de 132 depois, e a conta de "mesmo tamanho na tela"
+ * dele virou a `SORCERER_SCALE`. Copiar a ancora de outra classe da ao
+ * personagem um deslocamento vertical em relacao as outras
  */
 const LANCER_FRAME_SIZE = 68;
 const LANCER_ANCHOR_X = 33.5;

@@ -31,9 +31,8 @@
 
 export default function PortalBox({
   portal = null,
-  minimapTop = 84,
-  minimapHeight = 146,
   onTravel = null,
+  onChefe = null,
 }) {
   if (!portal) return null;
 
@@ -46,27 +45,34 @@ export default function PortalBox({
    */
   const bloqueado = portal.bloqueado === true;
 
+  /*
+  O CHEFE QUE ESTA TRAVANDO ESTE PORTAL.
+
+  `null` em quase toda box: e o estado normal de uma trava comum. O campo
+  so vem preenchido quando a missao que tranca o portal e um chefe, e e
+  ele que troca o "Selado" morto por um botao com para onde ir
+
+  Sem isto o jogador lia "selado" num portal que so abre com a missao que
+  ele so encontra ATRAS deste portal — um circulo que so se desfaz depois
+  de dezoito degraus de campanha
+  */
+  const chefe = bloqueado ? (portal.chefe ?? null) : null;
+
   return (
     <div
       className={[
         "prt-box",
         bloqueado ? "is-locked" : "",
+        chefe ? "is-chefe" : "",
       ]
         .filter(Boolean)
         .join(" ")}
-      style={{
-        // o minimapa e desenhado no canvas, entao nao ha elemento DOM
-        // para se grudar. A posicao vem das MESMAS constantes que o
-        // `drawMinimap` usa, senao a box nasce embaixo de um lugar e
-        // o minimapa desenha em outro
-        top: minimapTop + minimapHeight + 10,
-      }}
       data-portal={portal.id}
       data-destino={portal.destino}
       data-bloqueado={bloqueado ? "sim" : "nao"}
     >
       <p className="prt-box__label">
-        {bloqueado ? "Portal selado" : "Portal"}
+        {chefe ? "Portal do chefe" : bloqueado ? "Portal selado" : "Portal"}
       </p>
 
       <p className="prt-box__name">{portal.nome}</p>
@@ -77,15 +83,38 @@ export default function PortalBox({
         </p>
       )}
 
-      <button
-        type="button"
-        className="prt-box__go"
-        onClick={() => onTravel?.(portal.id)}
-        disabled={bloqueado}
-        title={bloqueado ? (portal.motivo ?? "Bloqueado") : "Atravessar"}
-      >
-        {bloqueado ? "Selado" : "Atravessar"}
-      </button>
+      {/*
+        O BOTAO DO CHEFE SUBSTITUI O "SELADO".
+
+        E o mesmo lugar do botao de atravessar, e pelo mesmo motivo: a box
+        tem um lugar so para a acao, e a acao deste portal NAO e atravessar.
+        Um botao de atravessar cinza ao lado de um botao de enfrentar seria
+        dois botoes para a mesma duvida
+
+        E ele nao substitui o portal: o jogador volta da arena e ainda esta
+        aqui, com a missao feita e o "Atravessar" no lugar de onde o "Enfrentar"
+        estava
+      */}
+      {chefe ? (
+        <button
+          type="button"
+          className="prt-box__go prt-box__go--chefe"
+          onClick={() => onChefe?.()}
+          data-tip={`Enfrentar ${chefe.nome ?? "o chefe"}`}
+        >
+          Enfrentar o chefe
+        </button>
+      ) : (
+        <button
+          type="button"
+          className="prt-box__go"
+          onClick={() => onTravel?.(portal.id)}
+          disabled={bloqueado}
+          data-tip={bloqueado ? (portal.motivo ?? "Bloqueado") : "Atravessar"}
+        >
+          {bloqueado ? "Selado" : "Atravessar"}
+        </button>
+      )}
     </div>
   );
 }

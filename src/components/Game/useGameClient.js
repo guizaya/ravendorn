@@ -215,6 +215,30 @@ export default function useGameClient({
     [comCliente],
   );
 
+  /**
+   * LIGA O FARM OFFLINE, e o `await` e o que segura a navegacao.
+   *
+   * A UI precisa deste `await` antes de ir para a tela de classe: e o
+   * servidor quem guarda o relogio, e sair antes da confirmacao
+   * perderia o ganho
+   */
+  const iniciarFarmOffline = useCallback(
+    () => comCliente((c) => c.iniciarFarmOffline()) ?? Promise.resolve(false),
+    [comCliente],
+  );
+
+  /**
+   * O JOGADOR FECHOU O MODAL do farm.
+   *
+   * Vira `true` depois que o pedido sai, e nao antes: se o servidor
+   * recusar, o relatorio volta na proxima entrada e o modal abre de novo
+   * — o que e melhor do que o sumir na mao
+   */
+  const viuFarmOffline = useCallback(
+    () => comCliente((c) => c.viuFarmOffline()) === true,
+    [comCliente],
+  );
+
   const descartar = useCallback(
     (uid) => comCliente((c) => c.descartar(uid)),
     [comCliente],
@@ -247,8 +271,41 @@ export default function useGameClient({
     [comCliente],
   );
 
-  const alternarAutoPlay = useCallback(
-    () => comCliente((c) => c.alternarAutoPlay()),
+const alternarAutoPlay = useCallback(
+      () => comCliente((c) => c.alternarAutoPlay()),
+      [comCliente],
+    );
+
+    /**
+     * Pede o DASH.
+     *
+     * E o mesmo desenho do `alternarAutoPlay`: sem `GameClient` o
+     * `comCliente` devolve `false` e nao acontece nada
+     *
+     * ## E O CAMINHO OFFLINE
+     *
+     * O motor registra o proprio `keydown` no `window` no construtor, entao
+     * o `E` chega nele de dois jeitos: por este pedido quando ha rede, e
+     * direto pela janela quando nao ha. E por isso que o `KeyE` esta no
+     * `handleKeyDown` do motor ANTES do corte do `networked` — o corte
+     * existe para `Space`/`1`-`8`/`R`, que so fazem sentido no pedido, e o
+     * dash faz sentido nos dois
+     */
+    const dash = useCallback(
+      () => comCliente((c) => c.dash()),
+      [comCliente],
+    );
+
+  /**
+   * A CONFIGURACAO DO USO AUTOMATICO DA POCAO.
+   *
+   * A `mudanca` chega inteira e sem dissectar: quem decide o que cada campo
+   * significa e o `GameClient` e, depois, o motor do servidor. O
+   * `useGameClient` nao tem regra nenhuma de pocao, e e por isso que ele
+   * repassa o objeto cru
+   */
+  const configurarAutoPocao = useCallback(
+    (mudanca) => comCliente((c) => c.configurarAutoPocao(mudanca)),
     [comCliente],
   );
 
@@ -272,6 +329,30 @@ export default function useGameClient({
    */
   const irParaArena = useCallback(
     () => comCliente((c) => c.irParaArena()),
+    [comCliente],
+  );
+
+  /**
+   * O MAPA DE TESTE, o botao de ir e voltar.
+   *
+   * Sem argumento nenhum, como a arena: o destino e o sentido sao do
+   * servidor, que e quem guarda de onde o jogador veio
+   */
+  const irParaTeste = useCallback(
+    () => comCliente((c) => c.irParaTeste()),
+    [comCliente],
+  );
+
+  /**
+   * A PEDIDA DE STEEL, e o mesmo gesto que a solta.
+   *
+   * Sem estado proprio, pelo motivo do `irParaTeste`: o hook nao guarda se
+   * o jogador esta minerando. Se ele guardasse, o estado do cliente
+   * discordaria do painel depois de um pacote perdido, e o botao pararia
+   * de funcionar ate o proximo painel chegar
+   */
+  const minerar = useCallback(
+    (propId) => comCliente((c) => c.minerar(propId)),
     [comCliente],
   );
 
@@ -319,6 +400,44 @@ export default function useGameClient({
   );
 
   /**
+   * Resgata UM dia do passe.
+   *
+   * Pelo mesmo caminho da recompensa de missao: quem tem a mochila e a lista
+   * de resgates e o servidor, e o clique do painel nao pagaria nada online.
+   *
+   * ## POR QUE ESTE HOOK NAO GUARDA NADA
+   *
+   * Porque nao ha estado local para guardar: o resgate vira snapshot, e o
+   * snapshot traz a lista nova. Se o painel guardasse tambem, os dois iam
+   * discordar por um tique e o dia apareceria resgatado e clicavel ao mesmo
+   * tempo
+   */
+  const resgatarDiaDoPasse = useCallback(
+    (passId, dia) => comCliente((c) => c.resgatarDiaDoPasse(passId, dia)),
+    [comCliente],
+  );
+
+/**
+    * Liga ou desliga o passe premium.
+    *
+    * O valor chega no pedido, e nao um "inverter", pelo mesmo motivo do
+    * `GameClient`: dois cliques rapidos podem chegar em qualquer ordem
+    *
+    * ## E O `passId` NAO PODE FICAR DE FORA
+    *
+    * Porque o premium e uma compra POR PASSE. O painel manda o passe aberto
+    * junto com o valor, e sem repassar o `passId` para o `GameClient` o
+    * servidor cairia no passe padrao: o jogador pagaria 100 diamantes para
+    * ligar a Praga e so veria os dias pagos dela, com a Cripta e a Mina
+    * ainda trancadas
+    */
+  const definirPassePremium = useCallback(
+    (ativo, passId) =>
+      comCliente((c) => c.definirPassePremium(ativo, passId)),
+    [comCliente],
+  );
+
+  /**
    * Pede a cacada de UMA criatura no bestiario.
    *
    * O `bestiaryTargetType` e por sessao no servidor. Sem este
@@ -330,10 +449,28 @@ export default function useGameClient({
     [comCliente],
   );
 
-/** Entrega uma colecao e paga a recompensa. */
+/**
+   * Entrega uma parcela e paga a recompensa dela.
+   *
+   * O `indice` viaja ate o `GameClient`, e sem ele a entrega e a COLECAO
+   * INTEIRA: `deliver(collectionId, null, ...)` paga as duas parcelas de uma
+   * vez. Uma colecao de 2 slots virava uma entrega so, e o jogador perdia o
+   * controle de qual parcela estava pagando
+   */
   const entregarColecao = useCallback(
-    (collectionId) =>
-      comCliente((c) => c.entregarColecao(collectionId)),
+    (collectionId, indice = null) =>
+      comCliente((c) => c.entregarColecao(collectionId, indice)),
+    [comCliente],
+  );
+
+  /**
+   * Compra um produto da loja.
+   *
+   * E o mesmo `comCliente` de tudo: se nao ha `GameClient` — single player
+   * sem rede — ele devolve `false` e o `LojaPanel` nao marca nada na tela
+   */
+  const comprarProduto = useCallback(
+    (produtoId) => comCliente((c) => c.comprarProduto(produtoId)),
     [comCliente],
   );
 
@@ -351,6 +488,17 @@ export default function useGameClient({
    */
   const encantar = useCallback(
     (alvo) => comCliente((c) => c.encantar(alvo)),
+    [comCliente],
+  );
+
+  /**
+   * APRIMORAR a peca vestida de um slot.
+   *
+   * O resultado volta no `SNAPSHOT` seguinte, em `equipment.slots`, e a UI
+   * le o `enhance` de la. Nao sorteia nada, entao nao ha afixo na resposta
+   */
+  const aprimorar = useCallback(
+    (slotId) => comCliente((c) => c.aprimorar(slotId)),
     [comCliente],
   );
 
@@ -475,7 +623,32 @@ export default function useGameClient({
      ------------------------------------------------------------------ */
 
   const criarGuilda = useCallback(
-    (nome, tag) => comCliente((c) => c.criarGuilda(nome, tag)),
+    (nome, tag, estilo) =>
+      comCliente((c) => c.criarGuilda(nome, tag, estilo)),
+    [comCliente],
+  );
+
+  /**
+   * O ESTILO da guilda: emblema e cor.
+   *
+   * Pelo caminho da criacao, e o `store` do servidor que recusa quem nao e
+   * o lider. Aqui nao ha checagem nenhuma de proposito — quem decide o que
+   * um jogador pode mudar no jogo e o servidor, e uma guarda no cliente
+   * seria uma segunda regra que a primeira pode contradizer
+   */
+  const definirEstiloGuilda = useCallback(
+    (icone, cor) => comCliente((c) => c.definirEstiloGuilda(icone, cor)),
+    [comCliente],
+  );
+
+  /**
+   * A TAG sobre o boneco deste jogador.
+   *
+   * Nao tem guarda nenhuma aqui tambem: e a unica acao de guilda que o
+   * jogador pode fazer sobre si mesmo sem ser da diretoria
+   */
+  const definirMostrarTag = useCallback(
+    (mostrar) => comCliente((c) => c.definirMostrarTag(mostrar)),
     [comCliente],
   );
 
@@ -570,6 +743,19 @@ const mexerNoCofre = useCallback(
   );
 
   /**
+ * O BAU DA BASE.
+ *
+ * A assinatura repete a do `GameClient` de proposito: a hook e uma
+ * passagem, e um `(acao, dados)` aqui com um `(bauAcao, dados)` la faria
+ * o painel chamar uma coisa e o socket entender outra
+ */
+const mexerNoBau = useCallback(
+    (bauAcao, dados) =>
+      comCliente((c) => c.mexerNoBau(bauAcao, dados)),
+    [comCliente],
+  );
+
+/**
  * O QUE ESTE HOOK ENTREGA.
  *
  * A lista fica num objeto de modulo, e nao espalhada em dozens de
@@ -628,6 +814,8 @@ const mexerNoCofre = useCallback(
     equipar,
     desequipar,
     consertarEquipamento,
+    iniciarFarmOffline,
+    viuFarmOffline,
     descartar,
     equiparMelhor,
     filtroDeLoot,
@@ -635,6 +823,8 @@ const mexerNoCofre = useCallback(
     criar,
     marcarAuto,
     criarGuilda,
+    definirEstiloGuilda,
+    definirMostrarTag,
     buscarGuilda,
     pedirGuilda,
     aceitarGuilda,
@@ -652,18 +842,27 @@ const mexerNoCofre = useCallback(
     sairDaGuilda,
     destravarTalent,
     mexerNoCofre,
+  mexerNoBau,
 
     alternarAutoPlay,
+  dash,
+    configurarAutoPocao,
     atravessarPortal,
     irParaArena,
+    irParaTeste,
+  minerar,
     alternarAutoMissao,
     focarMissao,
     aceitarMissaoSecundaria,
     abandonarMissaoSecundaria,
     resgatarRecompensaMissao,
+    resgatarDiaDoPasse,
+    definirPassePremium,
     cacarCriatura,
     entregarColecao,
+  comprarProduto,
     encantar,
+  aprimorar,
     listarNoMarket,
     comprarNoMarket,
     cancelarNoMarket,

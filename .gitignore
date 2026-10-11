@@ -11,3 +11,15 @@ coverage
 # `git clean` sem cuidado nao pode levar o nivel de ninguem junto
 server/data/personagens
 *.json.tmp
+
+# Os prompts com que o jogo foi pedido, na raiz. Sao conversa, nao
+# especificacao: descrevem a TELA que foi pedida no momento, e nao o
+# que o codigo faz hoje. Versiona-los da a impressao de que sao a fonte
+# da verdade, e da para editar por cima de um arquivo que ja virou outra
+# coisa
+/*.txt
+
+# Os backups de arte. O `dungeon.tmj` e escrito por script as vezes, e o
+# `.bak` de uma versao errada nao ajuda ninguem a recuperar — o git ja
+# guarda a versao anterior
+*.bak

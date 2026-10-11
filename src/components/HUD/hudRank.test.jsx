@@ -192,7 +192,14 @@ describe("botao de rank na HUD", () => {
     ).toBe("voce");
   });
 
-  it("abre e fecha pela tecla R", async () => {
+  /**
+   * A TECLA E `L`, E NAO `R`.
+   *
+   * A `R` e a ultimate, e as duas coisas respondiam ao mesmo `keydown` na
+   * `window`: apertar `R` usava a ultimate e abria o rank ao mesmo tempo.
+   * O `L` vem de "leaderboard", que e o nome que o painel usa
+   */
+  it("abre e fecha pela tecla L", async () => {
     const { container } = montar({
       [RANK_CRITERIO.NIVEL]: lista,
       [RANK_CRITERIO.BESTIARIO]: lista,
@@ -200,11 +207,26 @@ describe("botao de rank na HUD", () => {
 
     await act(async () => {
       window.dispatchEvent(
-        new KeyboardEvent("keydown", { code: "KeyR" }),
+        new KeyboardEvent("keydown", { code: "KeyL" }),
       );
     });
 
     expect(container.querySelector(".rnk-panel")).toBeTruthy();
+
+    await act(async () => {
+      window.dispatchEvent(
+        new KeyboardEvent("keydown", { code: "KeyL" }),
+      );
+    });
+
+    expect(container.querySelector(".rnk-panel")).toBeNull();
+  });
+
+  it("a R nao abre o rank: ela e da ultimate", async () => {
+    const { container } = montar({
+      [RANK_CRITERIO.NIVEL]: lista,
+      [RANK_CRITERIO.BESTIARIO]: lista,
+    });
 
     await act(async () => {
       window.dispatchEvent(

@@ -27,8 +27,40 @@ export function createPlayer(
     level: 1,
 
     x: spawn.x,
-    y: spawn.y,
-    radius: 22,
+y: spawn.y,
+      radius: 22,
+
+      /**
+       * O EMPURRAO, e ele precisa existir ANTES de qualquer coisa le-lo.
+       *
+       * ## POR QUE ESTE CAMPO ESTAVA FALTANDO
+       *
+       * O `GameEngine` le `player.pushVelocity` desde sempre — e o zerava na
+       * morte e ao voltar para a base, em dois lugares. Mas o campo NUNCA foi
+       * criado aqui: o jogador nao tinha `pushVelocity`, e o motor so o usava
+       * para ZERAR algo que nao existia
+       *
+       * Ou seja: o golpe do inimigo no jogador nunca empurrou, e o
+       * `enemiesPush` — que existe para isso — jogava num buraco
+       *
+       * ## POR QUE `enemiesPush` NAO DAVA ERRO
+       *
+       * Porque ele faz `target.pushVelocity.x += velocityX`, e o
+       * `undefined += 1` e `NaN`, nao um erro. O `NaN` ficava guardado em
+       * silencio ate o primeiro `if (pushVelocity.x !== 0)` — que e o que o
+       * dash introduziu, e onde o tick inteiro morria
+       *
+       * ## E O MESMO CAMPO DO INIMIGO
+       *
+       * De proposito: o `updatePlayer` e o `updateEnemy` aplicam o
+       * `pushVelocity` com o mesmo damping, e o motor tem um so jeito de
+       * empurrar as duas coisas. Um campo separado aqui seria um segundo
+       * caminho que o `enemiesPush` nao conheceria
+       */
+      pushVelocity: {
+        x: 0,
+        y: 0,
+      },
 
     facing: {
       x: 1,
@@ -66,14 +98,28 @@ export function createPlayer(
     cooldowns: {},
     statusEffects: [],
 
-    isMoving: false,
-    animationTime: 0,
-    walkPhase: 0,
-    walkBlend: 0,
-    attackAnimation: 0,
-    firingTargetId: null,
-    hitFlash: 0,
-    cast: null,
+isMoving: false,
+      animationTime: 0,
+      walkPhase: 0,
+      walkBlend: 0,
+      attackAnimation: 0,
+      firingTargetId: null,
+      hitFlash: 0,
+      cast: null,
+
+      /**
+       * O JOGADOR ESTA SOCANDO A PEDRA.
+       *
+       * E um booleano, e nao um relogio, porque a animacao de minerar entra
+       * em LOOP: o que segura o ciclo e a sessao de mineracao continuar
+       * aberta, e nao um tempo que corra. Com um relogio aqui o arquiro
+       * socaria uma vez e voltaria ao parado, que e o inverso do pedido
+       *
+       * Quem escreve e o motor, a partir do `mineracao.encostado` da sessao
+       * — que e o unico lugar que sabe se a pedra ainda esta la. O `resolveAnimation`
+       * so le o booleano
+       */
+      isMining: false,
 
     /**
      * A folha de stats, montada a partir do jogador RECEM-CRIADO.

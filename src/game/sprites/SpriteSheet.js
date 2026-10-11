@@ -1,6 +1,7 @@
 import {
   resolveAnimation,
   resolveCreatureAnimation,
+  resolveDeathAlpha,
   resolveDrawRect,
   resolveFrameRect,
   resolveHurtShake,
@@ -8,9 +9,30 @@ import {
 } from "./animation.js";
 
 export class SpriteSheet {
-  constructor(definition) {
-    this.definition = definition;
-    this.loaded = false;
+    constructor(definition) {
+      this.definition = definition;
+
+      /**
+       * O TAMANHO DESTE SPRITE NESTE MAPA, sobre o `scale` da definicao.
+       *
+       * E 1 quase sempre: so a base declara outra coisa, para o arquiro
+       * caber no hub sem ocupar a tela inteira
+       *
+       * ## POR QUE ISTO VIVE NA FOLHA E NAO NO MAPA
+       *
+       * Porque o mapa nao sabe qual folha esta desenhando. Ele declara o
+       * FATOR, e a folha o aplica a `resolveDrawRect` — assim o `scale` da
+       * definicao continua sendo o tamanho do personagem, e o mapa apenas
+       * multiplica
+       *
+       * E o que impede o outro defeito: escrever direto no
+       * `definition.scale` de fora contaminationaria as DUAS folhas do
+       * arquiro ao mesmo tempo — a do jogador local e a de `playerSprites` —
+       * e a conta se perderia na troca de mapa
+       */
+      this.escalaDoMapa = 1;
+
+      this.loaded = false;
     this.failed = false;
     this.scratch = null;
 
@@ -106,16 +128,43 @@ export class SpriteSheet {
     );
   }
 
-  drawCreature(context, enemy, elapsed) {
-    return this.drawEntity(
-      context,
-      enemy,
-      elapsed,
-      resolveCreatureAnimation(enemy),
-    );
+  /**
+   * O BICHO, E O BICHO QUE ESTA MORRENDO.
+   *
+   * `morrendo` e separado porque o cadaver tem dois estados que nao
+   * cabem em um nome de animacao so: ele precisa da arte de `death` e
+   * de um alfa que muda com o tempo, e o `resolveFrameRect` so devolve
+   * um retangulo de origem
+   *
+   * Sem este parametro, o motor teria de escrever em `enemy` para dizer
+   * "este esta morrendo", e o `resolveCreatureAnimation` — que e
+   * compartilhado por toda folha de criatura — passaria a depender de
+   * um campo que so o motor conhece
+   */
+  drawCreature(context, enemy, elapsed, morrendo = false) {
+    const animation = morrendo
+      ? "death"
+      : resolveCreatureAnimation(enemy);
+
+    /**
+     * O ALFA DA MORTE.
+     *
+     * O cadaver fica opaco enquanto o ciclo roda e so esmaece no fim.
+     * Aplicar o fade desde o primeiro quadro deixaria o golpe com o
+     * corpo translucido, e o jogador veria o mapa atraves do mob que
+     * ele acabou de acertar
+     */
+    const fade = morrendo ? resolveDeathAlpha(enemy) : 1;
+
+    return this.drawEntity(context, enemy, elapsed, animation, fade);
   }
 
-  drawEntity(context, entity, elapsed, animationName) {
+  /**
+   * @param fade o alfa do desenho, de 0 a 1. Quem esta vivo passa 1 e
+   * nao sente diferenca; o cadaver passa o que sobra do relogio e
+   * some sozinho
+   */
+  drawEntity(context, entity, elapsed, animationName, fade = 1) {
     if (!this.ready) return false;
 
     const definition = this.definition;
@@ -127,7 +176,11 @@ export class SpriteSheet {
       entity.facing,
     );
 
-    const target = resolveDrawRect(definition, entity);
+    const target = resolveDrawRect(
+      definition,
+      entity,
+      this.escalaDoMapa,
+    );
     const offset = resolveWalkOffset(definition, entity);
 
     /**
@@ -146,6 +199,18 @@ export class SpriteSheet {
     target.y += offset.y;
 
     context.save();
+
+    /**
+     * O ALFA ENTRA DEPOIS DO `save`, e nunca antes.
+     *
+     * O `save` e o `restore` sao o par que devolve o contexto ao estado
+     * anterior. Se o alfa fosse posto antes do `save`, o `restore` o
+     * levaria junto e o proximo desenho — o drop, o jogador, o proprio
+     * mob seguinte — sairia com o cadaver ainda translucido
+     */
+    if (fade < 1) {
+      context.globalAlpha = Math.max(0, fade);
+    }
 
     if (tremor.x !== 0 || tremor.y !== 0) {
       context.translate(tremor.x, tremor.y);

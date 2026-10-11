@@ -79,6 +79,53 @@ export const ARBUSTO_NEVE_SHEET = new URL(
 ).href;
 
 /**
+ * AS FOLHAS DOS CRISTAIS DO VALE 1, uma por raridade.
+ *
+ * ## POR QUE CADA RARIDADE TEM A SUA, E NAO UMA FOLHA COM QUATRO LINHAS
+ *
+ * Porque sao quatro ARTES DIFERENTES, nao quatro variacoes da mesma. A
+ * silhueta muda entre elas — a do lendario e 40px mais larga e 37px mais
+ * baixa que a do comum — e a cor tambem. Uma folha so obrigaria as quatro
+ * a terem a mesma caixa, e ou o cristal comum esticava ou o lendario
+ * perdia pixels
+ *
+ * ## POR QUE CADA UMA E UMA IMAGEM SOLTA, E NAO UMA LINHA DE 32px
+ *
+ * Porque estas nao sao pixel art de 32px como a `props.png`. Sao
+ * sprites pintados de 1600px, como a arvore e o arbusto, e cada um ja
+ * foi cortado, reduzido para o tamanho do jogo e salvo em PNG com
+ * transparência pelo `tools/gerar-cristal-prop.py`
+ *
+ * E um PNG, e nao o JPEG que o usuario entregou, por um motivo tecnico
+ * e nao artistico: JPEG nao tem canal alfa. O `drawImage` de um JPEG
+ * mostraria o retangulo branco em volta do cristal, que e 71% da imagem
+ * da arte original
+ *
+ * O nome do arquivo de origem era `common`, `rare`, `epic` e
+ * `legendary`, em ingles. Aqui virou `comum`, `raro`, `epico` e
+ * `lendario`, porque e assim que o resto do catalogo de props se chama
+ */
+export const CRISTAL_COMUM_SHEET = new URL(
+  "../../assets/props/cristal_comum_prop.png",
+  import.meta.url,
+).href;
+
+export const CRISTAL_RARO_SHEET = new URL(
+  "../../assets/props/cristal_raro_prop.png",
+  import.meta.url,
+).href;
+
+export const CRISTAL_EPICO_SHEET = new URL(
+  "../../assets/props/cristal_epico_prop.png",
+  import.meta.url,
+).href;
+
+export const CRISTAL_LENDARIO_SHEET = new URL(
+  "../../assets/props/cristal_lendario_prop.png",
+  import.meta.url,
+).href;
+
+/**
  * A FOLHA DE CADA TIPO, POR MAPA.
  *
  * A chave e o mapa; o que nao estiver aqui usa a folha do `PROP_TYPES`.
@@ -268,6 +315,121 @@ export const PROP_TYPES = {
     collider: 0,
     tint: "#2c4734",
   },
+
+  /**
+   * OS CRISTAIS DO VALE 1, um tipo por raridade.
+   *
+   * Sao quatro tipos, e nao um tipo com quatro variacoes, por causa do
+   * que a variante e no `PropRenderer`: a coluna da folha. Uma variante
+   * escolhe um TRECHO DA MESMA ARTE, entao as quatro raridades teriam de
+   * ter a mesma silhueta e a mesma caixa. Aqui cada uma tem arte, largura
+   * e altura proprias
+   *
+   * ## O QUE CRESCE COM A RARIDADE, E POR QUE SAO DOIS NUMEROS
+   *
+   * A altura na tela (90 -> 120 -> 150 -> 180) e o que o jogador le sem
+   * ler nada: um cristal de 180px num campo de 90px se anuncia sozinho
+   *
+   * O `radius` e o `collider` NAO sao a mesma coisa, e a diferenca e o que
+   * decide se o campo e agradavel de andar:
+   *
+   * - `radius` e a pegada, e e ela que mede a distancia entre um cristal
+   *   e outro no sorteio, o tamanho da sombra e o ponto do minimapa. Vale
+   *   meia largura da arte, que e a conta da arvore (96px de arte, 46 de
+   *   raio)
+   *
+   * - `collider` e o que barra o jogador, e e menor de proposito. A arte
+   *   tem 69% de borda vazia em volta e a base e so o terco de baixo: com
+   *   o collider na largura toda, o jogador pararia a um metro de um
+   *   cristal que parece longe, do lado de dentro da sombra, sem ver o
+   *   que barra. E a mesma razao do tronco de 11px da arvore
+   *
+   * ## `base: 1`, E NAO OS 0.78 DOS TIPOS ANTIGOS
+   *
+   * Porque o pe do cristal encosta na ultima linha da arte. Com 0.78 a
+   * base flutuaria 20px acima do ponto de colisao, e o jogador pararia no
+   * vazio embaixo do cristal
+   */
+  cristal_comum: {
+    id: "cristal_comum",
+    row: 0,
+    blocking: true,
+    radius: 34,
+    collider: 22,
+    tint: "#8a8f96",
+    isTree: false,
+    sheet: CRISTAL_COMUM_SHEET,
+    frameWidth: 69,
+    frameHeight: 90,
+    drawWidth: 69,
+    drawHeight: 90,
+    variants: 1,
+    base: 1,
+
+    /** barra o jogador na borda da arte, e nao num quadrado na base */
+    solidoNaArte: true,
+
+    /** mineravel: 5 batidas de 10s, 50s no total */
+    mineravel: true,
+    batidas: 5,
+  },
+  cristal_raro: {
+    id: "cristal_raro",
+    row: 0,
+    blocking: true,
+    radius: 45,
+    collider: 28,
+    tint: "#2f8fd0",
+    isTree: false,
+    sheet: CRISTAL_RARO_SHEET,
+    frameWidth: 91,
+    frameHeight: 120,
+    drawWidth: 91,
+    drawHeight: 120,
+    variants: 1,
+    base: 1,
+    solidoNaArte: true,
+    mineravel: true,
+    batidas: 9,
+  },
+  cristal_epico: {
+    id: "cristal_epico",
+    row: 0,
+    blocking: true,
+    radius: 57,
+    collider: 34,
+    tint: "#c02b3f",
+    isTree: false,
+    sheet: CRISTAL_EPICO_SHEET,
+    frameWidth: 115,
+    frameHeight: 150,
+    drawWidth: 115,
+    drawHeight: 150,
+    variants: 1,
+    base: 1,
+    solidoNaArte: true,
+    mineravel: true,
+    batidas: 14,
+  },
+  cristal_lendario: {
+    id: "cristal_lendario",
+    row: 0,
+    blocking: true,
+    radius: 69,
+    collider: 40,
+    tint: "#d8a93a",
+    isTree: false,
+    sheet: CRISTAL_LENDARIO_SHEET,
+    frameWidth: 139,
+    frameHeight: 180,
+    drawWidth: 139,
+    drawHeight: 180,
+    variants: 1,
+    base: 1,
+    solidoNaArte: true,
+    mineravel: true,
+    batidas: 20,
+  },
 };
 
 export const PROP_ORDER = [
@@ -278,6 +440,11 @@ export const PROP_ORDER = [
   "treeLarge",
   "rock",
   "bush",
+  // os cristais do vale 1, do mais comum para o mais raro
+  "cristal_comum",
+  "cristal_raro",
+  "cristal_epico",
+  "cristal_lendario",
 ];
 
 export const BLOCKING_PROP_IDS = PROP_ORDER.filter(

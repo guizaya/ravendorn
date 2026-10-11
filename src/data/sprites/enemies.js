@@ -9,12 +9,14 @@ import {
   BONECO_MADEIRA_SPRITE,
   GHOUL_FAMINTO_SPRITE,
   GOBLIN_SAQUEADOR_SPRITE,
+  GOBLIN_SPRITE,
+  KAELEN_SPRITE,
+  NYLARA_SPRITE,
   HULK_SPRITE,
   OGRE_PREDEIRA_SPRITE,
   RATO_DA_TOCA_SPRITE,
-  SENTINELA_ESQUELETICA_SPRITE,
-  LIMO_PREGUICOSO_SPRITE,
-  ZUMBI_SPRITE,
+  
+  ESQUELETO_SPRITE,
 } from "./enemyLayout.js";
 
 /**
@@ -31,24 +33,29 @@ import {
  * criaturas SEM arte ainda caem nele
  */
 export const ENEMY_SPRITES = {
-  // O LIMO NAO USA MAIS `enemies/slime.png`. A arte antiga era uma
-  // folha de 32px de tres linhas, e o limo andava sempre de frente
-  // para o jogador. Agora sao oito direcoes de 68px (linhas 0 a 7) e uma
-  // de idle de verdade (linha 8), sem golpe — ele e PASSIVO.
-  //
-  // A pasta de origem da arte nova se chama `guerreiro_2`, e
-  // `folha("slime")` foi deixado de fora de proposito.
-  //
-  // Este e o bicho mais comum do jogo e a origem do `slime_gel` e do
-  // `slime_core`, que o craft e as missoes pedem. A chave do registro
-  // continua `slime` por causa disso
+  /**
+   * O ESQUELETO — que ainda e a criatura `slime`.
+   *
+   * A chave continua `slime` por causa do `slime_gel` e do `slime_core`:
+   * eles sao o loot deste bicho, sao ingrediente de craft e sao
+   * recompensa de missao, e o save do jogador guarda esses ids. Um
+   * `slime` novo aqui quebraria os dois
+   *
+   * ## A FOLHA E A `esqueleto-sheet.png`, E NAO MAIS A DO LIMO
+   *
+   * Celulas de 88px desta vez (a arte veio maior que as outras do
+   * jogo): nove colunas, dezessete linhas — oito de caminhada, uma de
+   * idle e oito de golpe. O golpe e novo, e ele existe porque a criatura
+   * agora retalia quem a bate
+   */
   slime: {
-    ...LIMO_PREGUICOSO_SPRITE,
+    ...ESQUELETO_SPRITE,
     src: new URL(
-      "../../assets/sprites/limo_preguicoso-sheet.png",
+      "../../assets/sprites/esqueleto-sheet.png",
       import.meta.url,
     ).href,
   },
+
 
   // O GOBLIN SAQUEADOR NAO USA MAIS `enemies/goblin.png`. A arte
   // antiga era uma folha de 32px de tres linhas, e o goblin andava
@@ -75,10 +82,27 @@ export const ENEMY_SPRITES = {
   // O `id` da criatura continua `skeleton` — e ele que esta no save,
   // no bestiario e nas missoes de cacada. `folha("skeleton")` foi
   // deixado de fora de proposito
+  /**
+   * O KAELEN, que era a Sentinela Esqueletica.
+   *
+   * ## O ID CONTINUA `skeleton`
+   *
+   * Como no goblin: o id e a chave do save, das tres cacadas de bestiario
+   * e das entregas de colecao. No mapa 2 a sentinela e o resultado da
+   * substituicao dos dois ogres, entao trocar o id mudaria o registro de
+   * abate de quem ja matou a sentinela
+   *
+   * ## A FOLHA VELHA SAIU DE CIRCULACAO
+   *
+   * `sentinela_esqueletica-sheet.png` era de celula 68 e 17 linhas, sem
+   * morte. A nova e de celula 88 e 25 linhas, com idle por direcao e a
+   * animacao de morte. A pasta de arte `sentinela` continua no disco: e a
+   * origem antiga, e some quando nao for mais usada por nenhum layout
+   */
   skeleton: {
-    ...SENTINELA_ESQUELETICA_SPRITE,
+    ...KAELEN_SPRITE,
     src: new URL(
-      "../../assets/sprites/sentinela_esqueletica-sheet.png",
+      "../../assets/sprites/kaelen-sheet.png",
       import.meta.url,
     ).href,
   },
@@ -115,33 +139,93 @@ export const ENEMY_SPRITES = {
     ).href,
   },
 
-  // O `ogre` NAO usa mais `enemies/ogre.png`. Ele e o `ogre` da
-  // pedreira, e aparecia no jogo com a arte antiga ao lado do ogre
-  // da predeira; os dois passam a usar a folha direcional de 68px.
-  // `folha("ogre")` foi entao deixado de fora de proposito
+  /**
+   * O GOBLIN DA PEDREIRA.
+   *
+   * ## O ID FICOU `ogre` E A ARTE DEIXOU DE SER A DO OGRE
+   *
+   * A criatura se chama `Goblin` na tela e continua com id `ogre`. O
+   * id e a chave do bestiario, das missoes de cacada e dos `mix` de
+   * zona das cinco degraus da pedreira, entao trocar ele apagaria o
+   * registro de abate de quem ja matou o ogre
+   *
+   * A arte e a folha nova, `goblin-sheet.png`, que e de 25 linhas e
+   * de celula 84. Antes, o `ogre` usava
+   * `ogre_da_predeira-sheet.png` — a mesma do `ogre_da_predeira`, o
+   * outro ogre do jogo, que continua usando a dele
+   *
+   * ## POR QUE ESTE BLOCO TEM A PROPRIA `src` E O LAO DEBAIXO NAO
+   *
+   * As duas criaturas usavam o MESMO layout (`OGRE_PREDEIRA_SPRITE`)
+   * e so mudavam o arquivo. Aqui os layouts sao diferentes: o goblin
+   * tem idle por direcao, celula de 84 e a animacao de morte, e o
+   * `ogre_da_predeira` tem idle unico e celula de 68
+   */
   ogre: {
-    ...OGRE_PREDEIRA_SPRITE,
+    ...GOBLIN_SPRITE,
     src: new URL(
-      "../../assets/sprites/ogre_da_predeira-sheet.png",
+      "../../assets/sprites/goblin-sheet.png",
       import.meta.url,
     ).href,
   },
 
   // os direcionais nao usam a pasta `enemies/`: a folha deles e de
   // oito direcoes, montada pelos gifs da pasta de cada um
+  /**
+   * A NYLARA, que era o Arqueiro Zumbi.
+   *
+   * ## O ID CONTINUA `zumbi_arbalist`
+   *
+   * Como no goblin e no Kaelen: o id e a chave do save, das cacadas de
+   * bestiario e das entregas de colecao. No mapa 2 ela vem da regra
+   * `slime: "zumbi_arbalist"`, entao o registro de abate de quem ja matou
+   * o arqueiro zumbi continua valendo
+   *
+   * ## A FOLHA ANTIGA SAIU DE CIRCULACAO
+   *
+   * `zumbi_arbalist-sheet.png` era de celula 68 e 17 linhas — 8 de
+   * caminhada, 1 de idle e 8 de tiro — e sem animacao de morte. A nova e
+   * de celula 88 e 25 linhas, com idle por direcao e a animacao de morte
+   *
+   * A pasta de origem se chama `nida`, que e o nome da arte e nao da
+   * criatura. As duas folhas ficam no disco: a antiga e a folha velha, e
+   * somem quando nenhuma layout apontar para elas
+   */
   zumbi_arbalist: {
-    ...ZUMBI_SPRITE,
+    ...NYLARA_SPRITE,
     src: new URL(
-      "../../assets/sprites/zumbi_arbalist-sheet.png",
+      "../../assets/sprites/nylara-sheet.png",
       import.meta.url,
     ).href,
   },
 
-  // 17 linhas: 8 de caminhada, 1 de idle e 8 de golpe
+  /**
+   * O GOBLIN DO CAMPO DE PROVAS.
+   *
+   * ## O ULTIMO OGRE DO MAPA 1
+   *
+   * Este era o "Ogre da Predeira", o bicho do Campo de Provas — o campo
+   * do meio, onde ele aparecia ao lado do esqueleto. O campo tem esqueleto
+   * e goblin agora, e o goblin e o MESMO goblin da pedreira: mesma folha,
+   * mesmo idle por direcao, mesma animacao de morte
+   *
+   * ## POR QUE ELE USA `GOBLIN_SPRITE` E NAO O DELE
+   *
+   * Havia uma folha so para ele, `ogre_da_predeira-sheet.png`, com 17
+   * linhas e celula de 68. Ela fica no disco: e a folha antiga, gerada de
+   * uma arte que so tem um `idle.gif` e o golpe em 5 das 8 direcoes
+   *
+   * Se este bicho continuasse com ela, o jogador veria um goblin no
+   * Campo de Provas e outro na pedreira, com nomes iguais e caras
+   * diferentes — e sem animacao de morte em nenhum dos dois
+   *
+   * O `id` segue `ogre_da_predeira` no save, nas cacadas de bestiario, na
+   * missao do nivel 7 e na entrega do couro `ogre_hide`
+   */
   ogre_da_predeira: {
-    ...OGRE_PREDEIRA_SPRITE,
+    ...GOBLIN_SPRITE,
     src: new URL(
-      "../../assets/sprites/ogre_da_predeira-sheet.png",
+      "../../assets/sprites/goblin-sheet.png",
       import.meta.url,
     ).href,
   },

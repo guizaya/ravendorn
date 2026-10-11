@@ -97,6 +97,17 @@ export default function TestMapScene({
         conviteParty={rede.conviteParty}
         engineRef={engineRef}
         onBack={onBack}
+
+        /**
+         * O FARM OFFLINE, do `useGameClient`.
+         *
+         * E a promise e nao um booleano porque o botao da pausa precisa
+         * esperar o servidor confirmar antes de navegar: navegar desmonta
+         * esta tela, o `useGameClient` roda o cleanup e chama
+         * `desconectar()`, que esvazia a fila de comandos — e o pedido do
+         * farm iria junto
+         */
+        iniciarFarmOffline={rede.iniciarFarmOffline}
         intencao={rede}
       />
     </main>

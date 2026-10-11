@@ -9,6 +9,7 @@ GUILD_COFRE_SLOTS_MAX,
   GUILD_TALENT_NIVEL_MAX,
   GUILD_TALENT_POR_CLIQUE,
   chaveDeBusca,
+  corDaGuilda,
   getTalent,
   normalizarNome,
   normalizarTag,
@@ -19,6 +20,7 @@ GUILD_COFRE_SLOTS_MAX,
   talentPontos,
   talentPodeSubir,
   talentProgresso,
+  validarEstiloGuilda,
   validarNomeGuilda,
   validarTagGuilda,
 } from "../../data/guild/index.js";
@@ -161,7 +163,7 @@ buscar(termo, limite = 12) {
    * lider: ela nasce com um, e sem ele o resto do jogo nao tem a quem
    * perguntar quem abre o cofre
    */
-  criar({ nome, tag, liderId, liderNome }) {
+  criar({ nome, tag, liderId, liderNome, icone, cor }) {
     if (!liderId) return { ok: false, motivo: "semLider" };
 
     const problemaNome = validarNomeGuilda(nome);
@@ -176,9 +178,20 @@ buscar(termo, limite = 12) {
       return { ok: false, motivo: `tag:${problemaTag}` };
     }
 
-    const ocupado = this.nomeLivre(nome);
+const ocupado = this.nomeLivre(nome);
 
     if (ocupado) return { ok: false, motivo: "ocupado" };
+
+    /**
+     * O ESTILO nasce VALIDADO, e nao do jeito que chegou.
+     *
+     * O `icone` e a `cor` vem do cliente, e `validarEstiloGuilda` so deixa
+     * passar o que existe no catalogo. E valida AQUI e nao so no painel
+     * porque o store e quem grava no disco: um store que aceitasse a string
+     * que o cliente mandasse colocaria `#fff` num arquivo que o motor le e
+     * pinta direto
+     */
+    const estilo = validarEstiloGuilda({ icone, cor });
 
     // uma pessoa so pode estar em uma guilda
     if (this.guildaDaChave.has(liderId)) {
@@ -189,6 +202,17 @@ buscar(termo, limite = 12) {
       id: this.novoId(),
       nome: String(nome).trim(),
       tag: normalizarTag(tag),
+
+      /**
+       * O EMBLEMA e a COR da guilda.
+       *
+       * Sao da guilda e nao do membro porque o lider escolhe uma vez e vale
+       * para todo mundo: um membro escolhendo a propria cor faria duas
+       * guildas com o mesmo nome em duas cores diferentes, e a tag sobre o
+       * boneco deixaria de dizer de qual guilda ele e
+       */
+      icone: estilo.icone,
+      cor: estilo.cor,
       liderId,
       coLiderId: null,
 membros: new Map(),
@@ -210,16 +234,111 @@ membros: new Map(),
       criadoEm: this.agora(),
     };
 
-    guilda.membros.set(liderId, {
+guilda.membros.set(liderId, {
       id: liderId,
       nome: liderNome,
       papel: GUILD_ROLE.LIDER,
       desde: guilda.criadoEm,
+
+      /**
+       * O LIDER comeca com a tag LIGADA.
+       *
+       * Porque a guilda foi criada por ele, com a cor que ele escolheu: a
+       * primeira coisa que a tela mostra e a propria assinatura. Todo mundo
+       * mais entra com `false` e decide por si
+       */
+      mostrarTag: true,
     });
 
     this.guilds.set(guilda.id, guilda);
     this.nomes.add(normalizarNome(guilda.nome));
     this.guildaDaChave.set(liderId, guilda.id);
+
+return { ok: true, guilda };
+  }
+
+  /**
+   * MUDA O EMBLEMA e A COR da guilda.
+   *
+   * ## POR QUE SO O LIDER
+   *
+   * Porque a cor e a assinatura visual da guilda, e ela aparece no MUNDO,
+   * em cima do boneco dos outros jogadores. Se qualquer membro pudesse
+   * mudar, uma guilda de quarenta pessoas teria quarenta cores diferentes
+   * circulando pelo mapa, e a tag deixaria de dizer de qual guilda e
+   *
+   * ## E POR QUE O CO_LIDER NAO PODE
+   *
+   * Porque ele pode mexer no cofre, que e o que a diretoria controla. A
+   * identidade visual fica com quem controla o destino da guilda, e nao com
+   * quem pode gastar — as duas coisas sao poderes separados de proposito
+   *
+   * ## POR QUE O ESTILO E REVALIDADO AQUI
+   *
+   * Porque `icone` e `cor` vem do cliente, e este metodo vai parar num
+   * `fillStyle` do motor. A lista do `validarEstiloGuilda` e o que impede um
+   * cliente modificado de gravar `#fff` no arquivo da guilda
+   */
+  definirEstilo(chave, bruto) {
+    const guilda = this.guildaDoJogador(chave);
+
+    if (!guilda) return { ok: false, motivo: "semGuilda" };
+
+    if (guilda.liderId !== chave) {
+      return { ok: false, motivo: "semPermissao" };
+    }
+
+    const estilo = validarEstiloGuilda(bruto);
+
+    /**
+     * O MESMO ESTILO DEVOLVE `false`, e nao escreve nada.
+     *
+     * Sem isso, o painel do lider gravaria a guilda no disco a cada clique
+     * em uma cor que ja era a dele — e `salvar` reescreve o arquivo inteiro
+     * de guildas. Um jogador mexendo no seletor de cor derrubaria o
+     * arquivo de guildas umas vinte vezes por segundo
+     */
+    if (guilda.icone === estilo.icone && guilda.cor === estilo.cor) {
+      return { ok: false, motivo: "igual" };
+    }
+
+    guilda.icone = estilo.icone;
+    guilda.cor = estilo.cor;
+
+    return { ok: true, guilda };
+  }
+
+  /**
+   * LIGA OU DESLIGA a tag deste jogador sobre o boneco dele.
+   *
+   * ## POR QUE E POR MEMBRO E NAO POR GUILDA
+   *
+   * Porque a tag sai em cima do boneco de QUEM liga, e cada jogador decide
+   * sobre o proprio boneco. Uma opcao da guilda obrigaria os quarenta
+   * membros a exibir a tag, ou a nenhum
+   *
+   * ## E POR QUE NAO E "INVERTER"
+   *
+   * Porque o pedido traz o valor novo. Dois cliques rapidos chegam ao
+   * servidor em qualquer ordem, e inverter os dois deixaria a opcao como
+   * estava — o mesmo motivo do interruptor do passe premium
+   */
+  definirMostrarTag(chave, mostrar) {
+    const guilda = this.guildaDoJogador(chave);
+
+    if (!guilda) return { ok: false, motivo: "semGuilda" };
+
+    const membro = guilda.membros.get(chave);
+
+    if (!membro) return { ok: false, motivo: "semGuilda" };
+
+    const alvo = mostrar === true;
+
+    if (membro.mostrarTag === alvo) {
+      return { ok: false, motivo: "igual" };
+    }
+
+    membro.mostrarTag = alvo;
 
     return { ok: true, guilda };
   }
@@ -400,11 +519,20 @@ membros: new Map(),
 
     const [pedido] = guilda.pedidos.splice(posicao, 1);
 
-    guilda.membros.set(alvoId, {
+guilda.membros.set(alvoId, {
       id: alvoId,
       nome: pedido.nome,
       papel: GUILD_ROLE.MEMBRO,
       desde: this.agora(),
+
+      /**
+       * SEMPRE DESLIGADA ao entrar.
+       *
+       * Porque a tag e exibida sobre o boneco, no mundo, para todo mundo ver.
+       * Ligar isso sem o jogador pedir seria botar o nome da guilda de outra
+       * pessoa no meio da tela dele — e a escolha tem de ser de quem entra
+       */
+      mostrarTag: false,
     });
 
     this.guildaDaChave.set(alvoId, guilda.id);
@@ -894,10 +1022,21 @@ membros: new Map(),
     }
 
     return {
-      guilda: {
+guilda: {
         id: guilda.id,
         nome: guilda.nome,
         tag: guilda.tag,
+
+        /**
+         * O ESTILO, com o HEX e nao o ID.
+         *
+         * O ID e o que viaja no pedido e no disco; o hex e o que o painel
+         * pinta. Converter aqui, e nao no painel, e o que mantem a lista de
+         * cores em um lugar so — o painel nunca conhece os onze valores
+         */
+        icone: guilda.icone,
+        cor: corDaGuilda(guilda.cor),
+        corId: guilda.cor,
 membros: [...guilda.membros.values()].map((m) => ({
           id: m.id,
           nome: m.nome,
@@ -917,6 +1056,16 @@ membros: [...guilda.membros.values()].map((m) => ({
            */
           jogadorId: m.id,
           eu: m.id === chave,
+
+          /**
+           * SE ESTE MEMBRO ESTA COM A TAG LIGADA.
+           *
+           * E por membro porque a opcao e sobre o boneco de cada um: o
+           * jogador liga a sua, e nao a dos outros. E volta no snapshot
+           * inteiro porque a aba de Configuracoes mostra a sua propria opcao
+           * e a aba Membros mostra a de todo mundo
+           */
+          mostrarTag: m.mostrarTag === true,
         })),
 
         membrosMax: GUILD_MEMBROS_MAX,
@@ -979,6 +1128,17 @@ membros: [...guilda.membros.values()].map((m) => ({
       criadoEm: guilda.criadoEm,
 
       /**
+       * O ESTILO da guilda, por ID e nao por hex.
+       *
+       * E o ID e nao o hex pelo mesmo motivo que o pedido usa ID: o arquivo
+       * de guildas e lido por este mesmo `carregar`, e um hex escrito a mao
+       * num arquivo editado na mao viraria cor que o motor nao conhece. Com o
+       * ID, `validarEstiloGuilda` descarta o que nao existe na leitura
+       */
+      icone: guilda.icone,
+      cor: guilda.cor,
+
+      /**
        * Os MEMBROS com a chave no `id`.
        *
        * O `id` do membro JA e a chave — e o mesmo valor que o
@@ -991,6 +1151,15 @@ membros: [...guilda.membros.values()].map((m) => ({
         nome: m.nome,
         papel: m.papel,
         desde: m.desde,
+
+        /**
+         * A OPCIONAL DE TAG deste membro.
+         *
+         * Vai para o disco porque e uma escolha do jogador sobre o proprio
+         * boneco, e o relog nao pode esquecela: sem este campo, quem ligou a
+         * tag entraria no jogo de novo com a tag desligada sem saber por que
+         */
+        mostrarTag: m.mostrarTag === true,
       })),
 
       pedidos: guilda.pedidos.map((p) => ({
@@ -1124,6 +1293,17 @@ function guildaLegivel(bruto) {
           ? GUILD_ROLE.CO_LIDER
           : GUILD_ROLE.MEMBRO,
       desde: Number(brutoMembro?.desde) || 0,
+
+      /**
+       * A TAG SO VOLTA LIGADA SE O ARQUIVO DIZER ISSO.
+       *
+       * E `=== true` e nao `Boolean(...)`: um arquivo escrito antes da opcao
+       * existir nao tem o campo, e `Boolean(undefined)` seria `false` — que
+       * e o certo aqui. O que seria errado e o contrario: tratar campo
+       * ausente como ligado, e todo mundo que entrasse numa guilda antiga
+       * aparecia no mundo com a tag sem nunca ter pedido
+       */
+      mostrarTag: brutoMembro?.mostrarTag === true,
     });
   }
 
@@ -1171,6 +1351,15 @@ function guildaLegivel(bruto) {
     liderId,
     coLiderId,
     membros,
+
+    /**
+     * O ESTILO lido do arquivo, e revalidado na leitura.
+     *
+     * Passa pelo `validarEstiloGuilda` porque este arquivo pode ter sido
+     * editado a mao: um `icone` ou uma `cor` que nao existam no catalogo
+     * cairiam no padrao em vez de virar `undefined` e quebrar o painel
+     */
+    ...validarEstiloGuilda({ icone: bruto.icone, cor: bruto.cor }),
     pedidos: (bruto.pedidos ?? [])
       .filter((p) => p && p.chave)
       .map((p) => ({

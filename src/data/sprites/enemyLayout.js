@@ -55,75 +55,230 @@ export function createEnemySpriteDefinition(id, src, scale) {
  * As criaturas de folha antiga: celula de 32x32, tres linhas (baixo,
  * frente, lado) e arte desenhada para aquele tamanho.
  *
- * O `ogre` saiu daqui. Ele usava `enemies/ogre.png`, uma folha de
- * 32px, e passou a usar a MESMA folha direcional de 68px do ogre da
- * predeira: no jogo apareciam os dois ogres lado a lado com artes
- * diferentes, e o pedido foi que todo ogre use a folha da predeira.
- * A criatura continua existindo com os proprios numeros, zona e
- * cacadas; so o desenho mudou.
+ * `skeleton` saiu daqui. A sentinela virou direcional de 68, depois virou o
+ * Kaelen de 88, e este `1.35` era a escala de tela de uma folha que nao
+ * existe mais. O `ENEMY_SPRITES` abaixo aponta o `skeleton` para o
+ * `KAELEN_SPRITE`, e o que fica aqui e o resto das folhas de 32px
  */
 const ESCALA = {
+  /*
+   * SO O SLIME FOI AUMENTADO, e ele e o unico deste mapa que ainda e
+   * desenhado por aqui
+   *
+   * ## OS OUTROS TRES DESTE OBJETO NAO SAO DESPENHADOS
+   *
+   * `ghoul` e sobrescrito pela `GHOUL_FAMINTO_SPRITE` mais abaixo, que tem
+   * celula de 68 e arte propria — entao o numero daqui nunca chega na tela.
+   * `rat` e `goblin` nao estao em nenhum `mix` do `ZONE_ROSTER`: o jogo
+   * chama o rato de `rat` pela arte mas nao o sorteia, e o goblin do mapa 1
+   * tem id `ogre`
+   *
+   * Antes esses tres numeros cresciam em silencio. Deixe-los como estao,
+   * com o comentario, porque o objeto parece autoritativo e nao e
+   */
   slime: 1.5,
   rat: 1.2,
   goblin: 1.3,
   ghoul: 1.4,
-  skeleton: 1.35,
 };
 
 /**
- * O arqueiro zumbi e o primeiro inimigo DIRECIONAL.
+ * O OGRE DA PREDEIRA, que vem logo abaixo.
  *
- * As outras criaturas usam folhas de 3 linhas (baixo, frente, lado) e
- * so têm andar e atacar. O zumbi veio com a arte de oito direcoes
- * do arqueiro, entao ele precisa da mesma folha em 17 linhas: 8 de
- * caminhada, 1 de idle e 8 de tiro.
+ * ## ONDE ESTAVA O `ZUMBI_SPRITE`
  *
- * A celula e 68x68, e nao os 64x64 do arqueiro: a arte de origem
- * dele ja veio nesse tamanho, e encolher para 64 cortaria o
- * personagem. A ancora (33, 55) foi medida pela ferramenta que monta
- * a folha, e nao chutada.
+ * O arqueiro zumbi foi o primeiro direcional do jogo, e o layout dele
+ * ficava aqui, com celula de 68 e folha de 17 linhas: 8 de caminhada, 1
+ * de idle e 8 de tiro.
+ *
+ * Saiu quando a criatura virou a Nylara, porque a arte nova e de celula
+ * 88, de 25 linhas e com animacao de morte — e a `NYLARA_SPRITE` mais
+ * abaixo descreve a folha nova. A folha antiga
+ * `zumbi_arbalist-sheet.png` continua no disco e sai de circulacao junto
+ * com estas constantes
  */
-const ZUMBI_CELL = 68;
 
-const ZUMBI_WALK_FRAMES = 8;
-const ZUMBI_IDLE_FRAMES = 9;
-const ZUMBI_IDLE_ROW = 8;
-const ZUMBI_SHOOT_FRAMES = 9;
-const ZUMBI_SHOOT_ROW = 9;
-const ZUMBI_WALK_FPS = 12;
-const ZUMBI_IDLE_FPS = 5;
-const ZUMBI_SHOOT_FPS = 20;
+/**
+ * A NYLARA, que era o Arqueiro Zumbi.
+ *
+ * ## O ID CONTINUA `zumbi_arbalist`
+ *
+ * Como no goblin e no Kaelen: o id e a chave do save, das cacadas de
+ * bestiario e das entregas de colecao. No mapa 2 a Nylara vem da regra
+ * `slime: "zumbi_arbalist"`, e trocar o id mudaria o registro de abate de
+ * quem ja matou o arqueiro zumbi
+ *
+ * ## A FOLHA
+ *
+ * ```
+ *   0.. 7  walk   (8 direcoes, 8 quadros)
+ *   8..15  idle   (8 direcoes, 8 quadros)
+ *  16..23  attack (8 direcoes, 9 quadros)
+ *      24  death  (so o sul,   9 quadros)
+ * ```
+ *
+ * A mesma disposicao do goblin e do Kaelen. O idle e por direcao, entao
+ * precisa de `rowOffset`; a morte e uma linha so, entao precisa de `row`.
+ * Sao duas coisas diferentes e misturar os dois le a linha errada
+ *
+ * ## A CELULA E DE 88, E A ARTE NAO E TODA DE 84
+ *
+ * Oito dos gifs saem em 84x84, e dois — `west` e `north-west` — em 88x88.
+ * A celula tem que ser a maior, porque a ferramenta recusa cortar pixel
+ * de arte. A ancora (43.5, 70) veio do log da folha, e nao pode ser a do
+ * zumbi antigo, que era 33 numa celula de 68
+ *
+ * ## O GOLPE CONTINUA COM `needsTarget`
+ *
+ * A Nylara e `ranged: true`: ela atira de longe, com `keepDistance` e
+ * projetil. A arte do golpe e a de DISPARO, entao o `needsTarget` fica —
+ * e e ele que impede ela de brandir o arco no ar vazio. O Kaelen, que e
+ * corpo a corpo, tirou o mesmo flag pelo mesmo motivo invertido
+ */
+const NYLARA_CELL = 88;
 
-export const ZUMBI_SPRITE = {
+const NYLARA_WALK_FRAMES = 8;
+const NYLARA_IDLE_FRAMES = 8;
+const NYLARA_ATTACK_FRAMES = 9;
+const NYLARA_DEATH_FRAMES = 9;
+
+// o idle comeca depois das oito linhas de caminhada
+const NYLARA_IDLE_ROW_OFFSET = 8;
+
+// o golpe comeca depois das oito de caminhada e das oito de idle
+const NYLARA_ATTACK_ROW_OFFSET = 16;
+
+// a morte e a ultima linha, e a unica: nao ha direcao para somar
+const NYLARA_DEATH_ROW = 24;
+
+const NYLARA_WALK_FPS = 12;
+const NYLARA_IDLE_FPS = 6;
+const NYLARA_ATTACK_FPS = 14;
+
+/**
+ * O RITMO DA MORTE, e o MESMO do goblin e do Kaelen.
+ *
+ * Os mesmos numeros de proposito: os tres tem 9 quadros de morte e o mesmo
+ * comprimento de ciclo na arte. Divergir aqui faria o cadaver da Nylara
+ * ficar mais rapido ou mais lento que o do goblin sem que houvesse razao
+ */
+const NYLARA_DEATH_DURATION = 0.6;
+const NYLARA_DEATH_FADE = 0.4;
+
+export const NYLARA_SPRITE = {
   ...createDirectionalSpriteDefinition("zumbi_arbalist", SEM_IMAGEM, {
     directions: ARBALIST_DIRECTIONS,
-    walkBob: { amplitude: 4, frequency: 1.5 },
+
+    /**
+     * O BALANCO E DE 2px, e nao os 4 do zumbi antigo.
+     *
+     * A celula subiu de 68 para 88, e com a amplitude de 4 o desenho sobe
+     * para fora da propria celula a cada passo
+     */
+    walkBob: { amplitude: 2, frequency: 1.1 },
+
     animations: {
+      /**
+       * O IDLE APONTA PARA O BLOCO, E NAO PARA A LINHA.
+       *
+       * Sao oito linhas de idle na folha, uma por angulo, e e o `rowOffset`
+       * que faz a linha 8 virar "o idle para leste" e a 9 virar "o idle para
+       * sudeste". Com `row: 8` a Nylara parada viraria de lado em qualquer
+       * posicao do mapa
+       */
       idle: {
-        row: ZUMBI_IDLE_ROW,
+        rowOffset: NYLARA_IDLE_ROW_OFFSET,
         start: 0,
-        length: ZUMBI_IDLE_FRAMES,
-        fps: ZUMBI_IDLE_FPS,
+        length: NYLARA_IDLE_FRAMES,
+        fps: NYLARA_IDLE_FPS,
       },
+
       walk: {
         start: 0,
-        length: ZUMBI_WALK_FRAMES,
-        fps: ZUMBI_WALK_FPS,
+        length: NYLARA_WALK_FRAMES,
+        fps: NYLARA_WALK_FPS,
       },
+
+      /**
+       * O DISPARO, com `needsTarget`.
+       *
+       * Ela e atiradora, entao o golpe so entra com alvo de verdade. Sem o
+       * flag, a Nylara aparecia puxando a corda do arco no ar, a 300px de
+       * um alvo que ela nem tinha
+       */
       attack: {
-        rowOffset: ZUMBI_SHOOT_ROW,
+        rowOffset: NYLARA_ATTACK_ROW_OFFSET,
         start: 0,
-        length: ZUMBI_SHOOT_FRAMES,
-        fps: ZUMBI_SHOOT_FPS,
+        length: NYLARA_ATTACK_FRAMES,
+        fps: NYLARA_ATTACK_FPS,
         needsTarget: true,
+      },
+
+      /**
+       * A MORTE, E SO ELA APONTA PARA `row`.
+       *
+       * A linha 24 existe uma vez na folha e serve para as oito direcoes.
+       * Um `rowOffset` somaria a direcao da Nylara a 24 e leria a linha 25
+       * ou 26 — que nao existem, e o desenho viraria um retangulo vazio da
+       * parte de baixo da imagem
+       *
+       * O `holdLast` segura o cadaver no ultimo quadro durante o
+       * esmaecimento. Sem ele o ciclo recomeçaria e o corpo voltaria a se
+       * mexer enquanto some
+       */
+      death: {
+        row: NYLARA_DEATH_ROW,
+        start: 0,
+        length: NYLARA_DEATH_FRAMES,
+        fps: NYLARA_ATTACK_FPS,
+        holdLast: true,
       },
     },
   }),
 
-  frameWidth: ZUMBI_CELL,
-  frameHeight: ZUMBI_CELL,
-  anchorX: 33,
-  anchorY: 55,
+  frameWidth: NYLARA_CELL,
+  frameHeight: NYLARA_CELL,
+
+  /**
+   * O TAMANHO DELA NA TELA: 0.896, e nao o 0.8 do padrao.
+   *
+   * ## O QUE ACONTECEU
+   *
+   * Os quatro bichos do mapa 1 e do mapa 2 seemed pequenos ao lado do
+   * arbalist. Eles nao tinham encolhido: o ARBALIST que cresceu, de 67px
+   * para 91px, e qualquer coisa do lado dele passou a parecer menor
+   *
+   * ## POR QUE 0.896 E NAO O 0.8 SIMPLES
+   *
+   * Porque sao DOIS pedidos seguidos, e a conta deles esta escrita: primeiro
+   * `* 1.4` — os 40% maiores — e depois `* 0.8` — os 20% menores. O
+   * resultado e 0.896, ou seja, 12% maior que o 0.8 de origem
+   *
+   * O `* 0.8` do fim parece redundante olhando so o numero: `0.8 * 1.4 * 0.8`
+   * da 0.896, e so `0.896` daria o mesmo. Ele fica escrito porque o proximo
+   * ajuste precisa saber que os 20% foram tirados do tamanho AUMENTADO, e nao
+   * do 0.8 de origem — que daria 0.64
+   */
+  scale: 1,
+
+  /**
+   * O RITMO, e ele mora AQUI e nao no motor.
+   *
+   * `deathDuration` e o ciclo e `deathFade` a janela de esmaecimento
+   * depois que ele acabou. O motor soma os dois e forma o relogio
+   */
+  deathDuration: NYLARA_DEATH_DURATION,
+  deathFade: NYLARA_DEATH_FADE,
+
+  /**
+   * A ANCORA VIER DO LOG DA FOLHA.
+   *
+   * Sao os numeros que `gif-to-sheet.mjs nylara` imprimiu: o pe fica em
+   * y=70 e o corpo e centrado em x=43.5. A celula e de 88, entao a ancora
+   * nao pode ser a do zumbi antigo, que era 33 numa celula de 68
+   */
+  anchorX: 43.5,
+  anchorY: 70,
 };
 
 /**
@@ -209,6 +364,385 @@ export const OGRE_PREDEIRA_SPRITE = {
   anchorX: 33.5,
   anchorY: 55,
 };
+
+/**
+ * O GOBLIN DA PEDREIRA.
+ *
+ * ## A FOLHA E `goblin-sheet.png`, COM 25 LINHAS
+ *
+ * A ordem das linhas nao e a das outras folhas, e a ordem e o layout:
+ *
+ * ```
+ *   0.. 7  walk   (8 direcoes, 8 quadros)
+ *   8..15  idle   (8 direcoes, 8 quadros)
+ *  16..23  attack (8 direcoes, 9 quadros)
+ *      24  death  (so o sul,   9 quadros)
+ * ```
+ *
+ * A folha tem 9 colunas, e nao 8, porque o golpe e a morte tem 9
+ * quadros
+ *
+ * ## O IDLE POR DIRECAO E POR ISSO QUE ESTE LAYOUT E DIFERENTE
+ *
+ * As outras folhas tem um `idle.gif` so, que vira UMA linha e e lida
+ * por `row`. Aqui o idle veio em `idle/`, com um gif por angulo, e
+ * ocupa OITO linhas: o `idle` deste layout aponta para `rowOffset: 8`
+ * e a linha real depende de para onde o goblin esta olhando
+ *
+ * Com `row: 8` aqui, o goblin parado viraria de lado para o leste em
+ * qualquer posicao do mapa
+ *
+ * ## A MORTE E `row`, E NAO `rowOffset`
+ *
+ * A arte veio so do sul, entao a morte ocupa a linha 24 e nao tem
+ * direcao nenhuma. Um `rowOffset` somaria a direcao do goblin a 24 e
+ * leria a linha 25 ou 26 — que nao existem na folha, e o desenho
+ * leria a linha transparente de baixo da imagem e o cadaver viraria um
+ * retangulo vazio
+ */
+const GOBLIN_CELL = 84;
+
+const GOBLIN_WALK_FRAMES = 8;
+const GOBLIN_IDLE_FRAMES = 8;
+const GOBLIN_ATTACK_FRAMES = 9;
+const GOBLIN_DEATH_FRAMES = 9;
+
+// o idle comeca depois das oito linhas de caminhada
+const GOBLIN_IDLE_ROW_OFFSET = 8;
+
+// o golpe comeca depois das oito de caminhada e das oito de idle
+const GOBLIN_ATTACK_ROW_OFFSET = 16;
+
+// a morte e a ultima linha, e a unica: nao ha direcao para somar
+const GOBLIN_DEATH_ROW = 24;
+
+const GOBLIN_WALK_FPS = 12;
+const GOBLIN_IDLE_FPS = 6;
+const GOBLIN_ATTACK_FPS = 18;
+
+/**
+ * O TEMPO DA MORTE.
+ *
+ * Nove quadros a 18fps dao meio segundo de animacao, e o `fps` do
+ * bloco `death` abaixo e do ciclo
+ *
+ * Este numero e o RELOGIO do motor, e e MAIOR que meio segundo de
+ * proposito: o cadaver chega no ultimo quadro e fica um pouco mais em
+ * cena antes de sumir. Sem a folga o bicho desapareceria no mesmo
+ * instante em que o ultimo quadro aparecia, e a animacao nao chegaria
+ * a ser vista
+ */
+const GOBLIN_DEATH_DURATION = 0.6;
+
+/**
+ * A JANELA DE SUMIR.
+ *
+ * Depois do ultimo quadro o cadaver fica neste tempo esmaecendo. E o
+ * que o pedido de "sumir suavemente, sem demorar" virou em numero
+ *
+ * Nao e o mesmo relogio da `GOBLIN_DEATH_DURATION`: aquele mede o
+ * ciclo da animacao, e este mede so o esmaecimento depois que ela
+ * acabou
+ */
+const GOBLIN_DEATH_FADE = 0.4;
+
+export const GOBLIN_SPRITE = {
+  ...createDirectionalSpriteDefinition("goblin", SEM_IMAGEM, {
+    directions: ARBALIST_DIRECTIONS,
+
+    /**
+     * O BALANCO E DE 2px.
+     *
+     * A celula do goblin e de 84, nao de 68, e com a amplitude de 3 dos
+     * bichos de pe o desenho sobe para fora da propria celula a cada
+     * passo. Com 2 ele fica dentro
+     */
+    walkBob: { amplitude: 2, frequency: 1.1 },
+
+    animations: {
+      /**
+       * O IDLE APONTA PARA O BLOCO, NAO PARA A LINHA.
+       *
+       * `rowOffset` soma a direcao do goblin ao valor, e e assim que a
+       * linha 8 vira "o idle para leste" e a 9 vira "o idle para
+       * sudeste". Sao oito linhas de verdade na folha
+       */
+      idle: {
+        rowOffset: GOBLIN_IDLE_ROW_OFFSET,
+        start: 0,
+        length: GOBLIN_IDLE_FRAMES,
+        fps: GOBLIN_IDLE_FPS,
+      },
+
+      walk: {
+        start: 0,
+        length: GOBLIN_WALK_FRAMES,
+        fps: GOBLIN_WALK_FPS,
+      },
+
+      /**
+       * O GOLPE CORPO A CORPO DEPENDE DE ALVO.
+       *
+       * O `needsTarget` impede que o goblin brandindo o taco apareca
+       * no meio do mapa, longe de quem ele persegue
+       */
+      attack: {
+        rowOffset: GOBLIN_ATTACK_ROW_OFFSET,
+        start: 0,
+        length: GOBLIN_ATTACK_FRAMES,
+        fps: GOBLIN_ATTACK_FPS,
+        needsTarget: true,
+      },
+
+      /**
+       * A MORTE, E SO ELA, APONTA PARA `row`.
+       *
+       * A linha 24 existe uma vez na folha e serve para as oito
+       * direcoes, que e o que a arte de origem entregou
+       *
+       * O `holdLast` e o que segura o cadaver no ultimo quadro. Sem ele
+       * o `resolveFrame` faria o ciclo recomeçar quando o tempo passasse
+       * de `9 / 18 = 0.5s`, e o cadaver voltaria ao primeiro quadro
+       * durante o esmaecimento — voltando a cair, deitado e em pe, no
+       * meio do fade
+       */
+      death: {
+        row: GOBLIN_DEATH_ROW,
+        start: 0,
+        length: GOBLIN_DEATH_FRAMES,
+        fps: GOBLIN_ATTACK_FPS,
+        holdLast: true,
+      },
+    },
+  }),
+
+  frameWidth: GOBLIN_CELL,
+  frameHeight: GOBLIN_CELL,
+
+  /**
+   * O TAMANHO DELE NA TELA: 0.896, e nao o 0.8 do padrao.
+   *
+   * O mesmo caminho dos outros tres: `* 1.4` e depois `* 0.8`. O goblin e o
+   * mob do mapa 1, e ele nao tinha encolhido — o arbalist que cresceu
+   */
+  scale: 1,
+
+  /**
+   * O RITMO DA MORTE, e ele mora AQUI e nao no motor.
+   *
+   * `deathDuration` e o ciclo da animacao e `deathFade` e a janela de
+   * esmaecimento depois que ele acabou. O motor le os dois e soma para
+   * formar o relogio
+   *
+   * Cada criatura com arte de morte declara o seu par, porque o ritmo
+   * e propriedade da arte: uma animacao de 12 quadros em 24fps e uma de
+   * 6 em 10 precisam de tempos diferentes para durarem o mesmo
+   */
+  deathDuration: GOBLIN_DEATH_DURATION,
+  deathFade: GOBLIN_DEATH_FADE,
+
+  /**
+   * A ANCORA VIER DO LOG DA FOLHA.
+   *
+   * Sao os numeros que `gif-to-sheet.mjs goblin` imprimiu: o pe fica em
+   * y=69 e o corpo e centrado em x=41.5. A celula e de 84, entao a
+   * ancora e um pouco diferente da do ogre, que era de 33.5 numa
+   * celula de 68
+   */
+  anchorX: 41.5,
+  anchorY: 69,
+};
+
+/**
+ * O KAELEN, que era a Sentinela Esqueletica.
+ *
+ * ## A FOLHA E `kaelen-sheet.png`, COM 25 LINHAS
+ *
+ * A MESMA ordem do goblin, e pelo mesmo motivo:
+ *
+ * ```
+ *   0.. 7  walk   (8 direcoes, 8 quadros)
+ *   8..15  idle   (8 direcoes, 8 quadros)
+ *  16..23  attack (8 direcoes, 9 quadros)
+ *      24  death  (so o sul,   9 quadros)
+ * ```
+ *
+ * ## POR QUE A CELULA E DE 88 E A DA SENTINELA ERA DE 68
+ *
+ * A arte veio misturada: os quatro angulos do norte e o `south` saem em
+ * 88x88, os outros quatro em 84x84. A celula tem que ser a MAIOR, porque a
+ * ferramenta recusa cortar pixel de arte — e cortar 4px cortaria a ponta
+ * da lanca. A Sentinela usava 68 porque a arte dela toda era de 68
+ *
+ * ## O GOLPE DEIXOU DE SER TIRO
+ *
+ * A Sentinela era `ranged: true`, atirava de longe, e por isso o `attack`
+ * antigo era arte de TIRO com o `needsTarget` obrigando alvo de verdade. O
+ * Kaelen e corpo a corpo, entao o `attack` novo e a arte do golpe de perto
+ * — e o `needsTarget` sai junto, pelo mesmo motivo do goblin: um mob longe
+ * nao pode aparecer brandindo a arma no vazio
+ */
+const KAELEN_CELL = 88;
+
+const KAELEN_WALK_FRAMES = 8;
+const KAELEN_IDLE_FRAMES = 8;
+const KAELEN_ATTACK_FRAMES = 9;
+const KAELEN_DEATH_FRAMES = 8;
+
+// o idle comeca depois das oito linhas de caminhada
+const KAELEN_IDLE_ROW_OFFSET = 8;
+
+// o golpe comeca depois das oito de caminhada e das oito de idle
+const KAELEN_ATTACK_ROW_OFFSET = 16;
+
+// a morte e a ultima linha, e a unica: nao ha direcao para somar
+const KAELEN_DEATH_ROW = 24;
+
+const KAELEN_WALK_FPS = 12;
+const KAELEN_IDLE_FPS = 6;
+const KAELEN_ATTACK_FPS = 14;
+
+/**
+ * O RITMO DA MORTE, e o MESMO do goblin.
+ *
+ * Os mesmos numeros de proposito: os dois tem 9 quadros de morte e o mesmo
+ * comprimento de ciclo na arte. Divergir aqui faria o cadaver do Kaelen
+ * ficar mais rapido ou mais lento que o do goblin sem que houvesse razao
+ */
+const KAELEN_DEATH_DURATION = 0.6;
+const KAELEN_DEATH_FADE = 0.4;
+
+export const KAELEN_SPRITE = {
+  ...createDirectionalSpriteDefinition("skeleton", SEM_IMAGEM, {
+    directions: ARBALIST_DIRECTIONS,
+
+    /**
+     * O BALANCO E DE 2px, e nao os 3 da Sentinela.
+     *
+     * A celula subiu de 68 para 88, e com a amplitude de 3 o desenho sobe
+     * para fora da propria celula a cada passo
+     */
+    walkBob: { amplitude: 2, frequency: 1.1 },
+
+    animations: {
+      /**
+       * O IDLE APONTA PARA O BLOCO, E NAO PARA A LINHA.
+       *
+       * Sao oito linhas de idle na folha, uma por angulo, e e o `rowOffset`
+       * que faz a linha 8 virar "o idle para leste" e a 9 virar "o idle para
+       * sudeste". Com `row: 8` o Kaelen parado viraria de lado em qualquer
+       * posicao do mapa
+       */
+      idle: {
+        rowOffset: KAELEN_IDLE_ROW_OFFSET,
+        start: 0,
+        length: KAELEN_IDLE_FRAMES,
+        fps: KAELEN_IDLE_FPS,
+      },
+
+      walk: {
+        start: 0,
+        length: KAELEN_WALK_FRAMES,
+        fps: KAELEN_WALK_FPS,
+      },
+
+      /**
+       * O GOLPE CORPO A CORPO, e SEM `needsTarget`.
+       *
+       * A Sentinela tinha `needsTarget: true` porque era arte de tiro: sem
+       * alvo de verdade ela nao podia disparar. O Kaelen e corpo a corpo, e
+       * o golpe entra quando ele esta de fato atacando — e quem garante isso
+       * e o `attackAnimation`
+       */
+      attack: {
+        rowOffset: KAELEN_ATTACK_ROW_OFFSET,
+        start: 0,
+        length: KAELEN_ATTACK_FRAMES,
+        fps: KAELEN_ATTACK_FPS,
+      },
+
+      /**
+       * A MORTE, E SO ELA APONTA PARA `row`.
+       *
+       * A linha 24 existe uma vez na folha e serve para as oito direcoes.
+       * Um `rowOffset` somaria a direcao do Kaelen a 24 e leria a linha 25
+       * ou 26 — que nao existem, e o desenho viraria um retangulo vazio da
+       * parte de baixo da imagem
+       *
+       * O `holdLast` segura o cadaver no ultimo quadro durante o
+       * esmaecimento. Sem ele o ciclo recomeçaria e o corpo voltaria a se
+       * mexer enquanto some
+       */
+      death: {
+        row: KAELEN_DEATH_ROW,
+        start: 0,
+        length: KAELEN_DEATH_FRAMES,
+        fps: KAELEN_ATTACK_FPS,
+        holdLast: true,
+      },
+    },
+  }),
+
+  frameWidth: KAELEN_CELL,
+  frameHeight: KAELEN_CELL,
+
+  /**
+   * O TAMANHO DELE NA TELA: 0.896, e nao o 0.8 do padrao.
+   *
+   * O `id` dele e `skeleton`, que e o que o mapa 2 usa no lugar do ogre. E o
+   * mesmo caminho dos outros tres: `* 1.4` e depois `* 0.8`
+   */
+  scale: 1,
+
+  /**
+   * O RITMO, e ele mora AQUI e nao no motor.
+   *
+   * `deathDuration` e o ciclo e `deathFade` a janela de esmaecimento
+   * depois que ele acabou. O motor soma os dois e forma o relogio
+   */
+  deathDuration: KAELEN_DEATH_DURATION,
+  deathFade: KAELEN_DEATH_FADE,
+
+  /**
+   * A ANCORA VIER DO LOG DA FOLHA.
+   *
+   * Sao os numeros que `gif-to-sheet.mjs kaelen` imprimiu: o pe fica em
+   * y=71 e o corpo e centrado em x=42.5. A celula e de 88, entao a ancora
+   * nao pode ser a da Sentinela antiga, que era 33.5 numa celula de 68
+   */
+  anchorX: 42.5,
+  anchorY: 71,
+};
+
+/**
+ * QUEM TEM ANIMACAO DE MORTE.
+ *
+ * A lista e lida pelo motor para decidir se um inimigo morto continua
+ * sendo desenhado. Um bicho que morre e nao esta aqui some na hora,
+ * como antes: nao ha arte de morte para rodar e o `death` do layout
+ * cairia no `idle`, com o cadaver de pe no lugar dele
+ *
+ * O criterio e a EXISTENCIA do bloco `death` no layout, e nao o id:
+ * quem entra aqui e quem tem a arte, e o nome da criatura pode mudar
+ * sem mexer nesta lista
+ */
+export function temMorte(definition) {
+  if (!definition?.animations?.death) return false;
+
+  /**
+   * A ARTE SEM O RELOGIO NAO CHEGA A SUMIR.
+   *
+   * O motor soma `deathDuration + deathFade` para montar o relogio. Um
+   * layout que declarasse o bloco `death` e esquecesse os dois campos
+   * deixaria o relogio em zero, e o cadaver nunca entraria na condicao
+   * de desenho — a arte estaria pronta e nunca apareceria
+   *
+   * E por isso que a funcao le os tres campos e nao so o bloco
+   */
+  return (
+    definition.deathDuration > 0 && definition.deathFade > 0
+  );
+}
 
 /**
  * O boneco de madeira: o TERCEIRO direcional, e o primeiro que NAO
@@ -400,156 +934,83 @@ export const RATO_DA_TOCA_SPRITE = {
 };
 
 /**
- * A SENTINELA ESQUELETICA: o SEXTO direcional, e a primeira criatura
- * que ATACA sem ter arte de golpe.
+ * A SENTINELA ESQUELETICA FOI O SEXTO DIRECIONAL, E AGORA E O KAELEN.
  *
- * A arte veio em `assets/sprites/sentinela`: oito direcoes de
- * caminhada, um `idle.gif` e um `shoot/` com as oito direcoes de golpe,
- * todas em 68x68. E a arte mais limpa do jogo — nenhum quadro truncado,
- * nenhuma tela de tamanho diferente, todas as oito direcoes presentes
+ * O layout antigo desta criatura saiu daqui: celula 68, idle de uma linha
+ * so, `attack` de arco com `needsTarget` e nenhuma arte de morte. Tudo o
+ * que ele fazia esta no `KAELEN_SPRITE`, mais a morte e o idle por direcao
  *
- * Celula 68x68, ancora (33.5, 54) medida pela ferramenta.
+ * A historica dela, porque explica o que mudou no nome:
  *
-/**
- * A FOLHA da sentinela: 17 linhas de 68px, 612 x 1156.
+ * - A arte veio em `assets/sprites/sentinela`: oito direcoes de caminhada,
+ *   um `idle.gif` e um `shoot/` com as oito direcoes de golpe, todas em
+ *   68x68. Era a arte mais limpa do jogo
  *
- * Sao 8 de direcao (linhas 0 a 7), 1 de idle (linha 8) e 8 de golpe
- * (linhas 9 a 16).
+ * - O `attack` apontava para a linha do idle — o reserva do
+ *   `resolveFrameRect` — ate as oito direcoes de `shoot/` chegarem de uma
+ *   vez, e ele passar para a linha 9
  *
- * ## A ARTE DE GOLPE CHEGOU DEPOIS
+ * - O `needsTarget: true` existia porque ela era ATIRADORA: a arte de arco
+ *   so entrava com alvo de verdade, para o esqueleto nao dar as costas
  *
- * A primeira montagem da folha encontrou a pasta com os GIFs de
- * caminhada e o `idle`, e nada mais. O `attack` do layout apontava
- * para a linha do idle — o reserva do `resolveFrameRect` — e a
- * sentinela atirava na pose de parado, com a flecha saindo
+ * O `id` continua `skeleton` porque e ele que esta no save, no bestiario e
+ * nas missoes que pedem a caca. O nome na tela e o do Kaelen agora
  *
- * Quando as oito direcoes de `shoot/` apareceram, a folha passou a ter
- * 17 linhas e o `attack` foi para a linha 9. Sem essa troca o golpe
- * leria a linha do idle e a animacao nova nunca apareceria
- *
- * O `needsTarget` continua valendo: a arte de arco so entra com alvo
- * de verdade, para o esqueleto nao dar as costas
+ * A pasta `sentinela` e o `sentinela_esqueletica-sheet.png` continuam no
+ * disco como arte antiga: nenhum layout os le mais
  */
 
-const SENTINELA_ESQUELETICA_CELL = 68;
-
-const SENTINELA_ESQUELETICA_WALK_FRAMES = 8;
-const SENTINELA_ESQUELETICA_IDLE_FRAMES = 8;
-const SENTINELA_ESQUELETICA_IDLE_ROW = 8;
+/**
+ * O ESQUELETO: o SETIMO direcional, e o bicho de nivel 1.
 
 /**
- * O GOLPE TEM LINHA PROPRIA desde que a arte de `shoot/` chegou nas oito
- * direcoes.
+ * O ESQUELETO: o SETIMO direcional, e o bicho de nivel 1.
  *
- * A folha tem 17 linhas: 8 de caminhada, 1 de idle e 8 de golpe. Antes
- * o ataque apontava para a linha do idle — o reserva do
- * `resolveFrameRect` — e a sentinela atirava na pose de parado
+ * A criatura continua com o id `slime`, e o id nao muda por causa de uma
+ * troca de arte: ele esta no save, no bestiario, nas missoes e, o que
+ * pesa mais, no `slime_gel` e no `slime_core` que o craft e as missoes
+ * pedem. Um save com `slime_gel` pararia de casar com o item
+ *
+ * ## POR QUE NAO SE CHAMA "LIMO" MAIS
+ *
+ * Porque nao e mais um limo: a arte, o nome e o comportamento mudaram, e
+ * o `id` e a identidade no jogo, nao o rotulo. `LIMO_PREGUICOSO_*` e
+ * `ESQUELETO_*` sao as mesmas criaturas, e este arquivo inteiro e o
+ * lugar onde a troca de nome aparece
+ *
+ * Celula 88x88 — a arte veio maior que as outras do jogo —, ancora
+ * (43.5, 73) e as 17 linhas medidas pela ferramenta
+ *
+ * ## A LINHA DE GOLPE EXISTE, E O QUE FALTAVA
+ *
+ * O `slime` e PASSIVO e nunca atacava, entao nao havia animacao de golpe:
+ * um pedido de "attack" caia no reserva do `resolveFrameRect`, que prefere
+ * o `idle`. Agora a criatura RETALIA quem a bate, e a linha 9+ da folha e
+ * o que mostra o golpe acontecendo
  */
-const SENTINELA_ESQUELETICA_SHOOT_FRAMES = 9;
-const SENTINELA_ESQUELETICA_SHOOT_ROW = 9;
+const ESQUELETO_CELL = 88;
 
-const SENTINELA_ESQUELETICA_WALK_FPS = 12;
-const SENTINELA_ESQUELETICA_IDLE_FPS = 6;
+const ESQUELETO_WALK_FRAMES = 9;
+const ESQUELETO_IDLE_FRAMES = 8;
+const ESQUELETO_IDLE_ROW = 8;
+const ESQUELETO_ATTACK_FRAMES = 9;
+const ESQUELETO_ATTACK_ROW = 9;
+const ESQUELETO_WALK_FPS = 10;
+const ESQUELETO_IDLE_FPS = 5;
+const ESQUELETO_ATTACK_FPS = 9;
 
-/** o arco de uma sentinela usa o balanco do idle ate existir arte */
-const SENTINELA_ESQUELETICA_SHOOT_FPS = 6;
-
-export const SENTINELA_ESQUELETICA_SPRITE = {
-  ...createDirectionalSpriteDefinition("skeleton", SEM_IMAGEM, {
-    directions: ARBALIST_DIRECTIONS,
-
-    /**
-     * O balanco e o do ghoul, e nao o do rato.
-     *
-     * O `amplitude` e a altura que o sprite sobe a cada passo. Um
-     * bicho de 45px aguenta os 3px; o rato de 43px nao, e por isso
-     * que ele ficou em 2
-     */
-    walkBob: { amplitude: 3, frequency: 1.1 },
-
-    animations: {
-      // a linha do idle e uma linha INTEIRA da folha, entao o `row`
-      // e obrigatorio: sem ele o `resolveFrameRect` usaria
-      // `rowOffset ?? 0` e leria a linha 0, que e a caminhada para
-      // leste, e a sentinela parada viraria de lado
-      idle: {
-        row: SENTINELA_ESQUELETICA_IDLE_ROW,
-        start: 0,
-        length: SENTINELA_ESQUELETICA_IDLE_FRAMES,
-        fps: SENTINELA_ESQUELETICA_IDLE_FPS,
-      },
-
-      walk: {
-        start: 0,
-        length: SENTINELA_ESQUELETICA_WALK_FRAMES,
-        fps: SENTINELA_ESQUELETICA_WALK_FPS,
-      },
-
-/**
-       * O GOLPE, na LINHA DELE.
-       *
-       * Antes apontava para a linha do idle, que era o reserva do
-       * `resolveFrameRect`: a folha acabava na linha 8 e nao havia arte
-       * de ataque. Agora as oito direcoes de `shoot/` existem e o golpe
-       * e a linha 9
-       *
-       * O `needsTarget` e o mesmo do zumbi: a arte de arco so entra
-       * com alvo de verdade, para o esqueleto nao dar as costas
-       */
-      attack: {
-        row: SENTINELA_ESQUELETICA_SHOOT_ROW,
-        start: 0,
-        length: SENTINELA_ESQUELETICA_SHOOT_FRAMES,
-        fps: SENTINELA_ESQUELETICA_SHOOT_FPS,
-        needsTarget: true,
-      },
-    },
-  }),
-
-  frameWidth: SENTINELA_ESQUELETICA_CELL,
-  frameHeight: SENTINELA_ESQUELETICA_CELL,
-  anchorX: 33.5,
-  anchorY: 54,
-};
-
-/**
- * O LIMO PREGUICOSO: o SETIMO direcional, e o bicho de nivel 1.
- *
- * A arte veio em `assets/sprites/guerreiro_2` — a segunda pasta
- * `guerreiro` do jogo, a primeira sendo o ghoul faminto. O nome e da
- * arte; a criatura continua `slime`, que e o `id` do save, do
- * bestiario e das missoes
- *
- * Celula 68x68, ancora (33.5, 54) medida pela ferramenta
- *
- * O `slime` e o bicho que mais aparece no jogo, e o `slime_gel` e o
- * `slime_core` sao ingredientes de craft e recompensa de missao. Nada
- * aqui pode mudar o `id`, nem por troca de arte: um save com
- * `slime_gel` pararia de casar com o item
- *
- * Sem golpe: o limo e PASSIVO e foge do jogador, entao um pedido de
- * "attack" cai no reserva do `resolveFrameRect`, que prefere o `idle`
- */
-const LIMO_PREGUICOSO_CELL = 68;
-
-const LIMO_PREGUICOSO_WALK_FRAMES = 8;
-const LIMO_PREGUICOSO_IDLE_FRAMES = 8;
-const LIMO_PREGUICOSO_IDLE_ROW = 8;
-const LIMO_PREGUICOSO_WALK_FPS = 10;
-const LIMO_PREGUICOSO_IDLE_FPS = 5;
-
-export const LIMO_PREGUICOSO_SPRITE = {
+export const ESQUELETO_SPRITE = {
   ...createDirectionalSpriteDefinition("slime", SEM_IMAGEM, {
     directions: ARBALIST_DIRECTIONS,
 
     /**
      * O balanco e o MENOR de todos, e o FPS tambem.
      *
-     * O limo anda a `speed: 48` e passeia a `wanderSpeed: 30` — e o
-     * bicho mais lento do jogo depois do rato. Um `amplitude` de 3px
-     * faria uma gosma de 45px pular mais do que anda, e a 10fps o
-     * ciclo de 8 quadros dura 0.8s, o que num bicho lento fica com
-     * aspecto de escorregar em vez de caminhar
+     * A criatura continua a `speed: 48` e passeia a `wanderSpeed: 30` — e
+     * o bicho mais lento do jogo depois do rato. Um `amplitude` de 3px
+     * faria um boneco de 45px pular mais do que anda, e a 10fps o ciclo
+     * de 9 quadros dura 0.9s, o que num bicho lento fica com aspecto de
+     * escorregar em vez de caminhar
      */
     walkBob: { amplitude: 2, frequency: 0.9 },
 
@@ -557,26 +1018,64 @@ export const LIMO_PREGUICOSO_SPRITE = {
       // a linha do idle e uma linha INTEIRA da folha, entao o `row`
       // e obrigatorio: sem ele o `resolveFrameRect` usaria
       // `rowOffset ?? 0` e leria a linha 0, que e a caminhada para
-      // leste, e o limo parado viraria de lado
+      // leste, e o esqueleto parado viraria de lado
       idle: {
-        row: LIMO_PREGUICOSO_IDLE_ROW,
+        row: ESQUELETO_IDLE_ROW,
         start: 0,
-        length: LIMO_PREGUICOSO_IDLE_FRAMES,
-        fps: LIMO_PREGUICOSO_IDLE_FPS,
+        length: ESQUELETO_IDLE_FRAMES,
+        fps: ESQUELETO_IDLE_FPS,
       },
 
       walk: {
         start: 0,
-        length: LIMO_PREGUICOSO_WALK_FRAMES,
-        fps: LIMO_PREGUICOSO_WALK_FPS,
+        length: ESQUELETO_WALK_FRAMES,
+        fps: ESQUELETO_WALK_FPS,
+      },
+
+      /**
+       * O GOLPE, com `needsTarget` como o da sentinela.
+       *
+       * `needsTarget: true` e o que impede o golpe de tocar no ar: o
+       * `resolveCreatureAnimation` so pede "attack" quando ha alvo, e o
+       * esqueleto so tem alvo travado depois de levar um golpe. Sem essa
+       * flag o boneco anima o soco enquanto passeia
+       */
+      attack: {
+        row: ESQUELETO_ATTACK_ROW,
+        start: 0,
+        length: ESQUELETO_ATTACK_FRAMES,
+        fps: ESQUELETO_ATTACK_FPS,
+        needsTarget: true,
       },
     },
   }),
 
-  frameWidth: LIMO_PREGUICOSO_CELL,
-  frameHeight: LIMO_PREGUICOSO_CELL,
-  anchorX: 33.5,
-  anchorY: 54,
+  frameWidth: ESQUELETO_CELL,
+  frameHeight: ESQUELETO_CELL,
+
+  /**
+   * O TAMANHO DELE NA TELA: 0.896, e nao o 0.8 do padrao.
+   *
+   * ## O ID DELE E `slime`, E E POR ISSO QUE ESTA ESCALA FICAVA ESCAPADA
+   *
+   * O `ENEMY_SPRITES` do cliente monta `slime` espalhando ESTE sprite, com
+   * a arte da `esqueleto-sheet.png`. Ou seja: o bicho que o jogador chama de
+   * esqueleto tem id `slime` no jogo
+   *
+   * E foi por isso que aumentar o `slime` na `ESCALA` nao fez nada: o
+   * `ESCALA` monta o `slime` com celula de 32 e folha de tres linhas, e o
+   * cliente sobrescreve essa entrada inteira. A escala que manda e a de
+   * aqui — e ela nao existia, entao o esqueleto caia no 0.8 do padrao e
+   * continuava do mesmo tamanho, igual antes do pedido
+   *
+   * ## POR QUE 0.896
+   *
+   * E `0.8 * 1.4 * 0.8`: os 40% maiores e depois os 20% menores, sobre o
+   * tamanho que ele ja tinha. Ver a `NYLARA_SPRITE`, que tem a conta escrita
+   */
+  scale: 1,
+  anchorX: 43.5,
+  anchorY: 73,
 };
 
 /**
@@ -768,6 +1267,34 @@ export const HULK_SPRITE = {
   anchorY: 55,
 };
 
+/**
+ * O HULK DO VALE, e o mesmo desenho com o `scale` em 3.
+ *
+ * ## POR QUE UM REGISTRO NOVO, E NAO O `hulk` APONTANDO PARA O MESMO
+ *
+ * Porque `getEnemySprite` resolve pelo `typeId`, e o chefe do vale tem o
+ * `typeId` `hulk_val`. Se os dois apontassem para o mesmo objeto, o `scale`
+ * seria o mesmo e o chefe do vale sairia do mesmo tamanho do da arena — que
+ * e o oposto do que ele ser maior significa
+ *
+ * ## POR QUE 3, E A ARTE E A MESMA
+ *
+ * O desenho e a mesma folha, a mesma celula de 68, o mesmo idle e o mesmo
+ * golpe. O que muda e so o multiplicador: 68 x 3 = 204px, contra os 136px
+ * do jogador e os 136px do `hulk` da arena. O chefe do vale e o dobro do
+ * goblin em qualquer um dos dois, e o maior desenho do jogo
+ *
+ * O comentario do `HULK_SCALE` acima diz que ir alem de 2 seria "escolha de
+ * design, nao correcao" — e e escolha de design, feita agora a pedido. O
+ * `3` e o unico numero que faz o chefe do centro dominar a tela
+ */
+const HULK_VAL_SCALE = 3;
+
+export const HULK_VAL_SPRITE = {
+  ...HULK_SPRITE,
+  scale: HULK_VAL_SCALE,
+};
+
 export const ENEMY_SPRITES = {
   ...Object.fromEntries(
     Object.entries(ESCALA).map(([id, scale]) => [
@@ -778,19 +1305,53 @@ export const ENEMY_SPRITES = {
 
   // os direcionais: a chave e o `id` da criatura, e e assim que o
   // `GameEngine` acha o sprite de um inimigo
-  zumbi_arbalist: ZUMBI_SPRITE,
-  ogre_da_predeira: OGRE_PREDEIRA_SPRITE,
+
+  /**
+   * A NYLARA, que era o Arqueiro Zumbi, e nao tem `ESCALA` acima.
+   *
+   * O `ESCALA` monta as criaturas de folha antiga, de celula 32 e tres
+   * linhas. O arqueiro nunca entrou la — ele ja era direcional — e a
+   * Nylara segue fora dele pelo mesmo motivo
+   */
+  zumbi_arbalist: NYLARA_SPRITE,
+
+  /**
+   * O KAELEN, e o `ESCALA` acima nao tem mais `skeleton`.
+   *
+   * O `ESCALA` monta as criaturas de folha antiga, de celula 32 e tres
+   * linhas. A sentinela saiu de la quando virou direcional, e agora o
+   * `skeleton` aponta para o `KAELEN_SPRITE` de celula 88 — que e o que
+   * faz este registro ganhar precedencia sobre o `ESCALA` acima
+   */
+  skeleton: KAELEN_SPRITE,
+
+  /**
+   * O GOBLIN DO MAPA 1, nos DOIS ids.
+   *
+   * ## POR QUE AS DUAS CRIATURAS COMPARTILHAM A FOLHA
+   *
+   * `ogre` e o goblin da pedreira, niveis 8 a 12. `ogre_da_predeira` e o
+   * goblin do Campo de Provas, nivel 7. Os dois sao o mesmo bicho: mesmo
+   * preco, mesmo couro, mesmas numeros base, mesma cara
+   *
+   * Antes cada um tinha a sua folha — as duas apontavam para a de 68 do
+   * ogre — e o jogo mostrava "Ogre da Pedreira" e "Ogre da Predeira" como
+   * se fossem bichos diferentes. Sao o mesmo mob em degraus de nivel
+   * diferentes, que e como a escada do mapa esta construida
+   *
+   * ## O `id` DE CADA UM CONTINUA O SEU
+   *
+   * Sao chaves de save: o `ogre_da_predeira` e a chave das tres cacadas de
+   * bestiario, da missao do nivel 7 e da entrega do couro `ogre_hide`. Unir
+   * os dois ids apagaria o progresso de quem ja fez tudo isso
+   */
+  ogre_da_predeira: GOBLIN_SPRITE,
+  ogre: GOBLIN_SPRITE,
 
   // o ghoul faminto SUBSTITUI a arte antiga de folha pequena: a
   // chave e a do mesmo `id` de criatura, entao este registro tem
   // precedencia sobre o `createEnemySpriteDefinition` acima
   ghoul: GHOUL_FAMINTO_SPRITE,
-  // TODO ogre usa a folha da predeira, o `ogre` da pedreira
-  // incluso. As DUAS criaturas apontam para o MESMO objeto de
-  // definicao: uma folha direcional de 68px, que o `ogre` nao tinha.
-  // Isso leva o tamanho em tela de 61px (32 x 1.9) para 68px, e e o
-  // que a arte nova pede
-  ogre: OGRE_PREDEIRA_SPRITE,
 
   // o boneco de madeira. Os OUTROS seis bonecos nao tem arte e
   // continuam no corpo vetorial, que e o que o registro decide
@@ -805,6 +1366,16 @@ export const ENEMY_SPRITES = {
    * criaturas de folha pequena, que nao tem nem idle nem ataque
    */
   hulk: HULK_SPRITE,
+
+  /**
+   * O HULK DO VALE, o `typeId` novo que o chefe do centro usa.
+   *
+   * Aponta para o `HULK_VAL_SPRITE` de escala 3 — o mesmo desenho do
+   * `hulk` acima, um multiplicador maior. Sem esta linha o
+   * `getEnemySprite("hulk_val")` devolveria `null` e o chefe apareceria
+   * sem arte nenhuma
+   */
+  hulk_val: HULK_VAL_SPRITE,
 };
 
 export function getEnemySprite(creatureId) {

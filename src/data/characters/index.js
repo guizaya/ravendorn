@@ -106,7 +106,11 @@ const warrior = {
   attributeGrowth: { str: 2, int: 1, dex: 1, vit: 3, wis: 1 },
   resource: {
     name: "Chi",
-    color: "#ff6b57",
+    // laranja, e nao vermelho: o HP ja e vermelho, e as duas barras
+    // ficam lado a lado no alto da tela. Com o Chi em `#ff5233` as duas
+    // saiam no mesmo matiz, e o jogador parava de saber qual era qual
+    // sem olhar o rotulo
+    color: "#ff6a00",
   },
   basicAttack: basicAttack({
     classId: "warrior",
@@ -182,7 +186,7 @@ const lancer = {
   attributeGrowth: { str: 2, int: 1, dex: 3, vit: 2, wis: 1 },
   resource: {
     name: "Foco",
-    color: "#66d8ff",
+    color: "#00c2ff",
   },
   basicAttack: basicAttack({
     classId: "lancer",
@@ -258,7 +262,7 @@ const sorcerer = {
   attributeGrowth: { str: 1, int: 3, dex: 2, vit: 1, wis: 2 },
   resource: {
     name: "Mana",
-    color: "#b87aff",
+    color: "#a02bff",
   },
   basicAttack: basicAttack({
     classId: "sorcerer",
@@ -339,7 +343,11 @@ const arbalist = {
   attributeGrowth: { str: 2, int: 1, dex: 3, vit: 2, wis: 2 },
   resource: {
     name: "Foco",
-    color: "#95e489",
+    // sem vermelho nenhum: `#5ce83f` e `#3ddc3d` davam 79% e 69% de
+    // saturacao, e era o verde que mais lavava. Verde saturado exige
+    // vermelho baixo, entao o R vai para zero e o matiz gira um pouco
+    // para o verde-agua
+    color: "#00e04a",
   },
   basicAttack: basicAttack({
     classId: "arbalist",
@@ -359,6 +367,12 @@ const arbalist = {
  * Sao estas, e nao mais: `taoist`, `darkist`, `lionheart` e
  * `summoner` saíram, e sairam junto com o skill pack, o sprite e a
  * arte de cada uma. A ordem e a de aparicao na tela de selecao.
+ *
+ * ## ESTA LISTA NAO E "AS CLASSES QUE EXISTEM"
+ *
+ * E o catalogo completo, e e ele que o servidor consulta no JOIN para
+ * aceitar o personagem guardado. Tirar uma classe daqui nao a apaga do
+ * jogo: tira a possibilidade de alguem ENTRAR com ela
  */
 export const CHARACTER_CLASSES = Object.freeze([
   warrior,
@@ -366,6 +380,33 @@ export const CHARACTER_CLASSES = Object.freeze([
   sorcerer,
   arbalist,
 ]);
+
+/**
+ * AS CLASSES OFERECIDAS NA TELA DE SELECAO.
+ *
+ * ## POR QUE ISSO EXISTE E POR QUE NAO E O `CHARACTER_CLASSES`
+ *
+ * Porque "esconder da tela" e "sair do jogo" sao coisas diferentes, e
+ * confundir as duas custa o save de quem ja entrou
+ *
+ * O `lancer` saiu da selecao por decisao de produto, nao por ter sido
+ * removido do jogo. A classe continua existindo: o sprite, o skill pack, os
+ * itens, o ranking e o save de quem ja jogou com ela estao todos intactos
+ *
+ * E o servidor continua aceitando `lancer` no JOIN, porque e o
+ * `CHARACTER_CLASSES` que ele le. Um jogador com lancer no save volta
+ * digitando o nome dele e escolhendo Lancer na tela — e a tela mostra o
+ * card dele mesmo com ele escondido da grade, que e o que o bloco de
+ * recuperacao abaixo faz
+ *
+ * ## O QUE FICA QUANDO A CLASSE SOME DA GRADE
+ *
+ * Nada se perde: e um filtro de exibicao, e a lista completa continua
+ * exportada e no servidor. Reverter e tirar um id desta lista
+ */
+export const CLASSES_NA_SELECAO = Object.freeze(
+  CHARACTER_CLASSES.filter((character) => character.id !== "lancer"),
+);
 
 export function getCharacterDefinition(id) {
   return CHARACTER_CLASSES.find((character) => character.id === id) ?? null;

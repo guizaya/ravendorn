@@ -11,14 +11,7 @@
  * WebSocket nenhum.
  */
 
-/** As teclas que o jogo ja usava, com o equivalente em seta. */
-const ESQUERDA = ["KeyA", "ArrowLeft"];
-const DIREITA = ["KeyD", "ArrowRight"];
-const CIMA = ["KeyW", "ArrowUp"];
-const BAIXO = ["KeyS", "ArrowDown"];
-
-const algumaTecla = (keys, lista) =>
-  lista.some((tecla) => keys.has(tecla));
+import { mapaDeBinds, vetorDeMovimento } from "../input/keybinds.js";
 
 /**
  * O vetor de movimento, ja normalizado.
@@ -27,15 +20,28 @@ const algumaTecla = (keys, lista) =>
  * `(1, 1)`, cuja magnitude e 1.41. Sem cortar, o jogador andaria
  * 41% mais rapido na diagonal do que em linha reta, e o
  * servidor nao teria como corrigir.
+ *
+ * ## POR QUE ELA VEM DO `keybinds` E NAO DAS LISTAS DE TECLAS
+ *
+ * ## O ONLINE TINHA A MESMA DOENCA DO MOTOR
+ *
+ * Estas quatro listas eram a copia do `KeyD` hardcoded em outro lugar: o
+ * jogador trocava a tecla no painel, o motor offline andava com a nova, e o
+ * online andava com a velha. Pior que o offline, porque o online nao da para
+ * cair para testar
+ *
+ * E por isso que o `mapa` e um PARAMETRO com padrao, e nao uma leitura de
+ * modulo: a funcao continua pura para quem passa o mapa, e o `net.test.js`
+ * continua testando os padroes sem tocar em `localStorage`
+ *
+ * ## E POR QUE O SERVIDOR NAO PRECISA SABER DAS TECLAS
+ *
+ * Porque ele nunca recebeu codigo de tecla: recebe `moveX` e `moveY` ja
+ * prontos. Um bind novo nao muda nada no servidor — que e o que faz este ser
+ * uma preferencia local e nao uma configuracao de conta
  */
-export function moveFromKeys(keys) {
-  let x = 0;
-  let y = 0;
-
-  if (algumaTecla(keys, ESQUERDA)) x -= 1;
-  if (algumaTecla(keys, DIREITA)) x += 1;
-  if (algumaTecla(keys, CIMA)) y -= 1;
-  if (algumaTecla(keys, BAIXO)) y += 1;
+export function moveFromKeys(keys, mapa = mapaDeBinds()) {
+  const { x, y } = vetorDeMovimento(keys, mapa);
 
   return limitar({ x, y });
 }

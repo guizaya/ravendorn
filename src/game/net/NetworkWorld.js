@@ -95,8 +95,43 @@ export class NetworkWorld {  /**
     this.aplicarOutrosJogadores(estado.outros);
     this.aplicarDrops(estado.drops);
     this.aplicarProjetis(estado.projeteis);
+    this.aplicarPedidasFora(estado.pedidasFora);
 
     return true;
+  }
+
+  /**
+   * AS PEDRAS QUE ESTAO FORA DO MAPA, no motor.
+   *
+   * Vai num `Set` e nao num array porque a consulta e "esta pedra esta
+   * fora?", e o `Set` responde em tempo constante. Sao 40 cristais e a
+   * consulta acontece uma vez por prop por quadro, no desenho
+   *
+   * ## POR QUE UM CAMPO DO MOTOR E NAO UM FILTRO NA HORA DE DESENHAR
+   *
+   * Porque quem decide o que existe no mundo e o servidor. O cliente
+   * guardar a lista aqui e so um espelho do que veio, e o `aplicarPedidasFora`
+   * substitui a lista inteira a cada pacote de 20Hz — sem mesclar, sem
+   * acumular. Um filtro que tirasse as pedras do array de props do mapa
+   * seria mais curto e seria ERRADO: a lista do mapa e o dado, e o dado
+   * nao muda por causa de quem olha
+   */
+  aplicarPedidasFora(lista) {
+    const mapa = this.engine.world?.map?.id ?? null;
+
+    /**
+     * A LISTA VAI PARA DENTRO DO `Set` COMPARTILHADO DO MAPA.
+     *
+     * Nao e um `Set` novo. O `CollisionSystem` foi construcao com a MESMA
+     * instancia que o desenho le, e ele e reconstruido a cada troca de
+     * jogador em foco — trocar o objeto aqui deslinkaria a colisao da tela,
+     * e o cristal voltaria a sumir do desenho sem sair do caminho
+     *
+     * E o `sincronizarPedidasFora` do motor porque e o mesmo metodo que o
+     * servidor usa quando uma pedra cai: os dois lados escrevem a mesma
+     * verdade, na mesma lista
+     */
+    this.engine.sincronizarPedidasFora(mapa, lista);
   }
 
 
@@ -170,6 +205,20 @@ export class NetworkWorld {  /**
     // SESSAO, que e onde o minimapa e o HUD leem. Escrever no
     // objeto do jogador nao mudaria nada.
     this.engine.selectedTargetId = dado.selectedTargetId ?? null;
+
+    /**
+     * A PICARETA, que o servidor decide.
+     *
+     * E escrita direto no jogador, sem `max` e sem guarda: o valor chega
+     * `true` ou `false` a cada pacote de 20Hz, e nao e um relogio que
+     * corra. Um `max` aqui prenderia a picareta no ar para sempre depois
+     * do primeiro `true` — o mesmo defeito que o `hurt` acima teve e que
+     * o comentario dele descreve
+     *
+     * Sem este campo o arquiro nunca socaria: no modo rede o cliente nao
+     * roda a `runMineracao`, entao ninguem escreveria o `isMining` dele
+     */
+    jogador.isMining = dado.mining === true;
   }
 
   /**
@@ -244,6 +293,64 @@ export class NetworkWorld {  /**
       inimigo.aiState = dado.state;
 
       /**
+       * O CADAVER, e o relogio que ele precisa.
+       *
+       * O `killEnemy` que liga a animacao de morte roda no MOTOR DO
+       * SERVIDOR, nunca no cliente: o pacote traz `restamMorte` e e aqui que
+       * ele vira de novo um relogio. O cliente so descobre que o bicho morreu
+       * neste pacote, e este e o unico lugar onde ele descobre
+       *
+       * ## POR QUE O TEMPO E LIDO DA ARTE, E NAO DO PACOTE
+       *
+       * O pacote manda o que RESTA, e nao o `duration` nem o `fade`. Sao dois
+       * numeros que moram no layout do sprite, e o layout e do cliente — o
+       * servidor nao tem a folha. Ler os tres aqui e o que mantem os dois
+       * lados com o mesmo total, e e o que o `resolveDeathElapsed` do motor
+       * usa para saber quando o ciclo acabou e o cadaver vira esmaecimento
+       *
+       * Sem isto o `deathTimer` ficava em `null`, que e o valor que o
+       * `eMostrandoCadaver` do motor le para recusar o cadaver — e o goblin
+       * sumia no mesmo quadro em que morria, sem a animacao
+       */
+      if (inimigo.alive) {
+        /**
+         * O RESPAWN ZERA O RELOGIO DO CADAVER.
+         *
+         * O `reviveEnemy` do motor faz isso no offline, e o cliente nao tem
+         * `reviveEnemy`: quem traz a criatura de volta e o pacote, com
+         * `state` diferente de `"dead"`. Sem esta linha o `deathTimer`
+         * ficaria no valor em que parou — e o proximo abate daquele goblin
+         * mostraria o cadaver com o tempo ja todo contado, aparecendo e
+         * sumindo no mesmo quadro
+         */
+        inimigo.deathTimer = null;
+        inimigo.deathDuration = 0;
+        inimigo.deathFade = 0;
+      } else if (inimigo.deathTimer <= 0) {
+        const restam = dado.restamMorte;
+
+        /**
+         * O PRIMEIRO PACOTE DA MORTE, e so ele.
+         *
+         * O guarda `deathTimer <= 0` e o que impede o reescrever a cada
+         * pacote: depois do primeiro, o relogio corre LOCAL, e cada pacote
+         * seguinte traria um numero menor que zeraria o progresso — o cadaver
+         * ficaria preso no primeiro quadro
+         *
+         * O `restamMorte` chega como `null` de quem nao tem arte de morte, e
+         * o `typeof` recusa esse `null` sem precisar de uma checagem a mais
+         */
+        if (typeof restam === "number" && restam > 0) {
+          const definition =
+            this.engine.enemySprites.get(inimigo.id)?.definition;
+
+          inimigo.deathTimer = restam;
+          inimigo.deathDuration = definition?.deathDuration ?? 0;
+          inimigo.deathFade = definition?.deathFade ?? 0;
+        }
+      }
+
+      /**
        * Para onde o mob esta olhando, e o que faz a arte de oito
        * direcoes escolher a linha certa.
        *
@@ -268,7 +375,128 @@ export class NetworkWorld {  /**
        */
       if (dado.acting) {
         inimigo.attackAnimation = MOB_ATAQUE;
-      }    }
+      }
+
+      /**
+       * O TELEGRAPH, e a unica coisa que o cliente recebe do preparo.
+       *
+       * ## E POR QUE O CLIENTE RECONSTRUI, E NAO USA O OBJETO DO PACOTE
+       *
+       * Porque o pacote e JSON: os numeros chegam arredondados e as chaves
+       * ausentes viram `undefined`. A execucao que o motor desenha e a MESMA
+       * classe que o servidor produziu — o `TelegraphSystem` monta a
+       * execucao a partir de um pacote puro, e e o que garante que o
+       * `contemPonto` do cliente e o do servidor concordem
+       *
+       * ## E POR QUE O `impactoEm` VIJA ABSOLUTO
+       *
+       * Porque o relogio do cliente e o do servidor andam juntos — o mesmo
+       * `world.time` que o motor avanca. Se o pacote trouxesse "faltam 1.4s",
+       * cada cliente contaria do seu jeito e dois jogadores veriam o disco
+       *chegar emFrames diferentes. Com o instante, ambos recalculam
+       * `progresso = 1 - (impactoEm - agora) / duracao` e chegam no mesmo
+       * lugar
+       *
+       * ## E POR QUE SUSTITUI, E NAO ACUMULA
+       *
+       * Porque um telegraph e um estado INTEIRO, nao um evento. A cada pacote
+       * chega o estado atual daquela execucao; o cliente mantem uma por
+       * chefe e descarta a anterior. Sem isso, o pacote de 1.0s, 1.5s e 2.0s
+       * virariam tres circulos no chao
+       */
+      this.aplicarTelegraph(dado.telegraph, inimigo);
+    }
+  }
+
+  /**
+   * O TELEGRAPH DE UM CHEFE, no estado do cliente.
+   *
+   * E a MESMA execucao que o servidor produziu, montada a partir do pacote.
+   * A lista local e substituida porque o desenho le `world.telegraphs`, e o
+   * motor no cliente nao roda a IA — quem decide o que acontece e o servidor
+   */
+  aplicarTelegraph(dado, inimigo) {
+    const { world } = this.engine;
+
+    if (!Array.isArray(world.telegraphs)) return;
+
+    // remove o telegraph anterior deste chefe, se houver
+    for (let i = world.telegraphs.length - 1; i >= 0; i -= 1) {
+      if (world.telegraphs[i].inimigoId === inimigo.id) {
+        world.telegraphs.splice(i, 1);
+      }
+    }
+
+    if (!dado) return;
+
+    /**
+     * A EXECUCAO RECONSTRUIDA.
+     *
+     * Nao e o objeto do pacote: e um objeto com a MESMA forma que o
+     * `TelegraphSystem` produz no servidor. O `impactoEm` vem cru, sem
+     * ajuste — ver o comentario do metodo sobre por que o relogio e
+     * compartilhado
+     */
+    world.telegraphs.push({
+      id: dado.id,
+      inimigoId: inimigo.id,
+      habilidadeId: dado.habilidadeId,
+      tipo: dado.tipo,
+      cor: dado.cor,
+
+      inicioEm: dado.inicioEm,
+      impactoEm: dado.impactoEm,
+      duracao: dado.duracao,
+
+      /**
+       * O DESLOCAMENTO ENTRE OS DOIS RELOGIOS.
+       *
+       * ## POR QUE ISTO EXISTE
+       *
+       * Porque `impactoEm` e um numero do `world.time` do SERVIDOR, e o
+       * cliente conta em `spriteTime`. Os dois nao tem nada um com o outro:
+       * o servidor pode estar em 340 e o cliente em 12, e a conta direta dava
+       * `restante: 330` num telegraph de preparo 2s — o `progresso` era um
+       * numero negativo cortado em zero
+       *
+       * O sintoma era exato: a AREA aparecia (que e desenhada com o progresso
+       * zero), a frente luminosa nunca crescia, e o pulso nunca rodava. O
+       * jogador via o telegraph parado, sem nenhuma nocão de quando o golpe
+       * comecava ou terminava
+       *
+       * ## A CONTA
+       *
+       * `deslocamento = relogioDoServidorAgora - meuRelogioAgora`
+       *
+       * Com isso, o cliente reproduz o instante do servidor com o relogio
+       * dele: `impactoEm - (meuRelogio + deslocamento)` e o tempo restante
+       * certo, com a latencia de um pacote ja embutida
+       */
+      deslocamento: (dado.servidorEm ?? 0) - (this.engine.spriteTime ?? 0),
+
+      x: dado.x,
+      y: dado.y,
+      dirX: dado.dirX,
+      dirY: dado.dirY,
+
+      raio: dado.raio,
+      raioInterno: dado.raioInterno,
+      raioExterno: dado.raioExterno,
+      alcance: dado.alcance,
+      largura: dado.largura,
+      anguloGraus: dado.anguloGraus,
+
+      /**
+       * O `isRemote` E O QUE PROTEGE ESTA EXECUCAO.
+       *
+       * Sem ele, o `TelegraphSystem` do cliente — que existe para o single
+       * player — tentaria aplicar o impacto e o dano de novo, com o cliente
+       * decidindo quem levou o golpe. E exatamente o que a secao 13 do
+       * pedido proibe
+       */
+      isRemote: true,
+      danoAplicado: false,
+    });
   }
 
   /**
@@ -308,6 +536,39 @@ export class NetworkWorld {  /**
       remoto.maxHp = dado.maxHp ?? remoto.maxHp;
       remoto.name = dado.name;
       remoto.classId = dado.classId ?? remoto.classId;
+
+      /**
+       * O NIVEL, pelo mesmo motivo do `maxHp`: o servidor e quem sabe, e sem
+       * ele a barra flutuante mostrava "Nv.1" para qualquer jogador. E o
+       * `?? remoto.level` pela mesma razao do `guilda` abaixo: um pacote sem
+       * o campo nao significa nivel 1, significa "continua igual"
+       */
+      remoto.level = dado.level ?? remoto.level;
+
+      /**
+       * A TAG DA GUILDA, ou `null`.
+       *
+       * ## POR QUE ELA VIAJA COM O REMOTO E NAO COM O PAINEL
+       *
+       * Porque o desenho da tag acontece no CANVAS, na funcao que desenha o
+       * nome do remoto, e essa funcao so recebe o remoto. Se a tag viesse
+       * pelo painel, o canvas teria de guardar uma tabela de "quem esta com
+       * guilda" separada e cruzaria as duas a cada quadro
+       *
+       * ## POR QUE `?? remoto.guilda` E NAO SO `dado.guilda`
+       *
+       * Porque o servidor so manda o campo quando o jogador LIGOU a tag. Um
+       * pacote sem o campo nao significa "sem guilda": significa "isto
+       * continua igual ao que eu ja sei". Sobrescrever com `undefined`
+       * apagaria a tag de um jogador que estava com ela ligada, e o nome
+       * dele piscaria sem a tag a cada pacote que por algum motivo nao
+       * trouxesse o campo
+       *
+       * E o `null` explicito do servidor e o que DESLIGA: ai o `??` nao
+       * segura nada e a tag sai
+       */
+      remoto.guilda =
+        dado.guilda === undefined ? remoto.guilda ?? null : dado.guilda;
 
       /**
        * `alive` vem do HP que o servidor mandou, e nao e `true` fixo.
@@ -384,6 +645,26 @@ export class NetworkWorld {  /**
       isRemote: true,
       classId: dado.classId,
       name: dado.name,
+
+      /**
+       * O NIVEL no nascimento, e nao so no `aplicarOutrosJogadores`.
+       *
+       * Pelo mesmo motivo do `guilda`: um remoto novo nasce num pacote onde o
+       * dado ja veio, e so o `aplicar` atualizaria a partir do segundo — a
+       * barra mostraria nivel errado por um pacote
+       */
+      level: dado.level ?? 1,
+
+      /**
+       * A TAG no nascimento, e nao So no `aplicarOutrosJogadores`.
+       *
+       * Porque um remoto novo nasce num pacote onde o `dado.guilda` ja veio,
+       * e so o `aplicar` atualizaria a partir do segundo pacote. No primeiro
+       * quadro o jogador apareceria sem a tag e so a receberia no seguinte
+       * — e o pacote chega a 20Hz, entao a falha duraria 50ms, o suficiente
+       * para se ver como um piscar
+       */
+      guilda: dado.guilda ?? null,
 
       x: dado.x,
       y: dado.y,

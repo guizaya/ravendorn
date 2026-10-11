@@ -57,6 +57,14 @@ export const HUD_ICON_IDS = [
   "rank",
   "guild",
   "settings",
+  /**
+   * `ataque`, `defesa` e `velocidade` NAO entram nesta lista.
+   *
+   * A lista e o que o `hudIcons.test.js` percorre, e ele le o arquivo de
+   * cada id do disco: um id aqui sem PNG faz o teste falhar. Os tres
+   * atributos do rodape usam so o GLIFO, ate que a arte seja desenhada —
+   * quando ela existir, eles entram aqui e no `HUD_ICON_URL` junto
+   */
 ];
 
 /**
@@ -69,6 +77,39 @@ export const HUD_ICON_IDS = [
 const HUD_ICON_GLYPH = {
   stats: "?",
   bestiario: "☠",
+
+  /**
+   * O MAPA DE TESTE.
+   *
+   * E o `⌗` da prancheta: e um botao que nao abre painel nenhum, e sim
+   * leva para um lugar e traz de volta. O glifo e o de "prancheta" porque
+   * e o unico caractere de "apoio" na lista — os outros dez ou descrevem
+   * o que o painel CONTE (`☠` criaturas, `⛁` coleção, `♛` rank) ou sao
+   * acao dentro do mundo (`⇄` troca, `⚒` forja)
+   */
+  teste: "⌗",
+
+  /**
+   * A SAIDA DO VALE 1, que aparece quando o jogador ja esta la.
+   *
+   * ## POR QUE UM GLIFO E NAO UMA ARTE
+   *
+   * Porque e o que os outros botoes sem desenho usam, e o `⌗` da
+   * prancheta ja e um glifo. Trocar so a arte deixaria o botao com imagem
+   * quando ela carrega e com um caractere do teclado quando nao — dois
+   * desenhos para o mesmo botao, e o jogador ve um mudando no meio da tela
+   *
+   * ## POR QUE `⇥` E NAO `←`
+   *
+   * A seta para a esquerda e o glifo do BESTIARIO — `⇄` e troca. Uma seta
+   * que o jogador ja ve em outro botao, invertida, e ambigua: ele nao sabe
+   * se volta ou se troca. O `⇥` e TAB, e nao existe em nenhum outro botao
+   * da prateleira
+   *
+   * E o `⇥` e tabulacao, que e o que o botao faz na prateleira de icones:
+   * tira o foco de um e leva ao outro
+   */
+  sair: "⇥",
 
   /**
    * A ARENA DO CHEFE.
@@ -86,6 +127,26 @@ const HUD_ICON_GLYPH = {
 
   market: "⇄",
 
+  /**
+   * A LOJA.
+   *
+   * ## POR QUE `⚿` E NAO UM SACO DE MOEDA
+   *
+   * Porque `⚿` e a chave da loja, e e o desenho que o jogador ja espera
+   * onde tem coisa para comprar. Um emoji de sacinho ou de moedas seria
+   * colorido e do tamanho errado, e a `⚿` e o que separa o preco do
+   * loot
+   *
+   * ## POR QUE NAO O `⇄` DO MERCADO
+   *
+   * Porque os dois botoes estao vizinhos agora, e o `⇄` e de troca: duas
+   * setas para lados opostos, que e o gesto de DAR e RECEBER entre
+   * jogadores. A loja e o sentido contrario — o jogo VENDE, e nao ha
+   * proposta nem contraproposta. Os dois botoes lado a lado com o mesmo
+   * glifo seriam indistinguiveis na prateleira
+   */
+  loja: "⚿",
+
   // a colecao usava o `⛁`, o mesmo caractere do catalogo de itens
   collection: "⛁",
 
@@ -101,6 +162,41 @@ const HUD_ICON_GLYPH = {
    */
   guild: "⛊",
   settings: "⚙",
+
+  /**
+   * O PASSE.
+   *
+   * ## POR QUE `❖` E NAO UM EMOJI DE INGRESSO
+   *
+   * `🎫` seria a leitura certa e a escolha errada: e um emoji, e os outros
+   * treze botoes da prateleira nao tem nenhum. Um botao que vira imagem
+   * colorida do nada entre treze circulos com glifo de texto parece outro
+   * sistema, e o jogador nao sabe se e botao ou efeito
+   *
+   * O `❖` e o glifo de "recompensa que nao e do mundo": os botoes que
+   * descrevem o mundo usam coisa do mundo (`☠` criatura, `⛁` colecao,
+   * `♛` rank) e os que sao acao usam verbo (`⇄` troca, `⚒` forja). Passe
+   * nao e criatura nem e acao, e o losango preenchido e o unico desenho da
+   * lista que diz "premiado" sem dizer o que
+   */
+  passe: "❖",
+
+  /**
+   * OS TRES ATRIBUTOS DO RODAPE.
+   *
+   * Nao sao botoes: sao leitura. O glifo e o que aparece enquanto a arte
+   * nao carregou, e o `HudIcon` cai nele sozinho quando o id nao tem PNG
+   * — entao os tres funcionam hoje sem nenhum arquivo novo
+   *
+   * - ATK e uma espada: e o que o numero mede, o dano do golpe
+   * - DEF e um escudo: o que o numero mede, o que segura
+   * - VEL e uma seta para a direita: o que o numero mede, a velocidade
+   *   de movimento. Nao e o glifo da seta que a arte usa (`left`/`right`),
+   *   e o `»` de "para onde voce anda"
+   */
+  ataque: "⚔",
+  defesa: "⛊",
+  velocidade: "»",
 };
 
 /**
@@ -146,6 +242,21 @@ export const HUD_ICON_FILE = {
    */
   guild: "guild",
   settings: "gear_pixel_icon",
+
+  /**
+   * Os tres atributos NAO tem arte ainda.
+   *
+   * Eles ficam declarados aqui com o nome do arquivo que DEVERIA estar
+   * la, pelo mesmo motivo da arena e da guilda: e o `hudIcons.test.js`
+   * que compara as duas listas e falha dizendo o que falta
+   *
+   * Sem esta linha eles entrariam na `HUD_ICON_IDS` sem arquivo, o teste
+   * passaria sem ver o problema, e o rodape ficaria com glifo para
+   * sempre
+   */
+  ataque: "ataque",
+  defesa: "defesa",
+  velocidade: "velocidade",
 };
 
 const HUD_ICON_URL = {

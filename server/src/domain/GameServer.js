@@ -1,4 +1,4 @@
-import { randomUUID } from "node:crypto";
+﻿import { randomUUID } from "node:crypto";
 import { GameEngine } from "../../../src/game/engine/GameEngine.js";
 import { createPlayerSession } from "../../../src/game/engine/PlayerSession.js";
 import { CHARACTER_CLASSES } from "../../../src/data/characters/index.js";
@@ -7,6 +7,7 @@ import {
   findMap,
   getMap,
   DEFAULT_MAP_ID,
+  MAP_TESTE_ID,
 } from "../../../src/data/maps/index.js";
 import {
   nameKey,
@@ -25,9 +26,21 @@ import {
 } from "../../../src/game/market/MarketStore.js";
 import { GuildStore } from "../../../src/game/guild/GuildStore.js";
 import { PartyStore, PARTY_INVITE_TTL } from "./PartyStore.js";
+import { createRandom } from "../../../src/data/maps/index.js";
+import { registrarTilesDoDisco } from "../maps/tilesDoDisco.js";
+import {
+  PEDRA_VOLTA_EM_S,
+  SEGUNDOS_POR_BATIDA,
+  batidasDe,
+  encostadoNaPedida,
+  mineravel,
+  sortearSteel,
+  steelMaximoDe,
+} from "../../../src/data/props/mineracao.js";
 import {
   GUILD_CRIACAO_CUSTO,
   GUILD_MEMBROS_MAX,
+  corDaGuilda,
   mensagemDeGuilda,
 } from "../../../src/data/guild/index.js";
 import {
@@ -41,9 +54,14 @@ import {
 import {
   POCAO_MAX_POR_COMPRA,
   getPocao,
+  pocaoLiberada,
 } from "../../../src/data/potions/index.js";
 import { livrosDaClasse } from "../../../src/data/skills/books.js";
 import { portalLiberado } from "../../../src/data/quests/index.js";
+import {
+  LOJA_PACOTES,
+  MOEDAS_ESPECIAIS,
+} from "../../../src/data/loja/index.js";
 import { getTalent, podeGerenciar } from "../../../src/data/guild/index.js";
 import {
   CLIENT_COMMANDS,
@@ -60,6 +78,12 @@ import {
   saveClassOf,
   snapshotSession,
 } from "../../../src/game/save/CharacterSave.js";
+import {
+  encerrar as encerrarFarm,
+  iniciar as iniciarFarm,
+  resolver as resolverFarm,
+} from "../../../src/game/progression/OfflineFarm.js";
+import { grantXp } from "../../../src/game/progression/Levels.js";
 import { SERVER_CONFIG } from "../config.js";
 import { Client } from "./Client.js";
 import { getItem, isStackable } from "../../../src/data/items/index.js";
@@ -85,7 +109,7 @@ const SEGUNDO_ENTRE_SAVES = 30;
  * engolir nenhum dos dois
  *
  * E um numero pequeno de proposito. A janela e percorrida so quando
- * alguem CHAMA o `/health/laco` — uma leitura a cada 200 tiques nao
+ * alguem CHAMA o `/health/laco` â€” uma leitura a cada 200 tiques nao
  * custa, e uma janela de 20.000 custaria mesmo sem ninguem perguntando
  */
 const JANELA_TICK = 200;
@@ -105,13 +129,13 @@ const DISTANCIA_DE_MIRA = 1000;
  *
  * O mapa e do tamanho do mundo, e mandar todos os inimigos para
  * todo mundo a 20Hz seria uma banda absurda por conexao. Cada cliente
- * recebe so o que esta perto dele — e o quadrado evita a raiz a cada
+ * recebe so o que esta perto dele â€” e o quadrado evita a raiz a cada
  * mob: `(dx*dx + dy*dy) > INTERESSE_QUADRADO`
  *
  * O valor e 1000 porque e o alcance da tela do jogador: mandar mob
  * alem disso e trafego para desenhar coisa fora do quadro. E um teste
  * do servidor mede essa distancia no proprio pacote, entao o numero
- * nao e um palpite de rendimento — e o contrato
+ * nao e um palpite de rendimento â€” e o contrato
  */
 const INTERESSE = 1000;
 const INTERESSE_QUADRADO = INTERESSE * INTERESSE;
@@ -139,7 +163,7 @@ const GUILDA_VERSAO = 1;
  * E o mesmo `16` que o colisor usa como raio do jogador, e ele esta em
  * um `const` do motor. Se um dia mudar la, este vira um numero errado
  * e a conferida aceitaria uma chegada com o boneco atravessando a
- * borda — por isso ele e nomeado aqui e nao repetido solto em cada
+ * borda â€” por isso ele e nomeado aqui e nao repetido solto em cada
  * conferida
  */
 const RAIO_DO_JOGADOR = 16;
@@ -165,7 +189,7 @@ const RAIO_DO_JOGADOR = 16;
  * Quem passa um id esta escolhendo de proposito: os testes de combate
  * pedem `map_1`, porque o hub nao tem zona de mob e o teste precisa de
  * um alvo. E assim que o portal ligar os mapas, o cliente passa a dizer
- * qual mapa quer — este parametro e o caminho que ja existe para isso,
+ * qual mapa quer â€” este parametro e o caminho que ja existe para isso,
  * em vez de um `DEFAULT_MAP_ID` lido em tres lugares
  */
 export class GameServer {
@@ -178,10 +202,22 @@ export class GameServer {
     this.clients = new Map();
 
     /**
+     * AS PAREDES DO MAPA ANTES DE QUALQUER JOGADOR.
+     *
+     * O movimento online e autoritativo, entao a parede precisa estar no
+     * servidor e nao so na tela. O `.tmj` e lido do disco e registrado no
+     * mesmo registro que o navegador usa, e o motor pega a colisao por la
+     *
+     * E no construtor porque depois daqui ja existe jogador com posicao: o
+     * `setMap` mais abaixo ja sobe as paredes no `CollisionSystem`
+     */
+    registrarTilesDoDisco();
+
+    /**
      * O CLIENTE de cada entidade de jogador, por `player`.
      *
      * `clienteDoJogador` precisa achar o socket de quem levou o golpe, e
-     * ele recebia a ENTIDADE de jogador — e nao a sessao, e nao o id. A
+     * ele recebia a ENTIDADE de jogador â€” e nao a sessao, e nao o id. A
      * busca era um `for` nos `clients` comparando `client.session?.player
      * === jogador`, e ela roda POR NUMERO DE DANO resolvido
      *
@@ -196,15 +232,15 @@ export class GameServer {
      *
      * Manter em tres lugares: o JOIN cria a sessao, e o `desconectar`
      * tira. A chave do dono (`sessoesPorDono`) e separada e nao e
-     * confundida com esta — ela sobrevive a reconexao, esta nao
+     * confundida com esta â€” ela sobrevive a reconexao, esta nao
      */
     this.clientePorJogador = new Map();
 
     /**
      * O MARKET, e o primeiro estado que NAO e por jogador.
      *
-     * Todo o resto da `PlayerSession` e privado — invento, missao,
-     * bestiario — e o `PlayerSession.js` explica por que estado
+     * Todo o resto da `PlayerSession` e privado â€” invento, missao,
+     * bestiario â€” e o `PlayerSession.js` explica por que estado
      * privado nao pode morar no mundo: dois jogadores compartilhando o
      * mesmo estado veem o loot um do outro. O mercado e o oposto
      * exato: o anuncio de um jogador E o produto que o outro compra,
@@ -212,7 +248,7 @@ export class GameServer {
      *
      * E o `agora` e injetado, como o do `GameClient`. Os sete dias de
      * validade nao cabem num teste de espera, e um timer falso esconde
-     * as bordas — o ultimo segundo, e `expiresAt` igual ao `agora`
+     * as bordas â€” o ultimo segundo, e `expiresAt` igual ao `agora`
      */
     this.market = new MarketStore({
       agora: config.agora ?? (() => Date.now()),
@@ -225,7 +261,7 @@ export class GameServer {
      * market: duas instancias permitiriam a duas guildas com o mesmo
      * nome, ou a um jogador estar em duas ao mesmo tempo
      *
-     * O relogio e o mesmo do market — o `config.agora` — e nao um
+     * O relogio e o mesmo do market â€” o `config.agora` â€” e nao um
      * `Date.now()` solto. E o que faz os pontos por hora serem
      * testaveis: o testeanda o relogio em vez de esperar uma hora
      */
@@ -253,7 +289,7 @@ export class GameServer {
      *
      * O `pagamentosPendentes` e dinheiro de vendedor OFFLINE: o item
      * ja foi vendido e o comprador ja pagou, entao o dinheiro e do
-     * vendedor — apenas nao havia onde creditar. E o `devolucao`, que e
+     * vendedor â€” apenas nao havia onde creditar. E o `devolucao`, que e
      * o item de um anuncio cancelado cuja mochila lotou no caminho
      *
      * As duas sao drenadas quando o jogador entra, em `entrar`, e as
@@ -263,6 +299,36 @@ export class GameServer {
      */
     this.pagamentosPendentes = [];
     this.pendentesDeDevolucao = [];
+
+    /**
+     * AS PEDRAS DE CADA MAPA, E O QUE SOBRA DELAS.
+     *
+     * A chave e o MAPA, e nao a sessao. E a decisao que define se dois
+     * jogadores veem o mesmo campo: a pedida e do mundo, nao do jogador
+     *
+     * Se isto vivesse na sessao, cada um teria a sua copia da pedida. O
+     * primeiro a minerar esgotaria a DELA, o segundo veria a pedra ainda
+     * de pe com o painel mostrando batidas que nao existiam mais, e os
+     * dois jogadores somariam steel de um recurso que so havia um
+     *
+     * O valor e um `Map` de `propId` para o estado da pedra, e so entra
+     * quem precisa de alguma coisa: uma pedra intacta nao tem entrada, e
+     * `esgotadas()` devolve so as que estao fora. Com 40 cristais e dois
+     * demolidos, o snapshot leva dois ids e nao quarenta
+     */
+    this.minasPorMapa = new Map();
+
+    /**
+     * O RELOGIO DO SERVIDOR, guardado aqui e nao lido de `Date.now()`
+     * espalhado.
+     *
+     * E o mesmo `config.agora` que ja vai para o mercado, a guilda e as
+     * parties, e pelo mesmo motivo: a mineracao tem um prazo de 10s por
+     * batida e uma ressurreicao de 120s, e um prazo so se testa mexendo no
+     * relogio. Com `Date.now()` dentro do metodo, o teste teria de esperar
+     * dois minutos de verdade
+     */
+    this.relogio = config.agora ?? (() => Date.now());
 
     // chave do dono -> sessao viva. Ver o `entrar`
     this.sessoesPorDono = new Map();
@@ -297,9 +363,23 @@ export class GameServer {
          * Sem isto o rank conhece apenas quem esta conectado, e
          * fechar o navegador apaga o jogador da tabela
          */
-        personagensSalvos: () => this.listaDePersonagensSalvos(),
-      },
-    );
+personagensSalvos: () => this.listaDePersonagensSalvos(),
+
+          /**
+           * QUANTO RESTA DE UMA PEDIDA, lido do estado do mapa.
+           *
+           * O contador de batidas mora aqui, e nao na sessao: a PEDIDA e do
+           * mundo. Com o contador na sessao, largar a pedra e voltar
+           * recomeÃ§ava do total cheio, e o tempo gasto sumia
+           *
+           * E uma funcao e nao um valor, pelo mesmo motivo do
+           * `personagensSalvos`: o painel e montado a 4Hz por jogador e a
+           * resposta muda a cada batida
+           */
+          lerPedida: (propId, mapa) =>
+            this.leituraDePedida(propId, mapa),
+        },
+      );
 
     // o motor ja sabe montar o painel inteiro (inventario,
     // missoes, craft, numeros do personagem) porque o offline
@@ -333,7 +413,7 @@ export class GameServer {
      * O NUMERO DE DANO que sobe na tela de quem o provocou.
      *
      * O motor do servidor calcula o dano e cria o texto flutuante no
-     * `EffectSystem` dele — que nunca e desenhado, porque este motor
+     * `EffectSystem` dele â€” que nunca e desenhado, porque este motor
      * foi criado com `canvas = null`. Sem este repasse, o numero
      * nasceria e morreria no servidor, e o cliente nunca veria um
      * unico numero de dano no online
@@ -437,7 +517,7 @@ export class GameServer {
      * `listaDePersonagensSalvos` e chamada por CADA painel, e cada painel
      * a 4Hz por cliente. Antes ela fazia, por chamada, um `readdirSync`
      * mais um `existsSync` + `readFileSync` + `JSON.parse` para CADA save
-     * em disco — tudo sincrono, tudo na thread do `setInterval` de 20Hz
+     * em disco â€” tudo sincrono, tudo na thread do `setInterval` de 20Hz
      *
      * Com 50 jogadores e 50 saves, isso dava 200 paineis/s vezes 51
      * operacoes de arquivo = **~10.700 operacoes sincronas por segundo**
@@ -448,12 +528,12 @@ export class GameServer {
      *
      * O cache e invalidado em `guardar`, o unico caminho que escreve save:
      * o servidor nunca chama `apagar`. O autosave de 30s invalida junto,
-     * entao a janela real e de 30s — o que corta as 200 releitura por
+     * entao a janela real e de 30s â€” o que corta as 200 releitura por
      * segundo para ~1 passagem a cada 30s
      *
      * A lista devolvida e a MESMA referencia para todos os paineis do
      * intervalo. `montarRank` ordena uma copia (`[...lista].sort`) e nao
-     * muta a entrada, entao isso e seguro — mas e um contrato, e nao um
+     * muta a entrada, entao isso e seguro â€” mas e um contrato, e nao um
      * detalhe: se algum dia alguem ordenar a lista no lugar, o rank
      * passa a mudar de ordem conforme os paineis correm
      */
@@ -463,7 +543,7 @@ export class GameServer {
      * CACHE DOS DROPS do tick, e o mapa a que ele pertence.
      *
      * Ve `estadoDrops`. Vive junto do cache de saves porque e o mesmo
-     * tipo de desperdicio — trabalho identico refeito por cliente — mas
+     * tipo de desperdicio â€” trabalho identico refeito por cliente â€” mas
      * por um motivo diferente: o de saves era I/O de disco, e este e
      * alocacao
      *
@@ -482,7 +562,7 @@ export class GameServer {
      *
      * O arquivo e um so para o servidor inteiro, ao contrario do
      * personagem: os anuncios de um jogador sao o produto que o outro
-     * compra. `mercadoSujo` existe para nao escrever a cada tick — o
+     * compra. `mercadoSujo` existe para nao escrever a cada tick â€” o
      * `expirarAnuncios` roda 20 vezes por segundo, e um mercado que
      * nao mudou nao tem nada a dizer
      */
@@ -501,7 +581,7 @@ export class GameServer {
      *
      * Mesmo desenho do mercado, e pelo mesmo motivo: o `GuildStore` e
      * estado em memoria e o mundo precisa das guildas ANTES do primeiro
-     * jogador conectar — a aba Membros consulta o store no primeiro
+     * jogador conectar â€” a aba Membros consulta o store no primeiro
      * painel, e uma guilda que so aparecesse no primeiro `criar` seria
      * uma guilda que some da tela de quem ja estava dentro dela
      *
@@ -537,7 +617,7 @@ export class GameServer {
 
     // pelas CHAVES: o valor do Map e um booleano de "conectado", e
     // nao o cliente. Contar os valores contaria quantos `true` tem o
-    // mapa — sempre a mesma coisa, e sempre errada
+    // mapa â€” sempre a mesma coisa, e sempre errada
     for (const client of this.clients.keys()) {
       if (client.joined) total += 1;
     }
@@ -548,7 +628,7 @@ export class GameServer {
   /**
    * Um socket virou conexao.
    *
-   * Só registra. A sessao de jogador nasce no JOIN, e nao aqui: um
+   * SÃ³ registra. A sessao de jogador nasce no JOIN, e nao aqui: um
    * socket aberto sem nome e uma aba que recarregou a tela
    */
   conectar(client) {
@@ -684,7 +764,7 @@ export class GameServer {
      * sobrescreve o vetor de movimento, que o proximo SNAPSHOT de 20Hz
      * ja leva. Mas o painel custa ~2,5ms para montar e serializar
      * (154KB, dos quais 112KB sao o catalogo de craft), entao responder
-     * a eles custava 115ms de CPU por segundo POR CLIENTE — na mesma
+     * a eles custava 115ms de CPU por segundo POR CLIENTE â€” na mesma
      * thread do `setInterval` do tick. Com meia duzia de jogadores era
      * um terco do tiqueUMENTO em construir painel para ninguem
      */
@@ -706,7 +786,7 @@ export class GameServer {
    * mochila do dono e este metodo
    *
    * Sem ele o vendedor anunciava, o prazo vencia, e o item ficava
-   * guardado no anuncio removido — um item que ninguem tinha, ninguem
+   * guardado no anuncio removido â€” um item que ninguem tinha, ninguem
    * via e ninguem podia mais usar
    *
    * E chamado a cada tick, e nao num laco de relogio: o
@@ -792,7 +872,7 @@ export class GameServer {
    *
    * A busca era um `for` nos `clients`, e ela roda POR NUMERO DE DANO
    * resolvido. O comentario antigo aqui dizia que um indice nao valia o
-   * preco "por numero de dano" — o que era verdade com o servidor de
+   * preco "por numero de dano" â€” o que era verdade com o servidor de
    * poche gente para o qual foi escrito. Este e o servidor de muita gente
    * ao mesmo tempo, e o preco passou a ser O(n) por golpe
    */
@@ -808,7 +888,7 @@ export class GameServer {
    * Sao dois: o que atirou e o que levou. O jogador ve o numero dos
    * proprios golpes e o dano que ele mesmo apanhou, e nao o dos outros.
    * Com lots de gente no mapa, o numero alheio enche a tela sem
-   * informar nada — e o jogador nao consegue ver o proprio HP cair
+   * informar nada â€” e o jogador nao consegue ver o proprio HP cair
    * entre tres numeros que nao tem nada a ver com ele
    *
    * O `missed` vai tambem: um golpe que passou batido e a informacao
@@ -921,7 +1001,7 @@ export class GameServer {
    * So um sinalizador: quem escreve e o `guardarMercado`, no
    * intervalo de gravacao e no `stop`. Marcar e gritar de imediato
    * resolveria o problema da queda, mas cada anuncio, compra e
-   * cancelamento viraria uma escrita de arquivo — e a expiracao roda a
+   * cancelamento viraria uma escrita de arquivo â€” e a expiracao roda a
    * cada tick
    */
   marcarMercadoSujo() {
@@ -934,7 +1014,7 @@ export class GameServer {
    * Grava o mercado, se algo mudou.
    *
    * `true` quando escreveu. `false` quando a persistencia esta
-   * desligada, quando nada mudou, ou quando o disco falhou — e nenhum
+   * desligada, quando nada mudou, ou quando o disco falhou â€” e nenhum
    * dos tres e motivo para derrubar o servidor no meio de uma venda
    */
   guardarMercado() {
@@ -989,7 +1069,7 @@ export class GameServer {
    * So um sinalizador, como o mercado: quem escreve e o `guardarGuildas`,
    * no intervalo de gravacao e no `stop`. Marcar e gritar de imediato
    * resolveria o relog, mas cada entrada aceita, cada talento e cada
-   * pedido aceito viraria uma escrita de arquivo — e o accruo de pontos
+   * pedido aceito viraria uma escrita de arquivo â€” e o accruo de pontos
    * chama `sincronizarPontos` a cada tick
    */
   marcarGuildaSuja() {
@@ -1002,7 +1082,7 @@ export class GameServer {
    * Grava as guildas, se alguma mudou.
    *
    * `true` quando escreveu. `false` quando a persistencia esta desligada,
-   * quando nada mudou, ou quando o disco falhou — e nenhum dos tres e
+   * quando nada mudou, ou quando o disco falhou â€” e nenhum dos tres e
    * motivo para derrubar o servidor no meio de uma promocao
    */
   guardarGuildas() {
@@ -1021,7 +1101,7 @@ export class GameServer {
    * O aviso de tela de UMA sessao.
    *
    * O `showMessage` do motor escreve na sessao em FOCO, entao ele
-   * resolveria o caso do jogador que fez a acao — e nao o do
+   * resolveria o caso do jogador que fez a acao â€” e nao o do
    * vendedor, que esta em outra sessao. Aqui o texto vai direto no
    * dono, com o mesmo relogio de 2.5s que o motor usa
    */
@@ -1054,7 +1134,7 @@ export class GameServer {
      * `motivoDoMarket` sabe o que aconteceu ("mochila cheia"), mas nao
      * o quanto: e a compra que sabe que o anuncio exige 3 slots e o
      * jogador tem 1. Quando a chamada traz um texto proprio, ele e o
-     * que o jogador le — e o generico continua sendo o padrao para
+     * que o jogador le â€” e o generico continua sendo o padrao para
      * quem nao tem nada de melhor a dizer
      */
     this.avisoDoDono(
@@ -1109,7 +1189,7 @@ export class GameServer {
      * O cliente PEDE uma quantidade, e o servidor decide: um `count`
      * forjado acima do que o vendedor tem vira a quantidade que ele tem,
      * e nunca um numero maior. Sem este corte, o `takeUid` cortaria
-     * sozinho — mas o painel do jogador prometeria um lote que ele
+     * sozinho â€” mas o painel do jogador prometeria um lote que ele
      * receberia menor, e o preco do anuncio e do LOTE inteiro
      *
      * Uma peca que NAO empilha e sempre 1, ignorando o pedido: um arco
@@ -1254,10 +1334,10 @@ export class GameServer {
    *
    * O mercado entre jogadores move dinheiro entre DUAS sessoes, e por
    * isso ele mora aqui e nao no motor. A loja do mercador move dinheiro
-   * para o jogo: uma sessao só, um preco que vem do catalogo, e
+   * para o jogo: uma sessao sÃ³, um preco que vem do catalogo, e
    * nenhum outro jogador envolvido. E por isso que ela usa
    * `showMessage` como o encantar e a guilda, em vez do
-   * `resultadoDoMarket` — aquele existe para reconciliar as duas telas
+   * `resultadoDoMarket` â€” aquele existe para reconciliar as duas telas
    * do mercado ao mesmo tempo, e aqui nao ha segunda tela
    *
    * ## NADA DO PEDIDO E CONFIAVEL
@@ -1273,7 +1353,7 @@ export class GameServer {
    *
    * E a mesma ordem do `comprarNoMarket`, e pelo mesmo motivo. E o
    * espaco que falha depois da cobranca que obriga a devolver o
-   * dinheiro — e devolver junto com o que entrou na mochila, para o
+   * dinheiro â€” e devolver junto com o que entrou na mochila, para o
    * jogador ficar exatamente onde estava. Sem o `take`, ele perderia o
    * preco E ficaria com parte das pocoes de graca
    */
@@ -1282,9 +1362,37 @@ export class GameServer {
 
     if (!pocao) {
       this.engine.showMessage(
-        "O mercador não tem essa poção.",
+        "O mercador nÃ£o tem essa poÃ§Ã£o.",
         true,
       );
+
+      return;
+    }
+
+    /**
+     * O NIVEL MINIMO, conferido ANTES de cobrar.
+     *
+     * ## POR QUE AQUI E NAO NO PAINEL
+     *
+     * Porque o painel e um desenho. `parsePanel` joga fora tudo que o
+     * cliente nao pediu, e o nivel nao esta na lista â€” entao um cliente
+     * editado so precisa mandar o `itemId` certo e o preco errado nao
+     * importa. Se a trava vivesse so na tela, ela existiria como numero
+     * na tela e nao como regra do jogo
+     *
+     * E a mesma ordem do `comprarLivro` logo abaixo: conferido antes do
+     * `spendCoins`, para o jogador nunca ficar com o preco debitado de
+     * uma compra recusada
+     *
+     * O `nivel` vem da sessao e nunca do pedido, e e por isso que o
+     * `motivo` vem pronto do catalogo: os dois lados precisam da mesma
+     * frase, e a do servidor tem de ser a mesma que o painel mostra no
+     * `title` do botao
+     */
+    const trava = pocaoLiberada(sessao?.player?.level, pocao);
+
+    if (!trava.ok) {
+      this.engine.showMessage(trava.motivo, true);
 
       return;
     }
@@ -1306,7 +1414,7 @@ export class GameServer {
 
     if (!sessao.inventory.spendCoins(preco)) {
       this.engine.showMessage(
-        `Moedas insuficientes: ${preco} são necessárias.`,
+        `Moedas insuficientes: ${preco} sÃ£o necessÃ¡rias.`,
         true,
       );
 
@@ -1328,10 +1436,20 @@ export class GameServer {
       return;
     }
 
-    this.engine.showMessage(
-      `${getItem(pocao.id)?.name ?? pocao.id} x${quantidade}.`,
-    );
-  }
+this.engine.showMessage(
+        `${getItem(pocao.id)?.name ?? pocao.id} x${quantidade}.`,
+      );
+
+      /**
+       * A COMPRA CONTA PARA O TUTORIAL DA LOJA.
+       *
+       * E no FIM de proposito: o caminho tem tres saidas antes daqui â€” a
+       * pocao inexistente, o nivel trancado e a mochila lotada com o
+       * dinheiro devolvido. Contar em qualquer uma delas fecharia um tutorial
+       * de compra que o jogador nao.completeou
+       */
+      sessao.quests?.onAcao?.("buy");
+    }
 
   /**
    * COMPRAR um livro de habilidade com o Mestre de Habilidades.
@@ -1342,9 +1460,9 @@ export class GameServer {
    *
    * ## POR QUE UM POR VEZ
    *
-   * `comprarPocao` aceita quantidade porque poçao se empilha e faz
+   * `comprarPocao` aceita quantidade porque poÃ§ao se empilha e faz
    * sentido ter tres na mochila. Um livro ENSINA uma skill, e a segunda
-   * copia do mesmo livro nao ensina mais nada — o `aprenderHabilidade`
+   * copia do mesmo livro nao ensina mais nada â€” o `aprenderHabilidade`
    * recusa e o jogador teria pago por nada
    *
    * ## A CLASSE E DO SERVIDOR
@@ -1382,7 +1500,7 @@ export class GameServer {
      *
      * Conferido ANTES de cobrar, e nao depois de entregar. Se a checagem
      * viesse depois, o jogador pagaria 150 moedas, receberia o livro, e o
-     * `aprenderHabilidade` recusaria no uso — o dinheiro foi gasto para
+     * `aprenderHabilidade` recusaria no uso â€” o dinheiro foi gasto para
      * nada e o jogador teria o livro na mao sem uso
      */
     if (sessao.habilidadesAprendidas.has(livro.skillId)) {
@@ -1416,6 +1534,236 @@ export class GameServer {
     this.engine.showMessage(
       `${getItem(livro.itemId)?.name ?? livro.itemId}. Use o livro para aprender.`,
     );
+
+    /**
+     * A COMPRA CONTA PARA O TUTORIAL DA LOJA.
+     *
+     * Pelo mesmo motivo do `comprarPocao`: e no fim, depois de todas as
+     * saidas que devolvem o dinheiro
+     */
+    sessao.quests?.onAcao?.("buy");
+  }
+
+  /**
+   * COMPRAR um produto da LOJA.
+   *
+   * E a mesma transacao do `comprarPocao` e do `comprarLivro` â€” preco do
+   * catalogo do servidor, pedido que nao escolhe o que paga, mochila cheia
+   * devolvendo o dinheiro â€” com uma diferenca que these nao tem: o produto
+   * e um CONJUNTO, e a transacao so fecha se o CONJUNTO inteiro couber
+   *
+   * ## POR QUE "CABER INTEIRO" E NAO "CABER PARCIALMENTE"
+   *
+   * Porque um pacote pela metade e o pior resultado possivel: o jogador
+   * pagou 560, recebeu 2 dos 3 itens e o terceiro foi devolvido. Ele nao
+   * pode pedir reembolso â€” o jogo nao tem â€” e ele nao sabe o que faltou.
+   *
+   * Entao o espaco e conferido ANTES do `spendCoins`, com todos os itens do
+   * pacote de uma vez. E por isso que o preco debitado e a entrega nao
+   * pertencem a `inventory.add`: um pacote com 3 pecas de equipamento nao
+   * empilha, e cada `add` contaria uma pilha a mais na capacidade
+   *
+   * ## POR QUE A MOEDA VAI POR FORA DO `inventory.add`
+   *
+   * Porque ouro e steel sao SALDO, nao pilha. Eles aparecem como `itemId`
+   * no catalogo so porque o card precisa de um glifo â€” o `MOEDAS_ESPECIAIS`
+   * e o que da o icone. Passar "ouro" pelo `add` criaria uma pilha de ouro
+   * na mochila, e o jogador veria ouro no inventario E no saldo
+   *
+   * ## POR QUE O PRODUTO COMPRADO FICA MARCADO
+   *
+   * Porque o card precisa desativar, e o servidor e o unico lugar que sabe
+   * se a compra saiu. Marcar na tela seria o `useState` de antes: o jogador
+   * recarregaria e o pacote voltaria a ficar compravel, e ele poderia pagar
+   * duas vezes
+   */
+  comprarProduto(sessao, pedido) {
+    const produto = LOJA_PACOTES.find(
+      (p) => p.id === pedido.produtoId,
+    );
+
+    if (!produto) {
+      this.engine.showMessage("Esse produto nao existe.", true);
+
+      return;
+    }
+
+    /**
+     * JA COMPRADO.
+     *
+     * Conferido antes de cobrar, como toda recusa deste arquivo. Sem esta
+     * linha o produto de 12 itens seria compravel em loop, e cada compra
+     * entregaria os 12 de novo
+     */
+    if (sessao.lojaComprados.has(produto.id)) {
+      this.engine.showMessage("Voce ja comprou esse produto.", true);
+
+      return;
+    }
+
+    /**
+     * OS QUE VIRAM PILHA, e a MOEDA, que vai por fora.
+     *
+     * ## POR QUE `quantidade` E NAO `count`
+     *
+     * Porque o e o nome que o catalogo da loja usa em `itens`, e o mesmo que
+     * o `LojaPanel` le no `x{it.quantidade}`. Escrever `count` aqui
+     * entregaria `undefined`: o jogador pagava 180, o preco saia, e o
+     * `inventory.add(id, undefined)` nao colocava nada na mochila
+     *
+     * E por isso que a moeda NAO vem de `itens`: ela vem do `valorReal`,
+     * que e o campo que o card ja mostra como "500 de ouro". Filtrar
+     * `itens` procurando `"ouro"` nunca encontraria nada
+     */
+    /**
+     * OS QUE VIRAM PILHA, e a MOEDA, que vai por fora.
+     *
+     * ## POR QUE A MOEDA PRECISA SAIR DE `itens`
+     *
+     * Porque o catalogo escreve a moeda nos DOIS lugares: em `itens` com o
+     * id `"ouro"`, e em `valorReal.ouro`. O `itens` existe so para o card
+     * ter um glifo â€” o `MOEDAS_ESPECIAIS` e o que da o icone, e e por isso
+     * que `ItemIcon` nunca e chamado para ela
+     *
+     * Sem este filtro, o `inventory.add("ouro", 250)` criaria uma PILHA de
+     * ouro na mochila, e o jogador veria o ouro no inventario E no saldo. O
+     * teste chegou a recusar "Mochila cheia" numa mochila VAZIA por causa
+     * disso: `hasSpace` contava uma pilha que nunca deveria existir
+     */
+    const pilhas = produto.itens.filter(
+      (entrada) => !MOEDAS_ESPECIAIS[entrada.itemId],
+    );
+
+    /**
+     * A MOEDA, LIDA DE `itens`.
+     *
+     * E nao de `valorReal`: os dois campos concordam, mas `itens` e a lista
+     * que o card mostra, e e dela que o jogador leu "1.000 de ouro". Ler o
+     * `valorReal` e reescrever a regra do catalogo em outro lugar
+     */
+    const ouro = produto.itens.reduce(
+      (total, entrada) =>
+        entrada.itemId === "ouro"
+          ? total + Number(entrada.quantidade ?? 0)
+          : total,
+      0,
+    );
+
+    const steel = produto.itens.reduce(
+      (total, entrada) =>
+        entrada.itemId === "steel"
+          ? total + Number(entrada.quantidade ?? 0)
+          : total,
+      0,
+    );
+
+    /**
+     * O ESPACO ANTES DO DINHEIRO.
+     *
+     * E o `hasSpace` do proprio `Inventory`, e ele conta PILHAS â€” um
+     * material que o jogador ja tem cresce na pilha existente em vez de
+     * pedir um lugar novo. Passando um numero de unidades aqui, um pacote
+     * de 12 materiais seria recusado num inventario com 3 espacos livres,
+     * e o jogador veria "Mochila cheia" sem ter
+     */
+    if (!sessao.inventory.hasSpace(pilhas)) {
+      this.engine.showMessage("Mochila cheia.", true);
+
+      return;
+    }
+
+/**
+     * O PRECO E EM DIAMANTE, e nao em ouro.
+     *
+     * ## A DIVISAO DAS DUAS LOJAS
+     *
+     * Sao dois lugares e duas moedas, e a diferenca nao e o preco: e QUEM
+     * pode vender. A loja do NPC vende pocao e livro, e e ouro â€” dinheiro que
+     * o jogador ganha matando bicho. A `LOJA` vende pacote e evento, e e
+     * diamante â€” a moeda que o jogo nao produz em drop nenhum
+     *
+     * ## POR QUE ISTO PRECISA FICAR SEPARADO
+     *
+     * Porque `spendDiamonds` devolve `false` sem mexer no saldo quando falta,
+     * e a compra de ouro continuaria debitando `coins` â€” os dois saldos
+     * convivem, e um jogador pode ter 1000 diamantes e 12 ouro
+     *
+     * A loja do mercador e o unico lugar que ainda usa `spendCoins`, e
+     * `comprarLivro` e `comprarPocao` continuam em ouro de proposito
+     */
+      if (!sessao.inventory.spendDiamonds(produto.preco)) {
+        this.engine.showMessage(
+          `Diamantes insuficientes: ${produto.preco} sao necessarios.`,
+          true,
+        );
+
+        return;
+      }
+
+    /**
+     * O QUE ENTROU, para o aviso.
+     *
+     * E montado aqui e nao no catalogo porque o aviso tem que dizer o que o
+     * jogador recebeu, e nao o que o card dizia: `valorReal.texto` e a
+     * promessa, e isto e a entrega
+     */
+    const recebido = [
+      ...pilhas.map(
+        (entrada) =>
+          `${entrada.quantidade}x ${getItem(entrada.itemId)?.name ?? entrada.itemId}`,
+      ),
+      ...(ouro > 0 ? [`${ouro} de ouro`] : []),
+      ...(steel > 0 ? [`${steel} de steel`] : []),
+    ];
+
+    for (const entrada of pilhas) {
+      const entregue = sessao.inventory.add(
+        entrada.itemId,
+        entrada.quantidade,
+      );
+
+      /**
+       * A ENTREGA PARCIAL AINDA ASSIM.
+       *
+       * O `hasSpace` de cima ja recusou o pacote que nao cabe, entao este
+       * desvio e o caso que o `hasSpace` nao prevÃª: um item do pacote ter
+       * espaco, mas nao o suficiente para a pilha inteira. A devolve aqui
+       * e o unico jeito de nao manter um produto marcado como comprado que
+       * o jogador nao recebeu inteiro
+       *
+       * A devolve e em `addDiamonds` e nao em `addCoins` porque o debito
+       * acima foi em diamante. Devolver em ouro daria ao jogador uma moeda
+       * que ele nao gastou â€” e o preco do pacote mais um preco em ouro
+       * que nunca foi cobrado
+       */
+      if (entregue.added < entrada.quantidade) {
+        sessao.inventory.addDiamonds(produto.preco);
+
+        if (entregue.added > 0) {
+          sessao.inventory.take(entrada.itemId, entregue.added);
+        }
+
+        this.engine.showMessage("Mochila cheia.", true);
+
+        return;
+      }
+    }
+
+    /**
+     * A MOEDA DEPOIS, e nao junto do preco.
+     *
+     * Soma o saldo em vez de passar pelo `add`, e so depois que todos os
+     * itens couberam: um pacote que da ouro e nao cabe nao pode deixar o
+     * ouro no jogador com a compra desfeita
+     */
+    if (ouro > 0) sessao.inventory.addCoins(ouro);
+    if (steel > 0) sessao.inventory.addSteel(steel);
+
+    sessao.lojaComprados.add(produto.id);
+
+    this.engine.showMessage(`${produto.nome}: ${recebido.join(", ")}.`);
+
+    sessao.quests?.onAcao?.("buy");
   }
 
   /**
@@ -1424,7 +1772,7 @@ export class GameServer {
    * A ordem das tres checagens antes de qualquer transferencia:
    * saldo do comprador, espaco na mochila do comprador, e pagamento ao
    * vendedor. Qualquer uma delas falha ANTES de o item sair do
-   * vendedor — um `takeUid` antes do `spendCoins` daria o item de
+   * vendedor â€” um `takeUid` antes do `spendCoins` daria o item de
    * graca, e um `spendCoins` antes do espaco daria o dinheiro sem o
    * item
    */
@@ -1458,8 +1806,8 @@ export class GameServer {
      *
      * Antes a compra gastava a moeda, tentava o `add` e so entao
      * devolvia o dinheiro se o `add` nao coubesse. O jogador recebia
-     * "mochila cheia" sem nenhum numero — e, como o `add` funde so com
-     * pilhas da MESMA raridade, dava para ter espaço na mochila e ainda
+     * "mochila cheia" sem nenhum numero â€” e, como o `add` funde so com
+     * pilhas da MESMA raridade, dava para ter espaÃ§o na mochila e ainda
      * assim faltar: 200 unidades de um material que voce nao tem
      * precisam de 3 slots (99 por pilha), e 1 slot livre parece
      * suficiente
@@ -1523,7 +1871,7 @@ export class GameServer {
      *
      * Online ele esta em `sessoesPorDono` e o dinheiro entra na hora.
      * Offline nao ha sessao para Creditar, entao o pagamento fica
-     * pendente e e pago quando ele voltar — e nao e uma segunda
+     * pendente e e pago quando ele voltar â€” e nao e uma segunda
      * origem da verdade: o valor ja foi decidido no `buy`
      */
     const vendedor = this.sessaoDoDono(anuncio.sellerKey);
@@ -1539,7 +1887,7 @@ export class GameServer {
       /**
        * O dinheiro fica aqui, e nao e uma segunda venda.
        *
-       * O `market.buy` acima JA chamou `registrarVenda` — o historico
+       * O `market.buy` acima JA chamou `registrarVenda` â€” o historico
        * tem uma entrada so. Chamar de novo duplicaria a linha, e o
        * jogador veria a mesma venda duas vezes no historico
        */
@@ -1624,7 +1972,7 @@ export class GameServer {
      *
      * O `id` acima muda a cada entrada: ele serve para o mundo (quem
      * esta onde, quem atira em quem) e e descartado quando a conexao
-     * cai. O mercado precisa do contrario — um anuncio continua valendo
+     * cai. O mercado precisa do contrario â€” um anuncio continua valendo
      * com o jogador fora, e o dinheiro de uma venda offline tem de
      * encontrar o dono quando ele volta. Guardados pelo `id`, os dois
      * casos nunca mais casariam: o pagamento ficaria numa fila para uma
@@ -1717,7 +2065,7 @@ export class GameServer {
        *
        * O `restaurar` acima ja faz isso, e sem uma chamada igual aqui
        * um jogador que acabou de criar o personagem entrava com os
-       * numeros crus da classe — sem o crescimento do nivel 1. O
+       * numeros crus da classe â€” sem o crescimento do nivel 1. O
        * efeito nao era so no combate: o painel de status mostra a
        * coluna `Bonus` como `total - base`, e um total MENOR que a
        * base produzia um bonus negativo na tela logo no primeiro
@@ -1746,7 +2094,7 @@ export class GameServer {
      * O gancho de "chefe caiu" e ligado aqui, na PRIMEIRA entrada.
      *
      * Nao no construtor porque ele nao existe enquanto o motor nao tem
-     * `onChefeDerrotado` declarado — e ligar antes de `jogar` existir
+     * `onChefeDerrotado` declarado â€” e ligar antes de `jogar` existir
      * seria um `undefined` silencioso, do tipo que so apareceria na
      * primeira vitoria da arena
      */
@@ -1757,7 +2105,7 @@ export class GameServer {
      *
      * O dinheiro de um item vendido offline e o item de um anuncio
      * cancelado com a mochila lotada. As duas filas vivem no servidor
-     * desde a venda e so tem sessao onde cair quando ele volta — e o
+     * desde a venda e so tem sessao onde cair quando ele volta â€” e o
      * pagamento de uma venda e dinheiro DELE, entao o dinheiro nao
      * pode esperar mais
      *
@@ -1799,8 +2147,8 @@ export class GameServer {
          * Deixar a entrada como estava, para a proxima entrada tentar
          * de novo, creditaria o item DE NOVO: a mochila ja tem a
          * peca que coube, e a fila traria a quantidade completa outra
-         * vez. Um `filter` que devolvesse `added >= count` — o
-         * inverso — apagava a fila justamente no caso em que a
+         * vez. Um `filter` que devolvesse `added >= count` â€” o
+         * inverso â€” apagava a fila justamente no caso em que a
          * devolucao tinha dado certo, que e o caso comum
          */
         return resto > 0
@@ -1818,6 +2166,37 @@ export class GameServer {
         `Recebeu ${pendentes} item(ns) pendente(s) do mercado.`,
       );
     }
+
+    /**
+     * O FARM OFFLINE, e ele e resolvido AQUI, antes do primeiro pacote.
+     *
+     * ## POR QUE NESTE PONTO
+     *
+     *porque e o unico lugar em que as tres coisas que o accrue precisa
+     * estao prontas ao mesmo tempo:
+     *
+     * 1. a sessao existe e tem os STATS DERIVADOS â€” o `restaurar` ja
+     *    rodou o `applyEquipment`, entao o `attack` do jogador e o de
+     *    verdade, com equipamento e bonus, e nao o da ficha
+     * 2. o motor esta FOCADO neste jogador (`focusPlayer` na linha de
+     *    cima), entao `grantXp` e `applyEquipment` escrevem em quem
+     *    acabou de entrar e nao em quem entrou por ultimo
+     * 3. NADA FOI ENVIADO AINDA â€” o `WELCOME` sai na proxima linha
+     *
+     * Se o accrue rodasse depois do `WELCOME`, o jogador veria um painel
+     * com o nivel velho e so no pacote seguinte o nivel novo, com o
+     * inventario mudando debaixo do cursor. Aqui ele entra no jogo ja
+     * com o resultado
+     *
+     * ## E POR QUE DENTRO DE `withPlayer`
+     *
+     * O `focusPlayer` ja aponta para este jogador, mas `withPlayer`
+     * tambem garante que uma excecao dentro do accrue nao deixe o foco
+     * vazando para o proximo `tick`
+     */
+    this.engine.withPlayer(sessao.id, () => {
+      this.resolverFarmOffline(sessao);
+    });
 
     client.enviar(SERVER_EVENTS.WELCOME, {
       playerId: id,
@@ -1884,7 +2263,7 @@ export class GameServer {
  *
  * 1. **o jogador nao esta em cima do portal.** Sem esta conferida,
  *    qualquer jogador Could teleportar para o vale sem nunca andar ate
- *    o portal — e o portal seria decoracao
+ *    o portal â€” e o portal seria decoracao
  * 2. **o portal nao tem destino.** Os dois do vale ainda nao tem, e
  *    atravessar um enfeite nao tem para onde ir
  * 3. **o destino nao existe no registro.** Um `destino` com id errado
@@ -1909,8 +2288,8 @@ if (emCima.portal.id !== portalId) return false;
      * A TRAVA, e a RECUSA COM MOTIVO.
      *
      * O `engine.travessarPortal` tambem confere a trava, mas ele so
-     * devolve `false` — e o jogador ficaria em cima do portal apertando
-     * um botao que nao faz nada, sem nunca saber o porquê. Aqui a recusa
+     * devolve `false` â€” e o jogador ficaria em cima do portal apertando
+     * um botao que nao faz nada, sem nunca saber o porquÃª. Aqui a recusa
      * vira aviso, e o aviso carrega o nome da missao que falta
      *
      * E a conferida fica ANTES do `engine.travessarPortal` de proposito:
@@ -1987,19 +2366,68 @@ if (emCima.portal.id !== portalId) return false;
   // o bonus dos talentos entra no `applyEquipment`
   this.engine.applyEquipment();
 
-  return true;
-}
+return true;
+  }
 
-/**
- * FUNDA uma guilda, e cobra os dez milhoes.
- *
- * Fica fora do `operarGuilda` porque so esta operacao toca no dinheiro:
+  /**
+   * LIGA OU DESLIGA a tag do jogador sobre o boneco dele.
+   *
+   * ## POR QUE NAO VAI PELO `operarGuilda`
+   *
+   * Porque o `operarGuilda` marca o arquivo de guildas e chama o
+   * `applyEquipment`, e esta operacao nao e nenhuma das duas coisas: e uma
+   * preferencia de tela, que nao muda nenhum stat de ninguem. Passando por
+   * la, cada clique no interruptor reescreveria o arquivo de guildas inteiro
+   * e recalcularia os atributos de todo mundo que esta online
+   *
+   * E o store ainda e quem confere que o jogador tem guilda: um pedido de
+   * quem nao tem devolve "semGuilda" e nada acontece
+   *
+   * ## POR QUE O AVISO DE RECUSA E O MESMO DA GUILDA
+   *
+   * Porque o store devolve o motivo e o painel ja sabe ler o aviso do
+   * `operarGuilda`. Uma frase nova aqui exigiria uma entrada nova em
+   * `GUILD_MENSAGEM` para um caso que ja tem nome
+   */
+  definirTagDoJogador(sessao, pedido) {
+    if (!this.guild) return false;
+
+    const resultado = this.guild.definirMostrarTag(
+      chaveDaSessao(sessao),
+      pedido.mostrar,
+    );
+
+    if (resultado && resultado.ok === false) {
+      /**
+       * O "igual" NAO vira aviso.
+       *
+       * E a unica recusa silenciosa, porque nao e um erro: e o interruptor
+       * ja na posicao que o jogador pediu. Um "voce ja esta assim" apareceria
+       * a cada clique repetido, e o jogador aprenderia a ignorar os avisos
+       * de guilda por inteiro
+       */
+      if (resultado.motivo !== "igual") {
+        this.mensagemDeGuilda(resultado.motivo);
+      }
+
+      return false;
+    }
+
+    this.marcarGuildaSuja();
+
+return true;
+  }
+
+  /**
+   * FUNDA uma guilda, e cobra os dez milhoes.
+   *
+   * Fica fora do `operarGuilda` porque so esta operacao toca no dinheiro:
  * a taxa e a unica coisa no jogo que um jogador paga para NAO ter
  * coisa nenhuma, e um caminho generico de "toda operacao cobra" teria
  * descontado tambem do talent, do pedido e da saida
  *
  * A ordem e cobrar, criar, e ESTORNAR se a criacao recusar. O caminho
- * inverso — criar e so depois descontar — criaria guilda de graça
+ * inverso â€” criar e so depois descontar â€” criaria guilda de graÃ§a
  * quando o `spendCoins` falhasse. E o estorno existe pelo mesmo
  * motivo: um nome ja usado, ou um jogador que ja tem guilda, nao pode
  * custar dez milhoes
@@ -2024,6 +2452,19 @@ criarGuilda(sessao, pedido) {
   const resultado = this.guild.criar({
     nome: pedido.guildName,
     tag: pedido.guildTag,
+
+    /**
+     * O ESTILO vai pela MESMA rota, e o store revalida.
+     *
+     * O `parsePanel` ja devolveu `null` para um `icone` ou uma `cor` que
+     * nao existam no catalogo, entao aqui ja chega limpo. E o store valida
+     * de novo porque ele e quem grava no disco â€” duas validacoes em series
+     * e nao uma a mais: uma no protocolo, para o payload, e outra no store,
+     * para o arquivo
+     */
+    icone: pedido.icone,
+    cor: pedido.cor,
+
     liderId: chaveDaSessao(sessao),
     liderNome: sessao.name,
   });
@@ -2052,7 +2493,7 @@ criarGuilda(sessao, pedido) {
    * A GUILDA NASCEU, e o disco precisa de imediato.
    *
    * Nao passa pelo `operarGuilda` porque a criacao e a unica operacao de
-   * guilda que nao cabe naquele generic — ela e a unica que COBRA. E e
+   * guilda que nao cabe naquele generic â€” ela e a unica que COBRA. E e
    * tambem a unica que precisa marcar aqui: e a primeira guilda do mundo,
    * e perder o sinalizador nela significaria um servidor inteiro rodando
    * sem nenhuma guilda gravada
@@ -2112,7 +2553,7 @@ buscarGuilda(sessao, pedido) {
  *
  * Quatro cliques no mesmo no produzem: tres cliques que so enchem a
  * barra e um que sobe o nivel. Avisar "Nv. 2!" nos quatro seria barulho e
- * ensinaria o jogador a ignorar o aviso — que e o caminho mais curto para
+ * ensinaria o jogador a ignorar o aviso â€” que e o caminho mais curto para
  * o jogador nao ler mais nada do painel
  */
   destravarTalent(sessao, pedido) {
@@ -2169,7 +2610,88 @@ buscarGuilda(sessao, pedido) {
 }
 
 /**
- * O COFRE da guilda: deposita e saca moedas e itens. So a diretoria.
+ * O BAU DA BASE: deposita e retira itens do personagem.
+ *
+ * ## POR QUE ISTO NAO E O `mexerNoCofre` DE NOVO
+ *
+ * Porque o cofre precisa do `GuildStore` â€” que so existe online â€” e o
+ * bau nao precisa de store nenhum. A movimentacao do bau esta no
+ * `GameEngine.mexerNoBau`, junto com o resto do estado do jogador, e
+ * funciona igual no single player. Aqui so resta o que e do servidor: a
+ * traducao do pedido e o aviso na tela
+ *
+ * ## POR QUE UM `case` DE CINCO LINHAS E NAO UM METODO COM A REGRA
+ *
+ * Porque a regra esta no motor, e a razao de o pedido passar por aqui e
+ * so uma: transformar `bauAcao` + `uid` + `count` em uma chamada. O que o
+ * pedido NAO pode fazer e chegar sem acao â€” e o `parsePanel` ja deixou
+ * `bauAcao` como `null` nesse caso, entao um pedido invalido cai fora
+ * deste `if` e vira um no-op, que e o resultado certo
+ *
+ * ## E POR QUE NAO SEGURO A REGRA DE "O ITEM TEM QUE ESTAR COM MIM"
+ *
+ * Porque o bau e do NPC da BASE e a base tem um lugar para o jogador
+ * ficar. O cofre exige guilda porque guilda e um estado que o jogador
+ * pode nao ter; o bau nao tem essa condicao. O que o jogador precisa e o
+ * painel aberto, e o painel so abre pelo clique no NPC â€” no online, isso
+ * e o mesmo NPC do mapa
+ */
+  mexerNoBau(sessao, pedido) {
+    /**
+     * PEDIDO SEM ACAO E PEDIDO INVALIDO.
+     *
+     * O `parsePanel` ja reduziu qualquer texto fora da lista a `null`, e
+     * um `case` que chamasse o motor com `null` cairia no `retirar`
+     * â€” porque o `mexerNoBau` do motor trata "tudo que nao e depositar"
+     * como retirada. Transformar um pedido malformado em uma retirada
+     * seria o pior erro possivel aqui: o jogador perderia um item por ter
+     * o socket fora do ar no meio do envio
+     */
+    if (!pedido.bauAcao) return false;
+
+    const resultado = this.engine.mexerNoBau(
+      pedido.bauAcao,
+      pedido.uid,
+      pedido.count,
+    );
+
+    if (!resultado?.ok) {
+      this.avisoDoDono(sessao, resultado?.reason ?? "Nao deu.", true);
+
+      return false;
+    }
+
+    /**
+     * A MENSAGEM DO SUCESSO, que e o que fecha a operacao.
+     *
+     * Sem ela o jogador deposita e a unica prova de que funcionou e o
+     * item ter desaparecido da coluna da esquerda â€” que e exatamente o
+     * que acontece quando algo da errado do outro lado
+     *
+     * O `parcial` tem frase propria porque "guardou 3" quando o jogador
+     * pediu 5 e a peca mais 2 esta na mochila e nao no bau. Dizer
+     * "guardado" sem o "de 5" deixaria o jogador achando que perdeu as
+     * outras 2
+     */
+    if (resultado.parcial) {
+      this.avisoDoDono(
+        sessao,
+        `${resultado.guardado} guardado, ${resultado.devolvido} devolvido ` +
+          "por falta de espaco.",
+      );
+
+      return true;
+    }
+
+    const verbo = pedido.bauAcao === "depositar" ? "guardado" : "retirado";
+
+    this.avisoDoDono(sessao, `${resultado.guardado} ${verbo}.`);
+
+    return true;
+  }
+
+  /**
+   * O COFRE da guilda: deposita e saca moedas e itens. So a diretoria.
  *
  * ## POR QUE O SERVIDOR E QUEM MEXE NA MOCHILA
  *
@@ -2181,7 +2703,7 @@ buscarGuilda(sessao, pedido) {
  * ## A ORDEM DE CADA MOVIMENTO
  *
  * **Depositar**: o item sai da mochila primeiro e so depois entra no
- * cofre. Se o cofre recusar, o item volta inteiro — e a ordem contraria
+ * cofre. Se o cofre recusar, o item volta inteiro â€” e a ordem contraria
  * (creditar o cofre e so entao tirar da mochila) deixaria o item duplicado
  * quando a retirada falhasse
  *
@@ -2216,7 +2738,7 @@ buscarGuilda(sessao, pedido) {
    * QUEM esta chamando
    *
    * Sem esta conferida, a regra "so a diretoria mexe no cofre" existia
-   * em um unico lugar, e o caminho do jogo real nao passava por ele —
+   * em um unico lugar, e o caminho do jogo real nao passava por ele â€”
    * qualquer membro comum depositava moedas. E o tipo de bug em que a
    * regra esta escrita, documentada e testada, e mesmo assim nao vale
    * para quem realmente usa
@@ -2260,8 +2782,22 @@ buscarGuilda(sessao, pedido) {
  *usuario nao tem como querer as duas coisas de uma vez
  */
   depositarNoCofre(sessao, guilda, chave, pedido) {
-  // ----- as moedas -----
-  if (pedido.moeda !== undefined) {
+    /**
+     * O CAMPO AUSENTE CHEGA COMO `null`, E NAO COMO `undefined`.
+     *
+     * ## POR QUE ESTE `if` NAO E MAIS SO `!== undefined`
+     *
+     * Porque o `parsePanel` reconstroi a mensagem por uma lista fechada, e
+     * um campo que o cliente nao mandou vira `null`, nao fica de fora. Um
+     * `if (pedido.moeda !== undefined)` era verdade para TODO pedido de
+     * item, e o deposito de um item entrava no ramo das moedas com o valor
+     * zero e voltava recusado por quantidade
+     *
+     * Os tres campos do cofre chegam sempre, porque e assim que a lista
+     * fechada funciona. E o `!= null` e o que diz "este pedido quer
+     * dinheiro", em vez de dizer "este pedido veio sem o campo"
+     */
+    if (pedido.moeda !== undefined && pedido.moeda !== null) {
     const moedas = Math.floor(Number(pedido.moeda) || 0);
 
     if (moedas <= 0) {
@@ -2293,25 +2829,65 @@ buscarGuilda(sessao, pedido) {
     return { ok: false, motivo: "cofreInvalido" };
   }
 
-  const stack = sessao.inventory.findByUid(pedido.item);
+/**
+     * A PILHA DA MOCHILA, e ela pode ser achada de DUAS maneiras.
+     *
+     * ## O QUE O PAINEL MANDA
+     *
+     * A chave do item escolhido e `entrada.uid ?? entrada.itemId`. Para uma
+     * pilha com `uid` — que e o caso normal, o `Inventory.summary` sempre o
+     * manda — a chave e o `uid` completo e o `findByUid` acha na hora
+     *
+     * ## O QUE QUEBRAVA
+     *
+     * Uma pilha SEM `uid` fazia o painel recorrer ao `itemId`, e ai o
+     * `findByUid` recebia `"couro_goblin"` — que nao casa com nenhum
+     * `uid`, que tem o formato `couro_goblin#common#1`. O servidor recusava
+     * com `semPedido`, e o painel mostrava a recusa mais generica do
+     * dicionario, que fala em "pedido" e nao em "item nao encontrado"
+     *
+     * ## POR QUE O `itemId` E ACEITO
+     *
+     * Porque e o que o painel manda quando nao ha `uid`, e recusar ali
+     * tornava impossivel depositar uma pilha vinda de um caminho que nao
+     * passa pelo `summary`. O `itemId` sozinho nao identifica a pilha
+     * exata — duas pilhas do mesmo item com raridades diferentes sao duas —
+     * entao a primeira que casa e a escolhida, e o `count` pedido e o que
+     * limita o deposito
+     */
+const stack =
+      sessao.inventory.findByUid(pedido.item) ??
+      sessao.inventory.findStack(pedido.item) ??
+      null;
 
-  if (!stack) {
-    return { ok: false, motivo: "semPedido" };
-  }
+    if (!stack) {
+      return { ok: false, motivo: "semPedido" };
+    }
 
-  const pedido2 = Math.floor(Number(pedido.quantidade) || 0);
+    /**
+     * A CHAVE COM QUE A PILHA SAI.
+     *
+     * O `takeUid` procura pelo `uid` de novo, entao ele tem que receber o
+     * `uid` da PILHA ACHADA e nao a chave que o painel mandou. Sao a mesma
+     * coisa no caso normal, e diferentes no caso do `itemId`: mandar
+     * `takeUid("couro_goblin")` nao encontraria nada, e o deposito falharia
+     * DEPOIS de passar pela guarda — que e o jeito mais caro de falhar
+     */
+    const chaveDaPilha = stack.uid ?? pedido.item;
+
+    const pedido2 = Math.floor(Number(pedido.quantidade) || 0);
 
   /**
    * A PILHA some do inventario e vai para o cofre, e o `taken` e a prova
    * do que saiu. O `taken` e usado em vez do `stack` original porque o
-   * `takeUid` pode ter esvaziado a pilha e removido ela da mochila — usar
+   * `takeUid` pode ter esvaziado a pilha e removido ela da mochila â€” usar
    * o `stack` depois disso seria ler um objeto que nao esta mais na lista
    */
-  const taken = sessao.inventory.takeUid(pedido.item, pedido2);
+  const taken = sessao.inventory.takeUid(chaveDaPilha, pedido2);
 
-  if (!taken || taken.count <= 0) {
-    return { ok: false, motivo: "semPedido" };
-  }
+    if (!taken || taken.count <= 0) {
+      return { ok: false, motivo: "semPedido" };
+    }
 
   const guardado = this.guild.depositarItem(
     this.guild.cofreDe(guilda),
@@ -2349,8 +2925,16 @@ buscarGuilda(sessao, pedido) {
  * e ele quem sabe se cabe, e o store nao conhece a mochila
  */
   retirarDoCofre(sessao, guilda, chave, pedido) {
-  // ----- as moedas -----
-  if (pedido.moeda !== undefined) {
+    // ----- as moedas -----
+    /**
+     * O MESMO `null` DO DEPOSITO, E PELO MESMO MOTIVO.
+     *
+     * O campo ausente vira `null` na lista fechada do `parsePanel`, entao um
+     * saque de item que testasse so `!== undefined` entraria no ramo das
+     * moedas — e o jogador veria "quantidade invalida" ao tentar retirar
+     * uma pilha
+     */
+    if (pedido.moeda !== undefined && pedido.moeda !== null) {
     const moedas = Math.floor(Number(pedido.moeda) || 0);
 
     if (moedas <= 0) {
@@ -2385,7 +2969,7 @@ buscarGuilda(sessao, pedido) {
      * O DESTINO do item: a mochila do jogador.
      *
      * E uma funcao e nao a mochila direto porque o store nao deve
-     * conhecer a `Inventory` — ele vive em `data/guild`/`game/guild` e a
+     * conhecer a `Inventory` â€” ele vive em `data/guild`/`game/guild` e a
      * mochila e estado de sessao. A funcao e a ponte, e o `soltar` devolve
      * o `{ added }` que o store confere para saber se coube tudo
      */
@@ -2426,7 +3010,7 @@ buscarGuilda(sessao, pedido) {
    * ## POR QUE SAO TODOS, E NAO SO QUEM AJUDOU
    *
    * O chefe e da arena, e o loot e de quem matou. Mas o resto estava
-   * dentro da luta acompanhando — e deixar quem nao conhececeu a vitoria
+   * dentro da luta acompanhando â€” e deixar quem nao conhececeu a vitoria
    * preso numa arena sem chefe nenhum e a pior das saidas: o botao de
    * sair existe, mas ele so traz a pessoa para ONDE ela entrou, e quem
    * entrou pela arena e nao tem um `arenaOrigem` fica la
@@ -2441,7 +3025,7 @@ buscarGuilda(sessao, pedido) {
    * ## E O MOTOR QUE SABE QUEM ESTA LA
    *
    * `mapId` e por SESSAO, e a iteracao e sobre as sessoes conectadas.
-   * Quem esta em outro mapa nem entra na conta — e nao ha como "sair" de
+   * Quem esta em outro mapa nem entra na conta â€” e nao ha como "sair" de
    * um lugar em que nao esta
    */
   expulsarDaArena(mapId) {
@@ -2454,7 +3038,7 @@ buscarGuilda(sessao, pedido) {
      *
      * `clients` e um `Map` guardado ao contrario: a chave e o cliente e o
      * valor e um `true` de presenca. Percorrer `.values()` daria uma file
-     * de `true` sem sessao nenhuma, e ninguem seria expulsado — o
+     * de `true` sem sessao nenhuma, e ninguem seria expulsado â€” o
      * metodo rodaria inteiro sem errar e nao moveria um jogador sequer
      */
     for (const client of this.clients.keys()) {
@@ -2469,7 +3053,7 @@ buscarGuilda(sessao, pedido) {
        *
        * Nao ha um destino honesto para onde manda-lo: o mapa de origem
        * e desconhecido e inventar um seria um teleport sem razao. Quem
-       * entrou por outra via — um comando de teste, um portal futuro —
+       * entrou por outra via â€” um comando de teste, um portal futuro â€”
        * e quem fica, e e o botao de sair da arena que resolve
        */
       if (!origem) continue;
@@ -2504,7 +3088,7 @@ buscarGuilda(sessao, pedido) {
    * ## UM `op`, DOIS SENTIDOS
    *
    * O botao e um so e o pedido e um so. Quem decide o sentido e o mapa em
-   * que o jogador esta — dois `op` dependeriam de o cliente saber em que
+   * que o jogador esta â€” dois `op` dependeriam de o cliente saber em que
    * mapa ele esta, e um cliente desatualizado travaria o jogador na
    * arena sem nenhum botao para sair
    *
@@ -2513,7 +3097,7 @@ buscarGuilda(sessao, pedido) {
    * O pedido nao tem mapa nenhum. A arena e `boss_1` porque o servidor
    * diz que e, e o destino da volta e a posicao que o SERVIDOR guardou.
    * Um `mapa` vindo do cliente daria a qualquer um um teletransporte
-   * para onde quisesse — o mesmo motivo que o `travessarPortal` nao
+   * para onde quisesse â€” o mesmo motivo que o `travessarPortal` nao
    * aceita destino
    *
    * ## POR QUE A POSICAO E DA SESSAO E NAO DO SAVE
@@ -2521,7 +3105,7 @@ buscarGuilda(sessao, pedido) {
    * A volta e "para onde eu estava", e isso e estado de UMA visita. Se
    * gravasse no save, o jogador que entrasse na arena, desconectasse e
    * voltasse um dia depois teria o destino sobrescrito por outra
-   * visita — e a "volta" levaria a um lugar de horas atras. A sessao
+   * visita â€” e a "volta" levaria a um lugar de horas atras. A sessao
    * morre com a conexao, entao a posicao guardada pertence a visita que
    * a guardou
    */
@@ -2580,6 +3164,702 @@ buscarGuilda(sessao, pedido) {
   }
 
   /**
+   * A MINERACAO DE STEEL, do lado que manda nela.
+   *
+   * Tudo aqui e do SERVIDOR: o tempo, o sorteio, o saldo e a pedra. O
+   * cliente manda "quero minerar esta prop" e nada mais â€” nem quantas
+   * batidas quer, nem quanto tempo, nem quanto vale
+   */
+
+  /**
+   * O ESTADO DAS PEDRAS DE UM MAPA.
+   *
+   * Criado na primeira vez que alguem minerar nele, e nunca apagado: um
+   * mapa com todas as pedras intactos nao tem entrada nenhuma, que e a
+   * forma correta de dizer "nada foi mexido aqui"
+   */
+  minasDoMapa(mapId) {
+    if (!this.minasPorMapa.has(mapId)) {
+      this.minasPorMapa.set(mapId, new Map());
+    }
+
+    return this.minasPorMapa.get(mapId);
+  }
+
+  /**
+   * A PEDIDA QUE ESTA EM UM MAPA, pelo id.
+   *
+   * Devolve `null` se o id nao existir no mapa. E a funcao que impede o
+   * cliente de minerar qualquer coisa: o id vem do clique, entao um
+   * jogador poderia mandar o id de uma prop de outro mapa, ou de uma que
+   * nao existe
+   */
+  pedidaNoMapa(mapId, propId) {
+    if (typeof mapId !== "string" || typeof propId !== "string") {
+      return null;
+    }
+
+    return (
+      findMap(mapId)?.props?.find((prop) => prop.id === propId) ?? null
+    );
+  }
+
+  /**
+   * QUANTAS BATIDAS RESTAM NESTA PEDIDA DO MUNDO.
+   *
+   * ## POR QUE O CONTADOR VIVE AQUI E NAO NA SESSAO
+   *
+   * Porque a PEDIDA e do mapa. Com o contador na sessao, largar e voltar
+   * criava um estado novo com o total cheio: o jogador minerava 4 das 5
+   * batidas do comum, andava 3 passos, voltava, e a pedra tinha as 5 de
+   * novo â€” o tempo gasto sumia sem aviso
+   *
+   * E o que resolve as DUAS coisas de uma vez: o progresso sobrevive ao
+   * cancelamento, e dois jogadores na mesma pedra veem o mesmo numero
+   *
+   * ## O QUE O ESTADO GUARDA
+   *
+   * `voltaEm` e 0 enquanto a pedra esta DE PE, e so ganha um relogio quando
+   * ela e demolida. E o que faz `pedidaEsgotada` ser uma unica pergunta:
+   * "tem estado e `voltaEm > agora`". Sem isso, uma pedra sendo minerada
+   * apareceria na lista de fora do mapa
+   *
+   * A entrada some quando o prazo vence, no `tickMineracao`, e a pedra volta
+   * ao total cheio por nao ter mais estado
+   */
+  batidasRestantes(mapId, prop, agora) {
+    const total = batidasDe(prop?.type);
+
+    if (total <= 0) return 0;
+
+    const estado = this.minasDoMapa(mapId).get(prop.id);
+
+    if (!estado) return total;
+
+    if (estado.voltaEm > agora) return 0;
+
+    return Math.max(0, estado.batidasRestantes);
+  }
+
+  /**
+ * O QUE O MOTOR LÃŠ DE UMA PEDIDA, para formatar o painel.
+ *
+ * ## POR QUE O MAPA ENTRA COMO PARAMETRO E NAO SAI DA CONSULTA
+ *
+ * Porque o motor formata o painel do jogador que esta em foco, e o
+ * `world` dele ja aponta para o mapa certo. Passar o mapa deixa a funcao
+ * utilizavel fora do `withPlayer` â€” que e o que acontece na primeira
+ * montagem, antes de alguem entrar
+ *
+ * E o `agora` e lido de `this.relogio`, e nao de `Date.now`: o painel e
+ * montado 4 vezes por segundo por jogador, e um prazo lido de um relogio
+ * que nao e o do servidor faria o tempo da batida pular de uma conta para
+ * outra
+ */
+leituraDePedida(propId, mapId) {
+    const agora = this.relogio();
+    const mapa = mapId ?? this.engine.world?.map?.id;
+    const prop = this.pedidaNoMapa(mapa, propId);
+
+    if (!prop) return null;
+
+    return {
+      batidas: batidasDe(prop.type),
+      batidasRestantes: this.batidasRestantes(mapa, prop, agora),
+      esgotada: this.pedidaEsgotada(mapa, propId, agora),
+    };
+  }
+
+  /**
+   * O ESTADO INICIAL DE UMA PEDIDA, criado na primeira vez que alguem
+   * encosta nela.
+   *
+   * E aqui que o total vira numero guardado. Sem esta linha o
+   * `batidasRestantes` devolveria o total a cada leitura e a pedra nunca
+   * perderia uma batida
+   */
+  abrirPedida(mapId, prop) {
+    const minas = this.minasDoMapa(mapId);
+
+    if (minas.has(prop.id)) return minas.get(prop.id);
+
+    const estado = {
+      batidasRestantes: batidasDe(prop.type),
+      voltaEm: 0,
+      mineradaPor: null,
+    };
+
+    minas.set(prop.id, estado);
+
+    return estado;
+  }
+
+  /**
+   * ESTA PEDIDA ESTA FORA DO MAPA AGORA?
+   *
+   * E a consulta que o `drawProps` do cliente usa para NAO desenhar a
+   * pedra, e a que o `minerar` usa para recusar. As duas leem o mesmo
+   * estado, entao nao ha caminho em que o jogador veja a pedra e o
+   * servidor diga que ela nao existe
+   */
+  pedidaEsgotada(mapId, propId, agora) {
+    const estado = this.minasDoMapa(mapId).get(propId);
+
+    if (!estado) return false;
+
+    return estado.voltaEm > agora;
+  }
+
+  /**
+   * OS IDS DAS PEDRAS FORA DO MAPA, para o pacote.
+   *
+   * E so o que esta fora. Um mapa com 40 cristais e um demolido leva um
+   * id no snapshot, e nao quarenta: o `snapshot` vai a 20Hz para todo
+   * mundo no mapa, e a lista completa seria o mesmo dado repetido 20
+   * vezes por segundo sem ninguem ver mudanca nela
+   */
+  pedidasEsgotadas(mapId, agora) {
+    const esgotadas = [];
+
+    for (const [propId, estado] of this.minasDoMapa(mapId)) {
+      if (estado.voltaEm > agora) esgotadas.push(propId);
+    }
+
+    return esgotadas;
+  }
+
+  /**
+   * A RESSURREICAO DAS PEDIDAS, e o PRAZO DELAS.
+   *
+   * Roda no `tick`, junto com o prazo dos anuncios e o dos convites, e
+   * pelo mesmo motivo deles: o jogador parado tambem precisa ver a pedra
+   * voltar. Se isto so rodasse quando alguem minerasse, a pedra de quem
+   * parou de minerar nunca voltaria
+   */
+  tickMineracao(agora) {
+    if (this.minasPorMapa.size === 0) return;
+
+    for (const [mapId, minas] of this.minasPorMapa) {
+      for (const [propId, estado] of minas) {
+        /**
+         * SAI A PEDIDA CUJO PRAZO VENCEU.
+         *
+         * O `> 0` e obrigatorio, e nao um detalhe. Uma pedra DE PE tem
+         * `voltaEm = 0` â€” o zero e "nunca foi demolida" â€” e `0 <= agora` e
+         * verdade desde sempre. Sem a guarda, este laco apagava o estado de
+         * toda pedra que estivesse sendo minerada, a cada tique: o contador
+         * voltava ao total cheio 20 vezes por segundo e a pedra nunca
+         * perdia uma batida
+         *
+         * E o que separa "prazo venceu" de "nunca teve prazo"
+         */
+        if (estado.voltaEm === 0 || estado.voltaEm > agora) continue;
+
+        minas.delete(propId);
+      }
+
+      /**
+       * O MOTOR SABE QUE A PEDIDA VOLTOU.
+       *
+       * E por aqui que o COLISOR do servidor para de barrar um cristal que
+       * nao esta mais la. O cliente recebia a lista pelo pacote, mas quem
+       * decide se o jogador anda e o servidor â€” e sem esta linha o jogador
+       * ficava preso num cristal invisivel do lado dele da tela
+       */
+      this.engine.sincronizarPedidasFora(
+        mapId,
+        this.pedidasEsgotadas(mapId, agora),
+      );
+    }
+  }
+
+  /**
+   * ENCOSTAR NUMA PEDIDA E COMECAR A MINERAR.
+   *
+   * E o `op` do cliente. Devolve `true` quando aceitou, e o motor usa
+   * isso para saber se ha algo para andar ate
+   *
+   * ## A RECUSA VEM ANTES DE QUALQUER COISA SER MEXIDA
+   *
+   * Nenhum saldo, nenhum relogio e nenhuma prop muda antes das quatro
+   * checagens: o mapa tem essa prop, ela e do tipo que se mineraria, ela
+   * ainda tem batida e o jogador nao esta encostado em outra. Pedir a
+   * pedra de outro mapa, ou uma segunda pedra enquanto anda ate a
+   * primeira, nao pode deixar rastro nenhum
+   */
+  minerar(sessao, propId, agora) {
+    if (!sessao) return false;
+
+    /**
+     * JA ESTA ENCOSTADO EM ALGUMA PEDIDA: este pedido e o de PARAR.
+     *
+     * O sinal de que o jogador quer parar e ele estar minerando. E o que
+     * faz o mesmo clique na tela serve para as duas coisas, sem o cliente
+     * precisar saber em que estado esta
+     */
+    if (sessao.mineracao) {
+      this.pararMineracao(sessao);
+
+      return true;
+    }
+
+    const prop = this.pedidaNoMapa(sessao.mapId, propId);
+
+    if (!prop) return false;
+    if (!mineravel(prop.type)) return false;
+    if (this.pedidaEsgotada(sessao.mapId, prop.id, agora)) return false;
+
+const batidas = batidasDe(prop.type);
+
+    if (batidas <= 0) return false;
+
+    /**
+     * A PEDIDA ABRE AGORA, com o que ainda resta nela.
+     *
+     * Se ela ja foi minerada antes, o estado existe e o `batidasRestantes`
+     * e o que sobrou. E o que faz o progresso sobreviver ao cancelamento: o
+     * jogador pode largar a pedra no meio e voltar â€” ela nao volta cheia
+     *
+     * E `abrirPedida` antes do `alcancado`, e nao no painel: o numero do
+     * painel e lido do estado, entao o estado precisa existir antes de
+     * alguem chegar a mostrar
+     */
+    this.abrirPedida(sessao.mapId, prop);
+
+    const restantes = this.batidasRestantes(sessao.mapId, prop, agora);
+
+    /**
+     * SEM BATIDA RESTANDO, O PEDIDO E RECUSADO.
+     *
+     * O `pedidaEsgotada` logo acima ja pegou a pedra no prazo de
+     * ressurreicao. Este e o caso da pedra com zero batidas e ainda de pe,
+     * que so acontece se o estado for escrito por outro caminho
+     */
+    if (restantes <= 0) return false;
+
+    /**
+       * A PRIMEIRA BATIDA NAO E NA HORA.
+       *
+       * E NEM NA HORA DA CHEGADA: o relogio so comeca a correr quando o
+       * jogador encosta, e nao quando ele clica.
+       *
+       * Com o relogio contando desde o clique, uma caminhada de 25s dava
+       * duas batidas de steel com o boneco ainda atravessando o vale â€” o
+       * jogador recebia por minerar algo em que nao estava encostado. E o
+       * painel, que so abre na chegada, apareceria mostrando tempo demais
+       * pela metade
+       *
+       * ## POR QUE E O SERVIDOR QUE LIGA O RELOGIO, E NAO O MOTOR
+       *
+       * Porque o motor sabe que o jogador chegou, mas quem tem o relogio e o
+       * servidor. O `alcancado` e a ponte: o motor lacra, e o primeiro
+       * tique em que o lacre aparece e o que arma o `proximoGolpeEm`
+       */
+      sessao.mineracao = {
+      propId: prop.id,
+      type: prop.type,
+
+      /**
+       * `null` ate o jogador encostar. O `proximoGolpeEm` de verdade e
+       * escrito no primeiro tique em que o `alcancado` aparecer
+       */
+      proximoGolpeEm: null,
+
+      /**
+       * O JOGADOR JA CHEGOU NA PEDIDA?
+       *
+       * Comeca em `false`, e quem vira `true` e o motor, no `runMineracao`.
+       * O servidor nao escreve aqui: ele nao anda, entao nao tem como saber
+       * se o boneco ja encostou â€” so o motor, que produziu o caminho, tem
+       * essa resposta
+       *
+       * E o que segura a mineracao durante a caminhada. Sem ele, o
+       * proprio `tick` soltaria o pedido antes do primeiro passo
+       */
+      alcancado: false,
+
+      /** o relogio ja foi armado? o que separa "indo" de "minerando" */
+      contando: false,
+    };
+
+    sessao.mineracaoCaminho = [];
+    sessao.mineracaoRecalcula = 0;
+
+    /**
+     * O SORTEIO VEM DE UM `random` DA PROPRIA SESSAO, E NAO DE
+     * `Math.random`.
+     *
+     * Nao e preciosismo. E que o painel do cliente mostra o steel desta
+     * batida assim que ela cai, e o numero que aparece tem de ser o que o
+     * servidor somou â€” se o cliente sorteasse por conta propria, mostraria
+     * o premio de outra pedra
+     *
+     * A semente e o instante em que o jogador encostou, o que faz a
+     * primeira batida sair sempre no mesmo valor para quem encostou no
+     * mesmo milissegundo. E reproduzivel: o mesmo instante e a mesma
+     * pedra dao a mesma sequencia, sem precisar guardar nada
+     */
+    sessao.mineracaoRandom = createRandom(agora >>> 0);
+
+    return true;
+  }
+
+  /**
+   * SOLTAR A PEDIDA.
+   *
+   * Nao devolve o que foi minerado e nao apaga o progresso: o que o
+   * jogador ja extraiu fica com ele, e a pedra continua com as batidas
+   * que faltavam. Parar e um direito do jogador, nao um castigo
+   */
+  pararMineracao(sessao) {
+    if (!sessao) return false;
+
+    sessao.mineracao = null;
+    sessao.mineracaoCaminho = [];
+    sessao.mineracaoRecalcula = 0;
+
+    return true;
+  }
+
+  /**
+   * O PASSO DO RELOGIO DA MINERACAO.
+   *
+   * Roda por sessao, dentro do `withPlayer`, porque cada jogador tem o
+   * seu relogio e o seu caminho ate a pedra. Uma batida de 10s com o tick
+   * a 20Hz dÃ¡ 200 tiques de folga, entao o `while` nao vai acumular
+   * batidas perdidas quando o servidor engasgar
+   */
+  tickMineracaoDaSessao(sessao, delta, agora) {
+    const min = sessao.mineracao;
+
+    if (!min) return;
+
+/**
+       * ANDOU PARA LONGE: SO SOLTA SE ELE JA TINHA CHEGADO.
+       *
+       * ## POR QUE O `alcancado` PRECISA VIR ANTES DA DISTANCIA
+       *
+       * Porque o jogador que acabou de CLICAR na pedra esta no meio do
+       * vale, a 400px dela. Sem esta guarda, o `tick` seguinte ja soltava
+       * a mineracao â€” o boneco nao dava um passo sequer e o painel nunca
+       * aparecia. O sintoma era "cliquei e nada acontece"
+       *
+       * Quem escreve o `alcancado` e o MOTOR, no `runMineracao`, que e o
+       * unico que sabe se o A* entregou o jogador na pedra. E ele roda
+       * dentro do `engine.update`, ANTES deste laco â€” entao a ordem dos
+       * dois e o que faz o campo chegar preenchido
+       *
+       * O `alcancado` e a MESMA conta do `encostadoNaPedida`, entao os dois
+       * nao podem divergir: se o motor marcou chegada e a distancia diz que
+       * nao encosta, alguma coisa mexeu no jogador no meio do caminho
+       */
+      if (min.alcancado === true && !this.encostadoNaPedida(sessao, min, agora)) {
+        this.pararMineracao(sessao);
+
+        return;
+      }
+
+      /**
+       * O RELOGIO ARMA QUANDO O JOGADOR ENCOSTA, E SO UMA VEZ.
+       *
+       * E o que separa "indo para a pedra" de "minerando". O painel so abre
+       * depois do lacre, entao o tempo que o jogador ve e sempre o tempo de
+       * verdade: dez segundos ate a primeira batida contados de quando ele
+       * chegou
+       */
+      if (min.alcancado === true && min.contando !== true) {
+        min.contando = true;
+        min.proximoGolpeEm = agora + SEGUNDOS_POR_BATIDA * 1000;
+
+        return;
+      }
+
+      /**
+       * AINDA CAMINHANDO: NAO HAY O QUE CONTAR.
+       *
+       * O `proximoGolpeEm` ainda e `null`, e e o `while` abaixo que
+       * cortaria o mineracao se ele rodasse. Este `return` e o que segura a
+       * caminhada
+       */
+if (min.contando !== true) return;
+
+    /**
+     * A BATIDA CAI QUANDO O RELOGIO VENCE, E NAO A CADA TIQUE.
+     *
+     * E o que separa o steel de um numero que so muda a cada 50ms. O
+     * `while` e para o caso de o servidor ter ficado parado mais de um
+     * periodo: sem ele, quem ficou dois minutos sem tick devolveria uma vez
+     * e perderia as batidas do intervalo
+     */
+    let steelDoTique = 0;
+
+    /**
+     * A PEDIDA DE ONDE A BATIDA SAI, e nao a primeira do mapa.
+     *
+     * Uma vez por chamada e nao por batida: a prop nao muda enquanto o
+     * jogador esta encostado nela, e o `while` pode passar varias vezes se o
+     * servidor ficou parado
+     */
+    const prop = this.pedidaNoMapa(sessao.mapId, min.propId);
+
+    if (!prop) {
+      this.pararMineracao(sessao);
+
+      return;
+    }
+
+    const estado = this.abrirPedida(sessao.mapId, prop);
+
+    while (agora >= min.proximoGolpeEm) {
+      min.proximoGolpeEm += SEGUNDOS_POR_BATIDA * 1000;
+
+      const ganho = sortearSteel(sessao.mineracaoRandom ?? Math.random);
+
+      sessao.inventory.addSteel(ganho);
+      steelDoTique += ganho;
+
+      /**
+       * A BATIDA SAI DA PEDIDA, E NAO DA SESSAO.
+       *
+       * E o que faz o progresso sobreviver ao cancelamento: largar a
+       * pedra e voltar encontra o mesmo estado, com o que ja tinha sido
+       * tirado. Antes o contador vivia na sessao e cada `minerar` criava um
+       * total cheio â€” o tempo gasto sumia sem aviso
+       */
+      estado.batidasRestantes -= 1;
+
+      if (estado.batidasRestantes <= 0) {
+        this.demolirPedida(sessao, min, estado, agora);
+        this.pararMineracao(sessao);
+
+        return;
+      }
+    }
+
+if (steelDoTique > 0) {
+        sessao.mineracaoSteelNoTique = steelDoTique;
+        sessao.mineracaoSteelEm = agora;
+
+        /**
+         * A BATIDA CONTA PARA O TUTORIAL DE MINERAR.
+         *
+         * E aqui, e nao no `GameEngine`, porque a batida e do SERVIDOR: o
+         * motor so desenha o relogio da mineracao, e quem conta o tempo de
+         * verdade e este `while`. Ligar no motor contaria o quadro, e o
+         * tutorial fecharia com o jogador encostado na pedra sem ter tirado
+         * nada dela
+         *
+         * O `count` do tutorial e o numero de BATIDAS, e nao de segundos:
+         * a batida e o que o jogador ve â€” o steel piscando na tela â€” e e
+         * ela que precisa ser contada. Um tutorial de "minere por 30
+         * segundos" contaria tempo com o painel fechado, e o jogador
+         * cumpriria sem nunca ter visto a pedra
+         *
+         * E uma chamada so por tique, e nao uma por batida: o tutorial
+         * cuida de 1 e nao tem por que contar quantas batidas o `while`
+         * accumulou. O que importa e que ele aconteceu
+         */
+        sessao.quests?.onAcao?.("mine");
+      }
+    }
+
+  /**
+   * A PEDIDA CAIU: ela some do mapa e fica de fora por um tempo.
+   *
+   * O estado e o MESMO que a batida vinha baixando â€” e por isso que o
+   * metodo recebe o `estado` pronto e nao o procura. A unica coisa que
+   * muda aqui e o `voltaEm`, que ate agora era 0 porque a pedra estava de pe
+   *
+   * E some para TODO MUNDO: o outro jogador encostado nela ve o painel
+   * fechar junto
+   */
+  demolirPedida(sessao, min, estado, agora) {
+    estado.batidasRestantes = 0;
+    estado.voltaEm = agora + PEDRA_VOLTA_EM_S * 1000;
+    estado.mineradaPor = sessao.id ?? null;
+
+    /**
+     * O MOTOR SABE QUE A PEDIDA CAIU.
+     *
+     * O SERVIDOR e quem manda no movimento, entao e o colisor DELE que
+     * precisa parar de barrar a pedra â€” e nao so o do cliente. Sem esta
+     * linha o jogador via o cristal sumir e continuava preso no lugar dele
+     */
+    this.engine.sincronizarPedidasFora(
+      sessao.mapId,
+      this.pedidasEsgotadas(sessao.mapId, agora),
+    );
+  }
+
+  /**
+   * O JOGADOR ESTA ENCOSTADO NA PEDIDA?
+   *
+   * E a MESMA funcao que o motor usa, com o mesmo numero e a mesma folga.
+   * Ver o `encostadoNaPedida` do modulo: os dois lados precisam dar a mesma
+   * resposta, senao o servidor veria o jogador longe enquanto o motor o
+   * considerava parado na pedra, e a batida cairia com o boneco a um passo
+   */
+  encostadoNaPedida(sessao, min, agora) {
+    const prop = this.pedidaNoMapa(sessao.mapId, min.propId);
+
+    if (!prop) return false;
+
+    const jogador = sessao.player;
+
+    if (!jogador) return false;
+
+    return encostadoNaPedida(
+      jogador.x,
+      jogador.y,
+      prop,
+      jogador.radius,
+    );
+  }
+
+  /**
+   * O PAINEL DA MINERACAO DE UMA SESSAO, ou `null`.
+   *
+   * ## POR QUE ELE CALCULA O QUE FALTA, E NAO MANDA O QUE FALTA
+   *
+   * O painel vai a 4Hz e o relogio a 20Hz. Se o pacote trouxesse "faltam
+   * 7" e o cliente descontasse sozinho, o numero pararia por 250ms entre
+   * um clique e o seguinte. Mandando o relogio, o painel faz a conta com o
+   * relogio dele e o tempo anda sozinho â€” e o numero de batidas vem
+   * pronto, porque esse e inteiro e nao muda entre um tique e outro
+   *
+   * E o mesmo desenho do `morte.restante`, que e o outro prazo que a HUD
+   * exibe
+   */
+  mineracaoPainel(sessao, agora) {
+    const min = sessao?.mineracao;
+
+    if (!min) return null;
+
+    /**
+     * INDO PARA A PEDIDA: SEM TEMPO, SEM PAINEL.
+     *
+     * O painel so existe com o relogio armado. Sem este `null`, o cliente
+     * receberia `proximoGolpeEm: null` e o `MineracaoPanel` â€” que so abre
+     * com `encostado` â€” receberia um `NaN` em `(proximoGolpeEm - agora)`
+     *
+     * E a MESMA regra que segura o `tick`, entao nao ha quadro em que o
+     * painel mostra um tempo que o relogio ainda nao estÃ¡ contando
+     */
+    if (min.contando !== true) return null;
+
+    const prop = this.pedidaNoMapa(sessao.mapId, min.propId);
+
+    /**
+     * AS BATIDAS VEM DO MUNDO, E NAO DA SESSAO.
+     *
+     * E o que faz o painel mostrar `3/5` depois de o jogador ter largado a
+     * pedra duas vezes no meio: o contador esta no estado da pedida, e o
+     * total vem do tipo
+     *
+     * A pedra pode ter sumido entre o pedido e este painel â€” outro jogador
+     * terminou a ultima batida nesse intervalo. AÃ­ o `batidasRestantes`
+     * devolve 0 e o painel mostra `0/5` por um pacote, ate o
+     * `pararMineracao` fechar no proximo tique
+     */
+    const restantes = this.batidasRestantes(sessao.mapId, prop, agora);
+
+    return {
+      propId: min.propId,
+      type: min.type,
+      batidas: batidasDe(min.type),
+      batidasRestantes: restantes,
+
+      /**
+       * O TEMPO RESTANTE, e ele conta a batida em curso uma vez so.
+       *
+       * Sao `restantes - 1` periodos CHEIOS depois do que falta para a
+       * batida que ja esta em curso. Somar `restantes` periodos contaria
+       * o da batida em curso duas vezes: um lendario com 20 batidas
+       * prometia 3min30 quando leva 3min20, e era 10s de mentira a cada
+       * vez que o painel era aberto
+       *
+       * E o que o `MineracaoPanel` refaz sozinho a partir do
+       * `proximoGolpeEm`; este campo e o valor pronto para quem so quiser
+       * mostrar a frase
+       */
+      segundosRestantes: Math.max(
+        0,
+        Math.ceil((min.proximoGolpeEm - agora) / 1000) +
+          Math.max(0, restantes - 1) * SEGUNDOS_POR_BATIDA,
+      ),
+
+      steelMaximo: steelMaximoDe(batidasDe(min.type)),
+      steelAgora: sessao.inventory?.steel ?? 0,
+      proximoGolpeEm: min.proximoGolpeEm,
+    };
+  }
+
+  /**
+   * O MAPA DO TESTE, e a VOLTA DELE.
+   *
+   * ## O MESMO MOLDE DA ARENA, DE PROPONITO
+   *
+   * As duas fazem a mesma coisa: um `op`, dois sentidos, e a origem
+   * guardada na sessao antes da troca. Copiar o `irParaArena` inteiro
+   * seria reescrever o mesmo estado de sessao com outro nome
+   *
+   * ## POR QUE A SESSAO PRECISA DO MAPA DE ONDE VOLTAR
+   *
+   * Sem isso, o primeiro clique numa conexao nova gravaria `base` como
+   * destino, e a volta jogaria o jogador no meio do hub em vez de onde
+   * ele realmente estava. E o `arenaOrigem` explica o mesmo problema no
+   * comentario dele
+   *
+   * ## POR QUE NAO HA AVISO QUANDO NAO HA PARA ONDE VOLTAR
+   *
+   * Porque o caso nao chega: se o jogador esta no mapa de teste, ele so
+   * chegou nele por este botao, que e o que guardou a origem. A guarda
+   * do `irParaArena` cobre a arena, que tem outros caminhos de entrada â€”
+   * o mapa de teste nao tem nenhum, nem portal
+   */
+  irParaTeste(sessao) {
+    if (!sessao) return false;
+
+    const teste = findMap(MAP_TESTE_ID);
+
+    if (!teste) return false;
+
+    const noTeste = sessao.mapId === MAP_TESTE_ID;
+
+    /**
+     * A POSICAO DE HOJE e guardada ANTES da troca.
+     *
+     * Ler depois seria ler a posicao do mapa de teste, e a volta
+     * jogaria o jogador no meio dele duas vezes
+     */
+    if (noTeste) {
+      const origem = sessao.mapaTesteOrigem ?? null;
+
+      if (!origem) return false;
+
+      this.moverParaMapa(
+        sessao,
+        findMap(origem.mapId),
+        { x: origem.x, y: origem.y },
+      );
+
+      sessao.mapaTesteOrigem = null;
+
+      return true;
+    }
+
+    sessao.mapaTesteOrigem = {
+      mapId: sessao.mapId,
+      x: Math.round(sessao.player?.x ?? teste.spawn.x),
+      y: Math.round(sessao.player?.y ?? teste.spawn.y),
+    };
+
+    this.moverParaMapa(sessao, teste, null);
+
+    return true;
+  }
+
+  /**
    * TROCA O MAPA DE UMA SESSAO, e a POSICAO.
    *
    * ## POR QUE DENTRO DO `withPlayer`
@@ -2587,13 +3867,13 @@ buscarGuilda(sessao, pedido) {
    * O `setMap` do motor escreve em `this.world.session` e em
    * `this.world.player`, e o `world` e do jogador EM FOCO. Sem o
    * `withPlayer`, trocar o mapa do jogador errado moveria o mapa de quem
-   * estivesse em foco e nao do que pediu — que e o bug que o
+   * estivesse em foco e nao do que pediu â€” que e o bug que o
    * `portalSoDeUm` trava
    *
    * ## A POSICAO E DO `setMap`, E NAO MINHA
    *
    * O `setMap` ja posiciona: `chegada ?? map.spawn`. Reescrever a
-   * posicao aqui[l] fora criaria dois lugares que podem divergir — e o
+   * posicao aqui[l] fora criaria dois lugares que podem divergir â€” e o
    * `setMap` sozinho colocaria o jogador no spawn da arena, que e
    * exatamente o que se quer na entrada
    *
@@ -2603,7 +3883,7 @@ buscarGuilda(sessao, pedido) {
    * ## A CONFERIDA ANTES, E O `world.collision` JA DO MAPA NOVO
    *
    * O `isInsideBounds` roda ANTES do `setMap`, entao ele ainda consulta
-   * o colisor do mapa de ORIGEM — que e retangular e sempre aceitaria
+   * o colisor do mapa de ORIGEM â€” que e retangular e sempre aceitaria
    * qualquer ponto. Conferir depois do `setMap` deixaria o motor ja ter
    * pulado o jogador para fora da arena, e a correcao viria do `clamp`
    * do proximo tick: ele apareceria na borda, sem explicacao
@@ -2648,7 +3928,7 @@ buscarGuilda(sessao, pedido) {
  * O MOTIVO de uma recusa, em portugues.
  *
  * O store devolve codigos e nao frases porque o mesmo motivo aparece
- * em telas diferentes — recusa aqui e aviso no painel. Traduzir num
+ * em telas diferentes â€” recusa aqui e aviso no painel. Traduzir num
  * lugar so evita as duas metades divergirem
  */
   mensagemDeGuilda(motivo) {
@@ -2667,8 +3947,8 @@ buscarGuilda(sessao, pedido) {
      *
      * `world.players` e indexado pelo id da sessao (`p_<uuid>`), e nao
      * pela `donoKey`. Passar a chave aqui nao focalizava ninguem:
-     * `world.player` ficava `null` e o `applyEquipment` — que a
-     * travessia de portal e toda operacao de guilda chama — estourava em
+     * `world.player` ficava `null` e o `applyEquipment` â€” que a
+     * travessia de portal e toda operacao de guilda chama â€” estourava em
      * `player.definition`
      *
      * A chave entra so dentro do callback, onde o store a usa. Sao duas
@@ -2690,7 +3970,7 @@ buscarGuilda(sessao, pedido) {
            * Descartar sai pelo `uid` da pilha. A peca VESTIDA tem
            * `uid` proprio no equipamento, e um pedido so com `slotId`
            * descartaria a peca errada se os dois existissem no mesmo
-           * pacote — por isso o slot so e lido quando nao veio `uid`
+           * pacote â€” por isso o slot so e lido quando nao veio `uid`
            */
           if (pedido.uid) this.engine.discardItem(pedido.uid);
           else if (pedido.slotId) {
@@ -2721,8 +4001,81 @@ buscarGuilda(sessao, pedido) {
           this.engine.fixMisplacedEquipment();
           break;
 
-        case PANEL_OPS.TOGGLE_AUTO_PLAY:
-          this.engine.toggleAutoPlay();
+case PANEL_OPS.TOGGLE_AUTO_PLAY:
+            this.engine.toggleAutoPlay();
+            break;
+
+          /**
+           * O DASH, e ele e a unica ORDEM que o motor decide a DIRECAO.
+           *
+           * O pedido nao leva vetor, e isso e o que o torna seguro: a mira
+           * ja chegou pelo `INPUT` a 45Hz e o `aplicarIntencao` ja a converteu
+           * em um ponto no mundo. O motor le esse mesmo `pointer` e sai para
+           * la
+           *
+           * Mandar a direcao no pedido daria ao cliente duas fontes de
+           * verdade: o pacote do `INPUT` e o do `PANEL`, que chegariam em
+           * ordens diferentes, e o dash iria para a direcao do mais velho
+           *
+           * E o `useDash` recusando sozinho quando o cooldown nao acabou: o
+           * servidor nao precisa de uma segunda trava, e uma conferida a
+           * mais aqui so atrasaria a resposta do botao
+           */
+case PANEL_OPS.DASH:
+  this.engine.useDash();
+  break;
+
+  /**
+   * O FARM OFFLINE, ligado pelo jogador na pausa.
+   *
+   * Nao ha payload para ler, e isso e o ponto: o mapa, o tempo e o poder
+   * sao todos do servidor. O pedido existe so para dizer "agora"
+   *
+   * O accrue em si NAO acontece aqui â€” acontece quando o jogador VOLTA,
+   * no `entrar`. Ligar aqui e so carimbar o relogio e gravar
+   */
+  case PANEL_OPS.INICIAR_FARM_OFFLINE:
+    this.iniciarFarmOffline(sessao);
+    break;
+
+  /**
+   * O JOGADOR VIU O RELATORIO.
+   *
+   * E o unico motivo de o relatorio nao reaparecer a cada entrada: ele
+   * mora na sessao, e a sessao vive enquanto o jogador esta online
+   */
+  case PANEL_OPS.FARM_OFFLINE_VISTO:
+    this.farmOfflineVisto(sessao);
+    break;
+
+        case PANEL_OPS.SET_AUTO_POTION:
+          /**
+           * A CONFIGURACAO DO USO AUTOMATICO DA POCAO.
+           *
+           * Os tres campos num pedido so porque eles nao sao independentes:
+           * trocar a pocao com o automatico ligado desliga o automatico, e
+           * um pedido so garante que essa regra chegue inteira
+           *
+           * O `itemId` chega como `null` quando o jogador tirou a pocao do
+           * slot e `undefined` quando ele so mexeu no interruptor â€” e a
+           * distincao e do `parsePanel`. O motor valida o resto: se o id
+           * nao for pocao de cura, o pedido volta inteiro sem mudar nada
+           */
+          this.engine.configurarAutoPocao({
+            ligado: pedido.pocaoLigado ?? undefined,
+            limiar: pedido.pocaoLimiar ?? undefined,
+
+            /**
+             * O `itemId` vai CRU, sem `??`.
+             *
+             * O motor distingue tres estados por `undefined` â€” ausente e
+             * "nao mexeu", `null` e "tirar do slot". Um `?? null` aqui
+             * apagaria a distincao e cada clique no interruptor do painel
+             * viraria um "tirar a pocao" junto, porque o `undefined` do
+             * `parsePanel` viraria `null` neste ponto
+             */
+            itemId: pedido.pocaoItemId,
+          });
           break;
 
         case PANEL_OPS.TOGGLE_QUEST_AUTO:
@@ -2754,15 +4107,63 @@ buscarGuilda(sessao, pedido) {
           this.engine.claimQuestReward(pedido.questId);
           break;
 
+        case PANEL_OPS.CLAIM_PASS_REWARD:
+          /**
+           * O resgate de um dia do passe.
+           *
+           * O `passId` e o `dia` vem do cliente e nao valem nada: o motor
+           * acha o premio no CATALOGO pelo par e nao paga se ele nao estiver
+           * la. E o `claimPassReward` confere a lista de resgates antes de
+           * pagar, entao repetir o pedido nao paga duas vezes
+           */
+          this.engine.claimPassReward(pedido.passId, pedido.dia);
+          break;
+
+        case PANEL_OPS.SET_PASS_PREMIUM:
+          /**
+           * O interruptor do premium.
+           *
+           * Leva o valor novo e nao um "inverter", porque dois cliques
+           * rapidos chegam em qualquer ordem
+           */
+          this.engine.setPassPremium(pedido.ativo, pedido.passId ?? null);
+          break;
+
         case PANEL_OPS.TRAVESSAR_PORTAL:
           this.travessarPortal(pedido.portalId, sessao);
           break;
 
-        case PANEL_OPS.IR_PARA_ARENA:
-          this.irParaArena(sessao);
-          break;
+      case PANEL_OPS.IR_PARA_ARENA:
+        this.irParaArena(sessao);
+        break;
 
-        case PANEL_OPS.GUILD_CRIAR:
+      /**
+       * O MAPA DE TESTE, pelo mesmo caminho da arena.
+       *
+       * Um `op` para os dois sentidos: quem decide se entra ou se volta
+       * e o mapa em que o jogador esta, e nao o botao
+       */
+      case PANEL_OPS.IR_PARA_TESTE:
+        this.irParaTeste(sessao);
+        break;
+
+      /**
+       * A MINERACAO, pelo mesmo caminho de dois sentidos.
+       *
+       * O `minerar` decide sozinho o que o pedido quer: se a sessao ja
+       * esta encostada, o pedido e parar. E por isso que ele precisa do
+       * relogio â€” o `agora` e o que decide se a pedra ainda tem batida
+       *
+       * Nao ha retorno para o cliente. O painel volta pelo caminho de
+       * sempre, no `PLAYER_STATE` a 4Hz, e e de la que a HUD le as
+       * batidas que restam. Um `return` aqui so serviria para o cliente
+       * descobrir se a pedra era valida antes de o painel chegar
+       */
+      case PANEL_OPS.MINERAR:
+        this.minerar(sessao, pedido.propId, this.relogio());
+        break;
+
+      case PANEL_OPS.GUILD_CRIAR:
           this.criarGuilda(sessao, pedido);
           break;
 
@@ -2809,6 +4210,38 @@ buscarGuilda(sessao, pedido) {
           this.mexerNoCofre(sessao, pedido);
           break;
 
+        case PANEL_OPS.SET_GUILD_STYLE:
+          /**
+           * O EMBLEMA e A COR da guilda.
+           *
+           * Vai pelo `operarGuilda` como toda acao de guilda, e por isso o
+           * store devolve "semPermissao" para quem nao e o lider â€” o
+           * servidor nao repete essa regra, ele so guarda o disco
+           */
+          this.operarGuilda(sessao, pedido, (s, p) =>
+            s.definirEstilo(chaveDaSessao(sessao), {
+              icone: p.icone,
+              cor: p.cor,
+            }),
+          );
+          break;
+
+        case PANEL_OPS.SET_SHOW_TAG:
+          /**
+           * A TAG sobre o boneco de quem pediu.
+           *
+           * Nao passa pelo `operarGuilda` porque ele RECUSA a operacao sem
+           * ser do jogador â€” e esta nao e uma acao da guilda, e uma
+           * preferencia sobre o proprio boneco. Qualquer membro pode, e o
+           * store e quem confere que ele tem guilda
+           */
+          this.definirTagDoJogador(sessao, pedido);
+          break;
+
+        case PANEL_OPS.BAU:
+          this.mexerNoBau(sessao, pedido);
+          break;
+
         case PANEL_OPS.SET_BESTIARY_AUTO:
           /**
            * O mesmo pedido LIGA e DESLIGA.
@@ -2816,7 +4249,7 @@ buscarGuilda(sessao, pedido) {
            * O botao "ir matar" da tela e um interruptor: pedir a
            * criatura que ja esta em cacada significa desistir dela. Se
            * este `op` so ligasse, nao existiria caminho para desligar
-           * pelo botao — e o jogador so poderia resolver recarregando
+           * pelo botao â€” e o jogador so poderia resolver recarregando
            */
           this.engine.toggleBestiaryAuto(
             pedido.creatureId,
@@ -2835,7 +4268,7 @@ buscarGuilda(sessao, pedido) {
           break;
 
         case PANEL_OPS.DELIVER_COLLECTION:
-          this.engine.deliverCollection(pedido.collectionId);
+          this.engine.deliverCollection(pedido.collectionId, pedido.indice ?? null);
           break;
 
         /**
@@ -2853,7 +4286,7 @@ buscarGuilda(sessao, pedido) {
          *
          * A falha precisa virar mensagem. `enchantItem` devolve
          * `{ok: false, reason}` em vez de lancar, porque o caminho feliz
-         * e um `break` e o caminho da recusa e o mais comum — ouro
+         * e um `break` e o caminho da recusa e o mais comum â€” ouro
          * insuficiente acontece toda hora. Sem o `showMessage`, o
          * jogador veria o botao nao fazer nada
          */
@@ -2863,7 +4296,7 @@ buscarGuilda(sessao, pedido) {
 
           if (daMochila === doCorpo) {
             this.engine.showMessage(
-              "Escolha uma peça para encantar.",
+              "Escolha uma peÃ§a para encantar.",
               true,
             );
 
@@ -2876,11 +4309,61 @@ buscarGuilda(sessao, pedido) {
 
           if (!resultado?.ok) {
             this.engine.showMessage(
-              resultado?.reason ?? "Não foi possível encantar.",
+              resultado?.reason ?? "NÃ£o foi possÃ­vel encantar.",
               true,
             );
           }
 
+          break;
+        }
+
+        /**
+         * APRIMORAR uma peca, da mochila OU do corpo.
+         *
+         * ## POR QUE ACEITA OS DOIS LADOS
+         *
+         * Porque o `enhance` migrou do SLOT para a PECA (ver
+         * `Equipment.equip`). O numero agora viaja com o item e sobrevive
+         * a trocar de lugar, entao a restricao antiga â€” "so peca vestida"
+         * â€” nao tem mais razao de existir
+         *
+         * A distincao que sobra e a do `ENCHANT`: `uid` para a mochila e
+         * `slotId` para o corpo, e nunca os dois, porque o servidor
+         * recusaria um pedido ambiguo de qualquer jeito
+         */
+        case PANEL_OPS.ENHANCE: {
+          const daMochila = Boolean(pedido.uid);
+          const doCorpo = Boolean(pedido.slotId);
+
+          if (daMochila === doCorpo) {
+            this.engine.showMessage(
+              "Escolha uma peÃ§a para aprimorar.",
+              true,
+            );
+
+            break;
+          }
+
+          const resultado = daMochila
+            ? this.engine.enhanceItem(pedido.uid)
+            : this.engine.enhanceSlot(pedido.slotId);
+
+          if (!resultado?.ok) {
+            this.engine.showMessage(
+              resultado?.reason ?? "NÃ£o foi possÃ­vel aprimorar.",
+              true,
+            );
+          }
+
+          /**
+           * NAO CHAMA `enviarPainel` AQUI.
+           *
+           * Quem responde o pedido e o `aplicarPainel`, mas quem manda o
+           * painel e o `tratarComando`: todo `CLIENT_COMMANDS.PANEL` cai
+           * no `enviarPainel` do fim, dentro do `withPlayer` certo. Uma
+           * chamada aqui seria um painel a mais por aprimoramento, com o
+           * `withPlayer` ja rodado duas vezes
+           */
           break;
         }
 
@@ -2903,7 +4386,7 @@ buscarGuilda(sessao, pedido) {
          * USAR um consumivel da mochila.
          *
          * O `usarItem` e do motor e devolve `false` quando nao fez
-         * nada — item que nao existe, item sem `use`, ou vida ja cheia.
+         * nada â€” item que nao existe, item sem `use`, ou vida ja cheia.
          * So o primeiro motivo e erro do jogador; os outros dois sao
          * o jogo respondendo "agora nao", e uma mensagem de erro para
          * eles seria o painel chamando de erro o que nao e
@@ -2927,8 +4410,8 @@ buscarGuilda(sessao, pedido) {
          * Os dois casos sao delegados ao motor e nao tem preco aqui: o
          * motor tem o `level` que define o custo do revive, e o `xp`
          * que a perda de XP desconta. O servidor so garante que quem
-         * pediu esta morto — sem isso, `REVIVER` viraria um jeito de
-         * recarregar vida cheia de graça em qualquer momento
+         * pediu esta morto â€” sem isso, `REVIVER` viraria um jeito de
+         * recarregar vida cheia de graÃ§a em qualquer momento
          *
          * A recusa de um jogador VIVO e silenciosa de proposito: o
          * painel so existe quando o jogador esta morto, entao um pedido
@@ -2954,7 +4437,7 @@ buscarGuilda(sessao, pedido) {
          *
          * O destino vem do `travelPlan` que o proprio motor montou, e nao
          * do pedido. Um pedido com `x`/`y` deixaria qualquer cliente se
-         * mandar para o ponto que quisesse — inclusive pelo meio de uma
+         * mandar para o ponto que quisesse â€” inclusive pelo meio de uma
          * arvore ou de uma parede, que e onde a walk real nunca entraria
          *
          * A recusa e o aviso do proprio motor, nao um `showMessage`
@@ -2977,6 +4460,14 @@ buscarGuilda(sessao, pedido) {
          */
         case PANEL_OPS.BUY_SKILL_BOOK:
           this.comprarLivro(sessao, pedido);
+          break;
+
+        /**
+         * A LOJA DE PRODUTOS, pelo mesmo motivo das duas de cima: uma sessao
+         * so, preco e lista vindos do catalogo do servidor
+         */
+        case PANEL_OPS.BUY_SHOP:
+          this.comprarProduto(sessao, pedido);
           break;
 
         /**
@@ -3045,7 +4536,7 @@ buscarGuilda(sessao, pedido) {
           : null;
 
         if (!alvo) {
-          resultado = { ok: false, motivo: "Jogador não encontrado" };
+          resultado = { ok: false, motivo: "Jogador nÃ£o encontrado" };
           break;
         }
 
@@ -3121,7 +4612,7 @@ buscarGuilda(sessao, pedido) {
         const membros = store.membrosDe(sessao.id);
 
         if (!membros.includes(pedido.alvoId)) {
-          resultado = { ok: false, motivo: "Ele não está na sua party" };
+          resultado = { ok: false, motivo: "Ele nÃ£o estÃ¡ na sua party" };
           break;
         }
 
@@ -3154,7 +4645,7 @@ buscarGuilda(sessao, pedido) {
          *
          * O pedido manda o estado (`ativo`), e nao um "inverter": com
          * dois cliques rapidos no botao, um "inverter" acabaria no
-         * estado inicial — e o jogador teria clicado duas vezes para
+         * estado inicial â€” e o jogador teria clicado duas vezes para
          * tentar desligar e descobrir que nao desligou
          *
          * O `ativo` chega como `null` quando o pedido nao traz, e `null`
@@ -3188,7 +4679,7 @@ buscarGuilda(sessao, pedido) {
          *
          * E o unico caso em que o pedido traz um `alvoId` que NAO e
          * um convite nem uma expulsion: e o novo lider. O alvo tem que
-         * estar na party — passar a lideranca para quem esta fora da
+         * estar na party â€” passar a lideranca para quem esta fora da
          * grupo nao faria sentido
          */
         const party = store.partyDe(sessao.id);
@@ -3226,7 +4717,7 @@ buscarGuilda(sessao, pedido) {
         /**
          * O GRUPO INTEIRO RECEBE A CAIXA NOVA.
          *
-         * Sem isto, so a tela de quem pediu era atualizada — e quem
+         * Sem isto, so a tela de quem pediu era atualizada â€” e quem
          * acabara de virar lider continuaria vendo a etiqueta do lider
          * antigo e sem nenhum botao `L`, que e exatamente "passar
          * lideranca nao funciona" do ponto de vista de quem recebeu
@@ -3396,14 +4887,24 @@ buscarGuilda(sessao, pedido) {
      * `world.map` e o do jogador em FOCO, e o `withPlayer` de baixo e que
      * troca esse foco. Contar pelo `sessao.mapId` aqui em cima daria a
      * mesma resposta, mas o `emZonaDeCombate` do motor e a regra
-     * unica — duas copias da condicao divergem na primeira vez que uma
+     * unica â€” duas copias da condicao divergem na primeira vez que uma
      * delas for esquecida
      *
-     * O aviso vai pelo `showMessage`, e nao por `SERVER_EVENTS.REJECTED`:
-     * o `REJECTED` muda o STATUS da conexao para recusado, e o status de
-     * quem ja esta jogando e `JOGANDO` — a recusa chegava e nao aparecia
-     * em lugar nenhum. O `showMessage` e o mesmo caminho do "Mochila
-     * cheia.", que o jogador le
+     * ## POR QUE NAO TEM AVISO
+     *
+     * Porque o jogador pediu o silencio. Havia um `showMessage` com o
+     * "Nao da para atacar na base." aqui, e ele se repetia a cada clique
+     * e a cada tecla de ataque dentro do hub: a base e o lugar onde o
+     * jogador passeia, clica nos NPCs e acerta o ar, e uma tarja vermelha
+     * a cada tentativa era mais ruÃ­do do que informaÃ§Ã£o
+     *
+     * O clique continuar sem resposta e a leitura correta de la: nao ha
+     * inimigo, entao nao ha golpe, e o circulo tracejado do alcance ja
+     * some no hub (`drawAim`) como o aviso de que ali nao se briga. O
+     * silencio do golpe e do mesmo aviso, sem repetir a cada tecla
+     *
+     * E o `return` continua: e ele que impede o golpe de sair. O que foi
+     * removido e so a frase
      */
     this.engine.withPlayer(sessao.id, () => {
       const ehGolpe =
@@ -3411,8 +4912,6 @@ buscarGuilda(sessao, pedido) {
         (targetId !== null && targetId !== undefined);
 
       if (!this.engine.emZonaDeCombate() && ehGolpe) {
-        this.engine.showMessage(REJECT.NO_COMBAT_IN_BASE, true);
-
         return;
       }
 
@@ -3464,7 +4963,7 @@ buscarGuilda(sessao, pedido) {
    * A missao de nivel e reconferida no fim, e este e o passo que
    * impede a missao travada: o save pode ter sido escrito no momento
    * exato em que o jogador ja cumpria "alcanca o nivel 5". Sem esta
-   * chamada a missao ficaria mostrando 0 de 5 para sempre, sem avancar e sem fechar — e no nivel maximo ninguem mais subia, entao
+   * chamada a missao ficaria mostrando 0 de 5 para sempre, sem avancar e sem fechar â€” e no nivel maximo ninguem mais subia, entao
    * o evento que fecharia a missao nunca mais viria
    */
   /**
@@ -3475,7 +4974,7 @@ buscarGuilda(sessao, pedido) {
    * gravado no vale traz coordenadas do vale, e a unica coisa que sabe
    * dizer se elas servem aqui e o limite deste mapa
    *
-   * Antes, `limites` vinha de `config.limites` — um campo que NINGUEM
+   * Antes, `limites` vinha de `config.limites` â€” um campo que NINGUEM
    * definia. Ele chegava sempre `null`, o clamp nunca rodava, e um
    * personagem que salvou jogando no vale aparecia em (3000, 2000) dentro
    * da base, que so vai ate (1640, 1136)
@@ -3504,7 +5003,19 @@ buscarGuilda(sessao, pedido) {
   }
 
   restaurar(sessao, salvo) {
-    applyCharacterSave(sessao, salvo, this.entradaNoMapa());
+    /**
+     * O `agora` E O DO SERVIDOR, e nao um `Date.now()` solto aqui dentro.
+     *
+     * A restauracao usa o relogio para cortar um `ultimoEm` de farm
+     * offline escrito no futuro. Sem injetar, o corte seria feito no
+     * relogio da maquina e o accrue no `config.agora` do servidor â€” dois
+     * relogios na mesma entrada, e uma hora que o motorMock avanca nao
+     * mexe na restauracao
+     */
+    applyCharacterSave(sessao, salvo, {
+      ...this.entradaNoMapa(),
+      agora: this.relogio(),
+    });
 
     /**
      * O HUB RECOMECA PELO MEIO.
@@ -3533,7 +5044,7 @@ buscarGuilda(sessao, pedido) {
      * defesa e vida maxima: eles sao a SOMA da classe com o nivel e
      * com o que esta vestido, e essa soma e do motor. Sem esta
      * chamada o jogador que voltava logava com os numeros crus da
-     * classe — o mesmo Guerreiro nivel 30 batia fraco ate vestir
+     * classe â€” o mesmo Guerreiro nivel 30 batia fraco ate vestir
      * alguma peca
      *
      * E a ordem importa: o `refillVitals` abaixo preenche a vida com
@@ -3555,6 +5066,266 @@ buscarGuilda(sessao, pedido) {
         this.engine.resolveQuestProgress(concluidas);
       }
     });
+  }
+
+  /**
+   * LIGA O FARM OFFLINE de um jogador, e grava na hora.
+   *
+   * ## POR QUE `guardar` DENTRO DO METODO
+   *
+   * Porque o proximo passo do jogador e SAIR do jogo, e o `desconectar`
+   * grava. Se o pedido fosse atendido e o jogador fechasse a janela antes
+   * do socket fechar, o `desconectar` ainda rodaria e gravaria â€” mas nao
+   * ha garantia de que ele rode: um `location.reload()` mata o socket sem
+   * passar pelo caminho limpo
+   *
+   * Gravar aqui custa um acesso ao disco e fecha o buraco inteiro. O
+   * jogador que recarrega a pagina com o botao clicado tem o farm salvo,
+   * e nao um ganho perdido
+   *
+   * ## E POR QUE MAPA E O DO JOGADOR, E NAO O DO PEDIDO
+   *
+   * Porque o pedido nao tem mapa. O `PANEL_OPS` foi declarado sem payload
+   * justamente para isso: se o cliente pudesse escolher o mapa, ele
+   * escolheria o do chefe. Quem decide e o servidor, e o mapa em que o
+   * jogador esta
+   */
+  iniciarFarmOffline(sessao) {
+    if (!sessao) return null;
+
+    const mapaId = sessao.mapId ?? this.mapaInicial?.id ?? null;
+
+    sessao.farmOffline = iniciarFarm(
+      sessao.farmOffline,
+      { agora: this.relogio(), mapaId },
+    );
+
+    this.guardar(sessao);
+
+    return sessao.farmOffline;
+  }
+
+  /**
+   * O JOGADOR FECHOU O RELATORIO, e o servidor pode esquece-lo.
+   *
+   * Sem isto o relatorio voltaria a cada entrada, porque ele mora na
+   * sessao e sobrevive enquanto o jogador estiver conectado
+   */
+  farmOfflineVisto(sessao) {
+    if (!sessao?.farmOffline?.relatorio) return false;
+
+    sessao.farmOffline = {
+      ...sessao.farmOffline,
+      relatorio: null,
+    };
+
+    /**
+     * GRAVA NA HORA, e pelo mesmo motivo do `iniciarFarmOffline`.
+     *
+     * O relatorio estava na sessao E no arquivo: o accrue roda antes do
+     * primeiro pacote, e o `desconectar` do jogador anterior ja o gravou.
+     * Limpar so a memoria deixava o arquivo com o relatorio, e um servidor
+     * que reiniciasse antes do autosave de 30s mostraria a tela de novo â€”
+     * o jogador que ja viu o resultado vendo o mesmo resultado outra vez
+     *
+     * E o inverso do `guardar` do `iniciar`: aquele evita perder um farm
+     * que o jogador nao viu, este evita repetir um que ele ja viu
+     */
+    this.guardar(sessao);
+
+    return true;
+  }
+
+  /**
+   * RESOLVE O FARM OFFLINE, e entrega o que ele rendeu.
+   *
+   * ## POR QUE ISTO NAO DA ERRO
+   *
+   * Porque Called dentro do `entrar`, antes do `WELCOME`. Um farm que
+   * desse exception derrubaria o jogador no meio da entrada, depois de o
+   * save ja ter sido lido e a sessao ja criada â€” e ele entraria sem
+   * `WELCOME`, sem painel e sem poder fazer nada
+   *
+   * Um `try` com aviso no console e o preco. Perder um farm e um
+   * contratempo; derrubar a entrada e perder o jogo
+   */
+  resolverFarmOffline(sessao) {
+    if (!sessao?.farmOffline?.ativo) return null;
+
+    try {
+      const agora = this.relogio();
+
+      /**
+       * O JOGADOR COMO A CONTA VE.
+       *
+       * `level` e `attack` sao os DERIVADOS, os que o `applyEquipment`
+       * acabou de escrever com o equipamento vestido. E o que faz o
+       * farm de quem trocou de uma espada boa valer mais do que o de
+       * quem nao trocou â€” que e a resposta que o jogador espera quando
+       * diz "contabiliza com o meu poder"
+       */
+      const jogador = {
+        level: sessao.player?.level ?? 1,
+        attack: sessao.player?.attack ?? 1,
+        lootFilter: sessao.lootFilter ?? null,
+      };
+
+      const { estado, relatorio, ganhos } = resolverFarm({
+        estado: sessao.farmOffline,
+        jogador,
+        agora,
+      });
+
+      sessao.farmOffline = estado;
+
+      if (!relatorio || relatorio.abates <= 0) {
+        this.avisoDoDono(
+          sessao,
+          "Nao houve tempo de farm util enquanto voce esteve fora.",
+        );
+
+        return relatorio;
+      }
+
+      const entregue = this.entregarFarmOffline(sessao, ganhos, relatorio);
+
+      /**
+       * O OURO, e ele e creditado AQUI e nao dentro da entrega dos itens.
+       *
+       * Porque `entregarFarmOffline` cuida de espaco, e ouro nao ocupa
+       * espaco nenhum: ele vai para `inventory.coins`, que e um numero, e
+       * nao uma pilha. Passar pelo mesmo caminho faria `cabe()` responder
+       * sobre a mochila cheia e o jogador perderia ouro que ele nao tinha
+       * como perder â€” a contabilidade do relatorio mostraria `coins` e o
+       * saldo nao mudaria
+       *
+       * E creditar ANTES dos itens nao importa, e por isso a ordem nao e
+       *uma regra: nao ha dependencia entre eles
+       */
+      sessao.inventory.addCoins(relatorio.coins);
+
+      /**
+       * O XP VAI DEPOIS DO LOOT, e por um motivo que nao e de ordem
+       * alfabetica.
+       *
+       * Entregar o item nao muda o nivel. Mas o LOOT e o que muda a
+       * mochila, e o XP o que muda os STATS: se o XP viesse primeiro, o
+       * `applyEquipment` rodaria com o equipamento antigo, e o `attack`
+       * que o proximo farm usaria ja seria outro
+       *
+       * O `grantXp` e do MOTOR e nao da sessao, e ele precisa do
+       * `world.player` â€” que e exatamente o jogador em foco, porque esta
+       * chamada inteira roda dentro do `withPlayer` do `entrar`
+       */
+      const niveis = grantXp(
+        this.engine.world.player,
+        relatorio.xp,
+      );
+
+      this.engine.applyEquipment();
+
+      sessao.farmOffline = {
+        ...sessao.farmOffline,
+        relatorio: {
+          ...relatorio,
+          nivelDepois: sessao.player?.level ?? relatorio.nivelAntes,
+          naMochila: entregue.mochila,
+          noBau: entregue.bau,
+          perdidos: entregue.perdidos,
+        },
+      };
+
+      for (const nivel of niveis) {
+        this.engine.announceLevelUp?.(nivel);
+      }
+
+      this.engine.quests?.onLevelUp?.(sessao.player?.level ?? 1);
+
+      return sessao.farmOffline.relatorio;
+    } catch (erro) {
+      console.error(
+        "[farmOffline] erro ao resolver o accrue:",
+        erro?.stack ?? erro,
+      );
+
+      /**
+       * O ESTADO VOLTA A DESLIGADO MESMO NO ERRO.
+       *
+       * Sem isto, um farm que deu exception continuaria ligado na sessao:
+       * o jogador entraria de novo, o accrue tentaria de novo, e o erro
+       * repetiria a cada entrada â€” com o relogio parado, porque `resolver`
+       * so avanca `ultimoEm` quando termina
+       */
+      sessao.farmOffline = encerrarFarm(sessao.farmOffline);
+
+      return null;
+    }
+  }
+
+  /**
+   * ENTREGA OS ITENS DO FARM: mochila, depois bau, e o resto some.
+   *
+   * ## POR QUE O BAU NO MEIO
+   *
+   * Porque o bau existe para ser o espaco de sobra, e a regra do jogo
+   * para loot e descartar quando a mochila esta cheia â€” e descartar o
+   * resultado de doze horas de farm seria a pior resposta possivel para
+   * quem fez a coisa certa
+   *
+   * O bau tem 60 slots e a mochila 20. Um farm entrega no maximo 60
+   * entradas, entao tudo cabe em um dos dois, e o `perdidos` quase nunca
+   * sai do zero. Ele existe para o bau tambem estar cheio, e nesse caso o
+   * relatorio DIZ que perdeu â€” o jogador ve o numero em vez de
+   * descobrir depois
+   */
+  entregarFarmOffline(sessao, ganhos, relatorio) {
+    let mochila = 0;
+    let bau = 0;
+    let perdidos = 0;
+
+    for (const ganho of ganhos) {
+      const quantidade = Math.max(1, Math.floor(ganho.count || 1));
+
+      const opcoes = {
+        comercializavel: ganho.comercializavel ?? false,
+        enhance: ganho.enhance ?? 0,
+        enchant: ganho.enchant ?? null,
+      };
+
+      if (
+        sessao.inventory.cabe(
+          ganho.itemId,
+          quantidade,
+          null,
+          sessao.equipment,
+        )
+      ) {
+        const r = sessao.inventory.add(
+          ganho.itemId,
+          quantidade,
+          null,
+          opcoes,
+        );
+
+        mochila += r.added;
+        perdidos += r.dropped;
+        continue;
+      }
+
+      if (
+        sessao.bau.cabe(ganho.itemId, quantidade, null, null)
+      ) {
+        const r = sessao.bau.add(ganho.itemId, quantidade, null, opcoes);
+
+        bau += r.added;
+        perdidos += r.dropped;
+        continue;
+      }
+
+      perdidos += quantidade;
+    }
+
+    return { mochila, bau, perdidos };
   }
 
   /**
@@ -3591,7 +5362,7 @@ buscarGuilda(sessao, pedido) {
      * O prazo dos anuncios corre mesmo com o jogador parado.
      *
      * Se isto so rodasse quando alguem abre o painel, o anuncio de um
-     * jogador que ficou online sem tocar em nada nunca venceria — e o
+     * jogador que ficou online sem tocar em nada nunca venceria â€” e o
      * item ficaria fora do alcance dele para sempre
      */
     this.expirarAnuncios();
@@ -3602,7 +5373,7 @@ buscarGuilda(sessao, pedido) {
      * Corre aqui pelo mesmo motivo dos anuncios: o jogador parado tambem
      * precisa ver o convite sair de perto. Sem este `tick`, o convite
      * ficaria na tela ate o jogador clicar em algo, e o aceite seria
-     * recusado pelo servidor com "o convite expirou" — a caixa ficaria
+     * recusado pelo servidor com "o convite expirou" â€” a caixa ficaria
      * morta na frente de quem nao fez nada de errado
      */
     const expirados = this.parties.tick(this.engine.world);
@@ -3610,6 +5381,43 @@ buscarGuilda(sessao, pedido) {
     for (const alvo of expirados) {
       this.enviarConviteFechado(alvo.sessionId);
       this.enviarPartyNoPainel(alvo.sessionId);
+    }
+
+    /**
+     * AS PEDIDAS QUE VOLTAM A EXISTIR, e as batidas de todo mundo.
+     *
+     * A ressurreicao roda ANTES do laco dos jogadores, e por um motivo
+     * concreto: se a pedra de um jogador volta neste tique, ele precisa
+     * ver a pedra de pe no mesmo quadro em que o relogio diz que ela
+     * voltou. O contrario faria o painel abrir sobre uma pedra que o
+     * cliente ja tinha escondido
+     *
+     * O segundo passo e por sessao, e roda DEPOIS do `engine.update`: o
+     * motor e quem move o jogador, e a checagem de "o jogador ainda esta
+     * encostado" so faz sentido com a posicao deste tique. Se rodasse
+     * antes, o jogador que andou para longe no tique passaria mais um
+     * tique inteiro encostado e receberia uma batida a mais
+     */
+    const agora = this.relogio();
+
+    this.tickMineracao(agora);
+
+    for (const client of this.clients.keys()) {
+      if (!client.joined) continue;
+      if (!client.session?.mineracao) continue;
+
+      const sessao = client.session;
+
+      // o ganho do tique e zerado ANTES, e nao depois: se o jogador
+      // encostou a meio tique, o `mineracao` ja existe aqui e o painel
+      // receberia o `steelNoTique` do tique em que ele encostou, que e
+      // sempre zero. Zerar primeiro deixa o campo dizer a verdade sobre
+      // ESTE tique
+      sessao.mineracaoSteelNoTique = 0;
+
+      this.engine.withPlayer(client.id, () => {
+        this.tickMineracaoDaSessao(sessao, delta, agora);
+      });
     }
 
     for (const client of this.clients.keys()) {
@@ -3641,7 +5449,7 @@ buscarGuilda(sessao, pedido) {
            *
            * Sai da SESSAO e nao de `world.map`. O `world` e o mapa do
            * jogador em foco, e ler dele aqui seria mandar o mapa do
-           * outro para quem nao atravessou — que e o bug de todo mundo
+           * outro para quem nao atravessou â€” que e o bug de todo mundo
            * atravessar o portal junto
            */
           mapa: client.session.mapId,
@@ -3650,6 +5458,22 @@ buscarGuilda(sessao, pedido) {
           enemies: this.estadoInimigos(client),
           drops: this.estadoDrops(),
           projectiles: this.estadoProjetis(client),
+
+          /**
+           * OS IDS DAS PEDRAS QUE ESTAO FORA DO MAPA.
+           *
+           * Vem no estado do MUNDO e nao no painel, e pela razao do resto
+           * do pacote: a pedra que o outro jogador demoliu some para todo
+           * mundo, e nao so para quem encostou nela. Mandar no painel
+           * faria a pedra desaparecer para quem olha e continuar de pe
+           * para quem minerou
+           *
+           * E so a LISTA dos que estao fora. Com 40 cristais e um
+           * demolido, o campo leva um id â€” e o `pedidasEsgotadas` devolve
+           * so os que estao fora justamente para o campo nao crescer com o
+           * tamanho do mapa
+           */
+          pedidasFora: this.pedidasEsgotadas(client.session.mapId, agora),
         });
       });
     }
@@ -3690,7 +5514,7 @@ buscarGuilda(sessao, pedido) {
      *
      * O `finally` abaixa de novo. Sem ele, um painel que estourasse no
      * `catch` deixaria a flag ligada e o motor passaria a montar painel
-     * para o vazio de novo — o desperdicio voltaria sem ninguem perceber
+     * para o vazio de novo â€” o desperdicio voltaria sem ninguem perceber
      */
     this.engine.painelSolicitado = true;
 
@@ -3702,7 +5526,7 @@ buscarGuilda(sessao, pedido) {
        * topo do tick ja expirava tudo, e estas n chamadas seguintes
        * recebiam a lista vazia para percorrer de novo. Com 50 jogadores
        * eram 51 varreduras de todos os anuncios por tique, a 20Hz, para
-       * um resultado identico — nenhuma anunciacao vence o prazo dentro
+       * um resultado identico â€” nenhuma anunciacao vence o prazo dentro
        * da mesma fracao de segundo em que o tick roda
        *
        * A ordem que o comentario antigo protegia continua valendo, e e
@@ -3752,7 +5576,7 @@ buscarGuilda(sessao, pedido) {
      * nao significam nada no outro: mandar todo mundo faria o Bento
      * aparecer no hub do Ana, no meio do calcamento, enquanto o Bento
      * estava no vale. E o cliente nao tem como saber que o boneco dele
-     * esta em outro mapa — ele so recebe uma posicao
+     * esta em outro mapa â€” ele so recebe uma posicao
      */
     const meuMapa = this.engine.world.session?.mapId;
 
@@ -3788,7 +5612,7 @@ buscarGuilda(sessao, pedido) {
        *
        * Custo que isto tira: a lista ia de O(n) para todo mundo no mapa
        * receber todo mundo no mapa, a 20Hz. Com 50 jogadores no mesmo
-       * mapa, a banda de jogadores era 50 x 50 registros por pacote — e o
+       * mapa, a banda de jogadores era 50 x 50 registros por pacote â€” e o
        * array `players` cresce com n, entao o total era O(n^2). Agora e
        * O(n) e so cresce com quem esta por perto
        */
@@ -3801,6 +5625,22 @@ buscarGuilda(sessao, pedido) {
         id: p.id,
         name: p.name,
         classId: p.definition.id,
+
+        /**
+         * O NIVEL DO JOGADOR REMOTO.
+         *
+         * ## POR QUE ESTE CAMPO ENTROU AGORA
+         *
+         * Porque a barra flutuante desenhava "Nv.1" para todo mundo: o
+         * payload mandava `hp` e `maxHp`, mas nao o nivel, e o `Math.max(1,
+         * Math.round(undefined ?? 1))` do cliente caia no piso. O jogador
+         * via um nivel errado ao passar o mouse, e ele nao tem como ver o
+         * verdadeiro em nenhum outro lugar da tela
+         *
+         * E o servidor e quem sabe o nivel: ele aplica xp e subiu o jogador
+         * durante a partida. O cliente nunca teria como deduzi-lo
+         */
+        level: Math.max(1, Math.floor(p.level ?? 1)),
         x: Math.round(p.x),
         y: Math.round(p.y),
         hp: Math.ceil(p.hp),
@@ -3826,10 +5666,93 @@ buscarGuilda(sessao, pedido) {
         acting: (p.attackAnimation ?? 0) > 0,
         hasTarget: Boolean(p.firingTargetId),
         selectedTargetId: sessao.selectedTargetId ?? null,
+
+        /**
+         * A PICARETA, ou seja: o jogador esta em cima da pedra.
+         *
+         * E o mesmo booleano que o offline escreve no `atualizaMineracaoVisual`,
+         * e ele vem pelo MESMO motivo do `selectedTargetId`: a decisao e do
+         * servidor, e o cliente nao tem como deduzi-la
+         *
+         * ## POR QUE O `p.isMining` NAO CHEGA SO
+         *
+         * Porque no modo rede o cliente NAO roda a `runMineracao`: o `update`
+         * dele volta antes, no ramo de rede. Sem este campo no pacote, o
+         * `isMining` do cliente ficaria `false` para sempre e o arqueiro
+         * socaria o ar â€” com a animacao nova instalada e nunca aparecendo
+         *
+         * E por que `p.isMining` e nao `sessao.mineracao?.encostado`: o
+         * primeiro ja e a resposta da MESMA conta que o painel usa, calculada
+         * no tique, sem refazer a distancia aqui
+         */
+        mining: p.isMining === true,
+
+        /**
+         * A TAG DA GUILDA deste jogador, ou `null`.
+         *
+         * ## POR QUE SO QUANDO ELE LIGOU
+         *
+         * Porque a opcao e sobre o boneco de quem liga. Sem este filtro, um
+         * membro que desligou a tag teria o nome da guilda desenhado em
+         * cima do boneco dele na tela de todo mundo â€” e ele nao teria como
+         * tirar, porque a opcao dele e justamente "nao quero isso"
+         *
+         * E por isso que e `null` e nao `tag: ""`: o cliente usa o `null`
+         * para saber que NAO ha tag, e um texto vazio faria ele desenhar
+         * "[]" no lugar
+         *
+         * ## E POR QUE SO A TAG, E NAO A GUILDA INTEIRA
+         *
+         * Porque este pacote vai a 20Hz para todo mundo que esta perto, e a
+         * guilda inteira â€” membros, talentos, cofre â€” multiplicaria a banda
+         * por um dado que o painel ja traz, a 4Hz, so para quem tem guilda.
+         * Aqui vai o minimo que o desenho precisa: a sigla e a cor
+         */
+        ...this.tagDaGuildaDe(sessao),
       });
     }
 
     return lista;
+  }
+
+  /**
+   * A TAG e a COR da guilda de uma sessao, para o desenho no canvas.
+   *
+   * ## POR QUE UM METODO E NAO SO UM `?` NO OBJETO
+   *
+   * Porque a leitura e em tres passos â€” achar a guilda pelo jogador, achar o
+   * membro, conferir a opcao â€” e isso em forma de ternario dentro de um
+   * literal de objeto vira um bloco de seis linhas entre `acting` e `hasTarget`,
+   * no meio dos campos que descrevem o sprite. Aqui a chamada cabe numa linha
+   *
+   * ## E POR QUE A COR SAI COMO HEX JA VALIDADO
+   *
+   * Porque e um `fillStyle` do canvas. A cor vem do catalogo do servidor, e
+   * nao do cliente nem do arquivo: um arquivo de guildas editado a mao com
+   * uma cor fora da lista foi descartado no `fromSave`, entao o que chega
+   * aqui ja e um dos onze
+   */
+  tagDaGuildaDe(sessao) {
+    const chave = chaveDaSessao(sessao);
+
+    const guildaId = this.guild?.guildaDoJogador?.(chave)?.id;
+
+    if (!guildaId) return { guilda: null };
+
+    const guilda = this.guild.guilds.get(guildaId);
+
+    const membro = guilda?.membros?.get(chave);
+
+    if (!membro || membro.mostrarTag !== true) {
+      return { guilda: null };
+    }
+
+    return {
+      guilda: {
+        tag: guilda.tag,
+        cor: corDaGuilda(guilda.cor),
+      },
+    };
   }
 
   /**
@@ -3874,14 +5797,173 @@ buscarGuilda(sessao, pedido) {
         // prenderia o mob segurando o arco para sempre. Quem conta o
         // tempo da pose e o cliente
         acting: (inimigo.attackAnimation ?? 0) > 0,
+
+        /**
+         * QUANTO RESTA DO CADAVER, em segundos.
+         *
+         * O cliente tem o mesmo goblin, com a mesma arte e o mesmo
+         * relogio de morte â€” mas o `killEnemy` que liga esse relogio
+         * roda AQUI, no motor do servidor. Sem este campo, o cliente
+         * recebia `state: "dead"` e marcava `alive = false`, com o
+         * `deathTimer` ainda em `null` que significa "esta criatura nao
+         * tem arte de morte" â€” e o cadaver nunca era desenhado
+         *
+         * E o servidor quem manda, e nao o cliente, por dois motivos:
+         *
+         * - o relogio do servidor e o unico que contou. Mandar o valor
+         *   absolute faria o cadaver pular entre 0.9 e 0.85 conforme o
+         *   pacote chegava, e ele tremeria
+         * - o resto do relogio depende da arte, que mora no cliente. O
+         *   `duration` e o `fade` sao lidos do layout la; aqui so
+         *   interessa quanto resta do total
+         *
+         * `null` quando o bicho morre sem arte de morte: o goblin da
+         * pedreira e do campo de provas mandam numero, o esqueleto e o
+         * slime mandam `null` e continuam sumindo na hora
+         */
+        restamMorte: (inimigo.deathTimer ?? null),
+
+        /**
+         * O TELEGRAPH, quando o chefe esta preparando um golpe.
+         *
+         * ## POR QUE VIAJA DENTRO DO INIMIGO, E NAO COMO UM PACOTE SEPARADO
+         *
+         * Porque o `estadoInimigos` ja e filtrado por distancia ao cliente e
+         * ja viaja a 10Hz. Um pacote novo exigiria um envio por execucao, o
+         * que seria rapido demais: uma investida de 0.8s receberia tres
+         * pacotes identicos, e um telegraph de 3s receberia um so â€” o mesmo
+         * ataque com pesos diferentes na rede
+         *
+         * Aqui o telegraph entra junto do chefe que o produziu, e o filtro de
+         * distancia e o mesmo. Quem esta longe do chefe nao recebe, e quem
+         * esta longe do jogador nao precisava mesmo
+         *
+         * ## E O QUE O CLIENTE RECEBE
+         *
+         * O `impactoEm` e um instante do `world.time` do SERVIDOR, e nao um
+         * "faltam N segundos". E o que faz dois jogadores com relogios
+         * diferentes verem o golpe no mesmo quadro: os dois recalculam o
+         * progresso a partir do mesmo numero, e nao do instante em que o
+         * pacote chegou
+         *
+         * Quem calcula o dano e o servidor â€” o cliente recebe a geometria
+         * para DESENHAR, e nao para decidir quem levou o golpe
+         */
+        telegraph: this.telegraphDe(
+          inimigo.id,
+          this.engine.world.telegraphs,
+          this.engine.world.time,
+        ),
       });
     }
 
     return lista;
   }
 
+
+/**
+   * O TELEGRAPH DE UM INIMIGO, pronto para o pacote.
+   *
+   * ## POR QUE SO O MAIS RECENTE
+   *
+   * Porque uma criatura so pode ter UM telegraph correndo por vez: a trava
+   * `telegraphAtivo` na `EnemyAI` impede duas preparacoes simultaneas, e o
+   * pedido diz que a IA nao deve escolher nova habilidade durante uma acao
+   * incompativel. Mandar uma lista seria supor um estado que o motor nao
+   * permite
+   *
+   * ## E OS CAMPOS QUE NAO VIAJAM
+   *
+   * `danoAplicado` e `tipoHabilidade` ficam de fora. O primeiro e estado
+   * interno do servidor — o cliente nunca decide se o dano saiu. O segundo e
+   * o objeto do catalogo inteiro, que o cliente nao precisa: ele so precisa
+   * do `tipo` (string) e das medidas ja resolvidas na execucao
+   *
+   * ## E O ARREDONDAMENTO
+   *
+   * As posicoes sao arredondadas como as do inimigo. O telegraph e uma AREA,
+   * e um pixel de erro em uma borda de 260px de raio nao muda o resultado
+   * para ninguem — mas reduz o pacote
+   */
   /**
-   * os drops no chao, com o dono de cada um
+   * O TELEGRAPH DE UM INIMIGO, pronto para o pacote.
+   *
+   * @param tempoDoServidor
+   *   o `world.time` do SERVIDOR agora. Vai no pacote para o cliente alinhar
+   *   o relogio dele com o do servidor — ver o comentario do `servidorEm`
+   */
+  telegraphDe(inimigoId, telegraphs, tempoDoServidor) {
+    if (!telegraphs?.length) return null;
+
+    for (const execucao of telegraphs) {
+      if (execucao.inimigoId !== inimigoId) continue;
+
+      const base = {
+        id: execucao.id,
+        habilidadeId: execucao.habilidadeId,
+        tipo: execucao.tipo,
+        cor: execucao.cor,
+
+        // os instantes, que sao a verdade da sincronia
+        inicioEm: execucao.inicioEm,
+        impactoEm: execucao.impactoEm,
+        duracao: execucao.duracao,
+
+        /**
+         * O RELOGIO DO SERVIDOR no instante em que este pacote saiu.
+         *
+         * E o que permite ao cliente alinhar os dois relogios. Sem ele, o
+         * cliente tenta comparar `impactoEm` (que e um numero do
+         * `world.time` do servidor) com o `spriteTime` dele, que e uma
+         * escala completamente diferente: o servidor pode estar em 340 e o
+         * cliente em 12, e o `progresso` do telegraph daria um numero
+         * negativo cortado em zero
+         *
+         * Com este campo o cliente calcula o desloca uma vez, no pacote, e
+         * passa a ler o tempo do servidor com o relogio dele. E o que faz a
+         * barra ENCHER em vez de ficar parada
+         */
+        servidorEm: tempoDoServidor,
+
+        // a posicao congelada, e nao a do chefe agora: o cliente desenha o
+        // que o SERVIDOR decidiu, e nao onde o chefe veio a estar
+        x: Math.round(execucao.x),
+        y: Math.round(execucao.y),
+
+        dirX: execucao.dirX,
+        dirY: execucao.dirY,
+      };
+
+      // as medidas, so as que o tipo usa
+      if (execucao.raio !== undefined) {
+        base.raio = Math.round(execucao.raio);
+      }
+
+      if (execucao.raioInterno !== undefined) {
+        base.raioInterno = Math.round(execucao.raioInterno);
+        base.raioExterno = Math.round(execucao.raioExterno);
+      }
+
+      if (execucao.alcance !== undefined) {
+        base.alcance = Math.round(execucao.alcance);
+      }
+
+      if (execucao.largura !== undefined) {
+        base.largura = Math.round(execucao.largura);
+      }
+
+      if (execucao.anguloGraus !== undefined) {
+        base.anguloGraus = execucao.anguloGraus;
+      }
+
+      return base;
+    }
+
+    return null;
+  }
+
+  /**
+ * os drops no chao, com o dono de cada um
    *
    * Cacheado por mapa dentro do tick. Este e o unico pacote do
    * broadcast que NAO depende de quem recebe: `estadoInimigos` e
@@ -3892,7 +5974,7 @@ buscarGuilda(sessao, pedido) {
    * Antes disso o `.map` rodava uma vez por cliente por tick, realocando
    * D objetos e D arrays aninhados n vezes para produzir n listas
    * identicas. Com 50 jogadores e 40 drops no chao, eram 2000 objetos
-   * por tick descartados — e o `JSON.stringify` logo abaixo transformava
+   * por tick descartados â€” e o `JSON.stringify` logo abaixo transformava
    * cada uma em bytes identicos
    */
   estadoDrops() {
@@ -3999,7 +6081,7 @@ buscarGuilda(sessao, pedido) {
    * E o que alimenta o rank com quem esta offline. Devolve o SAVE
    * direto, e nao um embrulho `{ nome, save }`: o proprio save ja tem
    * `name` dentro (`snapshotSession` grava), e embrulhar fazia o
-   * `montarRank` ler `player.level` de `undefined` — todo offline
+   * `montarRank` ler `player.level` de `undefined` â€” todo offline
    * entrava na tabela como nivel 1
    *
    * Um arquivo ilegivel e pulado em vez de derrubar a lista inteira:
@@ -4033,7 +6115,7 @@ buscarGuilda(sessao, pedido) {
    * protocolo (`emitErrorAndClose`), e o `index.js` escuta os dois. Sem
    * o flag, a segunda chamada achava `client.joined` ainda verdadeiro,
    * gravava o MESMO save outra vez e mandava `PLAYER_LEFT` com o nome
-   * `"?"` — porque o `removePlayer` da primeira passada ja tinha
+   * `"?"` â€” porque o `removePlayer` da primeira passada ja tinha
    * tirado a sessao do mundo, entao `anunciar` nao achava mais o
    * jogador. Todo mundo no mapa via um jogador chamado `"?"` sumir
    */
@@ -4052,7 +6134,7 @@ buscarGuilda(sessao, pedido) {
      * Se o mesmo personagem entrou duas vezes (duas abas), a segunda
      * entrada trocou a referencia do indice. Apagar aqui sem conferir
      * tiraria do mapa a sessao errada, e a sessao boa continuaria
-     * valendo como se o jogador tivesse saído
+     * valendo como se o jogador tivesse saÃ­do
      */
     const sessao = client.session;
 
@@ -4231,8 +6313,8 @@ try {
         // primeiro tique bom.
         //
         // Sem isso ele contava erros na VIDA INTEIRA do processo: tres
-        // excecao isoladas — uma as 3h da manha, outra no meio de uma
-        // batalha, outra um dia depois — paravam o laco para sempre sem
+        // excecao isoladas â€” uma as 3h da manha, outra no meio de uma
+        // batalha, outra um dia depois â€” paravam o laco para sempre sem
         // ninguem saber por que. O teste queexistia fixava o numero
         // em 1 depois de um tique bom, o que so faz sentido se ele
         // contar consecutividade: um erro que ja passou nao conta
@@ -4282,12 +6364,12 @@ break;
    *
    * Percorre a janela INTEIRA, incluindo as posicoes que ainda nao
    * foram escritas: elas sao zero, e somar zero nao muda a media. O
-   * truque esta no `n` — e o que decide se divide pelo numero de tiques
+   * truque esta no `n` â€” e o que decide se divide pelo numero de tiques
    * REALMENTE medidos, e nao por 200
    *
    * E `null` enquanto a janela nao enchou, e nao 0. Uma janela com dois
-   * tiques medidos nao e "media zero", e e "ainda nao da para saber" —
-   * e a tela usa esse `null` para mostrar "—" em vez de um numero que
+   * tiques medidos nao e "media zero", e e "ainda nao da para saber" â€”
+   * e a tela usa esse `null` para mostrar "â€”" em vez de um numero que
    * ninguem mediu
    */
   duracaoDaJanela() {
@@ -4365,7 +6447,7 @@ break;
           : 0,
 
       /**
-       * O MESMO NUMERO, SÓ NOS ULTIMOS 10 SEGUNDOS.
+       * O MESMO NUMERO, SÃ“ NOS ULTIMOS 10 SEGUNDOS.
        *
        * A `duracaoMediaMs` e a media da vida inteira, e ela nao serve
        * para VERIFICAR mudanca: um servidor que passou horas lento
@@ -4373,7 +6455,7 @@ break;
        * impressao de que nada mudou
        *
        * Antes da janela encher, `janelaTickCheia` e false e o numero sai
-       * como `null` — dividir os zeros iniciais por uma contagem errada
+       * como `null` â€” dividir os zeros iniciais por uma contagem errada
        * daria uma media baixa que nao aconteceu
        */
       duracaoRecenteMs: this.duracaoDaJanela(),
@@ -4449,7 +6531,7 @@ break;
 /**
  * A CHAVE do jogador, que e estavel entre conexoes.
  *
- * E a `donoKey` — o nome normalizado — e nao o `id` da sessao, que e
+ * E a `donoKey` â€” o nome normalizado â€” e nao o `id` da sessao, que e
  * `p_<uuid>` e muda a cada entrada. Indexar estado compartilhado pelo
  * id da sessao e o que faria a guilda sumir quando o jogador
  * reconectasse: ele voltava, o store nao reconhecia o id novo, e a

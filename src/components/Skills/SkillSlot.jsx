@@ -1,8 +1,6 @@
-import { useRef, useState } from "react";
-
-const DRAG_THRESHOLD = 22;
-const DRAG_DEADZONE = 6;
-const DRAG_LIMIT = 34;
+import SkillIcon from "../UI/SkillIcon.jsx";
+import { useArrastoSlot } from "../UI/useArrastoSlot.js";
+import IndicativoTecla, { useTeclaDaAcao } from "../UI/IndicativoTecla.jsx";
 
 export default function SkillSlot({
   skill,
@@ -15,12 +13,28 @@ export default function SkillSlot({
   draggable = false,
   ultimate = false,
 }) {
-  const [drag, setDrag] = useState(null);
-
-  const startY = useRef(0);
-  const latestOffset = useRef(0);
-  const dragging = useRef(false);
-  const suppressClick = useRef(false);
+  /**
+   * O GESTO DE LIGAR E DESLIGAR O AUTOMATICO.
+   *
+   * A regra mora no `useArrastoSlot` e nao aqui, porque o slot da pocao
+   * faz o mesmo gesto com os mesmos numeros
+   *
+   * O `habilitado` repete a conta do `canDrag` de baixo, com as props
+   * cruas: o `trancadaAgora` ainda nao foi calculado neste ponto do
+   * componente, e um hook nao pode ser chamado depois de uma conta que
+   * depende dele
+   */
+  const {
+    drag,
+    handlePointerDown,
+    handlePointerMove,
+    handlePointerUp,
+    handlePointerCancel,
+    deixaClicar,
+  } = useArrastoSlot({
+    onAlternar: onToggleAuto,
+    habilitado: draggable && !disabled && !trancada && !ultimate,
+  });
 
   const ratio =
     skill.cooldown > 0
@@ -39,85 +53,64 @@ export default function SkillSlot({
  * diferentes: um slot trancado e informacao, um slot desabilitado nao e
  * slot nenhum
  */
+  /**
+ * A TECLA DESTE SLOT, e ela vem do mapa de binds.
+ *
+ * ## O QUE ESTAVA AQUI
+ *
+ * `{ultimate ? "R" : skill.slot}` — a letra e o numero escritos no JSX. Era a
+ * unica parte da HUD que ainda anunciava uma tecla fixa depois do painel de
+ * teclas existir, e a mais visivel: oito slots embaixo dos slots e um `R` na
+ * ultimate
+ *
+ * ## E POR QUE A ULTIMATE TEM NOME PROPRIO
+ *
+ * Porque ela nao ocupa um slot: e a acao `ultimate`, e o catalogo da a
+ * `R`. Sem o nome proprio, o componente teria de adivinhar pelo `skill.slot` e
+ * cairia no `slotundefined` toda vez que a ultimate fosse desenhada
+ *
+ * ## E POR QUE HAI O RECUO PARA O NUMERO
+ *
+ * Porque `skill.slot` pode nao vir — a tela de escolha de classe desenha a
+ * previa da habilidade sem slot. Sem o recuo, a previa mostraria `undefined`
+ * dentro do circulo, e o numero do slot e a unica informacao que ela tem para
+ * oferecer
+ */
   const trancadaAgora = trancada || disabled;
+
+  /**
+   * QUAL ACAO DE TECLA ESTE BOTAO E.
+   *
+   * E `null` quando o botao nao tem slot nenhum — a previa da escolha de
+   * classe. Nesses o `SkillSlot` mostra o numero, como mostrava antes
+   */
+  const acaoDaTecla = ultimate
+    ? "ultimate"
+    : skill.slot
+      ? `slot${skill.slot}`
+      : null;
+
+  /**
+   * O HOOK E CHAMADO MESMO SEM ACAO.
+   *
+   * Porque pular a chamada mudaria a quantidade de hooks entre um render e o
+   * outro, e o React quebraria na hora que o jogador troca de tela com a
+   * previa aberta. O `slot1` e um descarte: so um
+   */
+  const teclaDaSkill = useTeclaDaAcao(acaoDaTecla ?? "slot1");
 
   const ready = cooldown <= 0 && !trancadaAgora;
   const showAuto = auto && !ultimate;
   const canDrag = draggable && !trancadaAgora && !ultimate;
 
-  function handlePointerDown(event) {
-    if (!canDrag) return;
-
-    event.currentTarget.setPointerCapture?.(
-      event.pointerId,
-    );
-
-    startY.current = event.clientY;
-    latestOffset.current = 0;
-    dragging.current = true;
-    suppressClick.current = false;
-  }
-
-  function handlePointerMove(event) {
-    if (!dragging.current) return;
-
-    const raw = event.clientY - startY.current;
-
-    latestOffset.current = raw;
-
-    if (Math.abs(raw) > DRAG_DEADZONE) {
-      suppressClick.current = true;
-    }
-
-    setDrag({
-      offset: Math.max(
-        -DRAG_LIMIT,
-        Math.min(DRAG_LIMIT, raw),
-      ),
-      direction:
-        raw > DRAG_DEADZONE
-          ? 1
-          : raw < -DRAG_DEADZONE
-            ? -1
-            : 0,
-    });
-  }
-
-  function handlePointerUp(event) {
-    if (!dragging.current) return;
-
-    dragging.current = false;
-
-    const offset = latestOffset.current;
-
-    setDrag(null);
-
-    if (
-      event.currentTarget.hasPointerCapture?.(event.pointerId)
-    ) {
-      event.currentTarget.releasePointerCapture(
-        event.pointerId,
-      );
-    }
-
-    if (Math.abs(offset) < DRAG_THRESHOLD) {
-      return;
-    }
-
-    onToggleAuto?.(offset > 0);
-  }
-
-  function handlePointerCancel() {
-    dragging.current = false;
-    latestOffset.current = 0;
-    setDrag(null);
-  }
-
   function handleClick() {
-    if (suppressClick.current) {
-      suppressClick.current = false;
-      return;
-    }
+    /**
+     * O clique que fechou um arrasto NAO USA A SKILL.
+     *
+     * E o `deixaClicar` que decide: ele sabe se o `pointerup` veio de um
+     * arrasto de verdade ou de um toque curto
+     */
+    if (!deixaClicar()) return;
 
     /**
      * O clique numa skill trancada nao faz NADA.
@@ -160,12 +153,12 @@ export default function SkillSlot({
       onPointerCancel={handlePointerCancel}
       onClick={handleClick}
       disabled={disabled}
-      title={
+      data-tip={
         trancada
           ? `${skill.name} — não aprendida\nCompre o livro com o Mestre de Habilidades`
           : ultimate
-            ? `${skill.name} — ${skill.cooldown}s de cooldown`
-            : `${skill.name} — ${skill.cooldown}s de cooldown\nArraste para baixo: auto\nArraste para cima: manual`
+            ? `${skill.name} — ${skill.cooldown}s de cooldown\nTecla: ${teclaDaSkill.nome || "sem tecla"}`
+            : `${skill.name} — ${skill.cooldown}s de cooldown\nTecla: ${teclaDaSkill.nome || "sem tecla"}\nArraste para baixo: auto\nArraste para cima: manual`
       }
       aria-label={
         trancada
@@ -183,12 +176,38 @@ export default function SkillSlot({
         }}
       />
 
-      <span className="skill-slot__key">
-        {ultimate ? "R" : skill.slot}
-      </span>
+      {/**
+        A TECLA DO BOTAO, e ela e o bind e nao o numero do slot.
+
+        O `kbd` SUBSTITUI o `span` que estava aqui, e nao fica dentro dele: o
+        quadrado desenhado pelo CSS e do elemento da tecla, e um `<kbd>` dentro
+        de um `<span>` com borda seria um quadradinho dentro de outro
+
+        O `? :` do fim e o caso sem slot — a previa da escolha de classe, que
+        nao tem acao de teclado nenhuma e so pode mostrar o numero
+      */}
+      {acaoDaTecla ? (
+        <IndicativoTecla
+          acao={acaoDaTecla}
+          className="skill-slot__key"
+        />
+      ) : (
+        <span className="skill-slot__key">{skill.slot}</span>
+      )}
 
       <span className="skill-slot__icon">
-        {skill.icon}
+        {/*
+          A ARTE, OU O GLOFO DE RESERVA.
+
+          O `SkillIcon` decide: se a skill tem arquivo ele desenha a imagem,
+          e se nao tem desenha o `icon` do catalogo — que e a mesma letra
+          que aparecia aqui antes. As outras tres classes continuam no
+          glifo sem mudar em nada
+        */}
+        <SkillIcon
+          skillId={skill.id}
+          glyph={skill.icon}
+        />
       </span>
 
       {cooldown > 0 && (

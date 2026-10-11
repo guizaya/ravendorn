@@ -8,6 +8,7 @@ import {
   QUEST_SCOPE,
   QUEST_TYPE,
   SIDE_QUESTS,
+  TIPOS_DE_TUTORIAL,
 } from "../../data/quests/index.js";
 
 /**
@@ -397,25 +398,94 @@ export class QuestLog {
     return quests;
   }
 
-  onEquipRarity(rarity) {
-    const main = this.currentMain;
+onEquipRarity(rarity) {
+      const main = this.currentMain;
 
-    if (
-      !main ||
-      main.type !== QUEST_TYPE.EQUIP ||
-      !meetsRarity(rarity, main.rarity)
-    ) {
+      if (
+        !main ||
+        main.type !== QUEST_TYPE.EQUIP ||
+        !meetsRarity(rarity, main.rarity)
+      ) {
+        return [];
+      }
+
+      this.mainProgress = 1;
+
+      if (this.advanceMain()) {
+        return [main];
+      }
+
       return [];
     }
 
-    this.mainProgress = 1;
+    /**
+     * UMA ACAO DE TUTORIAL ACONTECEU.
+     *
+     * E o metodo unico para os seis tutorials, em vez de um `onCraft`,
+     * `onEnchant`, `onMine` e mais tres. A razao e que eles tem a MESMA
+     * forma: o jogador fez uma coisa, o `target` da missao e o nome
+     * daquela coisa, e se casou o progresso sobe
+     *
+     * ## POR QUE UM SO METODO E NAO SEIS
+     *
+     * Porque seis metodos que fazem a mesma coisa sao seis lugares para
+     * esquecer um. E o esquecimento nao aparece como erro: o metodo que
+     * ninguem ligou no motor simplesmente nunca conta, e o jogador fica
+     * preso numa missao que ele ja cumpriu. Com um metodo so, o motor tem
+     * UM ponto de chamada para os seis tutorials, e ele e o mesmo
+     *
+     * ## O `alvo` E O QUE FAZ A DIFERENCA ENTRE DOIS TUTORIAIS
+     *
+     * O `target` da missao e o nome da acao: `craft`, `enchant`, `enhance`,
+     * `mine`, `deliver`, `learnSkill`, `buy`, `breakdown`. O jogador que
+     * fez `craft` nao cumpre o tutorial de `enhance`, porque so um dos dois
+     * esta em foco e so um dos dois casa
+     *
+     * ## POR QUE ELE AVANÇA SO A MISSÃO EM FOCO
+     *
+     * Porque a campanha e uma escada, e so uma missao esta em foco. Um
+     * jogador que fez `craft` antes de a missao aparecer nao pode ter a
+     * missao cumprida retroativamente — o `syncLevel` existe para o
+     * `LEVEL`, que e o unico objetivo que faz sentido checar contra o que o
+     * jogador JA TEM. Craft nao se guarda, entao nao ha o que conferir
+     */
+    onAcao(alvo, amount = 1) {
+      if (amount <= 0) return [];
 
-    if (this.advanceMain()) {
-      return [main];
+      const main = this.currentMain;
+
+      if (!main) return [];
+
+      /**
+       * O TIPO TEM DE SER DE TUTORIAL.
+       *
+       * Sem esta trava, `onAcao("craft")` contaria para uma missao de
+       * cacada cujo `target` por acaso fosse a string `"craft"` — e o
+       * `contaPara` so compara o `target`, sem olhar o `type`
+       */
+      if (!TIPOS_DE_TUTORIAL.has(main.type)) return [];
+
+      if (main.target !== alvo) return [];
+
+      /**
+       * O `count` DE UM TUTORIAL E SEMPRE 1.
+       *
+       * "Crie 1 item" e o que se ensina com uma acao. Um tutorial de
+       * "crie 3 itens" nao ensina nada novo no segundo e no terceiro, e
+       * transforma o primeiro erro — o jogador que errou a receita — em
+       * duas repeticoes do mesmo erro
+       */
+      this.mainProgress = Math.min(
+        main.count,
+        this.mainProgress + amount,
+      );
+
+      if (this.advanceMain()) {
+        return [main];
+      }
+
+      return [];
     }
-
-    return [];
-  }
 
   /**
    * Confere a missao de NÍVEL contra o nivel ATUAL do jogador.
@@ -462,6 +532,75 @@ export class QuestLog {
   /** so o nivel que a sessao conhece; usado para o painel */
   get levelConhecido() {
     return this.playerLevel;
+  }
+
+  /**
+   * Confere o tutorial de HABILIDADE contra o que o jogador JA APRENDEU.
+   *
+   * ## O PROBLEMA QUE ESTE METODO FECHA
+   *
+   * O tutorial de skill era contado por EVENTO, pelo `onAcao("learnSkill")`.
+   * Quem ja tinha aprendido a habilidade antes de a missao virar a atual
+   * ficava preso nela para sempre: o objetivo ja estava cumprido, o painel
+   * mostrava 0 de 1, e nada mais disparava. Nao havia `learnSkill`
+   * para acontecer de novo
+   *
+   * E o caso mais provavel do jogo, porque o save guarda
+   * `habilidadesAprendidas`: um save antigo, um jogador que voltou, ou
+   * um `onAcao` que se perdeu num carregamento. Nos tres casos o tutorial
+   * era um no permanente
+   *
+   * ## POR QUE E UM `sync` E NAO UM EVENTO
+   *
+   * Porque aqui a pergunta e "o que o jogador JA TEM", e nao "o que
+   * aconteceu". A resposta esta no `Set` das habilidades, e ele e
+   * consultavel. Uma habilidade aprendida nao se desfaz — o que o
+   * `onAcao` contava, e o `sync` confere
+   *
+   * E o mesmo desenho do `syncLevel`, pelos mesmos dois motivos: o laco
+   * termina em uma passada, e o `mainDone` impede que um `currentMain`
+   * nulo saia pela lista em vez da condicao
+   *
+   * ## POR QUE SO `learnSkill` E NAO OS OUTROS TUTORIAIS
+   *
+   * Porque so este da para conferir contra um estado guardado. Craft nao
+   * se guarda — o jogador fez, o item existe, e o item ser devolvido por
+   * engano seria outra missao. Enhance tambem nao: o `+1` de uma peca pode
+   * ter sido dela, e contar retroativamente seria dar o tutorial de graca
+   *
+   * Skill e o unico cujo estado e "eu sei isso" — e "eu sei" e permanente
+   */
+  syncHabilidades(aprendidas) {
+    const lista = Array.isArray(aprendidas) ? aprendidas : [];
+
+    if (lista.length === 0) return [];
+
+    const concluidas = [];
+
+    for (let passo = 0; passo < MAIN_QUESTS.length; passo += 1) {
+      const main = this.currentMain;
+
+      if (!main || main.type !== QUEST_TYPE.LEARN_SKILL) break;
+
+      /**
+       * O `target` DO TUTORIAL E O NOME DA HABILIDADE.
+       *
+       * O catalogo escreve `target: "learnSkill"`, e nao o id da skill. Entao
+       * o cruzamento e por tipo de missao, e nao por `main.target` — e
+       * qualquer habilidade aprendida cumpre o tutorial
+       *
+       * E o que o torna retroativo de verdade: o jogador pode ter aprendido
+       * a Quick Shot, e o tutorial falar de habilidade. Ele nao esta aprendendo
+       * a habilidade do tutorial; ele ja sabia uma
+       */
+      if (lista.length < main.count) break;
+
+      this.mainProgress = main.count;
+      this.advanceMain();
+      concluidas.push(main);
+    }
+
+    return concluidas;
   }
 
   onLevelUp(level) {
@@ -535,31 +674,75 @@ export class QuestLog {
         index: this.mainIndex,
         total: MAIN_QUESTS.length,
         done: this.mainDone,
-        current: main
-          ? {
-              id: main.id,
-              name: main.name,
-              type: main.type,
-              summary: main.summary,
-              count: main.count,
-              progress: this.mainProgress,
-              target: main.target ?? null,
-              location: main.location ?? null,
-              rarity: main.rarity ?? null,
-              autoCompletable: isAutoCompletable(main),
-              rewards: normalizeRewards(main.rewards),
-            }
-          : null,
-        steps: MAIN_QUESTS.map((quest, index) => ({
-          id: quest.id,
-          name: quest.name,
-          summary: quest.summary,
-          type: quest.type,
-          count: quest.count,
+current: main
+            ? {
+                id: main.id,
+                name: main.nomeCurto ?? main.name,
+                nameCompleto: main.name,
+                type: main.type,
+                summary: main.summary,
+                count: main.count,
+                progress: this.mainProgress,
+                target: main.target ?? null,
+location: main.location ?? null,
+                  rarity: main.rarity ?? null,
 
-          /**
-           * A ZONA do passo, e por ela que o painel sabe a qual mapa o
-           * passo pertence.
+                  /**
+                  * O CHEFE, e ele precisa viajar porque o `auto` le este objeto
+                  *
+                  * O `destinoDoChefe` do motor decide o destino do auto
+                  * lendo `objective.chefe` — e este e o mesmo objeto que
+                  * atravessa o socket. Sem o campo aqui, o auto receberia uma
+                  * missao de chefe sem nada que a identificasse, e cairia no
+                  * `getQuestZone`, que devolve `null` para a arena
+                  */
+                  chefe: main.chefe ?? null,
+                  autoCompletable: isAutoCompletable(main),
+                rewards: normalizeRewards(main.rewards),
+
+                /**
+                 * OS CAMPOS DO TUTORIAL, AQUI TAMBEM.
+                 *
+                 * Eles foram posto no `steps`, e essa segunda copia e
+                 * precisa porque a CAIXA da HUD le o `main.current` — e nao a
+                 * lista. Sem estes quatro aqui, o botao da caixa ficava
+                 * `disabled` num tutorial: ele decide por `tutorial` e por
+                 * `painel`, e os dois chegavam `undefined`
+                 */
+                tutorial: main.tutorial === true,
+                dica: main.dica ?? null,
+                painel: main.painel ?? null,
+                icone: main.icone ?? null,
+              }
+            : null,
+steps: MAIN_QUESTS.map((quest, index) => ({
+            id: quest.id,
+            name: quest.nomeCurto ?? quest.name,
+            nameCompleto: quest.name,
+            summary: quest.summary,
+            type: quest.type,
+            count: quest.count,
+
+            /**
+             * OS TRES CAMPOS DO TUTORIAL.
+             *
+             * `tutorial` e a trava que o painel usa para mostrar a dica
+             * so nos tutoriais, `dica` e o texto do COMO fazer, e `painel` e
+             * a aba que a dica manda abrir
+             *
+             * Os tres vao no `steps` e nao so no `current` porque a lista
+             * lateral mostra o passo futuro com o nome e o resumo: o jogador
+             * ve "Aprendendo a criar" na lista antes de chegar nele, e sem
+             * a dica ali ele so descobre o que e quando a missao vira atual
+             */
+            tutorial: quest.tutorial === true,
+            dica: quest.dica ?? null,
+            painel: quest.painel ?? null,
+            icone: quest.icone ?? null,
+
+            /**
+             * A ZONA do passo, e por ela que o painel sabe a qual mapa o
+             * passo pertence.
            *
            * Sem este campo a aba do mapa 2 nao teria o que mostrar: o
            * painel so recebe os passos, e o `location` e o unico dado

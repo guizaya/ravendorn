@@ -5,6 +5,7 @@ import {
   GROUND_USES_TILE,
   groundTileEspelhadoFor,
   groundTileFor,
+  groundTileSizeFor,
   TILE_SIZE,
   TILE_VARIANTS,
   TERRAIN_ROW,
@@ -25,6 +26,62 @@ const CULL_MARGIN = TILE_SIZE;
 const PATCH_TILES = 8;
 const PATCH_SIZE = TILE_SIZE * PATCH_TILES;
 const PATCH_CELL = 96;
+
+/**
+ * A BORDA SUAVE DA ZONA, em pixel de mundo.
+ *
+ * ## O QUE ELA COMPENSA
+ *
+ * A zona e um `fillRect` com o ladrilho de terra em cima da grama, e um
+ * retangulo de terra sobre um retangulo de grama tem aresta reta. As duas
+ * artes sao ruido pintado na mesma escala, entao o olho le a borda como um
+ * corte — e um corte nao existe em chao de verdade: onde a terra encontra a
+ * grama, o proprio ladrilho da terra ja tem as bordas esgarçadas
+ *
+ * Por isso o valor e generoso: 88px e um quarto da altura de uma zona, e o
+ * suficiente para que a transicao apareca como a terra ENTRANDO na grama e
+ * nao como um vinco. Uma borda de 8px ficaria como um borrão, e uma de
+ * 200 comeria o campo de provas inteiro
+ *
+ * Subiu de 48 para 88 depois da primeira versao: com 48 a aresta ainda se
+ * via, porque o olho nao le 48px de gradiente como "terra entrando na grama"
+ * e sim como um vinco suave — a borda e reta, e reta com borda reta e
+ * reta por mais suave que o tom fique. O que esconde uma aresta reta nao e
+ * suavizar o tom, e dar LARGURA para o olho perder o vinco
+ *
+ * ## POR QUE UM GRADIENTE, E NAO UM DESFOQUE
+ *
+ * O desfoque do `ctx.filter` desfaria a BORDA do retangulo, e a borda e
+ * exatamente o que esta ali para ser escondido: ela cortaria o ladrilho
+ * num retangulo perfeito de qualquer jeito, so que com a borda borrada
+ *
+ * Apagar a faixa com `destination-out` e um gradiente e o que deixa o
+ * ladrilho de fora aparecer ATRAS da ultima ponta de terra: o pixel de grama
+ * que estava embaixo da borda seca e o pixel que a terra estava cobrando.
+ * E o desfoque que o jogador queria, feito na fonte
+ *
+ * ## POR QUE SO QUATRO FAIXAS E NAO A ZONA INTEIRA
+ *
+ * As quatro faixas somam `4 * 88` px de altura e largura, e nao a area da
+ * zona. O miolo e opaco e nao precisa de nenhum tratamento — ele entra
+ * com um `fillRect` normal
+ */
+const EDGE_FEATHER = 88;
+
+/**
+ * AS QUATRO FAIXAS DE APAGADO.
+ *
+ * Cada faixa tem o `eixo` em que corre, o `lado` (-1 ou 1) que diz de que
+ * lado da zona ela esta, e o `nome` da borda — que e o que decide se a
+ * faixa existe: uma borda fora da tela nao pode ter faixa, ou a dissolucao
+ * apareceria no meio da zona
+ */
+const EDGE_BANDS = [
+  { eixo: "y", lado: -1, nome: "cima" },
+  { eixo: "y", lado: 1, nome: "baixo" },
+  { eixo: "x", lado: -1, nome: "esquerda" },
+  { eixo: "x", lado: 1, nome: "direita" },
+];
 
 function hash2(x, y, seed) {
   let h = seed | 0;
@@ -160,7 +217,301 @@ export class TerrainRenderer {
     this.patches = new Map();
     this.zoneGrids = new Map();
 
+    /**
+     * O RASCUNHO DA BORDA SUAVE, e ele e um so para todas as zonas.
+     *
+     * E um canvas do tamanho da JANELA VISIVEL de uma zona, nunca da zona
+     * inteira: as zonas chegam a 1900x1200 e alocar isso a cada quadro seria
+     * o dobro da memoria a cada 16ms. O recorte e sempre a interseccao da
+     * zona com a camera, entao o canvas nunca passa de uma tela
+     *
+     * E um canvas de rascunho mesmo existindo um `draw` direto: apagar a
+     * borda com `destination-out` precisa de uma superficie propria. Fazer
+     * isso no contexto do mundo apagaria a grama junto com a terra, e o
+     * buraco apareceria em vez da borda suave
+     *
+     * O tamanho e guardado porque o `width`/`height` de um canvas cria um
+     * buffer novo: trocar as dimensoes a cada quadro e a forma mais cara de
+     * descobrir que o cache nao existia
+     */
+    this.zoneEdgeCanvas = null;
+    this.zoneEdgeContext = null;
+    this.zoneEdgeWidth = 0;
+    this.zoneEdgeHeight = 0;
+
     this.ready = false;
+  }
+
+  /**
+   * O rascunho do tamanho pedido, reusado entre as zonas e entre os quadros.
+   *
+   * Devolve `null` sem `document` ou sem contexto 2d, e quem chama cai no
+   * preenchimento seco — e melhor uma borda dura que um buraco
+   */
+  zoneEdgeScratch(width, height) {
+    if (typeof document === "undefined") return null;
+
+    const w = Math.max(1, Math.ceil(width));
+    const h = Math.max(1, Math.ceil(height));
+
+    if (
+      this.zoneEdgeCanvas === null ||
+      this.zoneEdgeWidth !== w ||
+      this.zoneEdgeHeight !== h
+    ) {
+      const canvas = document.createElement("canvas");
+
+      if (!canvas) return null;
+
+      canvas.width = w;
+      canvas.height = h;
+
+      const contexto = canvas.getContext?.("2d");
+
+      if (!contexto) return null;
+
+      this.zoneEdgeCanvas = canvas;
+      this.zoneEdgeContext = contexto;
+      this.zoneEdgeWidth = w;
+      this.zoneEdgeHeight = h;
+    }
+
+    return this.zoneEdgeContext;
+  }
+
+  /**
+   * A FAIXA DE APAGADO DE UM LADO DA ZONA.
+   *
+   * ## O GRADIENTE VAI DE OPACO LADO DE FORA A TRANSPARENTE LADO DE DENTRO
+   *
+   * O `destination-out` remove o que o alpha cobrir, entao quanto mais opaco
+   * mais ele apaga. E o LADO DE FORA da zona que precisa sumir — e a aresta
+   * reta, o vinco — enquanto o lado de dentro e o miolo da zona, que tem de
+* ficar inteiro. Entao o alpha e 1 na borda e 0 no fim da faixa
+    *
+    * ## O ALPHA CHEIO NA BORDA E O QUE FAZ A FAIXA PRECISAR DE LARGURA
+    *
+    * Nao existe meio termo na aresta: na borda da zona o alpha e 1 e apaga
+    * tudo, ou o ladrilho de terra emendaria com o de grama na linha exata e
+    * o vinco voltaria a ser aresta — so que agora sem suavizar o tom. O que
+    * se compra e a DISTANCIA entre a ultima ponta de terra e o primeiro tom
+    * solido, e e por isso que a faixa tem 88px
+    *
+    * ## POR QUE O GRADIENTE E INVERTIDO PARA CADA LADO
+   *
+   * A `createLinearGradient` vai do primeiro ponto ao segundo, e o
+   * `addColorStop(0)` fica no primeiro. Para a faixa de cima, "fora" e `y`
+   * pequeno e "dentro" e `y` grande, entao o gradiente desce. Para a de
+   * baixo, e o contrario. Sao as duas orientacoes de `banda.lado`, e e por
+* isso que ele existe: sem ele as faixas de baixo e de direita apagariam
+   * o miolo e deixariam a aresta dura do lado errado
+   */
+  fadeBand(contexto, banda, rect, largura) {
+    /**
+     * `fora` E A BORDA DA ZONA, e `dentro` E O OUTRO EXTREMO DA FAIXA.
+     *
+     * E `fora - banda.lado`, e nao `fora + banda.lado`. O `lado` aponta
+     * para FORA da zona, entao somar ele sairia da faixa pelo lado oposto:
+     * na faixa de cima o gradiente nasceria em y e terminaria em
+     * y - largura, acima do retangulo preenchido. O canvas prende o que
+     * esta fora dos extremos na cor da ponta, entao a faixa inteira
+     * recebia alpha 0 e NAO apagava nada
+     *
+     * Era esse o defeito que fazia a borda continuar seca: tres dos quatro
+     * lados apagavam zero, e o quarto — o de baixo, o unico cujo sinal
+     * batia por acaso — quase nunca esta na tela, porque as doze zonas
+     * sao maiores que a janela visivel
+     */
+    const fora =
+      banda.eixo === "y"
+        ? banda.lado < 0
+          ? rect.y
+          : rect.y + rect.height
+        : banda.lado < 0
+          ? rect.x
+          : rect.x + rect.width;
+
+    const dentro = fora - banda.lado * largura;
+
+    const gradiente =
+      banda.eixo === "y"
+        ? contexto.createLinearGradient(0, fora, 0, dentro)
+        : contexto.createLinearGradient(fora, 0, dentro, 0);
+
+    if (!gradiente) return false;
+
+    /**
+     * A CURVA E SUAVE (smoothstep) E NAO UMA RETA, e e por isso que a
+     * aresta parou de se ver.
+     *
+     * Com os tres pontos antigos — 1, 0.3 no meio, 0 — a queda era
+     * relativamente abrupta perto da borda: a maior parte da mudanca de tom
+     * acontecia nos ultimos pixels da faixa, que e exatamente onde o olho
+     * procura a aresta. O gradiente ficava reto e a aresta aparecia como
+     * uma linha, so que com o tom certo
+     *
+     * Sao cinco pontos que descrevem uma curva `t * t * (3 - 2 * t)`: ela
+     * comeca devagar e acaba devagar, entao o tom muda por igual ao longo de
+     * toda a faixa e nao ha lugar na aresta onde o tom pule. E o mesmo
+     * `smooth` que o `valueNoise` deste arquivo usa para o terreno antigo —
+     * a mesma curva, pelo mesmo motivo
+     */
+    gradiente.addColorStop(0, "rgba(0, 0, 0, 1)");
+    gradiente.addColorStop(0.18, "rgba(0, 0, 0, 0.93)");
+    gradiente.addColorStop(0.42, "rgba(0, 0, 0, 0.72)");
+    gradiente.addColorStop(0.68, "rgba(0, 0, 0, 0.4)");
+    gradiente.addColorStop(0.88, "rgba(0, 0, 0, 0.14)");
+    gradiente.addColorStop(1, "rgba(0, 0, 0, 0)");
+
+    contexto.fillStyle = gradiente;
+
+    // o retangulo preenchido e a propria faixa, ancorada na borda
+    if (banda.eixo === "y") {
+      const y = banda.lado < 0 ? rect.y : rect.y + rect.height - largura;
+
+      contexto.fillRect(rect.x, y, rect.width, largura);
+    } else {
+      const x = banda.lado < 0 ? rect.x : rect.x + rect.width - largura;
+
+      contexto.fillRect(x, rect.y, largura, rect.height);
+    }
+
+    return true;
+  }
+
+  /**
+   * LADrilha a zona e suaviza a BORDA dela.
+   *
+   * O recorte e sempre a interseccao da zona com a janela visivel, e e o que
+   * segura o rascunho em uma tela em vez de 1900px
+   */
+  paintZoneFeathered(context, zone, padrao, view) {
+    const feather = Math.min(EDGE_FEATHER, zone.width / 2, zone.height / 2);
+
+    if (feather <= 0) return false;
+
+    const esquerda = Math.max(zone.x, view.x);
+    const topo = Math.max(zone.y, view.y);
+    const direita = Math.min(
+      zone.x + zone.width,
+      view.x + view.width,
+    );
+    const base = Math.min(
+      zone.y + zone.height,
+      view.y + view.height,
+    );
+
+    const largura = direita - esquerda;
+    const altura = base - topo;
+
+    if (largura <= 0 || altura <= 0) return false;
+
+    const scratch = this.zoneEdgeScratch(largura, altura);
+
+    if (!scratch) return false;
+
+    scratch.setTransform?.(1, 0, 0, 1, 0, 0);
+    scratch.globalCompositeOperation = "source-over";
+    scratch.clearRect(0, 0, largura, altura);
+
+    /**
+     * O LADRILHO COMECA NA BORDA DA ZONA, e nao na do recorte.
+     *
+     * Sem a translacao, o padrao ancoraria no canto do recorte — que e o
+     * canto da tela quando a zona e maior que a camera — e o ladrilho
+     * andaria junto com a camera. A conta e a mesma do `fillGround`: o
+     * terreno e desenhado antes da camera, entao a textura fica presa ao
+     * mapa
+     */
+    scratch.translate(-esquerda, -topo);
+
+    scratch.fillStyle = padrao;
+    scratch.fillRect(esquerda, topo, largura, altura);
+
+    /**
+     * AS FAIXAS VOLTAM PARA COORDENADA DE RASCUNHO, E ISSO E O PASSO QUE
+     * FAZ O EFEITO APARECER.
+     *
+     * O `translate` acima existe so para o LADRILHO ancorar no mapa. As
+     * faixas nao podem herdar a translacao — e nao podem ficar nas
+     * coordenadas de mundo tambem, porque o canvas tem o tamanho da
+     * JANELA VISIVEL, e nao o da zona: uma zona que comeca em x=80 com a
+     * janela em x=2400 pintaria a faixa esquerda em 80 px de um canvas de
+     * 1280, ou seja, nos ultimos 4 pixels da tela, e as outras tres cairiam
+     * fora do canvas inteiro
+     *
+     * Por isso o `setTransform` volta para a identidade e as faixas usam o
+     * rect do rascunho, que comeca em 0,0
+     */
+    scratch.setTransform?.(1, 0, 0, 1, 0, 0);
+
+    /**
+     * O RECT DAS FAIXAS E O DO RASCUNHO, comeando em 0,0.
+     *
+     * Nao o rect da zona nem o do recorte visivel: e o canvas. Ver a nota do
+     * `setTransform` acima para o porque
+     */
+    const rect = {
+      x: 0,
+      y: 0,
+      width: largura,
+      height: altura,
+    };
+
+    /**
+     * AS FAIXAS SO EXISTEM ONDE A BORDA DA ZONA ESTA NA TELA.
+     *
+     * Uma zona maior que a camera tem a borda esquerda fora da tela, e
+     * apagar a faixa esquerda ali abriria uma dissolucao no MEIO da zona,
+     * na borda da tela. E o defeito mais sutil deste efeito: so aparece
+     * quando o jogador anda para o lado, e parece que o mapa esta comendo a
+     * propria area de mob
+     *
+     * ## E PRECISO OLHAR A BORDA REAL, E NAO A DO RECORTE
+     *
+     * O rect do rascunho sempre comeca em 0,0 e a primeira linha do mapa e
+     * em 80 — entao o canto superior esquerdo do rascunho NAO e o canto da
+     * zona. Sao coisas diferentes: uma e a janela, outra e a area de mob
+     */
+
+    const bordaVisivel = {
+      cima: zone.y >= view.y,
+      baixo: zone.y + zone.height <= view.y + view.height,
+      esquerda: zone.x >= view.x,
+      direita: zone.x + zone.width <= view.x + view.width,
+    };
+
+    scratch.globalCompositeOperation = "destination-out";
+
+    let desfez = 0;
+
+    for (const banda of EDGE_BANDS) {
+      if (!bordaVisivel[banda.nome]) continue;
+
+      if (this.fadeBand(scratch, banda, rect, feather)) {
+        desfez += 1;
+      }
+    }
+
+    scratch.globalCompositeOperation = "source-over";
+
+    if (desfez === 0) return false;
+
+    /**
+     * O RASCUNHO vai para o mundo nas coordenadas do recorte.
+     *
+     * E o mesmo desenho de `fillGround`: o terreno entra antes da camera, e
+     * por isso as coordenadas sao de mapa. Passar a largura e a altura aqui
+     * daria o tamanho da tela, que e o que o `drawImage` de tres argumentos
+     * ja assume
+     */
+    context.drawImage(
+      this.zoneEdgeCanvas,
+      esquerda,
+      topo,
+    );
+
+    return true;
   }
 
   /**
@@ -375,27 +726,44 @@ export class TerrainRenderer {
   buildGroundTile(map) {
     const folha = groundTileFor(map);
 
-    if (this.groundTiles.has(folha)) {
-      return this.groundTiles.get(folha);
+    /**
+     * A CHAVE DO CACHE E A FOLHA JUNTO COM O LADO, e nao so a folha.
+     *
+     * O ladrilho e o resultado de duas entradas — a imagem e o lado — e
+     * uma so nao basta desde que o lado virou por mapa. Dois mapas com a
+     * MESMA folha e escalas diferentes eram o mesmo ladrilho antes, e agora
+     * nao sao: sem o lado na chave, o segundo receberia o ladrilho do
+     * primeiro e o chao dele sairia na escala alheia
+     *
+     * Hoje so o `cidade` tem lado proprio, e ele e a unica base que usa
+     * essa folha. A chave e por precaution para o proximo mapa que pedir
+     * uma escala diferente da mesma arte
+     */
+    const lado = groundTileSizeFor(map);
+
+    const chave = `${folha}@${lado}`;
+
+    if (this.groundTiles.has(chave)) {
+      return this.groundTiles.get(chave);
     }
 
     // ja tentou e nao deu: nao refaz o trabalho a cada quadro
-    if (this.groundTentados.has(folha)) return null;
+    if (this.groundTentados.has(chave)) return null;
 
-    this.groundTentados.add(folha);
+    this.groundTentados.add(chave);
 
     if (!this.isGroundReady(map)) return null;
 
     const reduzido = TerrainRenderer.reduceToTile(
       this.groundImageFor(map),
-      GROUND_TILE_SIZE,
+      lado,
     );
 
     const tile = groundTileEspelhadoFor(map)
       ? TerrainRenderer.espelharParaLadrilho(reduzido) ?? reduzido
       : reduzido;
 
-    this.groundTiles.set(folha, tile);
+    this.groundTiles.set(chave, tile);
 
     return tile;
   }
@@ -729,7 +1097,7 @@ export class TerrainRenderer {
  * Devolve `false` quando o ladrilho nao deu, e o `fillZone` cai no
  * pixel art: e melhor um ladrilho de 32px velho do que um buraco
  */
-  fillZoneWithTile(context, zone, map) {
+  fillZoneWithTile(context, zone, map, view) {
     if (!zoneUsesTile(zone)) return false;
 
     const folha = zoneTileFor(map);
@@ -787,6 +1155,21 @@ export class TerrainRenderer {
 
     if (!padrao) return false;
 
+    /**
+     * COM BORDA SUAVE, E COM A BORDA SECA DE RESERVA.
+     *
+     * O `paintZoneFeathered` desenha num rascunho e precisa de um recorte
+     * visivel para caber num canvas de tela. Sem `view` — ou sem `document`
+     * para o rascunho — o caminho antigo e o `fillRect` seco, e o mapa
+     * continua desenhando em vez de sumir
+     */
+    if (
+      view !== undefined &&
+      this.paintZoneFeathered(context, zone, padrao, view)
+    ) {
+      return true;
+    }
+
     context.fillStyle = padrao;
 
     context.fillRect(
@@ -799,8 +1182,8 @@ export class TerrainRenderer {
     return true;
   }
 
-  fillZone(context, zone, map) {
-    if (this.fillZoneWithTile(context, zone, map)) {
+  fillZone(context, zone, map, view) {
+    if (this.fillZoneWithTile(context, zone, map, view)) {
       return;
     }
 
@@ -903,6 +1286,25 @@ export class TerrainRenderer {
    * com imagem, cai no pixel art de 32px. O vale sempre tem chao
    */
   fillGround(context, map, rect) {
+    /**
+     * O MAPA QUE TEM CHAO PROPRIO.
+     *
+     * `groundTile: null` e o que a base usa: o mapa dela foi desenhado no
+     * Tiled e o `TileMapRenderer` desenha o chao tile a tile. Sem esta
+     * saida, o `groundTileFor` cairia na grama do vale — o `??` dele so
+     * protege campo AUSENTE, e `null` e ausente de proposito — e a base
+     * teria o chao do mapa_1 desenhado por baixo do mapa dela
+     *
+     * A cor de fundo entra no lugar do ladrilho: e ela que o `drawMap`
+     * pintaria se o terreno nao estivesse pronto, e o mapa sem chao ainda
+     * precisa de uma cor que nao seja o buraco do canvas
+     */
+    if (map.groundTile === null) {
+      context.fillStyle = map.background;
+      context.fillRect(rect.x, rect.y, rect.width, rect.height);
+      return;
+    }
+
     if (!this.isGroundReady(map)) {
       this.fillTerrain(context, BASE_TERRAIN, rect);
       return;
@@ -954,11 +1356,29 @@ export class TerrainRenderer {
   }
 
   draw(context, map, zones, view) {
+    /**
+     * A GRAMA PRECISA COBRIR TAMBEM A FAIXA DA BORDA, e nao so a tela.
+     *
+     * A borda suave nao mistura terra com grama dentro de uma imagem: ela
+     * apaga a terra com `destination-out`, o que deixa o pixel do rascunho
+     * TRANSPARENTE. O que aparece nesse pixel transparente e o que ja estava
+     * desenhado no contexto abaixo — e o unico que estava ali era a grama
+     *
+     * Com a margem de `TILE_SIZE` (32px), a grama parava 32px fora da tela,
+     * e a faixa apagada tem 88px. Nos ultimos 56px da borda o pixel
+     * transparente caia fora da grama e deixava ver o `clearRect` do render
+     * — o fundo vazio do canvas. Era essa a "borda meio branca": nao era a
+     * terra clareando, era buraco
+     *
+     * A margem e a propria faixa, e nao o dobro dela: o apagamento comeca
+     * na borda da zona e cresce para DENTRO, entao o que precisa de grama
+     * atras e a faixa inteira
+     */
     this.fillGround(context, map, {
-      x: view.x - TILE_SIZE,
-      y: view.y - TILE_SIZE,
-      width: view.width + TILE_SIZE * 2,
-      height: view.height + TILE_SIZE * 2,
+      x: view.x - EDGE_FEATHER,
+      y: view.y - EDGE_FEATHER,
+      width: view.width + EDGE_FEATHER * 2,
+      height: view.height + EDGE_FEATHER * 2,
     });
 
     for (const zone of zones) {
@@ -978,8 +1398,12 @@ export class TerrainRenderer {
        * `draw` pulava ela para o chao do mapa aparecer. Agora as doze
        * entram no mesmo `fillZone`, e o campo de provas usa o mesmo
        * ladrilho de terra das onze areas de mob
+       *
+       * O `view` desce com a zona porque e ele que limita o rascunho da
+       * borda suave a uma tela: sem ele nao ha recorte visivel, e a borda
+       * cai no `fillRect` seco
        */
-      this.fillZone(context, zone, map);
+      this.fillZone(context, zone, map, view);
     }
   }
 

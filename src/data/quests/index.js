@@ -1,4 +1,4 @@
-import { RARITY_ORDER } from "../items/index.js";
+import { RARITY, RARITY_ORDER } from "../items/index.js";
 
 import {
   CREATURE_TYPES,
@@ -44,11 +44,217 @@ export function hasRewards(rewards) {
   return coins > 0 || xp > 0 || items.length > 0;
 }
 
+/**
+ * OS TIPOS DE MISSAO, E OS DE TUTORIAL.
+ *
+ * Os quatro primeiros — `HUNT`, `KILL`, `EQUIP`, `LEVEL` — medem o jogo de
+ * sempre: matar, vestir, subir de nivel. Sao objetivos de ESTADO, e o
+ * `QuestLog` ja os conta por evento
+ *
+ * Os seis seguintes sao os TUTORIAIS, e eles existem para uma coisa que os
+ * outros nao fazem: ensinar um SISTEMA que o jogador nao conhece
+ *
+ * ## POR QUE SAO TIPOS, E NAO UM TEXTO
+ *
+ * Porque a diferenca entre um tutorial e uma missao de cacada e o que a
+ * tela faz com ele. A de cacada mostra "Vá ao Pântano e mate 10 esqueletos" e
+ * o auto sabe levar o jogador ate la. O tutorial nao tem lugar nenhum para ir:
+ * ele diz "encante uma peça" e o painel precisa tratar aquilo como uma
+ * PISTA, com um botao que abre a aba certa
+ *
+ * Se um tutorial fosse uma missao de cacada com outro texto, o auto levaria o
+ * jogador para o Pântano para ele descobrir que precisava abrir o craft
+ *
+ * ## O `target` DE CADA TUTORIAL
+ *
+ * E o `id` do que precisa ser feito, nao uma criatura: `craft`, `enchant`,
+ * `enhance`, `mine`, `deliver`, `learnSkill`, `market`, `codex`. O
+ * `QuestLog` compara o que o jogador fez com esse `target`
+ */
 export const QUEST_TYPE = {
   HUNT: "hunt",
   KILL: "kill",
   EQUIP: "equip",
   LEVEL: "level",
+
+  /**
+   * CRIAR UM ITEM NO CRAFT.
+   *
+   * E o primeiro tutorial de verdade: o jogador novo nasce sem inventario e
+   * sem Equipment, e a unica fonte de item no jogo e o drop. Este tutorial
+   * mostra que o craft existe e produz material a partir do que ele dropou
+   */
+  CRAFT: "craft",
+
+  /**
+   * ENCANTAR UMA PECA.
+   *
+   * O primeiro afixo e o que muda a identidade de uma peca comum. E o
+   * tutorial tem de vir logo depois do `craft`, porque o encantamento usa
+   * ouro, e ouro so existe depois de vender algo ou de uma missao
+   */
+  ENCHANT: "enchant",
+
+  /**
+   * APRIMORAR UMA PECA A +5.
+   *
+   * O aprimoramento e steel, e steel so sai de minerar. Este tutorial e o
+   * unico que depende de outro sistema inteiro funcionando antes
+   */
+  ENHANCE: "enhance",
+
+  /**
+   * MINERAR UMA PEDRA NO VALE.
+   *
+   * E a unica fonte de steel do jogo, e a unica que nao passa por combate.
+   * Sem ele o jogador nunca chega no `enhance`
+   */
+  MINE: "mine",
+
+  /**
+   * ENTREGAR UMA PARCELA DE COLECAO.
+   *
+   * A colecao e o sistema de progressao PERMANENTE, e o unico que paga sem
+   * consumir nada. E o que transforma drop em stat
+   */
+  DELIVER: "deliver",
+
+  /**
+   * APRENDER UMA HABILIDADE.
+   *
+   * As quatro skills de cada classe vem de livro, e o livro e o drop mais
+   * raro do catalogo. Sem este tutorial o jogador pode nunca descobrir que
+   * aquilo existe
+   */
+  LEARN_SKILL: "learnSkill",
+
+  /**
+   * COMPRAR NA LOJA.
+   *
+   * A loja e onde o ouro do drop vira pocoes e livros. E o sistema que o
+   * jogador nunca abriria por conta propria, porque o painel nao avisa que
+   * o dinheiro parado nao faz nada
+   */
+  BUY: "buy",
+
+  /**
+   * O QUE NAO ESTEVE AQUI: `breakdown`, para entregar peca no codigo.
+   *
+   * O tutorial faria sentido — sem ele o inventario vira deposito — mas o
+   * jogo nao tem o sistema. O `codexView` sabe LER a criatura e a
+   * `Collection` sabe RECEBER material; nenhum dos dois tem o caminho de
+   * "jogador entrega uma peca e ela vira alguma coisa"
+   *
+   * Declarar o tipo aqui sem o sistema seria um tutorial que nunca fecha:
+   * o `QuestLog` contero, o painel mostraria, e o jogador ficaria preso
+   * nisso sem nenhuma acao do jogo que o fizesse andar. Quando o
+   * sistema existir, o tipo entra aqui e no `onAcao` do motor junto
+   */
+};
+
+/**
+ * OS TIPOS QUE ABREM UM PAINEL EM VEZ DE LEVAR A UM LUGAR.
+ *
+ * E a lista que o `QuestPanel` le para trocar o "Vá a {zona}" por um botao
+ * que abre a aba certa. `HUNT` e `KILL` NAO estao aqui: eles tem zona, e o
+ * auto sabe levar o jogador ate ela
+ *
+ * `EQUIP` e `LEVEL` tambem nao estao: o primeiro precisa de uma peca na mao
+ * e o segundo nao tem lugar nenhum, entao nenhum dos dois abre painel
+ */
+export const TIPOS_COM_PAINEL = new Set([
+  QUEST_TYPE.CRAFT,
+  QUEST_TYPE.ENCHANT,
+  QUEST_TYPE.ENHANCE,
+  QUEST_TYPE.DELIVER,
+  QUEST_TYPE.LEARN_SKILL,
+  QUEST_TYPE.BUY,
+]);
+
+/**
+ * OS TIPOS QUE O `QuestLog` CONTA POR `onAcao`.
+ *
+ * E este conjunto, e nao o `TIPOS_COM_PAINEL`, que diz o que o motor
+ * consegue contar. Sao quase os mesmos, e a diferenca e o tutorial de
+ * minerar: ele tem um `target` e um `count`, o motor conta a batida, mas
+ * ele nao abre painel nenhum — o painel dele aponta para o mapa
+ *
+ * `EQUIP` e `LEVEL` nao estao aqui pelos motivos opostos: os dois contam por
+ * metodo proprio (`onEquipRarity` e `syncLevel`) porque os dois comparam o
+ * que o jogador TEM, e nao um evento que aconteceu
+ */
+export const TIPOS_DE_TUTORIAL = new Set([
+  QUEST_TYPE.CRAFT,
+  QUEST_TYPE.ENCHANT,
+  QUEST_TYPE.ENHANCE,
+  QUEST_TYPE.MINE,
+  QUEST_TYPE.DELIVER,
+  QUEST_TYPE.LEARN_SKILL,
+  QUEST_TYPE.BUY,
+]);
+
+/**
+ * O PAINEL DE CADA TUTORIAL.
+ *
+ * E o `PAINEL` do `HUD`, e a chave e o `id` do botao que abre aquela aba.
+ * Vive aqui e nao no `QuestPanel` porque o painel e quem CONSOME este
+ * mapa, e ele nao pode importar o `HUD` sem criar um ciclo — o `HUD`
+ * importa o `QuestPanel`
+ *
+ * ## POR QUE SO OS QUE TEM ABA
+ *
+ * Porque um tutorial que abre um painel precisa que o painel exista com
+ * esse nome. `hunt` e `equip` lead para o mapa e para o inventario, que sao
+ * coisas de tela cheia e nao abas da HUD
+ */
+export const PAINEL_DO_TUTORIAL = {
+  [QUEST_TYPE.CRAFT]: "craft",
+  [QUEST_TYPE.ENCHANT]: "enchant",
+  [QUEST_TYPE.ENHANCE]: "enchant",
+  [QUEST_TYPE.DELIVER]: "collection",
+  [QUEST_TYPE.LEARN_SKILL]: "loja",
+  [QUEST_TYPE.BUY]: "loja",
+
+  /**
+   * A MINERACAO NAO TEM PAINEL, E O BOTAO VAI PARA O VALE.
+   *
+   * Porque a mineracao nao e uma aba: e um clique numa pedra do mapa. O
+   * `MineracaoPanel` so abre DEPOIS que o jogador chega nela, e ele precisa
+   * estar encostado. Um botao que abrisse um painel de mineracao mostraria o
+   * vazio, porque o painel precisa de uma `propId` que so vem do clique no
+   * mapa
+   *
+   * O tutorial de minerar por isso e o unico que nao usa este mapa: o painel
+   * dele diz "Procure uma pedra no Vale das Cinzas", que e o que o auto sabe
+   * fazer — levar o jogador ate a zona
+   */
+
+  /**
+   * O CODEX TAMBEM NAO TEM PAINEL NA HUD.
+   *
+   * O codex e aberto pelo item, pelo atalho, e nao por um botao da fileira.
+   * Colocar um botao para ele aqui seria um botao a mais numa fileira que ja
+   * tem oito, e ele nao se juntaria aos outros: os outros paineis sao de
+   * consulta rapida, e o codex e de leitura longa
+   */
+};
+
+/**
+ * O VERBO QUE O TUTORIAL ENSINA, no gerundio.
+ *
+ * E o que o painel escreve no card. A lista e escrita e nao montada com
+ * template porque o gerundio do portugues nao se tira do substantivo:
+ * "craft" viraria "craftndo", e o texto errado em seis idiomas de programa
+ * e o tipo de coisa que passa reta e se lê por anos
+ */
+export const VERBO_DO_TUTORIAL = {
+  [QUEST_TYPE.CRAFT]: "Aprendendo a criar",
+  [QUEST_TYPE.ENCHANT]: "Aprendendo a encantar",
+  [QUEST_TYPE.ENHANCE]: "Aprendendo a aprimorar",
+  [QUEST_TYPE.MINE]: "Aprendendo a minerar",
+  [QUEST_TYPE.DELIVER]: "Aprendendo a entregar",
+  [QUEST_TYPE.LEARN_SKILL]: "Aprendendo a usar",
+  [QUEST_TYPE.BUY]: "Aprendendo a comprar",
 };
 
 export const QUEST_SCOPE = {
@@ -98,103 +304,390 @@ export function isAutoCompletable(quest) {
  * de cada criatura: a cacada de stats e a entrega de colecao sao a
  * missao principal da zona repetida em doses maiores
  */
+/**
+ * A ESCADA da campanha do mapa 1.
+ *
+ * ## VAZIA DE PROPOSITO NESTA ETAPA
+ *
+ * A escada antiga apontava para materiais que foram apagados na troca
+ * de drop, e missao de material que ninguem dropa e uma missao que nunca
+ * fecha. A escada volta a ser escrita no proximo passo, ja com os
+ * materiais novos
+ *
+ * Ela continua sendo EXPORTADA e continua sendo uma lista, porque o
+ * bestiario e a colecao tiram dela a quantidade base de cada criatura,
+ * e os dois leem este nome sem saber que ele esta vazio
+ */
 export const ESCADA_MAPA_1 = [
-  {
-    target: "slime",
-    nivel: 1,
-    zona: "pantano",
-    nome: "Primeiros Passos",
-  },
-  {
-    target: "slime",
-    nivel: 2,
-    zona: "pantano",
-    /**
-     * A PEDREIRA E O MESMO DEGRAU DO PANTANO.
-     *
-     * As duas tem limo de nivel 2, e o `onKill` compara `target` com
-     * `minLevel` — nao a zona. Duas missoes de "limo nv2" seriam
-     * completadas pelo mesmo abate, e o jogador veria a mesma barra
-     * crescendo duas vezes
-     *
-     * A missao fica no Pantano porque e a zona de ENTRADA: e onde o
-     * jogador esta quando a campanha comeca. A `location` e o que o auto
-     * percorre, e o auto precisa levar a algum lugar que o jogador
-     * conhece
-     */
-    nome: "Cacos do Brejo",
-  },
-  {
-    target: "slime",
-    nivel: 3,
-    zona: "dunas",
-    nome: "Areia e Gelo",
-  },
-  {
-    target: "slime",
-    nivel: 4,
-    zona: "cinzas",
-    nome: "Cinzas Quentes",
-  },
-  {
-    target: "slime",
-    nivel: 5,
-    zona: "toca",
-    nome: "Fundo da Toca",
-  },
-  {
-    target: "slime",
-    nivel: 6,
-    zona: "brejo",
-    nome: "O Brejo Lento",
-  },
-  {
-    target: "ogre_da_predeira",
-    nivel: 7,
-    zona: "treino",
-    nome: "O Gigante da Pedreira",
-  },
-  {
-    target: "ogre",
-    nivel: 8,
-    zona: "cripta",
-    nome: "A Cripta Esquelética",
-  },
-  {
-    target: "ogre",
-    nivel: 9,
-    zona: "ruinas",
-    nome: "Ruínas dos Ghouls",
-  },
-  {
-    target: "ogre",
-    nivel: 10,
-    zona: "campina",
-    nome: "Campina Gelada",
-  },
-  {
-    target: "ogre",
-    nivel: 11,
-    zona: "acampamento",
-    nome: "Acampamento Goblin",
-  },
-  {
-    target: "ogre",
-    nivel: 12,
-    zona: "floresta",
-    nome: "Floresta Sombria",
-  },
-];
+    {
+      target: "slime",
+      nivel: 1,
+      zona: "pantano",
+      nome: "O Pantano",
+      mapa: "map_1",
+    },
+
+    {
+      target: "slime",
+      nivel: 2,
+      zona: "pedreira",
+      nome: "A Pedreira",
+      mapa: "map_1",
+    },
+
+    {
+      target: "slime",
+      nivel: 3,
+      zona: "dunas",
+      nome: "As Dunas",
+      mapa: "map_1",
+    },
+
+    {
+      target: "slime",
+      nivel: 4,
+      zona: "cinzas",
+      nome: "O Vale das Cinzas",
+      mapa: "map_1",
+    },
+
+    {
+      target: "slime",
+      nivel: 5,
+      zona: "toca",
+      nome: "A Toca dos Ratos",
+      mapa: "map_1",
+    },
+
+    {
+      target: "slime",
+      nivel: 6,
+      zona: "brejo",
+      nome: "O Brejo",
+      mapa: "map_1",
+    },
+
+    {
+      target: "ogre",
+      nivel: 8,
+      zona: "cripta",
+      nome: "A Cripta",
+      mapa: "map_1",
+    },
+
+    {
+      target: "ogre",
+      nivel: 9,
+      zona: "ruinas",
+      nome: "As Ruínas",
+      mapa: "map_1",
+    },
+
+    {
+      target: "ogre",
+      nivel: 10,
+      zona: "campina",
+      nome: "A Campina Gelada",
+      mapa: "map_1",
+    },
+
+    {
+      target: "ogre",
+      nivel: 11,
+      zona: "acampamento",
+      nome: "O Acampamento Goblin",
+      mapa: "map_1",
+    },
+
+    {
+      target: "ogre",
+      nivel: 12,
+      zona: "floresta",
+      nome: "A Floresta Sombria",
+      mapa: "map_1",
+    },
+
+    /*
+      O TOPO DO MAPA 1: O CHEFE.
+
+      ## POR QUE UM CAMPO `chefe` E NAO SO UM `target`
+
+      Porque `target: "hulk"` sozinho deixa a missao igual a qualquer
+      outra: ela aponta para uma criatura, o auto leva ate a zona, e o
+      jogador mata o que for preciso. Faltaria a parte que importa — o
+      CHEFE VIVE NA ARENA, e a arena fica atras deste exato portal
+
+      ## O CIRCULO QUE ESTE CAMPO DESFAZ
+
+      O portal `portal_floresta` e o que abre o mapa 2, e ele so abre
+      terminando o mapa 1. A ultima missao do mapa 1 e esta. O jogador
+      chegaria nela e veria: "mate o Hulk", sendo que o Hulk esta na arena,
+      e a arena fica do outro lado deste portal — que so abre quando esta
+      missao estiver feita
+
+      Ele descobriria o impossibility depois de dezoito degraus. O campo
+      `chefe` existe para a `PortalBox` oferecer "Enfrentar o chefe" em vez
+      de um "Selado" sem saida
+
+      ## POR QUE A ZONA E `arena`
+
+      Porque e onde o chefe esta, e o `location` da missao e o que o painel
+      escreve em "Va a {zona}". Escrever `floresta` deixaria o jogador
+      cacando goblin em uma missao de quem nao esta la
+    */
+    {
+      target: "hulk",
+      nivel: 20,
+      zona: "arena",
+      nome: "O Hulk",
+      mapa: "map_1",
+chefe: {
+        criatura: "hulk",
+        nome: "Hulk",
+        arena: "boss_1",
+      },
+    },
+  ];
 
 /**
- * O numero de inimigos do degrau.
+ * A RECOMPENSA DE MATERIAL de uma missao de cacada.
  *
- * De 10 no nivel 1, mais 2 por nivel. A conta esta aqui e nao espalhada em
- * cada missao porque a escada cresce: quando entrar um degrau 13, e uma
- * linha aqui e nao uma edicao em doze lugares
+ * ## POR QUE ELA SAI DO `loot` DA CRIATURA
+ *
+ * Porque a recompensa e o drop da criatura que a missao manda matar. Se
+ * fosse uma lista escrita aqui, a missao do esqueleto poderia pagar
+ * couro de goblin â e o jogador receberia um material que a criatura que
+ * ele acabou de matar nem tem, sem nenhuma explicacao
+ *
+ * ## POR QUE SO O PRIMEIRO ITEM, E NAO O MAIS PESADO
+ *
+ * Porque o primeiro item do `loot` e o material PRINCIPAL da criatura, e
+ * ele esta no comeco por construcao: as tabelas foram escritas nessa
+ * ordem. Pegar o mais pesado por peso seria mais correto em teoria e mais
+ * fragil na pratica â reordenar o pool por balanceamento trocaria a
+ * recompensa da missao sem ninguem mexer na missao
+ *
+ * ## POR QUE VOLTA VAZIA E NAO QUEBRA
+ *
+ * Porque uma criatura sem loot, ou um pool vazio, e o mesmo que "esta
+ * missao nao paga material". Quebrar aqui derrubaria o modulo de missoes
+ * inteiro, e uma recompensa a menos e um problema pequeno
  */
-function quantidadeDoDegrau(nivel) {
-  return 10 + (nivel - 1) * 2;
+/**
+ * A RECOMPENSA DO DEGRAU: MATERIAL DA CRIATURA + A PREPARO DO TUTORIAL.
+ *
+ * ## POR QUE OS ITENS SAO SOMADOS E NAO DUPLICADOS
+ *
+ * Porque o degrau do Pantano paga `osso_quebrado x 5` duas vezes — uma como
+ * material da criatura e outra como preparo do tutorial de craft. O
+ * `Inventory.add` empilha as duas e o jogador receberia 10 em uma entrega so,
+ * com o painel mostrando dois icones de osso de 5
+ *
+ * A soma por `itemId` e o que evita isso: as duas viram uma pilha de 10, e o
+ * tutorial continuaExecutable porque 10 e maior que 5
+ *
+ * E a contagem e SOMADA mesmo quando o preparo repetir o material: dar 5 para
+ * craft e mais 5 de preparo e 10 no total, e nao 5. O preparo existe para
+ * garantir o MINIMO, e ele nunca pode DIMINUIR o que o degrau ja pagava
+ */
+function recompensaDoDegrau(degrau) {
+  const material = recompensaEmMaterial(degrau.target);
+
+  const preparacao = PREPARA_PARA[degrau.nome]?.extra ?? [];
+
+  const porItem = new Map();
+
+  for (const item of [...material, ...preparacao]) {
+    const anterior = porItem.get(item.itemId);
+
+    porItem.set(item.itemId, {
+      itemId: item.itemId,
+      count: (anterior?.count ?? 0) + item.count,
+      ...(item.rarity ? { rarity: item.rarity } : {}),
+    });
+  }
+
+  return [...porItem.values()];
+}
+
+function recompensaEmMaterial(creatureId) {
+  const loot = CREATURE_TYPES[creatureId]?.loot;
+
+  const primeiro = loot?.items?.[0];
+
+  if (!primeiro) return [];
+
+  return [{ itemId: primeiro.id, count: 5 }];
+}
+
+/**
+ * O QUE O DEGRAU ENTREGA PARA O TUTORIAL QUE VEM DEPOIS.
+ *
+ * ## O PROBLEMA QUE ESTE MAPA RESOLVE
+ *
+ * Os sete tutorials teachem sistemas que dependem de DROPS, e drop e
+ * acaso. O jogador chega no tutorial de criar e pode ter 3 ossos em vez de
+ * 5. Chega no de encantar e nunca achou um arco. E o de habilidade e
+ * IMPOSSIVEL: o livro de skill nao dropa de nenhum mob do jogo
+ *
+ * Sem isto o jogador fica parado numa missao que ele nao pode fechar, e o
+ * painel mostra "aguardando" sem dizer o que ele precisa
+ *
+ * ## POR QUE A ENTREGA E NO DEGRAU ANTERIOR, E NAO NO TUTORIAL
+ *
+ * Porque o tutorial nao paga a si mesmo. Se a entrega viesse junto da
+ * missao de tutorial, ela apareceria DEPOIS de concluida — tarde demais
+ *
+ * ## POR QUE ISTO NAO E UM ITEM DE GRAÇA
+ *
+ * Porque nao e. Sao 5 ossos a mais em um degrau que ja paga ouro e xp, e
+ * uma aljava no segundo. O jogador continua caçando — ele ganha o que o
+ * proximo passo exige E o ouro do degrau. E o preco de Ensinar e uma missao
+ * de cacada, nao um item
+ *
+ * A excecao e o livro de habilidade, que dropa de NINGUEM: la nao ha
+ * alternativa. Ele vai como recompensa do degrau da Cripta, e e o unico item
+ * do jogo que o jogador recebe garantido
+ */
+const PREPARA_PARA = {
+  "O Pantano": {
+    /**
+     * O CRAFT PRECISA DE 5, E A RECOMPENSA COMUM ERA 4.
+     *
+     * Era um abate de margem: o jogador terminava o primeiro degrau com
+     * material suficiente e um item a menos, e o tutorial de criar virava uma
+     * caça a mais antes de qualquer coisa — que e a pior forma de ensinar
+     */
+    extra: [{ itemId: "osso_quebrado", count: 5 }],
+  },
+
+  "A Pedreira": {
+    /**
+     * O ENCANTAR PRECISA DE UMA PEÇA, e o arco e a aljava so dropam por
+     * acaso — no peso deles no pool, e nao na certeza
+     *
+     * A aljava e a escolha e nao o arco porque e `uncommon`, o arco tambem, e
+     * a aljava cabe no slot `weapon2`: um arquiro que ja esta equipado troca
+     * de mao, e um arqueiro sem arco e um personagem sem arma principal
+     */
+    extra: [{ itemId: "aljava_arbalist", count: 1, rarity: RARITY.COMMON }],
+  },
+
+  "A Toca dos Ratos": {
+    /**
+     * A COLECAO PEDE 20 DO MATERIAL, e a recompensa do degrau pagava 5.
+     *
+     * Sem isto o jogador terminaria o tutorial de entrega e ainda teria de
+     * voltar a caçar so para ter material dela — e o tutorial viraria um
+     * aviso de que existe outra coisa para fazer, que e o oposto de ensinar
+     */
+    extra: [{ itemId: "osso_quebrado", count: 20 }],
+  },
+
+  "A Cripta": {
+    /**
+     * O LIVRO DE HABILIDADE, e ele NAO DROPA DE NINGUEM.
+     *
+     * `livro_quick_shot` esta no catalogo e nao esta em nenhum pool de loot do
+     * jogo. Sem esta entrega o tutorial de habilidade e IMPOSSIVEL de
+     * concluir, por mais que o jogador caque ate o topo da campanha
+     *
+     * E a unica entrega garantida do jogo, e o motivo e esse: nao ha drop
+     * para usar. A raridade e `rare` porque e o que o catalogo declara, e nao
+     * porque foi pensado para o tier do degrau
+     */
+    extra: [{ itemId: "livro_quick_shot", count: 1 }],
+  },
+};
+
+/**
+/**
+ * O numero de inimigos do degrau, e CADA MAPA TEM A SUA CURVA.
+ *
+ * ## AS DUAS PONTAS DECLARADAS, e nao uma serie que atravessa os dois
+ *
+ * ```
+ * mapa 1:  10 -> 24    (a Floresta Sombria e o topo do vale)
+ * mapa 2:  24 -> 48    (o Pântano Final e o topo do segundo mapa)
+ * ```
+ *
+ * E o FIM do mapa 1 que e o COMECO do mapa 2. Nao e coincidencia numerica: o
+ * mapa 2 comeca no nivel 13 com o jogador que acabou de limpar o vale, e a
+ * campanha inteira dele roda numa faixa que o vale nao usava. Sem isso, os
+ * dois mapas subiriam a mesma serie e o segundo seria mais repeticao que
+ * dificuldade
+ *
+ * ## POR QUE GEOMETRICA E NAO SOMADA
+ *
+ * Porque a diferenca entre o primeiro e o ultimo degrau e o que o jogador
+ * SENTE como escalada, e uma soma linear entrega degraus iniciais quase
+ * iguais: `10 + 1.4 * n` daria 10, 11, 13 e 14 ate 24 — tres degraus seguidos
+ * com 10, 11 e 13 abates, indistinguiveis
+ *
+ * A interpolacao geometrica pune a mesma carga em todo o mapa: os primeiros
+ * degraus sao rapidos e o topo pesa, que e a forma como a dificuldade de uma
+ * campanha deve crescer
+ *
+ * ## O QUE A ESCALA RESPEITA
+ *
+ * Cada zona tem entre 6 e 14 mobs vivos, e a missao se cumpre em ondas. Com
+ * 48 no topo do mapa 2 e 7 no campo, sao 7 ondas — o maximo aceitavel sem
+ * passar meia hora no mesmo lugar
+ */
+const CURVA_POR_MAPA = {
+  /**
+   * O VALE: 10 no Pantano, 24 na Floresta.
+   *
+   * E o primeiro mapa do jogo, e a curva e deliberadamente curta. Um jogador
+   * novo encontra 10 esqueletos no primeiro degrau e 24 no ultimo: ele termina
+   * o mapa sabendo o que e uma missao de cacada, e nao cansado dela
+   */
+  map_1: { inicio: 10, fim: 24 },
+
+  /**
+   * O SEGUNDO MAPA: 24 na Floresta Cinzenta, 48 no Pântano Final.
+   *
+   * Comeca onde o vale terminou e termina no DOBRO do topo do vale. O jogador
+   * entra aqui no nivel 13 e sai no 25, e a quantidade dobra no caminho — e ele
+   * ja conhece cada sistema do jogo, entao a dificuldade extra e de volume e
+   * de mob mais forte, nao de feature nova
+   */
+  map_2: { inicio: 24, fim: 48 },
+};
+
+/**
+ * QUANTOS INIMIGOS NESTE DEGRAU.
+ *
+ * E a interpolacao geometrica entre as duas pontas da curva do mapa:
+ *
+ * ```
+ * razao = (fim / inicio) ^ (1 / (total - 1))
+ * quantidade = inicio * razao ^ (posicao - 1)
+ * ```
+ *
+ * Com `total = 11`, `inicio = 10` e `fim = 24`, a razao da 1.091 e a serie
+ * sai 10, 11, 12, 13, 14, 15, 16, 17, 19, 21, 24
+ *
+ * ## POR QUE `Math.round` E NAO `Math.floor`
+ *
+ * Porque `1.091 ^ 6` da 1.68, e o truncar daria 16 num degrau que deveria
+ * custar 17. Arredondando a serie fecha em numeros redondos de verdade
+ */
+function quantidadeDoDegrau(mapa, posicao, total) {
+  const curva = CURVA_POR_MAPA[mapa] ?? CURVA_POR_MAPA.map_1;
+
+  /**
+   * UM MAPA COM UM SO DEGRAU.
+   *
+   * E o `1 / 0` da razao devolvendo `Infinity`, e o `inicio * Infinity`
+   * virando `NaN`. Um mapa novo com uma missao so receberia `NaN` na
+   * quantidade — que o painel desenharia como "NaN esqueletos"
+   */
+  if (total <= 1) return curva.inicio;
+
+  const razao = (curva.fim / curva.inicio) ** (1 / (total - 1));
+
+  return Math.round(curva.inicio * razao ** (posicao - 1));
 }
 
 /**
@@ -203,13 +696,13 @@ function quantidadeDoDegrau(nivel) {
  * ## A REGRA QUE ESTE NUMERO CUMPRE
  *
  * O ouro que um mob da tem que ser MENOR que o da missao do campo dele.
- * Com 45 por nivel, o degrau 1 paga 45 contra os 9 que o limo da, e o
+ * Com 45 por nivel, o degrau 1 paga 45 contra os 9 que o mob da, e o
  * degrau 12 paga 540 contra os 190 do ogre
  *
  * ## POR QUE 45 E NAO A QUANTIDADE
  *
  * A primeira versao pagava `quantidade * 4`, o que dava 40 no degrau 1 e
- * 128 no degrau 12 — abaixo do drop do proprio ogre. Ligar a 45 por nivel
+ * 128 no degrau 12 â abaixo do drop do proprio ogre. Ligar a 45 por nivel
  * e ao nivel, e nao a quantidade: e o que a regiao custa que o jogador
  * recebe, e a quantidade e o preco de chegar la
  */
@@ -228,14 +721,11 @@ function ouroDoDegrau(nivel) {
  *
  * ## POR QUE O PISO E SO O COMUM
  *
- * O degrau 7 e a virada de criatura: o limo de nivel 6 tem 315 de HP e o
- * gigante do campo de provas tem 280. Ligado so no HP, o XP da missao
- * CAI de 378 para 336 no degrau 7 — e o jogador recebe menos por subir
- * de nivel, que e o oposto de uma escalada
- *
- * E por isso que o piso e o maximo entre o mob da zona e o degrau
- * anterior mais um degrau. O degrau paga sempre mais que o anterior, e
- * sempre mais que o mob que ele manda matar
+ * Um degrau futuro pode ser a virada de criatura, e ligado so no HP o XP da
+ * missao CAI no degrau em que o mob da zona fica mais forte que o do
+ * degrau anterior. E por isso que o piso e o maximo entre o mob da zona e
+ * o degrau anterior mais um degrau: a missao paga sempre mais que o
+ * anterior, e sempre mais que o mob que ela manda matar
  */
 function xpDoDegrau(nivel, xpDeUmMob, xpDoDegrauAnterior) {
   return Math.max(
@@ -250,23 +740,43 @@ function xpDoDegrau(nivel, xpDeUmMob, xpDoDegrauAnterior) {
  * O `target` fica em ingles (`slime`) porque e o que o `onKill` compara e
  * o `id` da missao vai para o save. O nome que o jogador le e em
  * portugues, e e `NOME_LEGIVEL` abaixo
+ *
+ * ## POR QUE ESTA TABELA NAO SAIU NA TROCA DE MATERIAL
+ *
+ * Porque ela nao tem nada a ver com material: e o nome da CRIATURA, e a
+ * criatura nao mudou quando os materiais dela foram trocados. O `slime`
+ * continua sendo o mesmo `id` â ele que e a chave do save e do bestiario
  */
 const NOME_CURTO = {
   slime: "limo",
   ogre: "ogre",
   ogre_da_predeira: "ogre_predeira",
   skeleton: "sentinela",
-  zumbi_arbalist: "arqueiro_zumbi",
-};
+zumbi_arbalist: "arqueiro_zumbi",
+    hulk: "hulk",
+  };
 
-/** O nome da criatura como o jogador ve. */
+/**
+ * O nome da criatura como o jogador ve.
+ *
+ * ## POR QUE DIZ "ESQUELETO" E NAO "LIMO"
+ *
+ * Porque o `slime` virou esqueleto na tela: a arte e o `name` do catalogo
+ * de criaturas mudaram, e so o `id` ficou â ele e a chave do save, das
+ * cacadas e das missoes ja feitas
+ *
+ * A missao nova tem que chamar a criatura pelo nome que o jogador ve. Um
+ * "mate 10 limos" apontando para um esqueleto seria um texto que descreve
+ * uma criatura que o jogo nao tem
+ */
 const NOME_LEGIVEL = {
-  slime: "limo",
-  ogre: "ogre",
-  ogre_da_predeira: "ogre da pedreira",
-  skeleton: "sentinela esqueletica",
-  zumbi_arbalist: "arqueiro zumbi",
-};
+  slime: "Esqueleto",
+  ogre: "Goblin",
+  ogre_da_predeira: "goblin da pedreira",
+  skeleton: "Kaelen",
+zumbi_arbalist: "Nylara",
+    hulk: "Hulk",
+  };
 
 /**
  * A ZONA em portugues, para o texto da missao.
@@ -287,8 +797,8 @@ const ZONA_LEGIVEL = {
   toca: "Toca dos Ratos",
   brejo: "Brejo Lento",
   treino: "Campo de Provas",
-  cripta: "Cripta Esquelética",
-  ruinas: "Ruínas dos Ghouls",
+  cripta: "Cripta Esquelâtica",
+  ruinas: "Ruânas dos Ghouls",
   campina: "Campina Gelada",
   acampamento: "Acampamento Goblin",
   floresta: "Floresta Sombria",
@@ -306,14 +816,34 @@ const ZONA_LEGIVEL = {
  * que a zona realmente tem do que mostrar `undefined` no texto da missao
  */
 function nomeDaZona(zoneId) {
-  const base = zoneId.startsWith("m2_")
-    ? zoneId.slice(3)
-    : zoneId;
+    /**
+     * O NOME DA ZONA, e nao o nome do MAPA 1.
+     *
+     * A `ZONA_LEGIVEL` acima so conhece o vale. Ela e a PRIMEIRA opcao porque
+     * e onde estao os nomes escritos a mao do mapa 1 — mas ela nao pode
+     * atender o mapa 2: as duas metades do jogo tem as mesmas doze zonas com
+     * o mesmo nome curto, e `m2_floresta` casaria com `floresta` e o jogador
+     * leria "Floresta Sombria" num degrau do outro mapa
+     *
+     * O `getZoneById` vem ANTES do fallback por id, e ele le o `name` do
+     * registro real da zona. E o que faz o degrau `m2_floresta` dizer
+     * "Floresta Sombria" — que e o nome que o jogador ve no minimapa, e nao
+     * uma segunda traducao inventada aqui
+     *
+     * A ordem e: registro real, depois a tabela escrita, depois o proprio id.
+     * O registro primeiro porque ele e a verdade do mapa; a tabela depois
+     * porque cobre as zonas do hub que o `getZoneById` pode nao conhecer
+     */
+    const zona = getZoneById(zoneId);
 
-  const zona = getZoneById(zoneId);
+    if (zona?.name) return zona.name;
 
-  return ZONA_LEGIVEL[base] ?? zona?.name ?? zoneId;
-}
+    const base = zoneId.startsWith("m2_")
+      ? zoneId.slice(3)
+      : zoneId;
+
+    return ZONA_LEGIVEL[base] ?? zoneId;
+  }
 
 /**
  * O `id` de uma missao da escada.
@@ -327,49 +857,71 @@ function nomeDaZona(zoneId) {
  * `map1_main_1_limo_pantano` e `map2_main_13_arqueiro_zumbi_m2_floresta`
  * sao de mapas diferentes, e o save guarda o id. Sem o mapa no id, os
  * dois mapas teriam ids que so diferem no indice, e uma missao do mapa 2
- * recem-criada poderia撞 colidir com uma do mapa 1
+ * recem-criada poderia colidir com uma do mapa 1
  */
 function idDoDegrau(mapa, indice, curto, zona, suffix = "") {
   return `${mapa}_main_${indice}_${curto}_${zona}${suffix}`;
 }
 
 /**
- * AS MISSOES PRINCIPAIS DO MAPA 1.
+ * O XP do degrau de CACADA anterior na campanha.
  *
- * ## POR QUE GERADAS E NAO ESCRITAS
+ * ## POR QUE PRECISA PULAR O TUTORIAL
  *
- * A regra "a secundaria tem metade e na mesma zona" e o que mantem a
- * campanha e a caixa de secundarias em acordo. Escritas a mao, as duas
- * listas divergem na quinta missao sem ninguem ver: o painel mostra uma
- * secundaria pedindo 10 na mesma zona de uma principal que pede 20, e
- * parece escolha de design
+ * Porque a campanha agora tem passos de dois tipos, e so os de cacada tem
+ * `target` de criatura. A funcao andava para tras pelo indice e lia
+ * `anterior.target` — que e `undefined` no passo de tutorial, e o
+ * `CREATURE_TYPES[undefined]` derrubava o modulo inteiro na primeira
+ * importacao
  *
- * Derivando as duas da mesma tabela, a metade e a zona sao consequencia e
- * nao promessa
- */
-/**
- * O XP do degrau anterior da escada.
+ * E ela nao pode simplesmente pegar o passo anterior: o tutorial de craft
+ * entra DEPOIS do primeiro degrau, entao o degrau seguinte leria um tutorial
+ * e nao acharia criatura nenhuma
  *
- * Sai do `ESCADA` e nao da lista de missoes ja construida: o
- * `MAIN_QUESTS.map` se referenciaria a si mesmo, e o `const` ainda nao
- * estaria pronto no primeiro elemento
+ * ## POR QUE RECURSA E NAO ITERATIVO
+ *
+ * Porque o piso de XP e uma escada crescente, e ela so existe DEPOIS que a
+ * campanha esta montada. Ler `CAMPANHA` de dentro dela e seguro porque e
+ * uma `const` que ja foi avaliada quando o `MAIN_QUESTS.map` chama: o
+ * `CAMPANHA` e declarado antes do `MAIN_QUESTS`
  */
 function xpDoDegrauAnterior(indice) {
   if (indice <= 0) return 0;
 
   /**
-   * A ESCADA INTEIRA, e nao so a do mapa 1.
+   * ANDA PARA TRAS ATE ACHAR UM PASSO DE CACADA.
    *
-   * O piso de XP encadeia pelo degrau anterior. Com a lista do mapa 1, o
-   * primeiro degrau do mapa 2 — indice 12 — leria `ESCADA_MAPA_1[11]`,
-   * que e o ultimo degrau do mapa 1, e o piso do 13 comecaria de um
-   * numero de outro mapa
+   * E o `indice - 1` que comeca a busca: o passo na propria posicao ja esta
+   * sendo pago agora, e o que ele precisa e do que veio antes
    */
-  const anterior = ESCADA[indice - 1];
+  let anterior = null;
+
+  for (let i = indice - 1; i >= 0; i -= 1) {
+    const passo = CAMPANHA[i];
+
+    if (passo?.tutorial) continue;
+
+    anterior = passo;
+    break;
+  }
+
+  /**
+   * NAO HOU DEGRAU DE CACADA ANTES DESTE.
+   *
+   * E o caso do primeiro degrau, e o piso e o XP de UM mob do proprio
+   * degrau. Devolver 0 aqui faria o primeiro degrau pagar `xpDeUmMob * 2`
+   * sem ninguem contra o qual se comparar
+   */
+  if (!anterior) return 0;
 
   const tipoAnterior = CREATURE_TYPES[anterior.target];
 
-  const hpAnterior = scaleForLevel(tipoAnterior, anterior.nivel).maxHp;
+  if (!tipoAnterior) return 0;
+
+  const hpAnterior = scaleForLevel(
+    tipoAnterior,
+    anterior.nivel,
+  ).maxHp;
 
   const xpDeUmMobAnterior = Math.max(
     1,
@@ -384,95 +936,663 @@ function xpDoDegrauAnterior(indice) {
 }
 
 /**
- * O NOME de um degrau novo, escrito a mao.
- *
- * Os doze nomes do mapa 1 sao historia: "Primeiros Passos", "O Gigante da
- * Pedreira". Um nome gerado seria "Degrau 13", que nao e uma missao, e
- * quem le a campanha repara
+ * A ESCADA da campanha do mapa 2, tambem vazia nesta etapa, pela mesma
+ * razao da do mapa 1
  */
-const NOMES_MAPA_2 = {
-  floresta: "A Sentinela do Portal",
-  acampamento: "Vigia da Fenda",
-  campina: "O Frio que Anda",
-  ruinas: "Ossario Silencioso",
-  cripta: "A ultima Guarda",
-  treino: "Tiros no Alvo",
-  brejo: "Passos na Lama",
-  toca: "Ninho Alto",
-  cinzas: "Fumo e Osso",
-  dunas: "Areia Que Anda",
-  pedreira: "Pedra Rachada",
-  pantano: "O Fim da Estrada",
-};
+/**
+ * A ESCADA da campanha do mapa 2.
+ *
+ * ## O `m2_` DO `zona` NAO E OPCIONAL
+ *
+ * As duas escadas tem as MESMAS doze zonas com o mesmo nome curto: `floresta`
+ * existe no mapa 1 e no mapa 2. A unica coisa que as separa e o prefixo, e ele
+ * e o que o painel de missoes le para escolher a aba — `mapaDaZona` faz
+ * `zoneId.startsWith("m2_")`
+ *
+ * Sem o prefixo, os onze degraus do mapa 2 apareciam TODOS na aba do mapa 1.
+ * A aba do mapa 2 ficava vazia e o jogador via a campanha inteira do vale
+ * duas vezes. Nenhum erro, nenhum aviso: o `location` existia e era um nome de
+ * zona VALIDO, so que nao era o certo
+ *
+ * E por isso que `nomeDaZona` tira o `m2_` antes de procurar o nome em
+ * portugues: o jogador le "Floresta Cinzenta", e nao "m2_floresta"
+ */
+export const ESCADA_MAPA_2 = [
+    {
+      target: "skeleton",
+      nivel: 13,
+      zona: "m2_floresta",
+      nome: "A Floresta Cinzenta",
+      mapa: "map_2",
+    },
+
+    {
+      target: "skeleton",
+      nivel: 14,
+      zona: "m2_acampamento",
+      nome: "O Acampamento Silencioso",
+      mapa: "map_2",
+    },
+
+    {
+      target: "skeleton",
+      nivel: 15,
+      zona: "m2_campina",
+      nome: "A Campina Morta",
+      mapa: "map_2",
+    },
+
+    {
+      target: "skeleton",
+      nivel: 16,
+      zona: "m2_ruinas",
+      nome: "As Ruínas Afogadas",
+      mapa: "map_2",
+    },
+
+    {
+      target: "skeleton",
+      nivel: 17,
+      zona: "m2_cripta",
+      nome: "A Cripta Profunda",
+      mapa: "map_2",
+    },
+
+    {
+      target: "zumbi_arbalist",
+      nivel: 20,
+      zona: "m2_brejo",
+      nome: "O Brejo Podre",
+      mapa: "map_2",
+    },
+
+    {
+      target: "zumbi_arbalist",
+      nivel: 21,
+      zona: "m2_toca",
+      nome: "A Toca Enorme",
+      mapa: "map_2",
+    },
+
+    {
+      target: "zumbi_arbalist",
+      nivel: 22,
+      zona: "m2_cinzas",
+      nome: "As Cinzas Eternas",
+      mapa: "map_2",
+    },
+
+    {
+      target: "zumbi_arbalist",
+      nivel: 23,
+      zona: "m2_dunas",
+      nome: "As Dunas do Vazio",
+      mapa: "map_2",
+    },
+
+    {
+      target: "zumbi_arbalist",
+      nivel: 24,
+      zona: "m2_pedreira",
+      nome: "A Pedreira Sem Fundo",
+      mapa: "map_2",
+    },
+
+    {
+      target: "zumbi_arbalist",
+      nivel: 25,
+      zona: "m2_pantano",
+      nome: "O Pântano Final",
+      mapa: "map_2",
+    },
+  ];
 
 /**
- * A ESCADA DO MAPA 2.
+ * A ESCADA INTEIRA, e nao so a do mapa 1.
  *
- * Um degrau por linha do `MAP_2_ROSTER`, na ordem em que o jogador
- * atravessa: entra pela Floresta, que e o 13, e sobe ate o Pantano, que e
- * o 25.
- *
- * ## DE ONDE VEM O ALVO
- *
- * Do `mix` da propria linha: o degrau mata o bicho que mora na zona. E o
- * que mantem a missao e o roster falando a mesma coisa — um degrau
- * pedindo limo numa zona so de sentinela seria uma missao que o jogador
- * nao consegue fechar
- *
- * O campo de provas e o unico com dois tipos, e o degrau pega o de
- * MAIOR peso: o arqueiro zumbi, que sao 6 dos 10 ali
- *
- * ## A QUANTIDADE SOBE SOZINHA
- *
- * `quantidadeDoDegrau` nao sabe que o mapa 2 existe: ela le o nivel. O
- * degrau 13 pede 34, contra os 32 do ultimo degrau do mapa 1 — a
- * campanha continuar subindo e o que faz a missao do mapa 2 pesar mais
- * sem nenhuma conta nova
+ * E a concatenacao das duas, e e daqui que saem as missoes principais e
+ * secundarias. Continua sendo um `const` derivado e nao uma lista escrita
+ * a mao, porque as duas metades vem de arquivos diferentes e o
+ * `indiceDaUltimaMissao` precisa saber onde o mapa 2 comeca
  */
-export const ESCADA_MAPA_2 = MAP_2_ROSTER.map((row) => {
-  const dominante = Object.entries(row.mix ?? {}).reduce(
-    (melhor, atual) => (atual[1] > melhor[1] ? atual : melhor),
-  )[0];
+const ESCADA = [
+    ...ESCADA_MAPA_1,
+    ...ESCADA_MAPA_2,
+  ];
 
   /**
-   * O NIVEL do degrau.
+   * ONDE O MAPA 2 COMECA NO VETOR CONCATENADO.
    *
-   * A linha do campo de provas tem dois tipos com dois niveis, e o
-   * degrau e do DOMINANTE: o arqueiro, no 18. A sentinela no 19 e a
-   * outra coisa que mora ali, e nao o alvo deste degrau
+   * E quantos degraus o mapa 1 tem. A `quantidadeDoDegrau` conta pela
+   * POSICAO dentro do mapa, e nao pelo nivel nem pelo indice global: cada
+   * mapa recomeca a conta, porque o mapa 2 comeca no nivel 13 e a serie de
+   * trabalho e do comeco da campanha dele
+   *
+   * Sem este numero, a geracao de `MAIN_QUESTS` somaria o indice global e o
+   * primeiro degrau do mapa 2 pediria `10 * 2 ^ 6 = 640` inimigos — mais que
+   * a campanha inteira do mapa 1 somada
    */
-  const nivel = row.niveis
-    ? row.niveis[0]
-    : (row.niveisPorTipo?.[dominante] ?? 13);
-
-  return {
-    target: dominante,
-    nivel,
-    zona: `m2_${row.zone}`,
-
-    /**
-     * O id da missao vai no save do jogador. Com `m2_` na zona e no
-     * indice global, nenhuma missao do mapa 2 colide com uma do mapa 1
-     */
-    mapa: "map2",
-    nome: NOMES_MAPA_2[row.zone] ?? `Degrau ${nivel}`,
-  };
-});
+  const MAPA_1_GRAU_INICIAL = ESCADA_MAPA_1.length;
 
 /**
- * A ESCADA INTEIRA: mapa 1 e depois mapa 2.
+ * QUANTOS TUTORIAIS JA PASSARAM ANTES DESTA POSICAO DA CAMPANHA.
  *
- * Uma lista so, e nao duas. O `QuestLog` tem UM `mainIndex` e caminha
- * por ele; com duas listas o jogador terminaria a campanha do mapa 1, o
- * `getMainQuest` devolveria `null` e o auto ficaria sem objetivo
+ * ## POR QUE A POSICAO PRECISA DESCONTAR ISTO
  *
- * A ordem concatena o mapa 1 inteiro e o mapa 2 inteiro, que e a ordem
- * em que o jogador atravessa: vale do 1 ao 12, Floresta do 13 ao 25
+ * Porque a `quantidadeDoDegrau` mede o TRABALHO, e o trabalho e contar
+ * abates. Um tutorial nao e um abate: ele e uma acao, e sem este desconto
+ * cada tutorial que entra na campanha empurra todos os degraus seguintes
+ * uma posicao para cima na serie
+ *
+ * Com os 7 tutorials do mapa 1, o ultimo degrau cairia em `grau = 18` e
+ * pediria 3620 inimigos em vez de 226 — dezesseis vezes mais, sem nenhuma
+ * mudanca no jogo que justificasse
+ *
+ * ## POR QUE SUBTRAIR E NAO SOMAR
+ *
+ * Porque o `i` e a posicao REAL na campanha, e os degraus sao os que
+ * sobram depois de tirar os tutorials. A serie tem 11 degraus no mapa 1 e a
+ * campanha tem 18 passos, entao o ultimo degrau e `18 - 7 = 11`
  */
-const ESCADA = [...ESCADA_MAPA_1, ...ESCADA_MAPA_2];
+function quantidadeDeTutoriaisAntes(posicao) {
+  let quantos = 0;
 
-export const MAIN_QUESTS = ESCADA.map((degrau, i) => {
-  const quantidade = quantidadeDoDegrau(degrau.nivel);
+  for (let i = 0; i < posicao; i += 1) {
+    if (CAMPANHA[i]?.tutorial) quantos += 1;
+  }
+
+  return quantos;
+}
+
+  /**
+   * OS TUTORIAIS, e ONDE CADA UM SE ENTRA NA CAMPANHA.
+   *
+   * ## O QUE UM TUTORIAL FAZ AQUI
+   *
+   * Ele ocupa uma posicao na escada entre dois degraus de cacada. O jogador
+   * chega no Pântano, mata 10 esqueletos, e no lugar da segunda missao de
+   * cacada ele recebe "forje um osso reforcado". Ele faz aquilo, e so entao
+   * a segunda missao de cacada aparece
+   *
+   * E assim que os tutorials ensinam: no momento em que o jogador tem o
+   * MATERIAL para usar a feature. Nao no comeco do jogo, quando ele nao tem
+   * nada, nem no fim, quando ja sabe
+   *
+   * ## A REGRA DE `depoisDo`
+   *
+   * E o NOME do degrau que vem ANTES, e nao um indice. Um indice mudaria
+   * sozinho quando um degrau fosse inserido no meio da escada, e o tutorial
+   * saltaria para outro lugar sem ninguem editar nada. Um nome nao se move
+   *
+   * ## POR QUE ESTAO NUMA LISTA E NAO DENTRO DA ESCADA
+   *
+   * Porque a escada e de CACADA: tem zona, mob e nivel, e todos os degraus
+   * dela compartilham a mesma forma. Um tutorial nao tem zona nem mob, e a
+   * `quantidadeDoDegrau` nao faz sentido para ele — ele pede 1 acao, nao
+   * 14 abates. Misturar os dois na mesma lista faria o gerador de cacada ter
+   * que tratar um caso que nao e dele
+   *
+   * ## O `location` DO TUTORIAL E A ZONA DO DEGRAU ANTERIOR
+   *
+   * E o que faz o auto funcionar: o tutorial acontece ONDE o jogador ja
+   * esta. Ele acabou de matar os 10 esqueletos do Pantano e recebe o
+   * tutorial ali mesmo, sem o auto ter que levar ele a lugar nenhum
+   */
+  export const TUTORIAIS = [
+    {
+      tipo: QUEST_TYPE.CRAFT,
+      nome: "A Primeira Forja",
+      depoisDo: "O Pantano",
+
+      /**
+       * POR QUE O CRAFT E O PRIMEIRO TUTORIAL
+       *
+       * E o unico sistema que o jogador PODE usar com o que ele ja tem. O
+       * drop do primeiro esqueleto e osso quebrado, e `osso_quebrado x 5`
+       * sai em `osso_quebrado_reforcado`. Nenhum outro tutorial tem essa
+       * garantia: os outros dependem de moeda, de steel ou de um livro raro
+       *
+       * E ele ensina a base de todo o resto: o material vira coisa melhor,
+       * e "coisa melhor" e o que o jogador vai ver no loot de qualquer mob
+       * ate o fim do jogo
+       */
+      objetivo: "Crie 1 item no craft a partir de material que voce juntou",
+      dica:
+        "Abra o CRAFT (C). A primeira receita do Osso Quebrado usa 5 " +
+        "unidades e nao custa ouro.",
+      icone: "\u2692",
+    },
+
+    {
+      tipo: QUEST_TYPE.ENCHANT,
+      nome: "O Primeiro Afixo",
+      depoisDo: "A Pedreira",
+
+      /**
+       * POR QUE O ENCANTAMENTO VEM DEPOIS DO CRAFT
+       *
+       * Porque encantar custa OURO, e ouro na primeira missao mal da para
+       * o primeiro encantar. O tutorial vem no fim da segunda degrau de
+       * cacada, quando o jogador tem ouro de duas missoes — e assim o
+       * primeiro afixo acontece sem ele pensar duas vezes
+       *
+       * E porque a peca existe: o arco e a aljava dropam no andar QUEBRADO da
+       * campanha, e este e o primeiro degrau em que o jogador TEM uma peca
+       * para encantar
+       */
+      objetivo: "Encante uma peca para receber seu primeiro afixo",
+      dica:
+        "Abra ENCANTAR (aba ao lado do CRAFT). Escolha a peca da mochila e " +
+        "o afixo e sorteado na hora — repetir paga de novo e troca o afixo.",
+      icone: "\u2726",
+    },
+
+    {
+      tipo: QUEST_TYPE.MINE,
+      nome: "O Veio do Vale",
+      depoisDo: "As Dunas",
+
+      /**
+       * POR QUE MINERAR VEM ANTES DE APRIMORAR
+       *
+       * Porque aprimorar custa STEEL, e o steel so sai de minerar. Este e o
+       * unico tutorial que e pre-requisito de outro, e ele vem primeiro por
+       * isso: o tutorial de aprimorar viria para o jogador sem steel, e ele
+       * abriria a aba, veria "Steel insuficiente" e nao entenderia de onde
+       * vem
+       *
+       * E a unica acao do jogo que nao passa por combate, entao e a unica
+       * que o jogador nunca encontraria sozinho
+       */
+      objetivo: "Minere uma pedra no Vale das Cinzas",
+      dica:
+        "Procure uma pedra de minerio no mapa e clique nela. O painel abre " +
+        "so quando voce chega perto — o steel e o unico recurso que nao " +
+        "vem de matar.",
+      icone: "\u26CF",
+    },
+
+    {
+      tipo: QUEST_TYPE.ENHANCE,
+      nome: "A Primeira Bigorna",
+      depoisDo: "O Vale das Cinzas",
+
+      /**
+       * POR QUE ESTE VIM DEPOIS DO DE MINERAR
+       *
+       * E a ordem que o jogo impõe: steel primeiro, aprimoramento depois.
+       *
+       * E o `count: 1` porque o tutorial e sobre EXISTIR o numero, nao sobre
+       * chegar a um degrau. O jogador sai daqui com uma peca em +1, e e a
+       * primeira vez que ele ve o numero de aprimoramento em algum lugar da
+       * tela — no badge do icone, na placa do alvo e na propria aba
+       */
+      objetivo: "Aprimore uma peca em +1",
+
+      /**
+       * O `count` E 1, E O `+1` ESTA NO OBJETIVO E NAO NO DADO.
+       *
+       * ## O QUE MUDOU
+       *
+       * Era `count: 5` com o objetivo "Aprimore 5 vezes, ate o +5". Agora e
+       * uma vez so, ate o +1
+       *
+       * ## POR QUE
+       *
+       * Porque cinco Degrees sao uma parede na frente do jogador novo. Cada
+       * degrau custa ouro E steel, e o steel so existe a partir do tutorial
+       * de minerar — que vem imediatamente antes. Um novo jogador que
+       * acabou de aprender a minerar estava sendo obrigado a gastar cinco
+       * graus de um recurso que ele ainda nao tem, para fechar um TUTORIAL
+       *
+       * E o tutorial nao ensinava nada nos graus 2 a 5. O que ele ensina e o
+       * clique, o custo e o numero aparecendo na tela — e o +1 mostra os
+       * tres de uma vez
+       *
+       * ## POR QUE NAO E UM GRAÇA
+       *
+       * Continua custando ouro e steel como todo aprimoramento. O tutorial
+       * nao ensina a，出现了, ele ensina a GASTAR: o preco que sobe e o
+       * que fecha o degrau 1 e o degrau 2, e esse preco e a coisa nova
+       */
+      count: 1,
+      dica:
+        "Abra ENCANTAR e use a seta de aprimorar. O primeiro clique gasta " +
+        "ouro e steel e marca a peca com +1.",
+      icone: "\u2699",
+    },
+
+    {
+      tipo: QUEST_TYPE.DELIVER,
+      nome: "A Primeira Entrega",
+      depoisDo: "A Toca dos Ratos",
+
+      /**
+       * POR QUE A COLECAO VIM TAO TARDE
+       *
+       * Porque o bonus da colecao e PERMANENTE, e a primeira entrega e o
+       * momento em que o jogador descobre que existe um lugar onde o
+       * material dele vira atributo em vez de virar item
+       *
+       * Ate aqui ele juntou material para craftar. A colecao e a resposta
+       * para "e se eu nao quiser craftar?" — e essa e uma pergunta que so
+       * faz sentido depois de ter feito craft duas ou tres vezes
+       */
+      objetivo: "Entregue 1 parcela de uma colecao e receba bonus permanente",
+      dica:
+        "Abra COLECAO (K) e escolha uma entrega que voce ja tenha o " +
+        "material. O bonus que voce recebe fica para sempre.",
+      icone: "\u2611",
+    },
+
+    {
+      tipo: QUEST_TYPE.BUY,
+      nome: "A Primeira Compra",
+      depoisDo: "O Brejo",
+
+      /**
+       * POR QUE COMPRAR VIM DEPOIS DE ENTREGAR
+       *
+       * Porque e a terceira forma de usar o recurso: craftar (transforma
+       * material), entregar (transforma material em atributo) e COMPRAR
+       * (transforma ouro em pocao e livro)
+       *
+       * E o unico tutorial que precisa de duas coisas prontas — ouro na
+       * carteira e uma loja aberta — e o degrau do Brejo e onde o jogador
+       * ja tem das duas
+       */
+      objetivo: "Compre 1 item na loja",
+      dica:
+        "Abra a LOJA pelo botao da prateleira. Ouro parado na carteira nao " +
+        "faz nada — e pocao e livro de habilidade so se compra.",
+      icone: "\uD83D\uDECD",
+    },
+
+    {
+      tipo: QUEST_TYPE.LEARN_SKILL,
+      nome: "A Primeira Skill",
+      depoisDo: "A Cripta",
+
+      /**
+       * POR QUE APRENDER SKILL E O ULTIMO TUTORIAL DO MAPA 1
+       *
+       * Porque e o tutorial de maior risco do jogo: o livro e o drop mais
+       * raro, entao o jogador pode ficar horas sem poder cumpri-lo
+       *
+       * E por isso ele vem no meio do mapa 1 e nao no fim — com a loja e a
+       * colecao ja ensinadas, ele tem ouro para comprar o livro se o drop
+       * nao vier. E assim que o jogador descobre que as skills existem
+       * ANTES de passar o resto do mapa ignorando elas
+       *
+       * E o ultimo porque e o que fecha o ciclo: depois deste, o jogador
+       * conhece craft, encantar, minerar, aprimorar, colecao, loja e
+       * habilidades. Sao os sete sistemas
+       */
+      objetivo: "Aprenda 1 habilidade usando um livro",
+      dica:
+        "O livro de habilidade cai no loot. Use o livro na mochila e a " +
+        "skill entra no seu slot de habilidade.",
+      icone: "\u2605",
+    },
+  ];
+
+/**
+ * A RECOMPENSA DE UM TUTORIAL.
+ *
+ * ## POR QUE NAO PAGA O MESMO QUE UM DEGRAU
+ *
+ * Porque um tutorial nao e trabalho: e uma acao. O degrau paga por ABATE —
+ * ouro e XP que crescem com o nivel e com a quantidade. Um tutorial de uma
+ * acao que paga ouro de degrau transformaria aprender a forjar em farming
+ *
+ * ## O OURO
+ *
+ * E fixo em 40, e nao sobe com o nivel. E a MESMA moeda do primeiro degrau,
+ * e pela mesma razao: o ouro do tutorial e para que o jogador tenha o
+ * bastante para o PROXIMO passo do tutorial seguinte. Ele vai encantar logo
+ * em seguida, e encantar custa ouro
+ *
+ * E nao zero pelo mesmo motivo do contrario: zero faria o tutorial parecer
+ * um texto de ajuda, e nao uma missao
+ */
+const OURO_DO_TUTORIAL = 40;
+
+/**
+ * A MISSAO DE UM TUTORIAL, no mesmo formato de um degrau.
+ *
+ * ## O QUE E IGUAL
+ *
+ * O `id` no formato da campanha, o `count`, o `summary`, o `rewards` com
+ * `coins`/`xp`/`items`, e o `location`. E por isso que ela entra na mesma
+ * lista: o `QuestLog`, o painel, o auto e o resgate nao precisam saber que
+ * existe um tipo novo de passo
+ *
+ * ## O QUE MUDA
+ *
+ * - `type`: o tipo do tutorial, e nao `HUNT`
+ * - `target`: o nome da ACAO (`craft`, `enchant`...), e nao a criatura
+ * - `count`: 1, quase sempre — ver o `enhance`, que e 5
+ * - `dica`: o texto que o painel mostra abaixo do objetivo. E o que
+ *   transforma "crie 1 item" em "abra o CRAFT, a primeira receita usa 5
+ *   unidades"
+ * - `painel`: o id da aba que abre. E o `PAINEL_DO_TUTORIAL` do tipo
+ *
+ * ## O `count` POR TIPO
+ *
+ * Todo tutorial e 1, MENOS o de aprimorar. E porque todos os outros ensinam
+ * um botao — clicar uma vez e pronto — e o de aprimorar ensina um PROCESSO:
+ * o preco sobe a cada degrau, ate o +5 nao ha risco, e depois passa a ter.
+ * Um tutorial de "aprimore 1 vez" fecharia no primeiro clique, e o jogador
+ * nunca veria nada disso
+ */
+function questDoTutorial(passo, indice) {
+  const tutorial = passo.tutorial;
+
+  const mapa = passo.mapa ?? "map_1";
+
+  /**
+   * O `id` LEVA O MAPA E O INDICE GLOBAL, como um degrau.
+   *
+   * O indice global e o que mantem o save: a missao e sempre a mesma para
+   * quem chegou nela, e um tutorial inserido no meio da campanha empurra os
+   * ids de cacada em vez de trocar de lugar
+   */
+  const slug = tutorial.nome
+    .toLowerCase()
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .replace(/[^a-z0-9]+/g, "_")
+    .replace(/^_|_$/g, "");
+
+  const painel = PAINEL_DO_TUTORIAL[tutorial.tipo] ?? null;
+
+  return {
+    id: `${mapa}_main_${indice + 1}_tut_${slug}`,
+
+    /**
+     * O NOME COM O VERBO NA FRENTE.
+     *
+     * E o `VERBO_DO_TUTORIAL` do tipo mais o nome do tutorial. O painel
+     * mostra o `name` como titulo do card, e "A Primeira Forja" sozinho nao
+     * diz que o jogador esta aprendendo a forjar — ele nao sabe o que e uma
+     * "primeira forja". O verbo diz
+     */
+    name: `${VERBO_DO_TUTORIAL[tutorial.tipo] ?? "Aprendendo"}: ${tutorial.nome}`,
+
+    /**
+     * O NOME CURTO, sem o verbo na frente.
+     *
+     * E o nome do tutorial sozinho: "A Primeira Bigorna" em vez de
+     * "Aprendendo a aprimorar: A Primeira Bigorna". Sao 15 caracteres de
+     * menos, e a caixa da HUD le ESTE
+     *
+     * ## POR QUE O VERBO NAO CABE LÁ
+     *
+     * Porque a caixa da HUD tem 10px de fonte e umas 150px de largura util.
+     * O verbo ocupa metade dela, e o nome que sobra e "Aprend…", que nao
+     * identifica tutorial nenhum — sete nomes truncados no mesmo lugar
+     *
+     * ## ONDE O VERBO CONTINUA APARECENDO
+     *
+     * No painel de missoes, na walkthrough e na lista de passos, que tem
+     * largura para ele. O verbo e ENSINO, e a caixa da HUD e um lembrete
+     * curto: ela precisa dizer QUAL, e o painel diz COMO
+     */
+    nomeCurto: tutorial.nome,
+
+    type: tutorial.tipo,
+
+    /**
+     * O `location` E A ZONA DO DEGRAU ANTERIOR.
+     *
+     * E o que faz o auto funcionar: o tutorial acontece onde o jogador ja
+     * esta, e ele nao e levado a lugar nenhum. Um tutorial de minerar com
+     * `location: "vale"` levaria o jogador ate la — mas o Vale das Cinzas ja
+     * e a zona onde ele esta, e uma ida a la de novo seria anda sem ganho
+     */
+    location: passo.alvoZona,
+
+    target: tutorial.tipo,
+
+    /**
+     * O `minLevel` E O DO DEGRAU ANTERIOR.
+     *
+     * Nao e exigido por nenhum codigo — o `onAcao` nao olha `minLevel` — mas
+     * e o que o painel usa para mostrar "acima do seu nivel" na lista lateral
+     */
+    minLevel: passo.alvoNivel ?? 1,
+
+    count: tutorial.count ?? 1,
+
+    summary: tutorial.objetivo,
+    dica: tutorial.dica,
+    icone: tutorial.icone,
+    painel,
+    tutorial: true,
+
+    rewards: {
+      coins: OURO_DO_TUTORIAL,
+
+      xp: Math.max(
+        xpDoDegrauAnterior(indice - 1) + 15,
+        Math.round(10 * BALANCE.xpShare.creature * 2),
+      ),
+      items: [],
+    },
+  };
+}
+
+/**
+ * A CAMPANHA COM OS TUTORIAIS INTERCALADOS.
+ *
+ * ## O QUE ELA E
+ *
+ * A `ESCADA` — os degraus de cacada, na ordem — com cada tutorial COLADO
+ * logo depois do degrau que ele nomeia em `depoisDo`. E a lista que
+ * `MAIN_QUESTS` gera, e e dela que sai a ordem que o painel mostra
+ *
+ * ## POR QUE INTERCALAR E NAO COLOCAR NO FIM
+ *
+ * Porque no fim nao ensina. O tutorial de craft no fim da campanha
+ * mostraria ao jogador, no ultimo degrau, que ele poderia ter estado
+ * refinando material desde o primeiro minuto. Intercalado, ele aparece
+ * quando o jogador ja tem 10 ossos na mochila — e nesse instante a feature
+ * faz sentido
+ *
+ * ## POR QUE O MAPA 2 NAO TEM TUTORIAL
+ *
+ * Porque sao os SETE SISTEMAS, e todos os sete ja foram ensinados no mapa 1.
+ * O mapa 2 e a campanha: mais criatura, mais nivel, mais material. Repetir
+ * "aprende a forjar" no nivel 13 seria o tutorial falando com quem ja
+ *ouviu
+ *
+ * E porque o mapa 2 comeca no nivel 13 com o jogador sabendo jogar: a curva
+ * de dificuldade dele esta no HP do mob, nao em sistema novo
+ */
+export const CAMPANHA = (() => {
+  const saida = [];
+
+  for (const degrau of ESCADA) {
+    saida.push({ ...degrau, tutorial: null });
+
+    /**
+     * O TUTORIAL QUE NASCE DEPOIS DESTE DEGRAU.
+     *
+     * O `depoisDo` e o NOME do degrau, e ele e comparado dentro do
+     * `filter`. E um nome e nao um indice pelo motivo do comentario da
+     * `TUTORIAIS`: um indice mudaria sozinho quando um degrau fosse
+     * inserido no meio
+     */
+    for (const tutorial of TUTORIAIS) {
+      if (tutorial.depoisDo !== degrau.nome) continue;
+
+      saida.push({
+        /**
+         * O MAPO DO TUTORIAL E O DO DEGRAU QUE O GEROU.
+         *
+         * Sem esta linha o tutorial nao teria `mapa`, e a `quantidadeDoDegrau`
+         * do proximo degrau do mapa 2 calcularia a partir da posicao global
+         * — voltando a pedir 640 inimigos no primeiro degrau do mapa 2
+         */
+        mapa: degrau.mapa,
+        alvoZona: degrau.zona,
+        alvoNivel: degrau.nivel,
+        tutorial,
+      });
+    }
+  }
+
+  return saida;
+})();
+
+/**
+ * O tutorial que o `depoisDo` nao encontrou.
+ *
+ * E o que impede um tutorial de sumir em silencio: um nome escrito errado em
+ * `TUTORIAIS` deixaria a feature sem missao, sem erro de build, e sem o
+ * tutorial aparecer. O console diz o nome que nao casou
+ */
+const TUTORIAIS_ORFAOS = TUTORIAIS.filter(
+    (tutorial) =>
+      !CAMPANHA.some((passo) => passo.tutorial === tutorial),
+  );
+
+  if (TUTORIAIS_ORFAOS.length > 0) {
+    console.warn(
+      "[quests] tutorial sem degrau de origem, `depoisDo` nao casa: " +
+        TUTORIAIS_ORFAOS.map((t) => `${t.nome} -> "${t.depoisDo}"`).join(", "),
+    );
+  }
+
+export const MAIN_QUESTS = CAMPANHA.map((passo, i) => {
+  if (passo.tutorial) return questDoTutorial(passo, i);
+
+  const degrau = passo;
+
+    /**
+     * A POSICAO DO DEGRAU DENTRO DA ESCADA DO MAPO DELE.
+     *
+     * E o `i` GLOBAL menos o comeco do mapa, menos os tutoriais que ja
+     * passaram, mais um. O `i` da campanha inclui os 7 tutorials do mapa 1,
+     * entao sem descontar eles cada degrau cairia uma posicao a frente na
+     * curva — e o topo do mapa 1 pediria 21 em vez de 24
+     */
+    const inicio = degrau.mapa === "map_2" ? MAPA_1_GRAU_INICIAL : 0;
+
+    const posicao = i - inicio - quantidadeDeTutoriaisAntes(i) + 1;
+
+    /**
+     * A QUANTIDADE SAI DA CURVA DO MAPO, e nao de um numero global.
+     *
+     * O `mapa` e o que escolhe entre `10 -> 24` e `24 -> 48`, e o `total` e
+     * quantos degraus aquele mapa tem — e ele precisa do TOTAL, porque a razao
+     * da interpolacao so existe quando se sabe onde a curva termina
+     */
+    const mapa = degrau.mapa ?? "map_1";
+
+    const total = ESCADA.filter((d) => (d.mapa ?? "map_1") === mapa).length;
+
+    const quantidade = quantidadeDoDegrau(mapa, posicao, total);
   const curto = NOME_CURTO[degrau.target];
   const alvo = NOME_LEGIVEL[degrau.target];
   const zona = nomeDaZona(degrau.zona);
@@ -500,6 +1620,40 @@ export const MAIN_QUESTS = ESCADA.map((degrau, i) => {
     xpDoDegrauAnterior(i),
   );
 
+  /**
+   * O CHEFE: UMA MISSAO, UM ABATE.
+   *
+   * E a unica degrau da campanha que nao e uma curva. O `count` de um
+   * degrau normal vem da curva da posicao, e a curva do topo daria 24
+   * Hulks — o que quer dizer 24 voltas na arena, cada uma custando uma
+   * vida ou o mesmo item
+   *
+   * O `count` e forcado em 1 e o `type` vira `KILL`, que e o unico tipo do
+   * catalogo que conta abate sem exigir uma quantidade. O `QuestLog` ja
+   * trata os dois no mesmo `onKill`, entao nao ha metodo novo
+   *
+   * E o `chefe` vai no objeto porque e ele que a `PortalBox` le: sem o
+   * campo, o portal selado so sabe dizer que a campanha nao acabou
+   */
+  if (degrau.chefe) {
+    return {
+      id: idDoDegrau(degrau.mapa ?? "map1", i + 1, curto, degrau.zona),
+      name: degrau.nome,
+      type: QUEST_TYPE.KILL,
+      location: degrau.zona,
+      target: degrau.target,
+      minLevel: degrau.nivel,
+      count: 1,
+      chefe: degrau.chefe,
+      summary: `Vá a ${zona} e derrube ${alvo}`,
+      rewards: {
+        coins: ouroDoDegrau(degrau.nivel),
+        xp,
+        items: recompensaDoDegrau(degrau),
+      },
+    };
+  }
+
   return {
     id: idDoDegrau(degrau.mapa ?? "map1", i + 1, curto, degrau.zona),
     name: degrau.nome,
@@ -518,7 +1672,29 @@ export const MAIN_QUESTS = ESCADA.map((degrau, i) => {
        */
       coins: ouroDoDegrau(degrau.nivel),
       xp,
-      items: [{ itemId: "slime_core", count: 1 }],
+
+      /**
+       * A RECOMPENSA EM MATERIAL DESTA MISSAO.
+       *
+       * E o material que a CRIATURA ALVO dropa, e nao um item escolhido a
+       * mao. A missao de esqueleto paga Osso Quebrado porque o esqueleto
+       * solta Osso Quebrado: o jogador que a completa ja saiu de la com o
+       * material na mao, e a recompensa e uma segunda dose do mesmo
+       *
+       * A lista e montada do `loot` da criatura e nao escrita aqui: se o
+       * drop do esqueleto mudar, a recompensa acompanha. E o primeiro item
+       * do pool e o que ele solta com mais peso, que e o material
+       * principal daquela criatura
+       *
+       * ## POR QUE 4 E NAO 1
+       *
+       * Porque um material so nao paga a missao. O ouro dela ja e pouco
+       * (45 no primeiro degrau) e o XP e o piso do degrau; a recompensa de
+       * material e o que faz a missao valer a pena alem do numero. Quatro
+       * do material comum e o suficiente para o jogador entrar no primeiro
+       * refino sem ter guardado nada antes
+       */
+      items: recompensaDoDegrau(degrau),
     },
   };
 });
@@ -540,9 +1716,36 @@ export const MAIN_QUESTS = ESCADA.map((degrau, i) => {
  * zonas diferentes, o auto escolheria uma e o painel mostraria a outra
  */
 export const SIDE_QUESTS = ESCADA.map((degrau, i) => {
-  const metade = Math.ceil(
-    quantidadeDoDegrau(degrau.nivel) / 2,
-  );
+    /**
+     * A MESMA POSICAO que a principal usou, e nao o nivel.
+     *
+     * E o que garante que a secundaria e sempre a METADE da principal que
+     * esta no mesmo degrau. Se as duas calculassem a quantidade por caminhos
+     * diferentes, a secundaria do topo do mapa 2 pediria `640 / 2 = 320`
+     * inimigos contra os 50 da principal — e o "atalho" seria o degrau mais
+     * caro do jogo
+     */
+    const inicio = degrau.mapa === "map_2" ? MAPA_1_GRAU_INICIAL : 0;
+
+    /**
+     * A MESMA CURVA DO MAPO, e nao a serie global.
+     *
+     * A `SIDE_QUESTS` e gerada da `ESCADA`, que nao tem tutorial — entao o
+     * `i` dela ja e a posicao do degrau dentro do mapa, e o `mapa` e o total
+     * sao os mesmos que a principal usou
+     *
+     * E o que garante que a secundaria e sempre a METADE da principal do mesmo
+     * degrau. Se ela calculasse por um caminho diferente, a secundaria do
+     * topo do mapa 2 pediria 12 em vez de 24 — e o "atalho" seria mais barato
+     * que a missao principal que ele deveria substituir
+     */
+    const mapa = degrau.mapa ?? "map_1";
+
+    const total = ESCADA.filter((d) => (d.mapa ?? "map_1") === mapa).length;
+
+    const metade = Math.ceil(
+      quantidadeDoDegrau(mapa, i - inicio + 1, total) / 2,
+    );
   const curto = NOME_CURTO[degrau.target];
   const alvo = NOME_LEGIVEL[degrau.target];
   const zona = nomeDaZona(degrau.zona);
@@ -590,7 +1793,21 @@ export const SIDE_QUESTS = ESCADA.map((degrau, i) => {
         xpDeUmMob,
         xpDoDegrauAnterior(i),
       ),
-      items: [{ itemId: "slime_gel", count: 2 }],
+
+      /**
+       * A MESMA RECOMPENSA DE MATERIAL DA PRINCIPAL, e nao metade dela.
+       *
+       * A metade e a regra da SECUNDARIA para o que se vai CAÇAR: cinco
+       * bichos em vez de dez. O material nao segue essa regra porque o
+       * numero dele e pequeno e fixo, e a metade de quatro seria dois —
+       * uma recompensa de material tao baixa que a missao pareceria nao
+       * pagar nada
+       *
+       * E o que mantem as duas parecendo o mesmo awarding: o jogador
+       * completar a secundaria e nao receber material nenhum seria a
+       * primeira pista de que aquela missao e o atalho errado
+       */
+      items: recompensaDoDegrau(degrau),
     },
   };
 });
@@ -627,11 +1844,37 @@ export function getSideQuest(id) {
  * ganhar um degrau
  */
 export function mainQuestsDoMapa(mapa) {
-  const alvo = mapa === "map_1" ? "map1" : mapa === "map_2" ? "map2" : mapa;
+    /**
+     * O `id` da missao ja traz o mapa COM O UNDERSCORE.
+     *
+     * A traducao vivia aqui antes, e ela quebrou: o `id` era gerado com
+     * `degrau.mapa ?? "map1"` — sem underscore — e esta funcao procurava
+     * `map_1_main_`. Os dois lados estavam certos sozinhos e errados juntos,
+     * e o resultado era `mainQuestsDoMapa` devolvendo zero para os dois
+     * mapas. A trava do portal usava esse zero, e `-1` significa
+     * "nenhuma missao", que libera o portal
+     *
+     * Ou seja: o bug nao trancava a porta, ele destrancava o portal do
+     * mapa 2 para sempre. Um save antigo ainda tem ids com `map1_`, entao
+     * as duas formas sao aceitas aqui — e a do `degrau.mapa` e a que o
+     * `idDoDegrau` escreve hoje
+     */
+    const alvo =
+      mapa === "map_1"
+        ? "map_1"
+        : mapa === "map_2"
+          ? "map_2"
+          : mapa;
 
-  return MAIN_QUESTS.filter((quest) =>
-    quest.id.startsWith(`${alvo}_main_`));
-}
+    const legado =
+      mapa === "map_1" ? "map1" : mapa === "map_2" ? "map2" : null;
+
+    return MAIN_QUESTS.filter(
+      (quest) =>
+        quest.id.startsWith(`${alvo}_main_`) ||
+        (legado && quest.id.startsWith(`${legado}_main_`)),
+    );
+  }
 
 /**
  * O INDICE da ultima missao principal de um mapa, ou `-1`.
@@ -718,6 +1961,17 @@ export function portalLiberado(exigeMissaoDe, mainIndex) {
       ? `Termine "${quest.name}" para atravessar (${feitas}/${doMapa} da campanha).`
       : "Termine a campanha deste mapa para atravessar.",
     questId: quest?.id ?? null,
+
+    /**
+     * O CHEFE, quando a missao que tranca a porta e o proprio chefe.
+     *
+     * So a ultima degrau de um mapa tem essa propriedade, e ela e o que
+     * transforma "selado" em "va ate la derrubar o Hulk". Sem este campo a
+     * box so teria a frase de bloqueio — e o jogador ficaria parado num
+     * portal que so abre com algo que ele so encontra depois de atravessar
+     * outro portal
+     */
+    chefe: quest?.chefe ?? null,
   };
 }
 
@@ -728,6 +1982,27 @@ export function dadosDaTrava(exigeMissaoDe, mainIndex) {
   return {
     bloqueado: !veredito.ok,
     motivo: veredito.motivo ?? null,
+
+    /**
+     * O CHEFE QUE ESTA TRAVANDO ESTA PORTA, ou `null`.
+     *
+     * ## POR QUE A BOX PRECISA SABER ISSO
+     *
+     * Porque "selado" sozinho e um beco sem saida: o jogador le que a
+     * campanha do mapa 1 precisa terminar e nao tem para onde ir. A ultima
+     * missao do mapa 1 e matar o Hulk na arena, e a arena fica do outro
+     * lado de um portal — que e justamente este, o unico que a campanha
+     * tranca. Uma trava que depende de uma missao atras de outra trava e
+     * um circulo, e o jogador so descobre isso depois de fazer dezoito
+     * degraus
+     *
+     *## POR QUE SO QUANDO A TRAVA E O CHEFE
+     *
+     * Porque `null` e o estado normal de toda outra trava, e a box precisa
+     * continuar mostrando so "Selado" nelas. O campo e a PERGUNTA "este
+     * portal tem um chefe?", e a resposta quase sempre e nao
+     */
+    chefe: veredito.ok ? null : (veredito.chefe ?? null),
   };
 }
 

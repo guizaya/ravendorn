@@ -1,46 +1,41 @@
-export const RARITY = {
-  COMMON: "common",
-  UNCOMMON: "uncommon",
-  RARE: "rare",
-  EPIC: "epic",
-  LEGENDARY: "legendary",
-};
+/**
+ * OS MATERIAIS de drop sao gerados, e nao escritos aqui.
+ *
+ * A tabela esta em `data/materiais`, porque os 55 itens seguem uma regra
+ * (quatro graus de cinco em cinco) e escrever os 55 a mao daria um
+ * catalogo em que um id errado so apareceria quando o jogador tentasse
+ * fabricar
+ *
+ * Este import e de uma pasta que importa ESTE arquivo — o `RARITY` da
+ * tabela de materiais — e nao ha ciclo: o `data/materiais` so le o `RARITY`
+ * no topo, e nao chama nada deste modulo
+ */
+import { FAMILIAS, todosOsMateriais } from "../materiais/index.js";
 
-export const RARITY_ORDER = [
-  RARITY.COMMON,
-  RARITY.UNCOMMON,
-  RARITY.RARE,
-  RARITY.EPIC,
-  RARITY.LEGENDARY,
-];
+/**
+ * As CINCO RARIDADES moram em `./raridade.js`.
+ *
+ * Sao importadas E reexportadas: o `import` e o que deixa o nome
+ * disponivel para os `createItem` deste arquivo, e o `export` e o que
+ * mantem os quase cem `import { RARITY } from "data/items/index.js"` do
+ * jogo funcionando sem que nenhum deles precise saber que o arquivo
+ * mudou de lugar
+ *
+ * Sao dois passos e nao um so porque `export { X } from "..."` NAO cria o
+ *vinculo local: o `RARITY` chegaria reexportado e continuaria
+ * indefinido dentro deste arquivo
+ *
+ * O motivo de elas terem saido daqui esta no comentario do `raridade.js`:
+ * a tabela de materiais precisa da `RARITY` e este modulo precisa da
+ * tabela, entao deixar as duas no mesmo arquivo fechava um ciclo
+ */
+import {
+  RARITY,
+  RARITY_ORDER,
+  RARITY_STYLE,
+} from "./raridade.js";
 
-export const RARITY_STYLE = {
-  [RARITY.COMMON]: {
-    label: "Comum",
-    color: "#c3ccd6",
-    weight: 62,
-  },
-  [RARITY.UNCOMMON]: {
-    label: "Incomum",
-    color: "#7fd88f",
-    weight: 24,
-  },
-  [RARITY.RARE]: {
-    label: "Raro",
-    color: "#6fb6ff",
-    weight: 10,
-  },
-  [RARITY.EPIC]: {
-    label: "Épico",
-    color: "#c489ff",
-    weight: 3.4,
-  },
-  [RARITY.LEGENDARY]: {
-    label: "Lendário",
-    color: "#ffc857",
-    weight: 0.6,
-  },
-};
+export { RARITY, RARITY_ORDER, RARITY_STYLE };
 
 export const ITEM_TYPE = {
   MATERIAL: "material",
@@ -303,57 +298,93 @@ function createItem(config) {
   };
 }
 
+/**
+ * OS ITEMS QUE VIERAM DA TABELA DE MATERIAIS.
+ *
+ * Sao 55 itens — 12 materiais base e os quatro graus de cada um — e eles
+ * estao em `data/materiais` porque seguem uma REGRA, nao porque sejam
+ * casos avulsos. O `id`, o nome e a raridade sao derivados da tabela la,
+ * e o que fica aqui e so o que o catalogo precisa saber: o tipo, o valor e
+ * que empilham
+ *
+ * O `icon` e um glifo de reserva, e ele nunca aparece: as 14 artes de
+ * `assets/Items/drops` estao todas em `ITEM_ICON_SIMPLES`, e o `ItemIcon`
+ * prefere a imagem. O glifo e o plano B para quando o arquivo faltar
+ *
+ * Todos os graus compartilham o arte do material base, e o `ItemIcon`
+ * recebe o id do GRAU para achar a arte. Por isso a entrada e `[baseId]`
+ * e nao `[id]`: o arquivo e um so por familia de material
+ */
+const ITENS_DE_MATERIAL = Object.fromEntries(
+  todosOsMateriais().map((entrada) => [
+    entrada.id,
+    createItem({
+      id: entrada.id,
+      name: entrada.nome,
+      icon: "◆",
+      rarity: entrada.raridade,
+      type: ITEM_TYPE.MATERIAL,
+      value: entrada.valor,
+
+      /**
+       * A FAMILIA do material, e ela e o que agrupa os 60 materiais em 4.
+       *
+       * ## POR QUE ISTO VIVE AQUI
+       *
+       * Porque `createItem` termina em `...config`: o que entra passa. Sem os
+       * dois campos abaixo, a UI so veria `id`, nome, icone, raridade, tipo e
+       * valor — e a familia do material nao existiria fora deste arquivo, que
+       * e justamente onde a lista de craft e montada
+       *
+       * ## E POR QUE OS DOIS, E NAO SO O ID
+       *
+       * `familia` e o `mob` da tabela de materiais, e serve para agrupar. E
+       * uma chave: mudar o rotulo do grupo entao e uma linha aqui, e nao o
+       * painel procurando o nome da criatura em outro catalogo
+       */
+      familia: entrada.base.mob,
+      familiaNome:
+        FAMILIAS.find((f) => f.mob === entrada.base.mob)?.nome ??
+        entrada.base.mob,
+    }),
+  ]),
+);
+
 export const ITEMS = {
-  slime_gel: createItem({
-    id: "slime_gel",
-    name: "Gelo de Limo",
-    icon: "◍",
-    rarity: RARITY.COMMON,
-    type: ITEM_TYPE.MATERIAL,
-    value: 4,
-  }),
-
-  slime_core: createItem({
-    id: "slime_core",
-    name: "Núcleo de Limo",
-    icon: "◉",
-    rarity: RARITY.UNCOMMON,
-    type: ITEM_TYPE.MATERIAL,
-    value: 18,
-    quest: true,
-  }),
-
-  rat_tail: createItem({
-    id: "rat_tail",
-    name: "Cauda de Rato",
-    icon: "⌇",
-    rarity: RARITY.COMMON,
-    type: ITEM_TYPE.MATERIAL,
-    value: 5,
-  }),
-
-  rat_pelt: createItem({
-    id: "rat_pelt",
-    name: "Pele Estropiada",
-    icon: "▧",
-    rarity: RARITY.UNCOMMON,
-    type: ITEM_TYPE.MATERIAL,
-    value: 16,
-    quest: true,
-  }),
+  /**
+   * OS MATERIAIS DE DROP, spreads por cima do resto.
+   *
+   * O spread vem DEPOIS das pecas escritas a mao, e antes delas nao faria
+   * diferenca nenhuma: nenhum id colide. Ele fica aqui para que a leitura
+   * do arquivo mostre de imediato que os materiais nao estao espalhados
+   * pelas 600 linhas do catalogo
+   */
+  ...ITENS_DE_MATERIAL,
 
   /**
    * A POCAO DE CURA, a primeira do mercador do hub.
    *
-   * E o item que da sentido ao `ITEM_TYPE.POTION`: ela empilha, tem
+   * E o item que da sentido ao `ITEM_TYPE.POTION`: ele empilha, tem
    * `use`, e some do slot quando o jogador a bebe. Sem os tres, ela
    * seria um material que ocupa a mochila para sempre
    *
-   * `heal: 120` e um quarto da vida de um jogador de nivel 1, e o
-   * suficiente para apagar dois golpes de slime. A `use` vai pelo
-   * `DamageSystem.heal`, que ja respeita o teto de vida e ja escreve o
-   * `+120` flutuante — a pocao reaproveita o feedback que a cura ja
-   * tinha, em vez de inventar um
+   * ## POR QUE REGENERACAO E NAO `heal: 120`
+   *
+   * Porque a cura instantanea e um numero que so importa no primeiro
+   * segundo. Um `+120` de uma vez volta o jogador ao hp cheio ANTES do
+   * proximo golpe e nao muda mais nada — o combate voltava a ser uma
+   * corrida de golpe, e o item virava so um numero de uso unico
+   *
+   * ## OS NUMEROS
+   *
+   * `duration: 10` com `tickInterval: 2` sao cinco tiques de `healPerTick`
+   * — 25 x 5 = 125 no total, quase o 120 que a cura dava de uma vez. O
+   * total-preservado e de proposito: a pocao continua valendo o que valia,
+   * e o que mudou foi QUANDO ela devolve
+   *
+   * A cura por tique vai pelo `DamageSystem.heal`, que respeita o teto de
+   * vida e escreve o `+25` flutuante. Sem isso o tick passaria direto no
+   * `hp` e o jogador veria a barra subir sem nenhum feedback
    *
    * `value: 25` e o que o mercado entre jogadores paga por ela, e
    * NAO o preco da loja. O preco de NPC fica no catalogo da loja
@@ -363,12 +394,91 @@ export const ITEMS = {
    */
   pocao_cura: createItem({
     id: "pocao_cura",
-    name: "Poção de Cura",
+    name: "Poção Pequena",
     icon: "!",
     rarity: RARITY.COMMON,
     type: ITEM_TYPE.POTION,
     value: 25,
-    use: { heal: 120 },
+    use: {
+      regeneration: {
+        type: "regeneration",
+        duration: 10,
+        healPerTick: 25,
+        tickInterval: 2,
+        label: "Poção Pequena",
+      },
+    },
+  }),
+
+  /**
+   * A POCAO MEDIA.
+   *
+   * ## O QUE MUDA EM RELACAO A PEQUENA
+   *
+   * O `healPerTick` dobra e o `value` dobra. O `duration` e o
+   * `tickInterval` ficam iguais de proposito: sao as duas dimensoes que o
+   * jogador le DEPOIS de usar — o relogio embaixo da barra e o intervalo
+   * entre as passadas. Se a media tivesse 20 segundos, ela viraria "a
+   * pequena que dura mais", e nao "a que cura mais"
+   *
+   * O que o jogador compra com a media e PASSOS de cura a mais, e nao
+   * tempo a mais
+   *
+   * ## POR QUE O ID NAO SEGUE O NOME
+   *
+   * O id continua sendo `pocao_cura` na Pequena, e o nome e "Poção
+   * Pequena". Trocar o id quebraria o save de quem ja tem uma na
+   * mochila, a loja do mercador e as receitas. As duas novas nascem
+   * com id novo porque nao tem save nenhum para quebrar
+   */
+  pocao_media: createItem({
+    id: "pocao_media",
+    name: "Poção Média",
+    icon: "!",
+    rarity: RARITY.COMMON,
+    type: ITEM_TYPE.POTION,
+    value: 50,
+    use: {
+      regeneration: {
+        type: "regeneration",
+        duration: 10,
+        healPerTick: 50,
+        tickInterval: 2,
+        label: "Poção Média",
+      },
+    },
+  }),
+
+  /**
+   * A POCAO GRANDE.
+   *
+   * O quadruplo da Pequena por ciclo, e o `value` tambem em quatro: e a
+   * pocao cara, a que o jogador guarda para o chefe e para o trecho em
+   * que ele sabe que vai apanhar
+   *
+   * ## POR QUE ELA NAO TEM NINGUUM EFEITO DE PROTEÇÃO
+   *
+   * Poderia ter, e seria tentador casar "grande" com escudo. Mas a
+   * classe que faz isso ja tem habilidade propria para isso, e um item
+   * que acumula cura e defesa vira obrigatorio e tira a decisao do
+   * jogador. As tres sao a mesma receita em tres doses
+   */
+  pocao_grande: createItem({
+    id: "pocao_grande",
+    name: "Poção Grande",
+    icon: "!",
+    rarity: RARITY.COMMON,
+    type: ITEM_TYPE.POTION,
+    value: 100,
+    use: {
+      regeneration: {
+        type: "regeneration",
+        duration: 10,
+        healPerTick: 100,
+        tickInterval: 2,
+        label: "Poção Grande",
+      },
+    },
   }),
 
   /**
@@ -385,10 +495,10 @@ export const ITEMS = {
    *
    * ## POR QUE `use` E `null`
    *
-   * `use: { heal: 120 }` e o que a poçao faz quando o jogador clica em
-   * "usar" na mochila. O pergaminho NAO se usa assim: ele e lido pela
-   * box de teleporte que aparece durante o deslocamento automatico, e
-   * e o motor que decide se ele pode ser gasto
+   * `use: { regeneration: ... }` e o que a pocao faz quando o jogador
+   * clica em "usar" na mochila. O pergaminho NAO se usa assim: ele e lido
+   * pela box de teleporte que aparece durante o deslocamento automatico,
+   * e e o motor que decide se ele pode ser gasto
    *
    * Deixar `use` como `null` e o que impede o item de virar um
    * consumivel sem efeito. Se fosse `{}`, o `USAR_ITEM` aceitaria o
@@ -446,94 +556,69 @@ export const ITEMS = {
     use: { teachSkill: "arbalist_quick_shot" },
   }),
 
-  goblin_cloth: createItem({
-    id: "goblin_cloth",
-    name: "Trapo Goblin",
-    icon: "▦",
+
+
+
+
+
+
+
+
+
+  /* ---- os acessorios ----
+     Os dois primeiros TRINKET do catalogo. Antes deles nao existia
+     nenhuma reliquia: o tipo existia e nenhum item o usava, entao a aba
+     de Reliquia do craft aparecia vazia e os dois slots `trinket1` e
+     `trinket2` ficavam sem nada que ocupasse. */
+
+  /**
+   * O ANEL, e a reliquia de qualquer classe.
+   *
+   * ## POR QUE ELE NAO TEM `classes`
+   *
+   * Porque a trava de classe do craft e a FAMILIA da arma, e reliquia nao
+   * tem familia: um anel que so o arqueiro pudesse usar seria uma restricao
+   * sem motivo, e o desenho do texto de criacao pede ele "para qualquer
+   * classe"
+   *
+   * ## POR QUE ELE NAO TEM `slot`
+   *
+   * Porque sao DOIS slots de reliquia (`trinket1` e `trinket2`) e o
+   * `slotForItem` entrega o primeiro que aceita o tipo. Com `slot: null`
+   * o jogador escolhe em qual dos dois equipar, e com um `slot` fixo o
+   * segundo ficaria sempre vazio
+   */
+  anel: createItem({
+    id: "anel",
+    name: "Anel",
+    icon: "?",
     rarity: RARITY.COMMON,
-    type: ITEM_TYPE.MATERIAL,
-    value: 8,
-    quest: true,
+    type: ITEM_TYPE.TRINKET,
+    value: 90,
+    stats: { attack: 2, defense: 1 },
   }),
 
-
-  ghoul_rot: createItem({
-    id: "ghoul_rot",
-    name: "Creme do Ghoul",
-    icon: "◌",
+  /**
+   * O AMULETO do arqueiro.
+   *
+   * E a peca mais cara do conjunto: a receita dele e a unica que gasta
+   * Essencia Necrotica desde o grau raro, e e a unica em que a pedra
+   * verde entra nas cinco raridades
+   *
+   * Diferente do anel, este NAO trava a classe pelo `classes`: como
+   * reliquia ele nao tem familia, e o campo so existe para pecas que
+   * precisam de um dono. Um amuleto declarado "do arqueiro" e desenhado
+   * como generico seria contradicao na tela
+   */
+  amuleto_arqueiro: createItem({
+    id: "amuleto_arqueiro",
+    name: "Amuleto do Arqueiro",
+    icon: "?",
     rarity: RARITY.COMMON,
-    type: ITEM_TYPE.MATERIAL,
-    value: 6,
+    type: ITEM_TYPE.TRINKET,
+    value: 120,
+    stats: { attack: 3, defense: 2, accuracy: 2 },
   }),
-
-  ghoul_claw: createItem({
-    id: "ghoul_claw",
-    name: "Garra de Ghoul",
-    icon: "⋀",
-    rarity: RARITY.UNCOMMON,
-    type: ITEM_TYPE.MATERIAL,
-    value: 22,
-    quest: true,
-  }),
-
-
-  ghoul_rib: createItem({
-    id: "ghoul_rib",
-    name: "Costela Faminta",
-    icon: "⌇",
-    rarity: RARITY.RARE,
-    type: ITEM_TYPE.MATERIAL,
-    value: 60,
-  }),
-
-  skeleton_skull: createItem({
-    id: "skeleton_skull",
-    name: "Crânio Antigo",
-    icon: "☗",
-    rarity: RARITY.RARE,
-    type: ITEM_TYPE.MATERIAL,
-    value: 70,
-  }),
-
-
-  skeleton_bone: createItem({
-    id: "skeleton_bone",
-    name: "Osso Amaldiçoado",
-    icon: "⌇",
-    rarity: RARITY.COMMON,
-    type: ITEM_TYPE.MATERIAL,
-    value: 9,
-    quest: true,
-  }),
-
-
-  ogre_pebble: createItem({
-    id: "ogre_pebble",
-    name: "Seixo de Pedreira",
-    icon: "●",
-    rarity: RARITY.COMMON,
-    type: ITEM_TYPE.MATERIAL,
-    value: 7,
-  }),
-
-  ogre_hide: createItem({
-    id: "ogre_hide",
-    name: "Couro de Ogre",
-    icon: "▩",
-    rarity: RARITY.UNCOMMON,
-    type: ITEM_TYPE.MATERIAL,
-    value: 30,
-    quest: true,
-  }),
-
-
-
-
-
-
-
-
-
 
   /* ---- armas por classe ----
      Cada familia de arma pertence a um grupo de classes. Sao os
@@ -933,6 +1018,81 @@ function scaleStat(stat, value, factor) {
 /** a raridade que o item tem no catalogo, sem craft por cima */
 export function baseRarityOf(itemId) {
   return getItem(itemId)?.rarity ?? RARITY.COMMON;
+}
+
+/**
+ * COMO LER UM STAT: o rotulo e o texto do numero.
+ *
+ * Isto morava dentro do `describeStats` do `Craft.js`, e o painel do craft
+ * nao conseguia montar a lista de atributos sem ele: receber o
+ * `statsLine` pronto e nao basta, porque a linha e uma frase joined com
+ * dois pontos, e a lista precisa de um item por atributo com rotulo e
+ * valor separados
+ *
+ * A tabela saiu de la e veio para ca, ao lado do `statsAt` que produz os
+ * numeros, porque e o mesmo assunto: e aqui que mora `RARITY_STAT_SCALE`
+ * e o `scaleStat`. Duas copias da tabela de rotulos garantiam que uma
+ * delas ia envelhecer sem a outra
+ *
+ * ## POR QUE CADA STAT TEM DOIS NOMES
+ *
+ * `short` e o que cabe na frase do `statsLine`, que junta tudo com `·` e
+ * tem que caber numa linha. `long` e o que cabe na lista do painel do
+ * craft, que empilha um atributo por linha
+ *
+ * Sao os mesmos sete stats em `ENCHANT_STAT_LABEL`, com os mesmos nomes
+ * por extenso. Nao ha import entre os dois modulos: e `items` que nao
+ * sabe que o encantamento existe, e se a lista de stats crescer, quem
+ * escreve em `items` e quem ajusta as duas
+ */
+const STAT_LABELS = {
+  attack: { short: "ATQ", long: "Ataque" },
+  defense: { short: "DEF", long: "Defesa" },
+  maxHp: { short: "HP", long: "Vida" },
+  speed: { short: "VEL", long: "Velocidade" },
+  attackSpeed: {
+    short: "VEL. ATQ",
+    long: "Velocidade de ataque",
+  },
+  resourceRegen: {
+    short: "REG",
+    long: "Regeneração de recurso",
+  },
+  resource: { short: "REC", long: "Recurso" },
+};
+
+/**
+ * UM STAT, JA COM OS DOIS ROTULOS E O NUMERO.
+ *
+ * O `stat` vai junto porque o painel precisa da CHAVE e nao so do texto:
+ * a lista usa a chave para o `key` do React e para saber que
+ * `attackSpeed` negativo e pior, e nao "menos 30 de alguma coisa"
+ *
+ * O `FRACTION_STATS` reusado aqui e o mesmo do `scaleStat` acima, e nao
+ * uma segunda copia: os dois precisam concordar sobre quais stats sao
+ * proporcionais, e o `scaleStat` ja o mantem sem arredondar justamente
+ * porque o `describeStat` vai multiplicar por 100
+ */
+export function describeStat(stat, value) {
+  const nome = STAT_LABELS[stat] ?? { short: stat, long: stat };
+  const sign = value > 0 ? "+" : "";
+
+  return {
+    stat,
+    short: nome.short,
+    long: nome.long,
+    value,
+    text: FRACTION_STATS.has(stat)
+      ? `${sign}${Math.round(value * 100)}%`
+      : `${sign}${Math.round(value)}`,
+  };
+}
+
+/** todos os stats de um objeto, na ordem em que o catalogo escreve */
+export function describeStats(stats) {
+  return Object.entries(stats ?? {}).map(([stat, value]) =>
+    describeStat(stat, value),
+  );
 }
 
 /**

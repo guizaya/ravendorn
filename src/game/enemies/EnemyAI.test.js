@@ -413,13 +413,17 @@ describe("active behavior", () => {
   });
 
   /**
-   * A SENTINELA, que agora e o segundo atirador do jogo.
+   * O KAELEN, QUE VOLTOU A SER CORPO A CORPO.
    *
-   * Este e o teste que trava a troca: sem ele, voltar a sentinela para
-   * corpo a corpo seria uma troca de numero em `index.js` que nenum
-   * teste notaria
+   * A criatura `skeleton` foi atiradora enquanto se chamava Sentinela
+   * Esqueletica. Virou o Kaelen e deixou de ser: sem `ranged`, sem
+   * `keepDistance` e com o `attackRange` no do golpe de perto
+   *
+   * Este e o teste que trava a virada: sem ele, voltar o Kaelen para
+   * atirador seria uma troca de numero em `index.js` que nenhum teste
+   * notaria
    */
-  it("a sentinela atira em vez de encostar", () => {
+  it("o Kaelen encosta em vez de atirar", () => {
     const { ai, hits, tiros } = createHarness();
     const enemy = spawn("skeleton", 100);
 
@@ -427,20 +431,20 @@ describe("active behavior", () => {
 
     run(ai, enemy, 10);
 
-    expect(enemy.alerted, "a sentinela nao aggro").toBe(true);
-
-    expect(
-      tiros.length,
-      "a sentinela bateu em vez de atirar",
-    ).toBeGreaterThan(0);
+    expect(enemy.alerted, "o Kaelen nao aggro").toBe(true);
 
     expect(
       hits.length,
-      "a sentinela deu dano direto, e ela e atiradora",
+      "o Kaelen atirou em vez de encostar",
+    ).toBeGreaterThan(0);
+
+    expect(
+      tiros.length,
+      "o Kaelen deu dano de longe, e ele e corpo a corpo",
     ).toBe(0);
   });
 
-  it("a sentinela recua quando o jogador chega perto", () => {
+  it("o Kaelen AVANCA quando o jogador chega perto", () => {
     const { ai, world } = createHarness();
     const enemy = spawn("skeleton", 100);
 
@@ -455,12 +459,11 @@ describe("active behavior", () => {
     run(ai, enemy, 3);
 
     /**
-     * A DISTANCIO grew, e nao o `aiState`.
+     * A DISTANCIA CAIU, e nao o `aiState`.
      *
-     * O `retreat` e um estado de passagem: o bicho da um passo para
-     * tras, passa dos 220 do `keepDistance`, e no quadro seguinte entra
-     * em `attack` e atira de longe. Medir a string pegaria o fim da
-     * corrida e diria "attack", que e o comportamento certo
+     * E o oposto do que a Sentinela fazia: ela tinha `keepDistance: 220`
+     * e dava um passo para tras. Sem o `keepDistance` o bicho simplesmente
+     * persegue, entao a distancia para o jogador diminui
      */
     const depois = Math.hypot(
       enemy.x - jogador.x,
@@ -469,8 +472,8 @@ describe("active behavior", () => {
 
     expect(
       depois,
-      "a sentinela nao recuou do jogador que chegou perto",
-    ).toBeGreaterThan(antes);
+      "o Kaelen nao avancou: sobrou `keepDistance` de atirador?",
+    ).toBeLessThan(antes);
   });
 
   it("ignores a player outside its range", () => {

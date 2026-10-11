@@ -254,9 +254,32 @@ export const MAP_2_PORTALS = [
 export const BASE_PORTALS = [
   {
     id: "portal_hub",
+
+    /**
+     * (1475, 588), A MESMA POSICAO DE ANTES.
+     *
+     * O mapa da base foi redesenhado no Tiled e passou por 400x400 no meio do
+     * caminho, mas voltou para 1680 de largura — e 1475 e a posicao em que o
+     * portal foi colocado para caber na base de verdade, com os 192px dele
+     * inteiros dentro dos 1680
+     */
     x: 1475,
     y: 588,
-    size: PORTAL_SIZE,
+
+    /**
+     * O PORTAL DA BASE E MENOR QUE O DO VALE.
+     *
+     * `PORTAL_SIZE` de 192px foi desenhado para o vale, que e de 6000x4200 —
+     * num mapa daquele tamanho um portal de 192 e uma marca de chegada. Na
+     * base, que e de 1680x1168, o mesmo portal comia 11% da largura, ao lado
+     * dos NPCs de ~100px, e ficava maior que tudo o que ele deveria levar o
+     * jogador ate
+     *
+     * E so este portal que muda: `PORTAL_SIZE` continua 192 para o vale e para
+     * o mapa 2. O campo `size` e por portal justamente para isso — mudar a
+     * constante encolheria os tres de uma vez
+     */
+    size: 120,
     sheet: "hub",
 
     /**

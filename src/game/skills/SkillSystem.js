@@ -10,10 +10,52 @@ import {
 const MAX_PENDING_PULSES = 512;
 const MAX_PROJECTILES = 256;
 
+/**
+ * QUANTO TEMPO O PERSONAGEM FICA NA POSE DE ATAQUE.
+ *
+ * ## POR QUE ESTE NUMERO VIVE AQUI, E EM DOIS LUGARES SO
+ *
+ * Porque e o mesmo valor em dois lugares: o que LIGA a pose e o que segura a
+ * flecha. Se os dois fossem numeros soltos, bastaria um deles mudar para a
+ * flecha sair antes ou depois da animacao — e ninguem veria a causa
+ *
+ * ## E POR QUE A FLECHA ESPERA ISTO
+ *
+ * ## O QUE O JOGADOR RELATOU
+ *
+ * "A flecha sai e a animacao e atrasada": a flecha nascia no mesmo instante
+ * em que a pose comecava, entao o boneco ainda estava puxando o arco quando a
+ * seta ja estava no ar. O corte de tempo aparecia como "atraso", sendo que o
+ * tiro e que estava adiantado
+ *
+ * ## E POR QUE 0,22 E O MOMENTO CERTO, E NAO UM QUALQUER
+ *
+ * A arte de tiro do Arbalista tem 9 quadros a 20 quadros por segundo. O
+ * `0,22` cai entre o quarto e o quinto quadro — que e onde o arco esta
+ * soltando. O valor nao foi escolhido para bater com o desenho: ele ja era o
+ * tempo da pose, e o desenho ja foi feito para caber nela. O que mudou foi so
+ * que a flecha passou a respeitar esse tempo
+ */
+const TEMPO_DA_ANIMACAO_DE_ATAQUE = 0.22;
+
 export class SkillSystem {
   constructor(world, onMessage) {
     this.world = world;
     this.onMessage = onMessage;
+
+    /**
+     * OS TIROS QUE ESPERAM A POSE TERMINAR.
+     *
+     * ## POR QUE ISTO VIVE AQUI, E NAO NO `world`
+     *
+     * Porque o `world.projectiles` e do mundo COMPARTILHADO: com dois
+     * jogadores online, um tiro guardado ali passaria por `spawnProjectiles`
+     * duas vezes no mesmo tick, e o jogador veria duas flechas de um aperto
+     *
+     * O `SkillSystem` e UM POR JOGADOR, entao a lista tambem. Cada um guarda
+     * o seu, e o `update` deste `SkillSystem` so processa o dele
+     */
+    this.tirosPendentes = [];
   }
 
   get player() {
@@ -57,7 +99,16 @@ export class SkillSystem {
 
     this.player.resource -= action.resourceCost;
     this.player.cooldowns[action.id] = action.cooldown;
-    this.player.attackAnimation = 0.22;
+
+    /**
+     * A POSE COMECA AQUI, E A FLECHA ESPERA ELA TERMINAR.
+     *
+     * O `0,22` da linha de baixo era o mesmo numero solto que decide o atraso
+     * do tiro, em `spawnProjectilesWhenReady`. Sao a mesma constante agora: se
+     * um deles mudar sozinho, a flecha volta a sair no meio da animacao, e o
+     * sintoma volta sem nenhuma mudanca visivel no codigo
+     */
+    this.player.attackAnimation = TEMPO_DA_ANIMACAO_DE_ATAQUE;
 
     // a arte de tiro e direcional: so vale com alvo de verdade.
     // um buff proprio aciona attackAnimation tambem, e nesse caso
@@ -141,6 +192,7 @@ export class SkillSystem {
 
   update(deltaTime) {
     this.updatePendingCasts(deltaTime);
+    this.updatePendingShots(deltaTime);
     this.updateDelayedPulses(deltaTime);
     this.updatePendingHits(deltaTime);
 
@@ -267,11 +319,107 @@ export class SkillSystem {
         return;
 
       case "projectile":
-        this.spawnProjectiles(action, aim, selectedTargetId);
+        /**
+         * A FLECHA ESPERA A ANIMACAO, E SO A FLECHA.
+         *
+         * ## POR QUE SO O PROJETIL
+         *
+         * Porque o pedido do jogador foi sobre o TIRO. As outras acoes
+         * aplicam dano no mesmo instante por decisao de jogo: um golpe de
+         * espada que so acertasse no fim da animacao deixaria o combatente
+         * apanhando de um golpe que ele ja achou que passou
+         *
+         * E o tiro do Arbalista nao tem esse problema: o dano vem da
+         * explosao da flecha, entao adiar o PROJETIL adia o dano junto, sem
+         * precisar mexer em mais nada
+         *
+* ## E POR QUE O TEMPO VEM DO `attackAnimation`, E NAO DA CONSTANTE
+         *
+         * Porque o que importa e o que SOBRA da pose, e nao os 0,22 de uma
+         * vez. Uma habilidade com `castTime` chega aqui ja com a pose
+         * terminada, e nesse caso a flecha sai na hora, como sempre. Usar a
+         * constante aqui atrasaria essas habilidades sem motivo
+         */
+        this.spawnProjectilesWhenReady(action, aim, selectedTargetId);
+
         return;
 
       default:
         return;
+    }
+  }
+
+  /**
+   * SOLTA O PROJETIL AGORA, OU QUANDO A POSE TERMINAR.
+   *
+   * ## POR QUE LER O `attackAnimation`, E NAO USAR A CONSTANTE
+   *
+   * Porque o `attackAnimation` e o que resta da pose NESTE instante. Um tiro
+   * sem `castTime` chega aqui com os 0,22 ainda inteiros; uma habilidade com
+   * tempo de conjuracao chega com a pose ja terminada, e sai na hora
+   *
+   * Ler o relogio em vez da constante e o que mantem as duas metades do
+   * acordo: qualquer mudanca no tempo da pose muda a flecha junto, sem
+   * ninguem editar dois numeros
+   */
+  spawnProjectilesWhenReady(action, aim, selectedTargetId) {
+    const restante = this.player.attackAnimation ?? 0;
+
+    if (restante <= 0) {
+      this.spawnProjectiles(action, aim, selectedTargetId);
+
+      return;
+    }
+
+    this.tirosPendentes.push({
+      action,
+      aim,
+      selectedTargetId,
+      restante,
+    });
+  }
+
+  /**
+   * CONTA O TEMPO DOS TIROS GUARDADOS, e solta os que chegou a hora.
+   *
+   * ## POR QUE ESTE METODO NAO E O `updateProjectiles`
+   *
+   * Porque o `updateProjectiles` e do MUNDO COMPARTILHADO e roda uma vez por
+   * tick. Este roda uma vez por JOGADOR, dentro do laco de cada um — que e o
+   * que a lista de tiros guardados exige: cada jogador so tem os tiros dele
+   *
+   * ## E A ORDEM DO `splice`
+   *
+   * E de tras para frente, pelo mesmo motivo do `updateDelayedPulses`: um
+   * tiro solto pode gerar outro tiro, e andar para frente visitaria o
+   * recem-criado no mesmo tick
+   */
+  updatePendingShots(deltaTime) {
+    for (let i = this.tirosPendentes.length - 1; i >= 0; i -= 1) {
+      const tiro = this.tirosPendentes[i];
+
+      tiro.restante -= deltaTime;
+
+      if (tiro.restante > 0) continue;
+
+      this.tirosPendentes.splice(i, 1);
+
+      /**
+       * MORREU NO MEIO DO PUXAO: O TIRO SE PERDE.
+       *
+       * E o unico jeito de desfazer um tiro ja gasto. Quem apertou em cima da
+       * hora morre, e a seta que sairia do corpo seria pior do que a seta
+       * que nao saiu: o jogador veria dano vindo de um boneco que ja estava
+       * no chao
+       *
+       * O preco e 0,22 e o recurso e o cooldown, e nao ha como devolver os
+       * dois: devolver o cooldown deixaria o jogador recarregando o tiro de
+       * novo, e devolver o recurso nao existe. Perder um tiro ao morrer e o
+       * preco honesto de ter apertado em cima da hora
+       */
+      if (this.player.hp <= 0) continue;
+
+      this.spawnProjectiles(tiro.action, tiro.aim, tiro.selectedTargetId);
     }
   }
 
@@ -750,6 +898,18 @@ export class SkillSystem {
         targetId: selectedTarget?.id ?? aim.targetId,
         destination,
         remaining: 3,
+
+    /**
+     * A IDADE DO PROJETIL, contando PARA CIMA.
+     *
+     * E o tempo que a arte do tiro usa para escolher o quadro. O `remaining`
+     * ja contava para baixo a partir de 3, e `3 - remaining` funcionaria —
+     * mas isso amarra a arte a um numero magico do gameplay: mudar o tempo de
+     * vida da flecha mudaria a animacao sem ninguem perceber
+     *
+     * Com o `age` proprio, a arte tem o tempo dela e o tiro tem o tempo dele
+     */
+    age: 0,
         homing: action.homing,
         impactMode: action.rain ? "ground" : "collision",
 
@@ -817,9 +977,18 @@ export class SkillSystem {
       index >= 0;
       index -= 1
     ) {
-      const projectile = this.world.projectiles[index];
+const projectile = this.world.projectiles[index];
 
-      projectile.remaining -= deltaTime;
+    projectile.remaining -= deltaTime;
+
+    /**
+     * A IDADE SOMA, e o tempo da arte do tiro.
+     *
+     * Fica aqui e nao no desenho porque o `drawProjectiles` pode rodar mais de
+     * uma vez por tick em modo rede, e um quadro que anda a cada desenho
+     * passaria mais rapido na tela do que o tempo do jogo
+     */
+    projectile.age = (projectile.age ?? 0) + deltaTime;
 
       if (projectile.homing) {
         const alvo = indice.get(projectile.targetId);

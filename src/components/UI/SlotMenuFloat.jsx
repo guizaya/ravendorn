@@ -1,4 +1,9 @@
-import { useLayoutEffect, useRef, useState } from "react";
+import {
+  useEffect,
+  useLayoutEffect,
+  useRef,
+  useState,
+} from "react";
 import { createPortal } from "react-dom";
 
 /**
@@ -39,10 +44,51 @@ const ALTURA_POR_ACAO = 24;
 
 const BORDA = 8;
 
-export default function SlotMenuFloat({ entry, actions }) {
+/**
+ * O MENU FLUTUANTE de um slot, preso ao elemento que o jogador clicou.
+ *
+ * ## O CAMPO `desativada` DE UMA ACAO
+ *
+ * Uma acao marcada assim aparece esmaecida e nao roda o `run`. E para o
+ * menu da colecao, que precisa dizer "Falta material" ou "Já entregue"
+ * como resposta ao clique — e nao fechar o menu em silencio, que deixaria
+ * o jogador sem nenhuma resposta do que aconteceu
+ */
+export default function SlotMenuFloat({
+  entry,
+  actions,
+  ancora = null,
+  fechar = null,
+}) {
   const caixa = useRef(null);
 
   const [posicao, setPosicao] = useState(null);
+
+  /**
+   * O ELEMENTO QUE A CAIXA SE GRUDA.
+   *
+   * ## POR QUE EXISTEM DUAS FORMAS DE ACHAR
+   *
+   * A original procura `.inv-slot[data-uid="..."]` no documento, porque o
+   * menu do inventario e controlado por um id de pilha e o componente que
+   * o desenhou pode estar em outro ramo da arvore
+   *
+   * Quem chama de fora — o menu de ingrediente do craft — nao tem
+   * `data-uid`: o alvo e o `<li>` que o jogador clicou, e esse elemento
+   * ja esta na mao no evento do clique. Passar o elemento direto e o que
+   * evita inventar um atributo so para a busca funcionar
+   */
+  const alvo =
+    ancora ??
+    (() => {
+      if (typeof document === "undefined") return null;
+
+      if (!entry?.uid) return null;
+
+      return document.querySelector(
+        `.inv-slot[data-uid="${entry.uid}"]`,
+      );
+    })();
 
   /**
    * A MEDIDA, NO PRIMEIRO QUADRO EM QUE O MENU JA EXISTE
@@ -55,13 +101,9 @@ export default function SlotMenuFloat({ entry, actions }) {
   useLayoutEffect(() => {
     if (typeof document === "undefined") return;
 
-    const slot = document.querySelector(
-      `.inv-slot[data-uid="${entry.uid}"]`,
-    );
+    if (!alvo) return;
 
-    if (!slot) return;
-
-    const rect = slot.getBoundingClientRect();
+    const rect = alvo.getBoundingClientRect();
 
     const alturaEstimada = actions.length * ALTURA_POR_ACAO + 4;
 
@@ -94,7 +136,36 @@ export default function SlotMenuFloat({ entry, actions }) {
             ),
           },
     );
-  }, [entry.uid, actions.length]);
+  }, [alvo, actions.length]);
+
+  /**
+   * FECHAR AO CLICAR FORA.
+   *
+   * O menu do inventario fecha porque o painel inteiro fecha junto com ele.
+   * O do craft e uma caixa solta dentro de um painel que continua aberto, e
+   * sem este `listener` ela ficaria na tela ate o jogador clicar em outra
+   * receita
+   *
+   * E um `listener` no `document` e nao um `onClick` no fundo: o clique que
+   * fecha pode ser em qualquer elemento, e ele precisa ser capturado depois
+   * do React — por isso o `setTimeout` de um tick
+   */
+  useEffect(() => {
+    if (!fechar) return;
+
+    if (typeof document === "undefined") return;
+
+    const aoClicar = () => fechar();
+
+    const temporizador = setTimeout(() => {
+      document.addEventListener("click", aoClicar);
+    }, 0);
+
+    return () => {
+      clearTimeout(temporizador);
+      document.removeEventListener("click", aoClicar);
+    };
+  }, [fechar]);
 
   if (typeof document === "undefined") return null;
 
@@ -121,9 +192,11 @@ export default function SlotMenuFloat({ entry, actions }) {
           className={[
             "inv-menu__action",
             action.danger ? "is-danger" : "",
+            action.desativada ? "is-off" : "",
           ]
             .filter(Boolean)
             .join(" ")}
+          disabled={action.desativada}
           onClick={(event) => {
             event.stopPropagation();
             action.run();

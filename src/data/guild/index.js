@@ -157,6 +157,125 @@ export const GUILD_CARGA = Object.freeze({
   CO_LIDER: 1,
 });
 
+/**
+ * OS EMBLEMAS QUE UMA GUILDA PODE ESCOLHER.
+ *
+ * ## POR QUE SAO DOZE E NAO MAIS
+ *
+ * Porque eles vao num seletor de grade dentro de um painel de 560px, em
+ * celulas de 44px: doze dao tres linhas, que e o que cabe sem rolar. Com
+ * dezenove seriam quatro linhas e o jogador teria de rolar o seletor para
+ * ver metade das opcoes antes de escolher
+ *
+ * ## POR QUE GLIFO DE TEXTO E NAO EMOJI
+ *
+ * Porque o emblema vai pintado no CANVAS, em cima de um sprite escuro, e um
+ * emoji colorido ali vira um borrão. Estes sao os mesmos glifos que o jogo
+ * usa no resto da interface — e o criterio de escolha foi o mesmo dos
+ * talentos: formaRecognizivel a 10px, que e o tamanho em que a tag sera
+ * desenhada
+ *
+ * ## E POR QUE ESTES E NAO QUALQUER UM
+ *
+ * Porque sao eles que formam um conjunto. Um emblema de guilda precisa
+ * parecer parte de uma familia: os que entram aqui tem peso visual parecido
+ * e cabem num losango de 38px. Um "🎉" ou um "🐉" quebraria a regra
+ */
+export const GUILD_ICONS = Object.freeze([
+  { id: "espadas", glifo: "⚔", nome: "Espadas cruzadas" },
+  { id: "escudo", glifo: "⛊", nome: "Escudo" },
+  { id: "escudo_broquel", glifo: "⛨", nome: "Broquel" },
+  { id: "coroa", glifo: "♛", nome: "Coroa" },
+  { id: "torre", glifo: "♜", nome: "Torre" },
+  { id: "losango", glifo: "◈", nome: "Losango" },
+  { id: "flor", glifo: "❈", nome: "Flor de guerra" },
+  { id: "estrela", glifo: "✦", nome: "Estrela" },
+  { id: "estrela_dupla", glifo: "✹", nome: "Estrela de doze" },
+  { id: "flor_de_lis", glifo: "⚜", nome: "Flor de lis" },
+  { id: "cruz", glifo: "✠", nome: "Cruz" },
+  { id: "osso", glifo: "☗", nome: "Osso cruzado" },
+]);
+
+/** O emblema de uma guilda, ou o primeiro da lista. */
+export function getGuildIcon(icone) {
+  return GUILD_ICONS.find((i) => i.id === icone) ?? GUILD_ICONS[0];
+}
+
+/**
+ * AS CORES DE GUILDA.
+ *
+ * ## POR QUE SAO DEZ E TODAS CLARAS
+ *
+ * Porque a cor viaja para o CANVAS, pintada em cima de um sprite escuro e de
+ * um mapa escuro, com um contorno preto de 3px atras. Uma cor escura
+ * desapareceria nos dois lugares — e uma cor que o jogador escolheu para se
+ * ver no mundo e invisible no mundo nao serve para nada
+ *
+ * E nenhuma delas e o branco puro nem o vermelho do jogo: o branco puro e o
+ * que o nome ja usa, e o vermelho e a cor de perigo, e uma guilda pintada
+ * de vermelho leria como um efeito de dano
+ */
+export const GUILD_CORES = Object.freeze([
+  { id: "dourado", cor: "#ffc247", nome: "Dourado" },
+  { id: "creme", cor: "#ffe9b0", nome: "Creme" },
+  { id: "ambar", cor: "#ff9d2e", nome: "Ambar" },
+  { id: "vermelhao", cor: "#ff5c4d", nome: "Vermelhao" },
+  { id: "rosa", cor: "#ff5cc8", nome: "Rosa" },
+  { id: "violeta", cor: "#b06bff", nome: "Violeta" },
+  { id: "azul", cor: "#3d8bff", nome: "Azul" },
+  { id: "ciano", cor: "#22d3ee", nome: "Ciano" },
+  { id: "esmeralda", cor: "#25e08a", nome: "Esmeralda" },
+  { id: "lima", cor: "#c3f53c", nome: "Lima" },
+  { id: "acinzentado", cor: "#9fb3c8", nome: "Acinzentado" },
+]);
+
+/** A cor de uma guilda, ou a primeira da lista. */
+export function getGuildColor(cor) {
+  return GUILD_CORES.find((c) => c.cor === cor) ?? GUILD_CORES[0];
+}
+
+/**
+ * O `id` de uma cor, pelo hex, e nao o hex direto.
+ *
+ * E o que a cor vira no pedido do cliente. Mandar o hex significaria o
+ * servidor receber uma string de cor de um cliente modificado e pintar texto
+ * com qualquer coisa; mandando o id, ele so aceita as onze da lista
+ */
+export function corParaId(hex) {
+  return GUILD_CORES.find((c) => c.cor === hex)?.id ?? GUILD_CORES[0].id;
+}
+
+/** O hex de uma cor pelo id, e o que o motor pinta. */
+export function corDaGuilda(id) {
+  return GUILD_CORES.find((c) => c.id === id)?.cor ?? GUILD_CORES[0].cor;
+}
+
+/**
+ * Um emblema e uma cor servem para o pedido?
+ *
+ * ## POR QUE ISTO E UM CATALOGO FECHADO E NAO UM `includes`
+ *
+ * Porque `cor` e uma string que vem do cliente e vai parar num `fillStyle`.
+ * Um `includes` sobre as cores aceitas resolveria so metade: o servidor
+ * aceitaria `#fff` de um cliente modificado e nao rejeitaria. Checando o ID
+ * contra o catalogo, o cliente pode pedir so o que existe
+ *
+ * E `semChave` devolve os PADROES em vez de `false`, porque quem chama sem
+ * chave e a criacao de uma guilda antiga ou um painel montado sem props: o
+ * jogador deve ver dourado e espada, e nao um erro
+ */
+export function validarEstiloGuilda(bruto) {
+  const icone = GUILD_ICONS.some((i) => i.id === bruto?.icone)
+    ? bruto.icone
+    : GUILD_ICONS[0].id;
+
+  const cor = GUILD_CORES.some((c) => c.id === bruto?.cor)
+    ? bruto.cor
+    : GUILD_CORES[0].id;
+
+  return { icone, cor };
+}
+
 export const GUILD_NOME_MIN = 3;
 export const GUILD_NOME_MAX = 24;
 export const GUILD_TAG_MIN = 2;
@@ -557,18 +676,176 @@ export const GUILD_TALENTS = Object.freeze([
       { attack: 66, defense: 66, maxHp: 300 },
     ],
   },
+
+  /* ---------------- coluna 2: os dois que faltavam ---------------- */
+
+  /**
+   * ## POR QUE A COLUNA 2 TEM QUATRO E NAO DOIS
+   *
+   * Porque com dois nos no meio, a arvore obrigava a subir as DUAS raizes
+   * do mesmo ramo para sair do meio — nao havia escolha nenhuma entre eles,
+   * e a arvore de pontos deixava de ser uma arvore e virava um trilho. Com
+   * quatro, o jogador escolhe uma das duas metades e so depende de um par de
+   * raizes, o que faz o mesmo numero de pontos chegar em dois caminhos
+   * diferentes
+   *
+   * E o par novo depende cada um de um par de raizes DIFERENTE: quem
+   * investiu em ataque e defesa sobe um caminho; quem investiu em recurso e
+   * velocidade sobe o outro. Nenhum dos quatro exige os outros dois do
+   * meio, entao os caminhos nunca se cruzam
+   */
+  {
+    id: "muralha_ascensor",
+    nome: "Muralha do Ascensor",
+    coluna: 2,
+    exige: ["salao_artes_marcais", "armazem_clan"],
+    descricao: "A parede que a clan sustenta",
+    icone: "▩",
+
+    /**
+     * DEFESA e VIDA, e nao so defesa.
+     *
+     * E o par de quem escolheu a metade do SCSALO e do ARMAZEM: quem sobe
+     * este no esta comprando sobrevivencia, entao o quinto degrau junta os
+     * dois. Uma defesa de 34 pontos com vida de 400 daria um tanque que
+     * morre em tres golpes — a vida e o que faz a defesa valer
+     */
+    niveis: [
+      { defense: 5, maxHp: 15 },
+      { defense: 10, maxHp: 32 },
+      { defense: 17, maxHp: 55 },
+      { defense: 25, maxHp: 84 },
+      { defense: 34, maxHp: 120 },
+    ],
+  },
+  {
+    id: "frente_mercante",
+    nome: "Frente do Mercante",
+    coluna: 2,
+    exige: ["cofre_clan", "acumulo_energia"],
+    descricao: "A rota que a clan protege",
+    icone: "⇢",
+
+    /**
+     * RECURSO e REGENERACAO, e nao velocidade.
+     *
+     * E o par do COFRE e do ACUMULO, e ele e o outro lado do mesmo no de
+     * ritmo. Quem sobe este no esta comprando "atirar ate acabar", entao o
+     * que falta e bolsa e recarga — e a `attackSpeed` entra so no ultimo
+     * degrau, onde o recurso ja dura o bastante para ela valer
+     */
+    niveis: [
+      { resource: 6, resourceRegen: 1 },
+      { resource: 12, resourceRegen: 2 },
+      { resource: 19, resourceRegen: 4 },
+      { resource: 27, resourceRegen: 6 },
+      { resource: 36, resourceRegen: 9, attackSpeed: 1 },
+    ],
+  },
+
+  /* ---------------- coluna 3: os dois do meio ---------------- */
+
+  {
+    id: "bastiao_avancado",
+    nome: "Bastiao Avancado",
+    coluna: 3,
+
+    /**
+     * DEPENDE DO PAR DE DEFESA, e nao dos dois do meio.
+     *
+     * E o topo da metade defensiva: quem subiu MURALHA e DEPOSITO chega
+     * aqui. E ele mexe em DEFESA e VIDA juntos, porque no topo o stat
+     * sozinho deixa de fazer sentido — um no que so da vida e um no que so
+     * da defesa existem la embaixo, na arvore
+     */
+    exige: ["muralha_ascensor", "rejuvenescimento_guerreiro"],
+    descricao: "A trincheira que a clan constroi",
+    icone: "⛊",
+
+    niveis: [
+      { defense: 14, maxHp: 70 },
+      { defense: 30, maxHp: 150 },
+      { defense: 52, maxHp: 245 },
+      { defense: 79, maxHp: 360 },
+      { defense: 111, maxHp: 500 },
+    ],
+  },
+  {
+    id: "pavio_de_guerra",
+    nome: "Pavio de Guerra",
+    coluna: 3,
+
+    /**
+     * DEPENDE DO PAR DE RECURSO, e e o topo da metade ofensiva a distancia.
+     *
+     * E o no de ATK com RECURSO: quem sobe este nao esta comprando sobreviver,
+     * esta comprando manter apressao. E a `speed` so no terceiro degrau,
+     * porque movimento e a forma mais cara de sumir de um golpe so depois
+     * que voce ja tem o recurso para voltar a atacar
+     */
+    exige: ["frente_mercante", "deposito_comercio"],
+    descricao: "A guarnicao que nunca dorme",
+    icone: "✧",
+
+    niveis: [
+      { attack: 12, resource: 8 },
+      { attack: 26, resource: 16 },
+      { attack: 45, resource: 27, speed: 3 },
+      { attack: 69, resource: 40, speed: 6 },
+      { attack: 98, resource: 56, speed: 10 },
+    ],
+  },
+
+  /* ---------------- coluna 4: o topo novo ---------------- */
+
+  {
+    id: "selo_da_clan",
+    nome: "Selo da Clan",
+    coluna: 4,
+
+    /**
+     * O TOPO DE TUDO, e ele exige os DOIS topos do meio.
+     *
+     * E o no mais caro da arvore inteira e o unico que mexe em seis stats
+     * de uma vez. Quem chega ate aqui subiu as quatro raizes, os quatro
+     * do meio e um dos dois topos, e e o resumo do caminho
+     *
+     * E o unico no com `attackSpeed`: a velocidade de ataque nao aparece
+     * em mais lugar nenhum da arvore, porque ela e o stat que multiplica
+     * TODOS os outros. Em qualquer outro no ela dominaria o no inteiro
+     */
+    exige: ["bastiao_avancado", "pavio_de_guerra"],
+    descricao: "O nome da clan na historia",
+    icone: "❈",
+
+    niveis: [
+      { attack: 20, defense: 20, maxHp: 80, resource: 10, resourceRegen: 2, attackSpeed: 1 },
+      { attack: 44, defense: 44, maxHp: 175, resource: 21, resourceRegen: 4, attackSpeed: 2 },
+      { attack: 76, defense: 76, maxHp: 290, resource: 35, resourceRegen: 7, attackSpeed: 3 },
+      { attack: 115, defense: 115, maxHp: 430, resource: 52, resourceRegen: 10, attackSpeed: 5 },
+      { attack: 161, defense: 161, maxHp: 600, resource: 72, resourceRegen: 14, attackSpeed: 7 },
+    ],
+  },
 ]);
 
 /**
  * OS PONTOS DE SUBIR A ARVORE INTEIRA.
  *
- * Sete nos, e a marca do topo de cada um: `40` por no, `280` no total.
+ * Doze nos, e a marca do topo de cada um: `40` por no, `480` no total.
  * Nao e um orcamento que o jogador ve — ele nao sabe os numeros, e e
  * esse o ponto. Fica aqui para quem quiser conferir o balanceamento sem
  * abrir a tela
  *
+ * ## POR QUE 480 E NAO 280
+ *
+ * Porque a arvore tinha sete nos e dois no meio, o que obrigava a subir as
+ * DUAS raizes do mesmo ramo para sair do meio: nao havia escolha, e a
+ * arvore de pontos virava um trilho. Com quatro no meio e dois topos, ha
+ * dois caminhos que nao se cruzam, e subir a arvore toda e uma ESCOLHA de
+ * caminho — o que e o que faz os 480 pontos valerem as horas que levam
+ *
  * E o total de CLIQUES, nao de pontos por hora: com um ponto por clique,
- * subir a arvore toda sao 280 cliques. Com o saldo travado em 24, sao as
+ * subir a arvore toda sao 480 cliques. Com o saldo travado em 24, sao as
  * horas de jogo do grupo — e nao um numero que o jogador possa gastar de
  * uma vez
  */

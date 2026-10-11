@@ -6,7 +6,7 @@
  *
  * O piloto automatico usava `walkToward`, que e um *seek* puro: ele
  * aponta para o destino e anda em linha reta. Isso funciona em campo
- * aberto e falha em qualquer outra coisa â€” o `CollisionSystem` faz o
+ * aberto e falha em qualquer outra coisa — o `CollisionSystem` faz o
  * boneco deslizar pelo eixo livre e girar 0.5 rad quando os dois eixos
  * travam (`escapeCorner`), e o resultado pratico e o boneco empurrando
  * contra o tronco ate o auto ser desligado a mao
@@ -41,22 +41,22 @@
  * defeito que o jogador ve. O collider do arbusto e uma caixa de 28px
  * e o boneco e um circulo de raio 22: encostando, o centro do boneco
  * fica a 22px do arbusto e a arte dele, que e 67px de largura, passa
- * POR CIMA da metade do arbusto. O piloto "anda em cima do arbusto" â€”
+ * POR CIMA da metade do arbusto. O piloto "anda em cima do arbusto" —
  * nao porque o codigo esteja errado, mas porque ele esta obeying a
  * linha do collider ao pe da letra
  *
  * E ha o segundo motivo, que e o pior: raspar e instavel. Uma perna de
  * caminho que passa a 22px exatos de um collider passa com folga zero,
- * e qualquer coisa de meio px â€” um passo do `moveBySteps`, um empurrao
- * de inimigo, o `resolveOverlap` â€” joga o boneco para dentro do arbusto.
- * AÃ­ ele para, o `travelParado` conta 3s, o caminho e refeito do mesmo
+ * e qualquer coisa de meio px — um passo do `moveBySteps`, um empurrao
+ * de inimigo, o `resolveOverlap` — joga o boneco para dentro do arbusto.
+ * Aí ele para, o `travelParado` conta 3s, o caminho e refeito do mesmo
  * jeito, e ele volta a encostar no mesmo arbusto. O travamento e o
  * sintoma de um caminho que foi desenhado com folga zero
  *
  * Por isso a grade testa com `RAIO + FOLGA`. Oito pixels e o que separa
  * "encostado" de "passando pelo meio": com 30px de raio, medindo o
  * caminho entre os centros das doze zonas do vale, o ponto MAIS PERTO de
- * qualquer obstaculo fica a 28px â€” e nenhum trecho do caminho passa
+ * qualquer obstaculo fica a 28px — e nenhum trecho do caminho passa
  * dentro de arbusto nenhum
  *
  * ## A GRADE JUSTA, PARA QUANDO A FOLGA FECHA TUDO
@@ -64,7 +64,7 @@
  * Fechar um corredor e o preco da folga: um vao que o boneco cabe mas
  * que nao cabe com 8px a mais deixa de existir para o A*, e uma zona
  * inteira ficaria "sem caminho". Por isso existe a segunda grade, sem
- * folga nenhuma, montada so quando a primeira nao acha rota â€” e ela e
+ * folga nenhuma, montada so quando a primeira nao acha rota — e ela e
  * o que garante que o preco nunca e "o piloto desistiu"
  *
  * ## O CUSTO, E POR QUE ELE NAO IMPORTA
@@ -75,7 +75,7 @@
  *
  * O A* roda por viagem, nao por quadro. E o que faz ser aceitavel:
  * o piloto recalcula o caminho quando comeca uma etapa, quando termina
- * uma etapa e quando trava â€” nao a cada quadro
+ * uma etapa e quando trava — nao a cada quadro
  */
 
 /** O lado de uma celula, em px de mundo */
@@ -87,7 +87,7 @@ const CELULA = 40;
  * E o mesmo `player.radius` que o `moveEntity` usa, e nao um numero
  * solto: se a grade aceitasse um raio menor que o boneco, o A* tracaria
  * corredores por onde ele nao passa, e o piloto voltaria a empurrar
- * contra o obstaculo â€” o defeito que a grade veio resolver
+ * contra o obstaculo — o defeito que a grade veio resolver
  */
 const RAIO = 22;
 
@@ -112,8 +112,8 @@ const AVANCO_MINIMO = 8;
  * Quantas celulas a frente o simplificador olha.
  *
  * E o TETO da busca pelo ultimo ponto visivel, e ele existe por causa do
- * custo: sem teto, um caminho de 250 celulas â€” e o vale tem travelled de
- * serpente com as sebes â€” faz o simplificador testar visibilidade para
+ * custo: sem teto, um caminho de 250 celulas — e o vale tem travelled de
+ * serpente com as sebes — faz o simplificador testar visibilidade para
  * as 250 celulas do fim para tras em cada perna. Com o teto, cada perna
  * testa no maximo ISTO, e o caminho sai com um ponto a cada 1.900px
  * numa reta livre, o que e mais do que a tela mostra
@@ -152,12 +152,12 @@ const VIZINHOS = [
  *
  * A versao anterior devolvia a DIFERENCA: `a.f - b.f || a.h - b.h`. Isso
  * funciona como classificador enquanto ninguem le como booleano, e
- * quebra assim que alguem le â€” porque a diferenca e POSITIVA quando `a`
+ * quebra assim que alguem le — porque a diferenca e POSITIVA quando `a`
  * e o MAIOR, e `if (menorQue(a, b))` era verdadeiro exatamente quando
  * `a` nao devia subir
  *
  * A heap virou uma heap de MAXIMO. E o A* continuava devolvendo um
- * caminho valido â€” qualquer caminho valido â€” entao nenhum teste falhou:
+ * caminho valido — qualquer caminho valido — entao nenhum teste falhou:
  * o `NavGrid.test.js` confere se o caminho CABE, e um caminho de 238
  * celulas cabe igual a um de 15. O que mudou no jogo foi o resto: um
  * A* de maximo abre a regiao mais distante primeiro, entao ele
@@ -273,7 +273,7 @@ export class NavGrid {
      *
      * `raioCorpo` e o `player.radius` de verdade: e ele que decide se o
      * ultimo ponto do caminho pode ser o destino exato, porque essa
-     * perna e curtissima â€” no maximo meia celula â€” e o que importa nela
+     * perna e curtissima — no maximo meia celula — e o que importa nela
      * e o boneco chegar, nao a folga
      *
      * `raio` e o mesmo numero mais a folga: e ele que decide onde o
@@ -312,7 +312,7 @@ export class NavGrid {
     /**
      * Os BUFFERS do A*, tambem preguisosos.
      *
-     * Sao 200KB por chamada â€” `Float64Array` de 15 mil e mais dois â€”, e
+     * Sao 200KB por chamada — `Float64Array` de 15 mil e mais dois —, e
      * o A* do `seguir` roda a cada 400ms enquanto o caminho do resto do
      * jogo roda uma vez por viagem. Alocar tres typed arrays por chamada
      * e o tipo de lixo que aparece no perfil como tempo de GC
@@ -383,7 +383,7 @@ export class NavGrid {
    *
    * Devolve os pontos do caminho, ou `null` quando nao ha caminho
    * nenhum. O PRIMEIRO ponto do caminho e sempre a celula de partida e o
-   * ULTIMO e a celula de chegada, e nao o destino exato â€” quem chama
+   * ULTIMO e a celula de chegada, e nao o destino exato — quem chama
    * empurra o destino para o fim, porque o destino pode estar dentro de
    * um obstaculo (o centro de uma arvore, a parede de um mapa)
    */
@@ -504,7 +504,7 @@ if (atual.id === fimId) {
          *
          * O diagonal so passa quando os DOIS cardeais vizinhos sao
          * andaveis. Sem esta regra, o boneco "corta" a arvore pela
-         * diagonal e a colisao o devolve para tras â€” e o piloto fica
+         * diagonal e a colisao o devolve para tras — e o piloto fica
          * tremendo na diagonal de um obstaculo para sempre
          */
         if (dl !== 0 && dc !== 0) {
@@ -621,9 +621,9 @@ if (atual.id === fimId) {
    * O `raio` e parametro porque ha duas perguntas de corpo diferente no
    * mesmo caminho, e elas nao podem ser a mesma:
    *
-   * - "dÃ¡ para IR por aqui sem raspar?" â€” folga, raio de navegacao. E a
+   * - "dá para IR por aqui sem raspar?" — folga, raio de navegacao. E a
    *   pergunta de todas as pernas do caminho;
-   * - "dÃ¡ para CHEGAR no destino?" â€” corpo, raio do boneco. E a pergunta
+   * - "dá para CHEGAR no destino?" — corpo, raio do boneco. E a pergunta
    *   so da ultima perna, que e de meia celula: ali o que importa e o
    *   boneco chegar, e nao a folga
    */
@@ -654,7 +654,7 @@ if (atual.id === fimId) {
    *
    * E o seguro do preco da folga. Fechar um vao e o jeito facil de a
    * folga transformar um caminho em "sem rota", e "sem rota" e o pior
-   * resultado possivel para o piloto â€” ele para e o jogador nao sabe se
+   * resultado possivel para o piloto — ele para e o jogador nao sabe se
    * chegou ou se desistiu
    *
    * Ela so e construida quando a primeira falha, e o A* dela e o mesmo
@@ -683,7 +683,7 @@ if (atual.id === fimId) {
    *
    * O `simplificar` e o que troca "1500 pontos em zigue-zague" por "3
    * cantos". A grade tem 40px de lado, entao um caminho em diagonal
-   * vira um degrau a cada celula â€” e um degrau a cada 40px de caminhada
+   * vira um degrau a cada celula — e um degrau a cada 40px de caminhada
    * e um boneco que anda dorminhando, visivel em qualquer sprite
    * animado
    */
@@ -697,7 +697,7 @@ if (atual.id === fimId) {
      *
      * E a unica vez que a segunda grade entra, e ela entra so depois de
      * a primeira ter falhado. Uma folga mal escolhida fecha um corredor e
-     * transforma uma zona inteira em "sem caminho" â€” e isso e pior que
+     * transforma uma zona inteira em "sem caminho" — e isso e pior que
      * qualquer caminho raspando
      */
     const justa = this.#gradeSemFolga();
@@ -714,7 +714,7 @@ if (atual.id === fimId) {
      *
      * E o caso mais comum do jogo inteiro: o hub nao tem obstaculo, e
      * dentro da zona o piso esta limpo por construcao. Nesses casos o
-     * A* e trabalho jogado fora â€” ele exploraria quinze mil celulas para
+     * A* e trabalho jogado fora — ele exploraria quinze mil celulas para
      * redesenhar o mesmo segmento
      *
      * O retorno e um ponto e nao dois: com o destino como unico ponto, o
@@ -749,7 +749,7 @@ if (atual.id === fimId) {
    *
    * Porque ela procura o ULTIMO visivel, e o ultimo visivel e o primeiro
    * acerto vindo do fim. De frente ela testava as 250 celulas do
-   * caminho inteiro para so entao guardar a ultima que viu â€” 250 testes
+   * caminho inteiro para so entao guardar a ultima que viu — 250 testes
    * para uma resposta. De tras, num trecho livre ela acerta em um
    * passo, e so gasta a varredura inteira quando o caminho esta preso
    * atras de um obstaculo, que e o caso em que a resposta esta longe de
@@ -759,21 +759,21 @@ if (atual.id === fimId) {
    *
    * E nao o centro da celula de partida. Sao ate 28px de diferenca, e o
    * suficiente para a primeira perna do caminho cortar a arvore que o
-   * jogador ja esta encostado â€” o piloto sairia andando contra ela
+   * jogador ja esta encostado — o piloto sairia andando contra ela
    *
    * ## NENHUMA PERNA NASCE CEGA
    *
    * Todo ponto guardado foi visto do ponto anterior. A versao anterior
    * tinha um furo aqui: quando a visibilidade nao crescia com a distancia
-   * â€” e nao cresce quando o caminho acaba de passar por um vao e sai
-   * do outro lado de um obstaculo â€” a varredura guardava o ponto da
+   * — e nao cresce quando o caminho acaba de passar por um vao e sai
+   * do outro lado de um obstaculo — a varredura guardava o ponto da
    * celula seguinte sem ele ter sido visto. O piloto recebia uma perna
    * de 9.000px atravessando a sebe de ponta a ponta
    *
    * ## A EXCECAO, E POR QUE ELA E DE 40px
    *
-   * Quando NADA no vao e visivel â€” e o vao e cego quando o caminho esta
-   * dentro de um corredor estreito, que e o vao de uma sebe â€” o
+   * Quando NADA no vao e visivel — e o vao e cego quando o caminho esta
+   * dentro de um corredor estreito, que e o vao de uma sebe — o
    * simplificador guarda o centro da celula seguinte assim mesmo. Sao
    * 40px, uma celula vizinha de outra celula andavel, num caminho que nao
    * corta canto: uma perna cega de 40px nao trava ninguem, porque o
@@ -786,7 +786,7 @@ if (atual.id === fimId) {
    *
    * E o "nada a fazer" quando ate esse passo e cego: guardar assim mesmo,
    * avancar, e deixar o `escapeCorner` do motor resolver o canto. O que
-   * nao se faz e ficar parado ali â€” sem ponto novo a varredura nao
+   * nao se faz e ficar parado ali — sem ponto novo a varredura nao
    * avanca e o simplificador entra em laco
    */
   #simplificar(de, pontos, destino) {
@@ -817,7 +817,7 @@ if (atual.id === fimId) {
 
     /**
      * O FIM. E uma funcao separada porque ela precisa do ponto ANTERIOR
-     * a ultima â€” trocar o destino e o que muda a penultima perna, e nao
+     * a ultima — trocar o destino e o que muda a penultima perna, e nao
      * so a ultima
      */
     return this.#fecharNoDestino(de, destino, saida);
@@ -835,7 +835,7 @@ if (atual.id === fimId) {
    * destino
    *
    * O resultado era um caminho que acabava com uma perna atravessando
-   * uma sebe â€” e o piloto ia nela, empurrava no arbusto, contava 3s
+   * uma sebe — e o piloto ia nela, empurrava no arbusto, contava 3s
    * parado, refazia o mesmo caminho e empurrava de novo. O travamento
    * nao era do A*: era desta ultima linha
    *
@@ -853,7 +853,7 @@ if (atual.id === fimId) {
    *
    * 1. **o destino DENTRO de um obstaculo**: nao ha nada melhor a fazer.
    *    O A* ja achou a celula de entrada (`#maisPertoAndavel`) e o
-   *    caminho aponta para o destino mesmo assim â€” o boneco empurra o
+   *    caminho aponta para o destino mesmo assim — o boneco empurra o
    *    arbusto, o `moveEntity` devolve, e o motor descarta a etapa por
    *    nao ter mais o que consumir
    * 2. **uma PONTE**: um ponto intermediario visivel dos dois lados, que
@@ -865,13 +865,13 @@ if (atual.id === fimId) {
    * ## E O PASSO DE LADO
    *
    * Sobrou um caso que as tres nao pegam: o destino e valido para o
-   * corpo mas nao cabe com folga â€” o centro de uma zona que tem uma
+   * corpo mas nao cabe com folga — o centro de uma zona que tem uma
    * arvore a 24px. A perna ate ele e de NO MAXIMO UMA CELULA, porque o
    * destino esta na mesma celula do centro, e o que se pede ao boneco e
    * um passo de lado, nao uma travessia
    *
    * Sem esse teto o mesmo truque criaria uma perna de 1.900px testada so
-   * com o raio do corpo â€” que e exatamente a perna que raspa no arbusto e
+   * com o raio do corpo — que e exatamente a perna que raspa no arbusto e
    * trava. Com o teto, o passo de lado so abre para o que cabe numa
    * celula
    */
@@ -881,7 +881,7 @@ if (atual.id === fimId) {
      *
      * E o penultimo ponto guardado, ou a posicao real do jogador quando
      * o caminho tem um ponto so. Trocar o destino muda a perna que ENTRA
-     * nele, e nao a que sai â€” por isso que este e o ponto que decide
+     * nele, e nao a que sai — por isso que este e o ponto que decide
      */
     const anterior = saida.length > 1 ? saida[saida.length - 2] : de;
 
@@ -933,7 +933,7 @@ if (atual.id === fimId) {
    * de distancia do meio dela
    *
    * E o que se chama quando o destino ficou do outro lado de um arbusto
-   * â€” e um arbusto e 28px, entao o primeiro anel ja acha a volta
+   * — e um arbusto e 28px, entao o primeiro anel ja acha a volta
    */
   #ponte(de, para) {
     const meioX = (de.x + para.x) / 2;

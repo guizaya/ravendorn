@@ -59,6 +59,21 @@ export const PANEL_OPS = Object.freeze({
   TOGGLE_QUEST_AUTO: "TOGGLE_QUEST_AUTO",
   FOCUS_QUEST: "FOCUS_QUEST",
 
+  /**
+   * A CONFIGURACAO DO USO AUTOMATICO DA POCAO.
+   *
+   * E UM pedido so para as tres coisas — liga/desliga, limiar e qual pocao
+   * — pelo mesmo motivo do `setSkillAuto` la do motor: elas nao sao
+   * independentes. Trocar a pocao com o automatico ligado desliga o
+   * automatico, e um protocolo com tres acoes permitiria a segunda
+   * metade dessa regra chegar sem a primeira
+   *
+   * O `itemId` ausente e "tirar a pocao do slot", e nao "nao mexer": sao
+   * tres estados num campo, e sem o `undefined` o painel nunca esvaziaria
+   * o slot
+   */
+  SET_AUTO_POTION: "SET_AUTO_POTION",
+
   // A missao SECUNDARIA tinha que passar pelo mesmo caminho. Antes
   // o botao "aceitar" chamava o motor da tela, que online nao tem
   // sessao: o clique morria e a missao nunca chegava no servidor,
@@ -80,6 +95,58 @@ export const PANEL_OPS = Object.freeze({
    * resgate, o segundo clique do mesmo botao nao paga de novo
    */
   CLAIM_QUEST_REWARD: "CLAIM_QUEST_REWARD",
+
+  /**
+   * O RESGATE DE UM DIA DO PASSE.
+   *
+   * Pelo mesmo caminho do `CLAIM_QUEST_REWARD`: e o jogador apertando um
+   * botao, e quem tem a mochila e o estado do resgate e o servidor.
+   *
+   * O pedido leva SO `passId` e `dia`. Nada do premio viaja: um cliente que
+   * mandasse `itemId` e `quantidade` seria ignorado, porque o servidor le
+   * o item do catalogo pelo par `passId`/`dia` e paga o que esta la
+   *
+   * E o par que impede o resgate duplo: o servidor confere se o dia ja
+   * saiu da lista antes de pagar, entao repetir o pedido nao paga de novo
+   */
+  CLAIM_PASS_REWARD: "CLAIM_PASS_REWARD",
+
+  /**
+   * O INTERRUPTOR DO PASSE PREMIUM.
+   *
+   * ## POR QUE ISSO E UMA MENSAGEM E NAO UM RESGATE
+   *
+   * Porque o premium nao paga nada: ele muda QUEM pode resgatar. Sem ele no
+   * servidor, o dia premium ficaria `premium` no painel e o resgate recusaria
+   * o clique — o botao morreria na mao do jogador. Com ele, o servidor e o
+   * painel leem o mesmo interruptor
+   *
+   * ## E POR QUE NAO COMPRA NADA
+   *
+   * Porque nao ha loja de passe. O interruptor existe para o jogador ver o
+   * que muda, e agora tambem para destravar os dias premium de verdade. Um
+   * dia em que existir a compra, este op vira parte do pagamento e nao
+   * continua sendo um interruptor
+   */
+  SET_PASS_PREMIUM: "SET_PASS_PREMIUM",
+
+  /**
+   * MUDA O EMBLEMA e A COR DA GUILDA.
+   *
+   * Leva o par `icone`/`cor`, e os dois sao IDs do catalogo — nunca o glifo
+   * nem o hex. Mandar o hex abriria porta para um cliente modificado gravar
+   * uma cor qualquer no arquivo de guildas, e o motor pinta esse hex
+   * direto no canvas
+   */
+  SET_GUILD_STYLE: "SET_GUILD_STYLE",
+
+  /**
+   * LIGA OU DESLIGA a tag da guilda sobre o boneco do jogador.
+   *
+   * Leva o valor novo e nao um "inverter", pelo mesmo motivo do
+   * `SET_PASS_PREMIUM`: dois cliques rapidos chegam em qualquer ordem
+   */
+  SET_SHOW_TAG: "SET_SHOW_TAG",
 
   // O "ir matar" do bestiario tinha o mesmo furo: o botao chamava
   // o motor da tela e o servidor nunca recebia a cacada. E um pedido
@@ -142,8 +209,42 @@ export const PANEL_OPS = Object.freeze({
   IR_PARA_ARENA: "IR_PARA_ARENA",
 
   /* ------------------------------------------------------------------
-     GUILDA
+     MAPA DE TESTE
      ------------------------------------------------------------------
+     O MESMO MOLDE DO `IR_PARA_ARENA`, e pelos mesmos dois motivos: o
+     pedido nao recebe mapa de destino, e o segundo clique e o mesmo op
+
+     Sem destino porque o servidor sabe que o mapa de teste e `mapa_teste`
+     e sabe de onde o jogador veio. Aceitar um id vindo do cliente daria
+     a qualquer um um teletransporte para onde quisesse
+
+     O mesmo op nos dois sentidos porque quem decide o sentido e o mapa em
+     que o jogador esta. Dois ops — um para entrar, um para sair —
+     permitiriam que o cliente ficasse preso no mapa de teste se um dos
+     dois se perdesse, e o jogador nao teria botao para sair
+  */
+
+    IR_PARA_TESTE: "IR_PARA_TESTE",
+
+    /* ------------------------------------------------------------------
+       MINERACAO DE STEEL
+       ------------------------------------------------------------------
+       A op e uma so, e o servidor decide o sentido pelo estado da
+       sessao: se o jogador ja esta encostado em uma pedra, o pedido
+       significa PARAR; se nao esta, significa ENCOSTAR na pedra do
+       `propId` que veio
+
+       Sao dois ops separados porque o `propId` so existe no sentido de
+       parar, e um pedido de parar sem `propId` nao tem como dizer qual
+       pedra o jogador pensou. Com um op so, o servidor teria de adivinhar
+       qual era
+       ------------------------------------------------------------------ */
+
+    MINERAR: "MINERAR",
+
+    /* ------------------------------------------------------------------
+       GUILDA
+       ------------------------------------------------------------------
      Todas entram pelo mesmo caminho do resto: o cliente pede, o
      servidor decide. Nenhuma delas confia no que o cliente diz sobre
      guilda — nem nome, nem papel, nem pontos. O `nome` e o `id` do
@@ -158,7 +259,28 @@ export const PANEL_OPS = Object.freeze({
   GUILD_SAIR: "GUILD_SAIR",
   GUILD_TALENTO: "GUILD_TALENTO",
   GUILD_LIDERANCA: "GUILD_LIDERANCA",
-GUILD_COFRE: "GUILD_COFRE",
+  GUILD_COFRE: "GUILD_COFRE",
+
+  /**
+   * O BAU DA BASE: depositar e retirar.
+   *
+   * ## POR QUE UMA OP SO, E NAO DUAS
+   *
+   * Porque as duas acoes tem EXATAMENTE o mesmo formato — `uid` e `count`
+   * de uma pilha — e so mudam para onde o item vai. E o mesmo motivo do
+   * `GUILD_COFRE`: um `switch` com dois braços que so trocam o destino do
+   * item e um mapa de duas entradas que existe so para caber no `switch`
+   *
+   * E o que muda a coisa nao e o formato do pedido, e que o item pode ser
+   * DEVOLVIDO no caminho errado: um deposito que lota o destino tem que
+   * devolver a peca para a mochila. As duas metades ficam no servidor, em
+   * `GameServer.mexerNoBau`, pelo mesmo motivo do cofre
+   *
+   * O bau e POR PERSONAGEM, e nao compartilhado como o cofre de guilda.
+   * Por isso ele mora no save do personagem e nao em um store do
+   * servidor — nao ha nada de global para serializar
+   */
+  BAU: "BAU",
 
   /**
    * O MARKET entre jogadores.
@@ -205,6 +327,20 @@ GUILD_COFRE: "GUILD_COFRE",
 ENCHANT: "ENCHANT",
 
   /**
+   * APRIMORAR a peca vestida de um slot.
+   *
+   * Mora ao lado do `ENCHANT` porque mora na mesma aba do painel, mas e
+   * outra coisa: o `ENCHANT` SORTEIA um afixo e nao pode falhar no
+   * resultado, enquanto este AUMENTA o valor dos stats que a peca ja tem
+   *
+   * Nao sorteia nada, e por isso nao devolve afixo no snapshot — o
+   * `enhance` da peca ja la estava e o servidor so soma um. Sem sorteio,
+   * `slotId` sozinho identifica tudo: peca da mochila nao e aprimoravel,
+   * porque o `enhance` mora no SLOT e e o slot que o `bonuses` le
+   */
+ENHANCE: "ENHANCE",
+
+  /**
    * BEBER um consumivel da mochila.
    *
    * Pelo mesmo caminho do `ENCHANT` e pelo mesmo motivo: o botao "usar"
@@ -247,6 +383,28 @@ ENCHANT: "ENCHANT",
    * e o que vier no pedido e descartado
    */
   BUY_SKILL_BOOK: "BUY_SKILL_BOOK",
+
+  /**
+   * COMPRAR um produto da LOJA.
+   *
+   * E o unico `op` que compra um CONJUNTO: os outros compram uma coisa so
+   * (a pocao, o livro). O pacote da loja e uma lista de itens e um preco,
+   * e nenhum dos dois vem do cliente — o pedido leva so o `produtoId`, e o
+   * servidor procura a lista e o preco no catalogo
+   */
+  BUY_SHOP: "BUY_SHOP",
+
+  /**
+   * O DASH, na DIRECAO DA MIRA.
+   *
+   * E o unico pedido de ORDEM que nao leva NENHUM dado: a direcao ja esta
+   * no servidor, porque o `INPUT` manda a mira a 45Hz
+   *
+   * Sem isso o servidor teria de adivinhar a direcao, e as duas respostas que
+   * importam para o dash — "para o lado que eu estou olhando" e "para o lado
+   * que eu estou andando" — virariam a mesma coisa
+   */
+  DASH: "DASH",
 
   /* ------------------------------------------------------------------
      MORTE
@@ -297,6 +455,34 @@ ENCHANT: "ENCHANT",
    * pediu
    */
   TELEPORTAR: "TELEPORTAR",
+
+  /**
+   * LIGA O FARM OFFLINE, e nao leva nada no payload.
+   *
+   * ## POR QUE NAO LEVA MAPA, NEM TEMPO, NEM QUANTIDADE
+   *
+   * Porque o servidor nao confia no cliente para nada que tenha valor.
+   * Se o pedido trouxesse "mapa: map_2, horas: 48", um cliente modificado
+   * farmaria no chefe do mapa e por dois dias. O pedido aqui nao tem
+   * campo nenhum: o servidor usa o mapa em que o jogador esta, o relogio
+   * de agora, e o ataque que ele tem — e o que o `OfflineFarm` le
+   *
+   * O `op` ser um valor da lista fechada e o que garante isso: um `op`
+   * inventado morre no `parsePanel`
+   */
+  INICIAR_FARM_OFFLINE: "INICIAR_FARM_OFFLINE",
+
+  /**
+   * O JOGADOR VIU O RELATORIO do farm, e o servidor pode esquece-lo.
+   *
+   * Sem esta op o relatorio voltaria a cada entrada, porque ele mora na
+   * sessao e a sessao sobrevive enquanto o jogador estiver online. E o
+   * modal nao fecharia nunca
+   *
+   * E um acknowledge, nao um pedido de dado: nao leva payload e o
+   * servidor nao responde com nada alem do painel de sempre
+   */
+  FARM_OFFLINE_VISTO: "FARM_OFFLINE_VISTO",
 });
 
 
@@ -311,6 +497,23 @@ export const GUILD_COFRE_ACOES = Object.freeze([
   "depositar",
   "retirar",
 ]);
+
+/**
+ * As DUAS acoes do bau da base.
+ *
+ * Lista fechada pelo mesmo motivo do cofre da guilda: o bau tira item do
+ * personagem, e um texto livre ali seria um caminho para pedir qualquer
+ * outra coisa com o payload de um deposito
+ *
+ * Sao as MESMAS palavras do cofre de proposito. O jogador que ja depositou
+ * na guilda esta ACTIONando o mesmo verbo aqui, e dois vocabularios para
+ * o mesmo gesto fariam o segundo painel parecer outro jogo
+ */
+export const BAU_ACOES = Object.freeze([
+  "depositar",
+  "retirar",
+]);
+
 
 /** o que o servidor responde */
 export const SERVER_EVENTS = Object.freeze({
@@ -360,6 +563,7 @@ export const SERVER_EVENTS = Object.freeze({
 });
 
 import { PRECO_MINIMO } from "../data/market/index.js";
+import { GUILD_CORES, GUILD_ICONS } from "../data/guild/index.js";
 
 export const PROTOCOL_VERSION = 1;
 
@@ -415,16 +619,6 @@ export const REJECT = Object.freeze({
   ALREADY_JOINED: "Voce ja entrou nesta partida.",
   RATE_LIMIT: "Voce esta mandando comandos demais.",
   PLAYER_FULL: "O mundo esta cheio.",
-
-  /**
-   * O golpe na base.
-   *
-   * A base e o hub: nao ha inimigo nela, e o basico nao tem alvo
-   * legitimo — mas a animacao do golpe saia mesmo assim, e o jogador
-   * via uma espada varrer o chao vazio sem causar nenhum dano. A
-   * recusa explica o silencio em vez de deixar o clique sem resposta
-   */
-  NO_COMBAT_IN_BASE: "Nao da para atacar na base.",
 
   // mandou INPUT ou ACTION sem ter mandado JOIN antes. Sem o
   // JOIN o pacote entraria sem dono e o loot do abate iria para
@@ -501,6 +695,24 @@ export const CRAFT_RARIDADES = new Set([
 ]);
 
 /**
+ * OS IDS DE ESTILO DE GUILDA QUE O CLIENTE PODE PEDIR.
+ *
+ * E o mesmo desenho do `CRAFT_RARIDADES`, e pelo mesmo motivo: sao os IDs
+ * lidos do CATALOGO, e nao uma copia escrita aqui. Uma segunda lista de
+ * onze cores neste arquivo divergiria do `data/guild` na primeira vez que o
+ * catalogo ganhasse uma cor — e o cliente aceitaria a cor nova e o
+ * servidor a recusaria
+ *
+ * E sao `Set` e nao `includes` porque a checagem acontece em CADA pedido de
+ * painel que chega: `Set.has` e O(1) e `Array.includes` seria O(11) para o
+ * mesmo resultado
+ */
+export const GUILD_ESTILO_ENVIOS = Object.freeze({
+  icone: new Set(GUILD_ICONS.map((i) => i.id)),
+  cor: new Set(GUILD_CORES.map((c) => c.id)),
+});
+
+/**
  * O teto do preco no protocolo.
  *
  * Este e o MESMO numero do `PRECO_MAXIMO` do market
@@ -526,6 +738,28 @@ export const MARKET_PRECO_MAX = 1_000_000;
  * saber
  */
 export const MARKET_QUANTIDADE_MAX = 99;
+
+/**
+ * O TETO DE MOEDAS NUM PEDIDO DE COFRE.
+ *
+ * ## POR QUE 1 BILHAO E NAO O SALDO
+ *
+ * Porque este nao e um limite de jogo: e higiene de transporte. O saldo de
+ * um jogador e conferido pelo `spendCoins`, no servidor, e um deposito maior
+ * que o saldo e recusado la com "moedas insuficientes" — que e a resposta
+ * certaina
+ *
+ * O que o teto evita e o numero que quebra aritmetica antes de chegar la: um
+ * `Infinity` que zera o saldo inteiro do servidor, ou um `1e400` que vira
+ * `NaN` na conta do credito do cofre
+ *
+ * ## E POR QUE NAO O MESMO DO `MARKET_QUANTIDADE_MAX`
+ *
+ * Porque aquele teto e 99 por causa do `maxStack` do catalogo, que e uma
+ * regra da mochila. Moeda nao empilha em pilha nenhuma: um jogador pode ter
+ * milhoes no cofre sem que isso seja errado
+ */
+export const COFRE_MOEDAS_MAX = 1_000_000_000;
 
 /**
  * Valida e normaliza um comando vindo da rede.
@@ -632,20 +866,35 @@ function parsePanel(payload) {
     skillId,
     ativo,
     questId,
+    passId,
+    dia,
+    icone,
+    cor,
+    mostrar,
     creatureId,
-collectionId,
+    collectionId,
+    indice,
+    produtoId,
     listingId,
-    portalId,
-    guildName,
+      portalId,
+      propId,
+guildName,
     guildTag,
     guildId,
     alvoId,
     talentId,
-cofreAcao,
-      itemId,
-      price,
-      count,
-    } = payload;
+    cofreAcao,
+    bauAcao,
+    moeda,
+    item,
+    quantidade,
+    itemId,
+    price,
+    count,
+    pocaoItemId,
+    pocaoLigado,
+    pocaoLimiar,
+  } = payload;
 
 
   if (!Object.values(PANEL_OPS).includes(op)) {
@@ -694,6 +943,48 @@ cofreAcao,
       ativo: typeof ativo === "boolean" ? ativo : null,
 
       /**
+       * A CONFIGURACAO DO USO AUTOMATICO DA POCAO.
+       *
+       * Os tres campos vao no mesmo pedido pelo mesmo motivo do motor: eles
+       * nao sao independentes. Trocar a pocao com o automatico ligado
+       * desliga o automatico, e um pedido so garante que a segunda metade
+       * da regra nunca chegue sem a primeira
+       *
+       * E o `parsePanel` que reconstroi o payload com uma lista fixa de
+       * campos: um campo que nao estivesse nesta lista chegaria ao servidor
+       * como `undefined` — o painel pareceria funcionar e o estado nunca
+       * mudaria
+       *
+       * O `pocaoItemId` tem TRES estados, e o `undefined` e um deles.
+       *
+       * - string curta: e a pocao pedida
+       * - `null`: e "tirar a pocao do slot"
+       * - `undefined`: e "o painel so mexeu no interruptor", e NAO e
+       *   "tirar"
+       *
+       * A distincao e obrigatoria porque o `JSON.stringify` do cliente
+       * DESCARTA a chave quando o valor e `undefined`: o que nao foi enviado
+       * chega no servidor como se nunca tivesse existido. Com o `else null`
+       * simples, todo clique no interruptor mandava "tirar a pocao" junto
+       * — o jogador clicava em "usar automaticamente" e a poção saia do
+       * slot
+       *
+       * E o `undefined` que sobrevive e o que segura a regra do motor: so
+       * um pedido que TROCA a pocao desliga o automatico
+       */
+      pocaoItemId:
+        pocaoItemId === null
+          ? null
+          : isShortString(pocaoItemId, 64)
+            ? pocaoItemId
+            : undefined,
+      pocaoLigado:
+        typeof pocaoLigado === "boolean" ? pocaoLigado : null,
+      pocaoLimiar: isFiniteNumber(pocaoLimiar)
+        ? pocaoLimiar
+        : null,
+
+      /**
        * O INTERRUPTOR DO FOCO DO LIDER, ligado ou desligado.
        *
        * E o `ativo` de novo, e nao um `ligado` novo: o `parsePanel`
@@ -712,6 +1003,56 @@ cofreAcao,
       // o personagem andar para lugar nenhum
       questId: isShortString(questId, 64) ? questId : null,
 
+      /**
+       * O PAR DO RESGATE DO PASSE: `passId` e `dia`.
+       *
+       * ## POR QUE OS DOIS ESTAO AQUI E NAO SO O `passId`
+       *
+       * Porque este `parsePanel` reconstroi o payload com uma lista fixa de
+       * campos. Um campo fora dela chega ao servidor como `undefined` — sem
+       * erro, sem aviso: o pedido e aceito, o `op` bate, e o servidor procura
+       * um dia com `dia` indefinido e responde "Esse dia de passe nao
+       * existe". E o botao pareceria funcionar, porque o pedido saiu
+       *
+       * ## E POR QUE O `dia` E NUMERO E NAO TEXTO
+       *
+       * Porque o servidor compara o dia com `===` contra os numeros do
+       * catalogo. Um `"3"` de texto nao casaria com o `3` do dia 3, e o
+       * resgate seria recusado sem motivo aparente. O `Math.trunc` corta o
+       * `3.7` que um cliente modificado mandaria, e o `dia > 0` descarta o
+       * `0` e o negativo, que nao existem em nenhum passe
+       */
+      passId: isShortString(passId, 64) ? passId : null,
+      dia: isFiniteNumber(dia) && Math.trunc(dia) > 0
+        ? Math.trunc(dia)
+        : null,
+
+      /**
+       * O ESTILO DA GUILDA, e por que ele viaja como ID.
+       *
+       * `icone` e `cor` sao IDs de um catalogo, e nao o glifo e o hex. E
+       * por isso que eles passam por `GUILD_ESTILO_ENVIOS`: um cliente
+       * modificado mandaria `cor: "#000000"` e o servidor gravaria um preto
+       * no arquivo de guildas — e o motor pinta esse valor direto no canvas,
+       * em cima de um sprite, onde um preto e indistinguivel do contorno
+       *
+       * Quando o id nao existe no catalogo, o campo vira `null` e o servidor
+       * cai no PADRAO. Nao em "erro": o servidor nao pode recusar a
+       * mudanca de cor de um jogador so porque o cliente mandou um id
+       * velho — ele aplica o padrao, que e sempre valido
+       */
+      icone: GUILD_ESTILO_ENVIOS.icone.has(icone) ? icone : null,
+      cor: GUILD_ESTILO_ENVIOS.cor.has(cor) ? cor : null,
+
+      /**
+       * O INTERRUPTOR DA TAG, como booleano de verdade.
+       *
+       * E `typeof === "boolean"` e nao um "inverter" porque o servidor nao
+       * pode deduzir o valor novo: ele precisa saber se o jogador quer LIGAR
+       * ou DESLIGAR, e dois cliques rapidos invertidos se cancelariam
+       */
+      mostrar: typeof mostrar === "boolean" ? mostrar : null,
+
       // o mesmo cuidado para a criatura do bestiario. o
       // `setBestiaryAuto` procura a entrada pelo id e devolve false
       // se nao existir, entao um id forjado nao comeca nenhuma
@@ -725,12 +1066,74 @@ cofreAcao,
         ? collectionId
         : null,
 
+      /**
+       * O PASSE DO PREMIUM.
+       *
+       * O premium e uma compra POR PASSE, entao o pedido precisa dizer qual.
+       * Sem este campo o servidor cairia no passe padrao, e o jogador pagaria
+       * uma vez e abriria os dias pagos dos tres
+       *
+       * O servidor procura o passe pelo id e recusa se nao existir — o
+       * catalogo decide o preco, e o id do cliente so escolhe a qual passe
+       * ele se refere
+       */
+      passId: isShortString(passId, 64) ? passId : null,
+
+      /**
+       * A PARCELA DA COLECAO que esta sendo entregue.
+       *
+       * ## O QUE ACONTECIA SEM ESTA LINHA
+       *
+       * O `parseCommand` nao repassa o payload inteiro: ele monta um objeto
+       * novo, campo a campo, e so o que esta escrito ali sobrevive. O
+       * `indice` nao estava na lista, entao ele era DESCARTADO no caminho
+       *
+       * O cliente mandava `{collectionId, indice: 0}`, e o servidor recebia
+       * `{collectionId}` — e `pedido.indice ?? null` virava `null`, que o
+       * `Collection` le como "entregar a colecao INTEIRA"
+       *
+       * ## POR QUE ISSO QUEBRAVA O JOGO DE DUAS MANEIRAS
+       *
+       * A entrega por parcela nunca acontecia. E o pior nao era a parcela
+       * errada: as colecoesNAO tem `rewards` no nivel da colecao — o bonus
+       * esta em cada `requirement`. A entrega inteira usava
+       * `grantBonus(collection)`, lia um `{}` e **nao dava buff nenhum**
+       *
+       * E, como a entrega inteira exige TODAS as parcelas, ter so a
+       * primeira pronta devolvia "faltam 40x osso": o material nao saia, o
+       * bonus nao vinha, e o card ficava como estava. Era a mesma falha
+       * parecendo duas
+       *
+       * ## POR QUE `null` CONTINUA SENDO ACEITO
+       *
+       * Porque e o pedido de entrega inteira, e ele e valido. Quem chama
+       * `entregarColecao(id)` sem indice continua entregando tudo
+       */
+      indice: isFiniteNumber(indice) && Math.trunc(indice) >= 0
+        ? Math.trunc(indice)
+        : null,
+
       // o id do anuncio. Vem do cliente e NAO e confiavel: o servidor
       // procura o anuncio pelo id e a recusa se nao existir, entao um
-      // id forjado nao compra o item de ninguem
-      listingId: isShortString(listingId, 64)
-        ? listingId
-        : null,
+// id forjado nao compra o item de ninguem
+        listingId: isShortString(listingId, 64)
+          ? listingId
+          : null,
+
+        /**
+         * O PRODUTO DA LOJA.
+         *
+         * O mesmo cuidado do `listingId`, e pelo mesmo motivo com mais
+         * forca: o pedido nao leva preco nem lista de itens, entao um
+         * `produtoId` forjado nao paga menos — ele compra um produto
+         * diferente do que o card mostra
+         *
+         * E o `isShortString` de 64 porque os ids da loja sao longos
+         * (`bau-caçador` tem acento e tudo) e nenhum passa disso
+         */
+        produtoId: isShortString(produtoId, 64)
+          ? produtoId
+          : null,
 
       /**
        * O portal a atravessar.
@@ -743,6 +1146,20 @@ cofreAcao,
       portalId: isShortString(portalId, 32)
         ? portalId
         : null,
+
+      /**
+       * A PEDIDA DA MINERACAO, ou `null`.
+       *
+       * Vem do cliente e nao e confiavel, igual ao `portalId`: o servidor
+       * procura essa prop no mapa em que o jogador esta, recusa se ela nao
+       * existir la, se nao for do tipo que se mineraria ou se ja tiver sido
+       * demolida
+       *
+       * O limite e 64 e nao 32 como o `portalId` porque o id de prop e
+       * montado com o prefixo do lote e o indice — `cristal_cristal_comum_0`
+       * — e 32 cortaria pela metade o id de uma pedra de raridade alta
+       */
+      propId: isShortString(propId, 64) ? propId : null,
 
       /**
        * A GUILDA, em tudo que o pedido dela carrega.
@@ -775,6 +1192,74 @@ cofreAcao,
       cofreAcao: GUILD_COFRE_ACOES.includes(cofreAcao)
         ? cofreAcao
         : null,
+
+      /**
+       * A acao no bau: "depositar" ou "retirar".
+       *
+       * `null` quando veio outra coisa, e o servidor recusa. E o que
+       * segura o bau: um pedido sem acao valida nao chega a virar uma
+       * movimentacao, porque o `case` do servidor so age dentro do
+       * `if (bauAcao)`
+       *
+       * O `uid` e o `count` acima ja servem as duas acoes, e por isso
+       * este bloco nao repete nenhum dos dois
+       */
+      bauAcao: BAU_ACOES.includes(bauAcao) ? bauAcao : null,
+
+      /**
+       * OS TRES CAMPOS DO COFRE, e eles SUMIAM DA MENSAGEM INTEIRA.
+       *
+       * ## O QUE ACONTECIA
+       *
+       * O painel manda `{ moeda }`, `{ item, quantidade }` ou
+       * `{ uid, quantidade }`, e o `GameClient` repassa as tres formas em
+       * `dados`. Este `parsePanel` reconstrui a mensagem campo a campo por
+       * uma lista fechada, e `moeda`, `item` e `quantidade` NAO estavam
+       * nela: saiam apagados, sem aviso e sem erro
+       *
+       * Chegando no servidor, `pedido.moeda` e `pedido.item` davam
+       * `undefined`, o deposito caia no `if` do item, achava `undefined` e
+       * devolvia `cofreInvalido` — a mesma recusa para MOEDA e para ITEM,
+       * que era a pista de que o problema era o transporte e nao o cofre
+       *
+       * E o `uid` do saque passava: ele ja estava na lista. So a quantidade
+       * faltava, e uma retirada saia com `quantidade` indefinida
+       *
+       * ## POR QUE ESTES TRES E NAO O `count` DE NOVO
+       *
+       * Porque `count` e o nome do campo INTERNO da pilha, e quem pede e o
+       * jogador falando QUANTO quer mexer. Sao coisas diferentes, e o
+       * `GameClient.mexerNoBau` ja faz essa distincao de proposito
+       */
+      moeda:
+        isFiniteNumber(moeda) &&
+        Math.floor(moeda) >= 1 &&
+        Math.floor(moeda) <= COFRE_MOEDAS_MAX
+          ? Math.floor(moeda)
+          : null,
+
+      /**
+       * A CHAVE DA PILHA NO DEPOSITO: um `uid` ou um `itemId`.
+       *
+       * Mesmo limite do `uid` acima e pelo mesmo motivo: e uma string curta
+       * que o servidor procura na mochila, e nunca e confiavel
+       */
+      item: isShortString(item, 64) ? item : null,
+
+      /**
+       * A QUANTIDADE que sai, e nao a que a pilha tem.
+       *
+       * `null` e o pedido padrao, que o servidor traduz em "a pilha
+       * inteira". O teto e o mesmo do `count`: uma pilha do jogo nao passa
+       * de 99, entao pedir mais so significaria aceitar um numero que nao
+       * existe na mochila
+       */
+      quantidade:
+        isFiniteNumber(quantidade) &&
+        Math.floor(quantidade) >= 1 &&
+        Math.floor(quantidade) <= MARKET_QUANTIDADE_MAX
+          ? Math.floor(quantidade)
+          : null,
 
       /**
        * A QUANTIDADE anunciada, e so para o que empilha.
@@ -858,7 +1343,7 @@ function parseAction(payload) {
 
   const aim = normalize(aimX, aimY);
 
-  // qual habilidade. `SKILL` sem slot nao diz nada: as tres
+  // qual habilidade. `SKILL` sem slot nao diz nada: as quatro
   // habilidades da classe sao diferentes, e o servidor precisa
   // saber qual foi pedida. fora da faixa vira 0 e o servidor
   // ignora, em vez de aceitar um slot 999 e quebrar

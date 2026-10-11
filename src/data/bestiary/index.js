@@ -9,24 +9,24 @@ import { getZoneById } from "../maps/index.js";
 import { ESCADA_MAPA_1, ESCADA_MAPA_2 } from "../quests/index.js";
 
 export const BESTIARY_ICON = {
-  slime: "â—",
-  rat: "âŒ‡",
-  goblin: "â˜—",
-  ghoul: "â˜ ",
-  skeleton: "âš”",
-  ogre: "â›Š",
-  zumbi_arbalist: "âœœ",
+  slime: "◍",
+  rat: "⌇",
+  goblin: "☗",
+  ghoul: "☠",
+  skeleton: "⚔",
+  ogre: "⛊",
+  zumbi_arbalist: "✜",
   // o ogre da predeira e um ogre, entao divide o glifo do ogre da
   // pedreira. Um glifo novo aqui seria um caractere a mais de uma
   // fonte de icone, e a lista do bestiario ficaria com dois ogres
   // quase iguais: o nome e o que diferencia
-  ogre_da_predeira: "â›Š",
+  ogre_da_predeira: "⛊",
 };
 
 /**
  * Cada criatura do bestiario tem tres cacadas encadeadas.
  * A recompensa e um bonus PERMANENTE de stat e soma direto no
- * pipeline do equipamento, entao voltar a caÃ§ar um bicho antigo
+ * pipeline do equipamento, entao voltar a caçar um bicho antigo
  * continua valendo.
  */
 const HUNT_TIERS = [
@@ -92,7 +92,7 @@ function formatStat(stat, value) {
   return `+${Math.round(value)}`;
 }
 
-/** descricao legivel do bonus, ex: "+12 Vida  Â·  +6% Vel. Atq" */
+/** descricao legivel do bonus, ex: "+12 Vida  ·  +6% Vel. Atq" */
 export function describeBonus(bonus) {
   return Object.entries(bonus ?? {})
     .map(([stat, value]) => {
@@ -102,7 +102,7 @@ export function describeBonus(bonus) {
         ? `${formatStat(stat, value)} ${info.label}`
         : `${formatStat(stat, value)} ${stat}`;
     })
-    .join("  Â·  ");
+    .join("  ·  ");
 }
 
 /**
@@ -114,7 +114,7 @@ export function describeBonus(bonus) {
  *
  * Uma linha do roster declara `niveis: [min, max]` ou nao declara. Com o
  * intervalo, a media e a do meio dele. Sem ele, e o nivel base do tipo
- * mais a media do `LEVEL_TIERS` â€” que e o que o sorteio faz, so que
+ * mais a media do `LEVEL_TIERS` — que e o que o sorteio faz, so que
  * em vez de um numero sorteado e o valor esperado
  *
  * E por isso que a funcao nao sorteia: `zoneOf` e chamado na
@@ -161,7 +161,7 @@ function nivelMedioDe(row, typeId) {
  * ## POR QUE O PESO SOZINHO NAO SERVIA
  *
  * A versao anterior escolhia so pelo maior peso, e as tres zonas de limo
- * acabaram com `slime: 100` â€” o Pantano (nivel 1 e 2), a Pedreira (nivel
+ * acabaram com `slime: 100` — o Pantano (nivel 1 e 2), a Pedreira (nivel
  * 2) e as Dunas (nivel 3). Com peso identico, o desempate era a ordem
  * do array, e ela mudou sozinho a cada zona slime-only que foi criada.
  * O "ir matar limo" chegou a levar o jogador para o degrau mais
@@ -218,7 +218,7 @@ export function zoneOf(typeId) {
      *
      * Separado em "descarta se nivel maior" e "descarta se nivel igual e
      * peso menor", o segundo `if` mostraria que empate de nivel nao e o
-     * mesmo que empate de peso â€” e um `<` trocado ali manda o rato para
+     * mesmo que empate de peso — e um `<` trocado ali manda o rato para
      * a Floresta sem erro nenhum
      */
     if (
@@ -310,7 +310,7 @@ const REWARDS = {
  *
  * Antes ela era um esqueleto de perto: 520 de vida contra 360 do
  * arqueiro zumbi, e o bonus era vida e defense, porque o bicho chegava
- * em cima. CaÃ§ar de longe inverte a leitura â€” e o que o arqueiro zumbi
+ * em cima. Caçar de longe inverte a leitura — e o que o arqueiro zumbi
  * recebe, com uma camada a mais pelo nivel 11 contra o 12
  *
  * Manter `defense` aqui daria uma recompensa de esqueleto de perto
@@ -339,7 +339,7 @@ skeleton: [
     { attack: 14, speed: 6 },
   ],
 
-  // o ogre da predeira e o mais duro dos caÃ§ados: 1420 de vida
+  // o ogre da predeira e o mais duro dos caçados: 1420 de vida
   // contra 1250 do ogre da pedreira. A recompensa segue a leitura
   // de um bicho grande e lento que chega perto: vida e defesa, e
   // nao velocidade como o arqueiro zumbi
@@ -372,33 +372,37 @@ skeleton: [
  * mesmo commit — e se um tipo for usado em duas zonas, ele aparece uma
  * vez so
  */
-const CRIATURAS_DO_MAPA_1 = [
-  ...new Set(
-    ZONE_ROSTER.flatMap((row) => Object.keys(row.mix ?? {})),
-  ),
-].filter((typeId) => CREATURE_TYPES[typeId]);
-
 /**
- * AS CRIATURAS DOS DOIS MAPAS.
- *
- * A sentinela e o arqueiro zumbi vieram do `MAP_2_ROSTER`, e uma
- * personagem que chega no mapa 2 precisa ter onde cacar. Uma vitrine so
- * do mapa 1 deixaria o bestiario do mapa 2 vazio de criaturas novas — e
- * o jogador veria as duas criaturas que estao matando fora do catalogo
- * de bonus
- *
- * A ordem e a de declaracao: os tres do mapa 1 e depois os dois do
- * mapa 2. Nao e ordem de dificuldade, e so a ordem em que os rosters
- * foram escritos
- */
-const CRIATURAS_DO_JOGO = [
-  ...CRIATURAS_DO_MAPA_1,
-  ...[...new Set(MAP_2_ROSTER.flatMap((row) => Object.keys(row.mix ?? {})))]
-    .filter((typeId) => CREATURE_TYPES[typeId])
-    .filter((typeId) => !CRIATURAS_DO_MAPA_1.includes(typeId)),
-];
-
-export const BESTIARY = CRIATURAS_DO_JOGO.map(
+* AS CRIATURAS DO CODEX.
+   *
+   * ## DERIVADAS DOS ROSTERS, E NAO ESCRITAS A MAO
+   *
+   * Porque a lista precisa se manter em dia sozinha: uma criatura que entra
+   * numa zona do `ZONE_ROSTER` ja entra no Codex, sem ninguem editar este
+   * arquivo. Uma lista escrita a mao envelhecia em silencio — o bicho novo
+   * aparecia no mapa e nao aparecia no bestiario, e ninguem via o defeito
+   *
+   * E o mesmo `zoneOf` que decide o `zoneId` caminha pelos DOIS rosters,
+   * entao os dois entram aqui. Sem o `MAP_2_ROSTER`, as criaturas que so
+   * existem no mapa 2 ficariam fora do Codex enquanto apareciam no jogo
+   *
+   * ## POR QUE O `filter` PELO `REWARDS`
+   *
+   * Porque `buildHunts` le `rewards[index]` e um `undefined` ali joga o
+   * modulo inteiro no chao na carga — sem erro de sintaxe, sem erro de
+   * log, so um `TypeError` que derruba o jogo na abertura. Criaturas sem
+   * recompensa ainda nao entram no Codex; o dia que entrarem, ganham
+   * entrada no `REWARDS` na mesma hora
+   */
+  const CRIATURAS_DO_JOGO = [
+    ...new Set(
+      [...ZONE_ROSTER, ...MAP_2_ROSTER].flatMap((row) =>
+        Object.keys(row.mix ?? {}),
+      ),
+    ),
+  ].filter((typeId) => CREATURE_TYPES[typeId] && REWARDS[typeId]);
+  
+  export const BESTIARY = CRIATURAS_DO_JOGO.map(
   (typeId) => {
     const type = CREATURE_TYPES[typeId];
     const zone = zoneOf(typeId);
@@ -407,7 +411,20 @@ export const BESTIARY = CRIATURAS_DO_JOGO.map(
       id: typeId,
       creatureId: typeId,
       name: type.name,
-      icon: BESTIARY_ICON[typeId] ?? "â—†",
+
+      /**
+       * `icon` e `color` NAO SAO DO PAINEL DE BESTIARIO.
+       *
+       * O cartao da criatura no painel ficou sem glifo, e pareceu que
+       * estes dois campos tinham ficado sem leitor. Nao: o
+       * `bestiaryAutoSnapshot` do motor monta a caixa de cacada automatica
+       * da HUD a partir da MESMA entrada, e e dela que vem o icone
+       * colorido que aparece no alto da tela quando a cacada esta rodando
+       *
+       * Sao duas leituras em telas diferentes, entao o campo continua
+       * aqui. O que foi removido foi o `<span>` do painel, nao o dado
+       */
+      icon: BESTIARY_ICON[typeId] ?? "?",
       level: type.level,
       behavior: type.behavior,
       color: type.color,
@@ -415,6 +432,7 @@ export const BESTIARY = CRIATURAS_DO_JOGO.map(
       zoneName: zone?.name ?? null,
       hunts: buildHunts(typeId, REWARDS[typeId]),
     };
+
   },
 );
 

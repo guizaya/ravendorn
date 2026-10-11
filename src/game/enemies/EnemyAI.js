@@ -1,5 +1,6 @@
-import { distance, normalize, randomBetween } from "../math.js";
+﻿import { distance, normalize, randomBetween } from "../math.js";
 import { BEHAVIOR } from "../../data/enemies/index.js";
+import { habilidadesDe } from "./telegraphSkills.js";
 
 const STUCK_THRESHOLD = 0.45;
 const STUCK_SIDESTEP = 0.55;
@@ -61,7 +62,7 @@ const SEPARATION_WEIGHT = 1.15;
  *
  * Cada mob recebe um angulo proprio, derivado do id, e persegue um ponto
  * girado em torno do alvo. Com angulos diferentes, todos entram no
- * alcance ao mesmo tempo e todos batem — o que e o que o jogador espera
+ * alcance ao mesmo tempo e todos batem â€” o que e o que o jogador espera
  * de uma briga contra um grupo
  *
  * O angulo nao e sorteado: e o hash do id. Dois ogres nunca pegam o
@@ -77,7 +78,7 @@ const SLOT_SWEEP = Math.PI * 2;
  *
  * N criaturas de raio `r` em volta de um ponto ficam todas na mesma
  * distancia `r_eq = 2r / (2 * sin(pi/N))`. Para oito ogres de raio 32 isso
- * da 84px — e o alcance de golpe deles e 78. Nao ha posicao em que os
+ * da 84px â€” e o alcance de golpe deles e 78. Nao ha posicao em que os
  * oito alcancem: e area de circunferencia, nao opcao de tuning
  *
  * ## O QUE A TOLERANCIA FAZ
@@ -126,6 +127,291 @@ function pontoDoSetor(enemy, target) {
   };
 }
 
+/**
+ * A MENOR FOLGA ACEITA, para uma criatura que declara `teleportaParaCasa`
+ * sem dar um numero proprio.
+ *
+ * E o piso do campo: um chefe que declarasse `teleportaParaCasa: 0` ainda
+ * precisa de um respiro, senao ele cruza a linha da pedra, volta, e cruza
+ * de novo — um chefe tremendo na borda, que e o defeito que a regra veio
+ * corrigir. Quem escreve o campo no catalogo escolhe o valor; este so
+ * garante que nao exista zero
+ */
+const RESET_PROP_FOLGA_MINIMA = 40;
+
+/**
+ * O CHEFE ENCOSTOU NUMA PROP?
+ *
+ * E o guarda de `updateBehavior`: devolve `true` e forca o `updateReturn`
+ *
+ * ## POR QUE UM CAMPO NO CATALOGO, E NAO UM `instanceof`
+ *
+ * Porque a regra e do CHEFE, e o catalogo e o lugar onde uma criatura
+ * declara como ela se comporta. `teleportaParaCasa` e o nome do campo, e o
+ * que ele carrega e a DISTANCIA de deteccao: o numero de pixels a que o
+ * chefe precisa chegar de uma prop bloqueante para voltar. Sem o campo, a
+ * regra valeria para os sete bichos de cada zona do mapa — e nenhum deles
+ * precisa dela, porque nenhum passeia longe o bastante para encostar numa
+ * pedra
+ *
+ * ## POR QUE `blocking`, E NAO TODA PROP
+ *
+ * Porque uma prop decorativa nao barra o caminho. O `blocking: false` e o
+ * que separa "isto e um obstaculo" de "isto e um enfeite", e o chefe so
+ * precisa fugir do primeiro
+ *
+ * ## E POR QUE PERCORRE A LISTA INTEIRA
+ *
+ * Porque sao 40 pedras neste mapa e UM chefe. Um indice espacial seria 40
+ * linhas de construcao para trocar um `for` de 40 comparacoes que roda uma
+ * vez por tick — e so quando ha chefe de prop vivo, porque o guarda do
+ * campo e o primeiro `if` e retorna antes de qualquer coisa
+ *
+ * ## E DE ONDE VEM A LISTA: `world.map.props`, E NAO `world.props`
+ *
+ * Porque `world` e o estado COMUM entre jogadores, e ele nao tem lista de
+ * props: cada mapa tem o seu, em `mapContexts`, e sao 40 no vale contra 0
+ * na arena e 0 no hub. O `world.map` e trocado no `setMap` e aponta para o
+ * contexto que o `CollisionSystem` do jogador esta usando — entao a prop que
+ * esta na lista e a prop que esta no chao, sem chance de o motor estar
+ * olhando para o mapa errado
+ *
+ * Ler `world.props` aqui daria `undefined` em TODO mapa, e a regra
+ * devolveria `false` sempre: um chefe que nunca respeita prop nenhuma. Foi
+ * o que a primeira versao fez
+ *
+ * ## E A SOMA: CHEFE MAIS PEDRA MAIS FOLGA
+ *
+ * O `radius` do chefe e a metade da arte dele, e o da prop e o alcance que
+ * a pedra tem. Os dois juntos sao o ponto em que os desenhos ja se cruzam;
+ * a folga e o quanto o chefe se permite chegar antes de mudar de ideia
+ */
+function resetouPorProp(world, enemy) {
+  if (!enemy.teleportaParaCasa) return false;
+
+  const props = world?.map?.props;
+
+  if (!props?.length) return false;
+
+  const alcance = Math.max(
+    enemy.teleportaParaCasa,
+    RESET_PROP_FOLGA_MINIMA,
+  );
+
+  for (const prop of props) {
+    if (!prop.blocking) continue;
+
+    const raioTotal =
+      (enemy.radius ?? 0) + (prop.radius ?? 0) + alcance;
+
+    if (distance(enemy, prop) < raioTotal) return true;
+  }
+
+  return false;
+}
+
+/**
+ * HAI ALGUM JOGADOR DENTRO DA `aggroRange`?
+ *
+ * E a pergunta que decide a VELOCIDADE do retorno, e ela e diferente de
+ * `isAggressive` de proposito
+ *
+ * ## POR QUE NAO REUSAR O `isAggressive`
+ *
+ * Porque o `isAggressive` responde "ele esta lutando agora", e esse aqui
+ * responde "tem alguem perto". Sao coisas diferentes no momento exato em
+ * que a importa:
+ *
+ * - um chefe pode estar `alerted` por causa do `stuck`, ou seja, sem ninguem
+ *   por perto — o `isAggressive` diz `true` e o retorno andaria devagar
+ * - um chefe pode estar dentro do `aggroRange` mas sem estar em combate,
+ *   porque o alvo esta atras de uma pedra — o `isAggressive` ja mudou de
+ *   assunto e o retorno nao precisaria ser rapido
+ *
+ * A pergunta crua — ha alguem dentro do `aggroRange`? — e a que descreve o
+ * que o jogador ve: "o chefe esta voltando sozinho e rapido" so faz
+ * sentido quando nao tem ninguem ali para brigar
+ *
+ * ## E O `retalia` DO PASSIVO NAO ENTRA AQUI
+ *
+ * Porque um passivo sem alvo travado e um bicho parado, e um bicho parado
+ * nao esta "voltando para casa": ele nunca saiu. A velocidade de retorno so
+ * interessa para quem esta de fato se deslocando para o ponto de origem
+ */
+function temAlvoNaRange(ai, enemy) {
+  const alvo = ai.nearestPlayer(enemy);
+
+  if (!alvo) return false;
+
+  return distance(enemy, alvo) <= enemy.aggroRange;
+}
+
+/**
+ * O CHEFE ESTA EXECUTANDO UMA HABILIDADE?
+ *
+ * ## E POR QUE A TRAVA EXISTE
+ *
+ * Porque a secao 6 do pedido diz: "a IA nao deve selecionar uma nova
+ * habilidade enquanto o boss estiver executando uma acao incompativel". Sem
+ * isto, o `ground_slam` de 1.8s de preparo seria interrompido por um
+ * `cleave` de 1.2s assim que o cooldown permitisse, e o primeiro telegraph
+ * sumiria do chao no meio do preenchimento
+ *
+ * ## E O QUE NAO TRAVA
+ *
+ * O `retreating`. Um chefe voltando para casa nao esta executando uma
+ * habilidade: ele esta andando. Se a trava valesse para o retorno, o chefe
+ * ficaria esperando o telegraph anterior terminar para poder fugir
+ */
+function chefeEstaOcupado(enemy) {
+  const execucao = enemy.telegraphAtivo;
+
+  if (!execucao) return false;
+
+  // o telegraph dele, e nao o de outro chefe
+  return enemy.habilidadesTelegraph === true;
+}
+
+/**
+ * ESCOLHE E COMECA UMA HABILIDADE DE CHEFE.
+ *
+ * ## O ORDEM DA ESCOLHA, E POR QUE E ESTA
+ *
+ * A lista de candidatas ja vem filtrada por fase e por cooldown. A ordem de
+ * escolha nao e "a primeira disponivel" — e por ORDEM DE PERIGO, do maior
+ * raio para o menor, dentro da faixa de distancia aceitavel
+ *
+ * E porque um chefe com duas habilidades na range deve usar a MAIOR primeiro:
+ * o `ground_slam` de raio 260 e o `cleave` de 300x90graus sao areas
+ * parecidas em tamanho, mas o slam cobre em volta e o cone so a frente. O
+ * jogador que ve o cone sabe desviar para tras; o que ve o circulo so pode
+ * sair andando. O circulo primeiro e o que impede o chefe de gastar a
+ * briga inteira em golpes que o jogador ja sabe desviar
+ *
+ * ## E POR QUE O ALVO DO `marked_strike` E O MAIS PROXIMO
+ *
+ * Porque o `marked_strike` e marcado no JOGADOR, e nao no chefe. Se usasse
+ * o alvo travado, a marca cairia num jogador que ja saiu da briga e o
+ * ataque viraria no ar
+ */
+export function escolherHabilidadeDeChefe(enemy, jogador, agora) {
+  const candidatas = habilidadesDe(enemy);
+
+  if (!candidatas.length) return null;
+
+  const distancia = distance(enemy, jogador);
+
+  // filtra por fase, cooldown e distancia
+  const viaveis = candidatas.filter((hab) => {
+    /**
+     * A ABERTURA NAO ENTRA NA DISPUTA NORMAL.
+     *
+     * E o que faz ela ser "o primeiro golpe" e nao "um golpe com cooldown
+     * zero". Sem esta linha, `cooldown: 0` a faria ser escolhida em TODO
+     * quadro em que a boss esta em combate — nao no primeiro contato, e
+     * sim sempre, com o disco de raio 300 renascendo sem parar
+     *
+     * Quem chama a abertura e o `tentarHabilidadeDeChefe`, na borda da
+     * aggro, e so uma vez por briga
+     */
+    if (hab.abertura) return false;
+
+    if ((enemy.fase ?? 1) < (hab.faseMin ?? 1)) return false;
+
+    if ((enemy.cooldownsTelegraph?.[hab.id] ?? 0) > agora) return false;
+
+    if (distancia < hab.distanciaMin) return false;
+
+    return distancia <= hab.distanciaMax;
+  });
+
+  if (!viaveis.length) return null;
+
+  // a de maior area primeiro
+  viaveis.sort((a, b) => areaDe(b) - areaDe(a));
+
+  return viaveis[0];
+}
+
+/**
+ * A AREA DE UMA HABILIDADE, e so para ordenar a escolha.
+ *
+ * ## POR QUE NAO USAR O `raio` SO
+ *
+ * Porque as cinco habilidades nao tem o mesmo campo: o `cone` tem `alcance`,
+ * o `anel` tem `raioExterno`, e a `line` tem `alcance` e `largura`. Sem uma
+ * funcao que normaliza, o `sort` compararia `undefined` com numeros e a
+ * ordem viraria indefinida — e a ordem da lista e o que decide qual golpe
+ * sai
+ */
+function areaDe(hab) {
+  switch (hab.tipo) {
+    case "circle":
+    case "targeted":
+      return Math.PI * hab.raio * hab.raio;
+
+    case "ring":
+      return Math.PI * (hab.raioExterno ** 2 - hab.raioInterno ** 2);
+
+    case "cone":
+      return 0.5 * hab.alcance * hab.alcance * (hab.anguloGraus * Math.PI / 180);
+
+    case "line":
+    case "charge":
+      return hab.alcance * hab.largura;
+
+    default:
+      return 0;
+  }
+}
+
+/**
+ * O JOGADOR ESTA CRUZANDO A BORDA DA AGGRO NESTE QUADRO?
+ *
+ * E a DIFFERENCA ENTRE "esta dentro" e "acabou de entrar", e sao coisas
+ * muito diferentes para uma abertura
+ *
+ * ## POR QUE PRECISA DA BORDA, E NAO SO DA DISTANCIA
+ *
+ * Porque o chefe fica parado no centro enquanto ninguem chega. Se a
+ * abertura disparasse em "esta dentro da range", ela dispararia no PRIMEIRO
+ * quadro em que a IA roda — que e com o jogador parado no mapa, longe — e
+ * gastaria o golpe de abertura no ar
+ *
+ * ## E O QUE FAZ A BORDA SER UMA SO VEZ
+ *
+ * A borda e um evento de subida: o jogador estava fora, esta dentro. No
+ * quadro seguinte ele ja estava dentro no quadro anterior, entao a borda
+ * nao repete. E a trava `aberturaFeita` fecha a porta de vez, porque a
+ * abertura e uma vez por briga e nao uma vez por aproximacao
+ */
+function cruzouBordaDaAggro(enemy, jogador) {
+  const dentro = distance(enemy, jogador) <= enemy.aggroRange;
+
+  const estavaDentro = enemy.dentroDaAggroAnterior === true;
+
+  enemy.dentroDaAggroAnterior = dentro;
+
+  return dentro && !estavaDentro;
+}
+
+/**
+ * A HABILIDADE DE ABERTURA de uma criatura, ou `null`.
+ *
+ * E a que tem `abertura: true` no catalogo. Ela e procurada pelo marcador e
+ * nao pelo id, porque o id e o que o jogador ve no nome da habilidade e o
+ * marcador e o que a IA usa
+ */
+function aberturaDe(enemy) {
+  const candidatas = habilidadesDe(enemy);
+
+  for (const hab of candidatas) {
+    if (hab.abertura) return hab;
+  }
+
+  return null;
+}
+
 export class EnemyAI {
   constructor(world, { onDamagePlayer, onShootPlayer } = {}) {
     this.world = world;
@@ -143,17 +429,17 @@ export class EnemyAI {
   /**
    * Todos os jogadores online, em UM array reaproveitado.
    *
-   * Este getter e lido TRES vezes por inimigo por tique — `updateAlert`,
+   * Este getter e lido TRES vezes por inimigo por tique â€” `updateAlert`,
    * `isAggressive` e `updateCombat` chamam `nearestPlayer`, que le aqui.
    * A versao anterior devolvia `[...map.values()].map(...)`: um array
    * novo e um objeto por jogador, 3 vezes por mob. Com 93 mobs do mapa 1
-   * e 50 jogadores online, sao 279 arrays por tique por mapa — 5.580/s
+   * e 50 jogadores online, sao 279 arrays por tique por mapa â€” 5.580/s
    * so para materializar uma lista que nao muda
    *
    * A lista so muda quando alguem entra ou sai, e quem sabe disso e o
    * `GameServer`. Entao o array e montado uma vez e invalidado pelo
    * `invalidatePlayers`, e o `nearestPlayer` passou a percorrer o `Map`
-   * direto — assim nem chega a precisar da lista
+   * direto â€” assim nem chega a precisar da lista
    */
   get players() {
     if (this.world.players?.size) {
@@ -212,8 +498,8 @@ export class EnemyAI {
    *
    * A distancia e comparada AO QUADRADO. `distance` faz `Math.hypot`,
    * que e uma chamada nativa cara, e a ordem dos dois jogadores nao
-   * muda comparando quadrados: se `a` esta mais perto que `b`, `a²` e
-   * menor que `b²` para as duas distancias nao negativas
+   * muda comparando quadrados: se `a` esta mais perto que `b`, `aÂ²` e
+   * menor que `bÂ²` para as duas distancias nao negativas
    */
   nearestPlayer(enemy) {
     let best = null;
@@ -229,7 +515,7 @@ export class EnemyAI {
      * ve `hp <= 0`), mas o mob continua se movendo em direcao a ele e
      * gastando o cooldown do golpe. O resultado era um aglomerado de
      * bicho andando em circulo em cima do corpo, e no multiplayer cada
-     * jogador vivo puxava a turma de volta — a partida inteira virava
+     * jogador vivo puxava a turma de volta â€” a partida inteira virava
      * um grupo de mob andando em cima de um morto
      *
      * E o filtro e o MESMO `estaDePe` que o resto da IA usa. Se este
@@ -295,6 +581,26 @@ export class EnemyAI {
       return;
     }
 
+    /**
+     * O PASSIVO RETALIANDO, que tem a regra do duelo mas o tuning dele.
+     *
+     * O `enemy` no terceiro argumento e o que faz a diferenca: o boneco
+     * usa `DUEL_DUMMY` (speed 96, alcance 70), e o esqueleto usa os
+     * numeros do proprio catalogo. Sem o argumento, o esqueleto andaria a
+     * 96px e bateria de 70 de longe
+     *
+     * ## E SO COM ALVO TRAVADO, SEMPRE
+     *
+     * Porque sem alvo a criatura volta a ser o PASSIVO de antes: fora
+     * dele, `updateDuel` so faria `aiState = "idle"` e a criatura
+     * PARARIA de passear. O `if` exige `enemy.targetId`, entao quem
+     * vagueia e `updateBehavior`, e quem persegue e a regra de retaliaÃ§Ã£o
+     */
+    if (enemy.retalia && enemy.targetId) {
+      this.updateDuel(enemy, deltaTime, enemy);
+      return;
+    }
+
     this.updateAlert(enemy, deltaTime);
     this.updateBehavior(enemy, deltaTime);
   }
@@ -311,7 +617,7 @@ export class EnemyAI {
    * Quem trava e o `provoke`, e nao aqui: e no golpe que se sabe
    * QUEM bateu. Aqui so se resolve o que fazer com essa informacao.
    */
-  updateDuel(enemy, deltaTime) {
+  updateDuel(enemy, deltaTime, tuning = enemy.duelo) {
     if (!enemy.targetId) {
       enemy.aiState = "idle";
       return;
@@ -356,13 +662,13 @@ export class EnemyAI {
       alvoAtual.y - enemy.y,
     );
 
-    if (distancia <= enemy.duelo.attackRange) {
+    if (distancia <= tuning.attackRange) {
       enemy.aiState = "attack";
       this.tryAttack(
         enemy,
         distancia,
         alvoAtual,
-        enemy.duelo,
+        tuning,
       );
 
       return;
@@ -378,7 +684,7 @@ export class EnemyAI {
       enemy,
       alvoAtual,
       deltaTime,
-      enemy.duelo.speed,
+      tuning.speed,
     );
   }
 
@@ -415,7 +721,24 @@ export class EnemyAI {
 
     if (!enemy.isCreature) return;
 
-    if (enemy.behavior === BEHAVIOR.PASSIVE) return;
+    if (enemy.behavior === BEHAVIOR.PASSIVE) {
+      /**
+       * O PASSIVO QUE RETALIA.
+       *
+       * O `return` que estava aqui era a barreira: um PASSIVO nao guarda
+       * quem o bateu, entao nunca revidava. A criatura com `retalia` usa
+       * a MESMA trava de alvo do boneco de duelo â€” quem bateu primeiro e
+       * o alvo, e so troca se esse morrer
+       *
+       * Sem este desvio o `slime` seria o unico PASSIVO que ataca, e o
+       * `if` de baixo continuaria sendo a regra dos outros
+       */
+      if (enemy.retalia) {
+        this.provocarDuelo(enemy, attacker);
+      }
+
+      return;
+    }
 
     if (!enemy.provoked) {
       enemy.provoked = true;
@@ -482,8 +805,35 @@ export class EnemyAI {
   }
 
   isAggressive(enemy) {
+    /**
+     * O CHEFE QUE JA DECIDIU VOLTAR NAO VOLTA A PERSEGUIR.
+     *
+     * E o `retreating` funcionando. Sem esta linha o ciclo era de um quadro:
+     * a `leash` dispara, o `updateReturn` da um passo na direcao de casa, e
+     * no quadro seguinte o `isAggressive` ve o jogador ainda perto e reacende
+     * o `alerted` — o chefe dava meia-volta, logo voltava a correr atras, e
+     * isso se repetia a 60 quadros por segundo
+     *
+     * O sintoma na tela era um chefe tremendo na borda do mapa: ele nao
+     * estava parado por falta de passo, estava oscilando entre dois estados
+     * que discordavam do que ele devia fazer
+     *
+     * A trava so se abre quando ele chega em casa — ver o `updateReturn`,
+     * que limpa o campo quando `distance(enemy, home) < RETURN_ARRIVE`
+     */
+    if (enemy.retreating) return false;
+
     if (enemy.behavior === BEHAVIOR.PASSIVE) {
-      return false;
+      /**
+       * O PASSIVO SO E AGRESSIVO COM ALVO TRAVADO.
+       *
+       * `false` fixo era o que mantinha o limo quieto. Com `retalia`, a
+       * agressividade nao vem de `aggroRange` nem de `alerted` â€” vem de
+       * existir alguem na lista de quem o bateu. Sem isso o esqueleto
+       * atacaria o primeiro jogador que aparecesse no `aggroRange`, que e
+       * `0` e por isso nunca chegaria a atacar ninguem
+       */
+      return Boolean(enemy.retalia && enemy.targetId);
     }
 
     if (enemy.behavior === BEHAVIOR.SEMI_PASSIVE) {
@@ -510,7 +860,218 @@ export class EnemyAI {
     return false;
   }
 
-  updateBehavior(enemy, deltaTime) {
+
+  /**
+ * O CHEFE PREPARA UMA HABILIDADE, se couber uma agora.
+ *
+ * ## O QUE ESTE METODO FAZ, EM ORDEM
+ *
+ * 1. se o chefe ja tem um telegraph correndo, mantem o estado e devolve `true`
+ *    (ele esta ocupado, e a trava e o que impede duas preparacoes)
+ * 2. se nao e um chefe de telegraph, devolve `false` e o combate normal roda
+ * 3. se ele esta voltando para casa, devolve `false` — o `retreating` vem
+ *    antes e ja cortou o caminho
+ * 4. escolhe a habilidade, aplicando o cooldown, e comeca a execucao
+ *
+ * ## E O QUE ELE NAO FAZ
+ *
+ * Ele nao aplica dano. O dano sai do `TelegraphSystem` no instante do
+ * impacto, e nao aqui. A separacao e o que garante que o jogador veja o
+ * telegraph inteiro antes de levar dano
+ */
+tentarHabilidadeDeChefe(enemy, deltaTime) {
+  // 1. ja esta occupied?
+  if (chefeEstaOcupado(enemy)) {
+    enemy.aiState = "attack";
+    return true;
+  }
+
+  // 2. e um chefe de telegraph?
+  if (!enemy.habilidadesTelegraph) return false;
+
+  // 3. o relogio do motor, que e o mesmo que o do impacto
+  const agora = this.world.time ?? 0;
+
+  const jogador = this.nearestPlayer(enemy);
+
+  // sem ninguem, nao ha para quem mirar nem o que escalar
+  if (!jogador) return false;
+
+  /**
+   * O JOGADOR PRECISA ESTAR NA AGGRO.
+   *
+   * E o filtro que faltava, e ele e a correcao de um defeito real: o
+   * `charge` aceita de 250 a 800px, entao com o jogador a 760 — que e
+   * EXATAMENTE onde o vale faz o jogador nascer, 760px abaixo do centro —
+   * a habilidade passava o filtro de distancia e o chefe disparava um golpe
+   * de investida com ninguem na range
+   *
+   * ## POR QUE ISTO E UM `return false`, E NAO UM FILTRO
+   *
+   * Porque nenhuma habilidade deveria ser escolhida para um alvo fora da
+   * range de agro. A `distanciaMax` de cada uma e sobre o ALCANCE do
+   * golpe (o quanto a area cobre), e nao sobre a distancia de APPROXIMACAO.
+   * Sao numeros de coisas diferentes: o `energy_beam` tem `distanciaMax: 900`
+   * porque o feixe e longo, e o `ground_slam` tem 340 porque o circulo e
+   * curto. Misturar os dois deixava o chefe golpear de longe
+   */
+  if (distance(enemy, jogador) > enemy.aggroRange) return false;
+
+  /**
+   * A ABERTURA, e ela tem prioridade sobre a escolha normal.
+   *
+   * ## E POR QUE NAO PASSA PELO FILTRO DE COOLDOWN
+   *
+   * Porque este e o primeiro golpe da briga e ele nao pode falhar por causa
+   * de um cooldown: no primeiro quadro em que o jogador entra na range, todo
+   * cooldown esta zerado e a escolha normal ja pegaria alguma coisa — mas
+   * pegaria a de MAIOR AREA, que e o `ground_slam` de raio 260, e nao a
+   * abertura de raio 300 com dano reduzido
+   *
+   * A trava `aberturaFeita` e o que garante uma vez so. Ela e marcada
+   * ANTES de comecar, porque se fosse depois o `onIniciarTelegraph` poderia
+   * devolver `null` (motor sem o sistema) e a trava ficaria armada para
+   * tentar de novo no proximo quadro
+   */
+  if (!enemy.aberturaFeita && cruzouBordaDaAggro(enemy, jogador)) {
+    const abertura = aberturaDe(enemy);
+
+    if (abertura) {
+      enemy.aberturaFeita = true;
+
+      if (this.comecarHabilidade(enemy, abertura, agora, jogador)) {
+        return true;
+      }
+
+      // o motor nao aceitou: destrava para nao ficar preso sem abertura
+      enemy.aberturaFeita = false;
+    }
+  }
+
+  const habilidade = escolherHabilidadeDeChefe(enemy, jogador, agora);
+
+  // 4. nenhuma habilidade cabe agora: segue o combate normal
+  if (!habilidade) return false;
+
+  return this.comecarHabilidade(enemy, habilidade, agora, jogador);
+}
+
+/**
+ * COMECA UMA HABILIDADE: cooldown, trava, execucao e o virado do chefe.
+ *
+ * ## POR QUE ESTE TRECHO SAIU DO METODO ACIMA
+ *
+ * Porque a abertura e a escolha normal faziam EXATAMENTE a mesma coisa
+ * depois do ponto em que cada uma escolheu a habilidade: marcar o cooldown,
+ * travar o chefe, pedir a execucao ao motor e virar o corpo. Sao 20 linhas
+ * duplicadas, e a duplicacao era o jeito de um dos dois caminhos ficar sem
+ * uma das etapas
+ *
+ * O retorno e `false` quando o motor nao aceitou a execucao, e quem chamou
+ * decide o que fazer: a abertura destrava, a escolha normal devolve `false`
+ * e o combate comum continua
+ */
+comecarHabilidade(enemy, habilidade, agora, jogador) {
+  /**
+   * O COOLDOWN E MARCADO AQUI, no inicio da preparacao, e nao no impacto.
+   *
+   * E o que impede o chefe de spamming: se o cooldown so fosse marcado no
+   * impacto, ele comecaria a proxima no mesmo quadro em que a anterior
+   * terminou, e o jogador veria um telegraph novo nascer no mesmo instante
+   * em que o outro some
+   */
+  enemy.cooldownsTelegraph = enemy.cooldownsTelegraph ?? {};
+  enemy.cooldownsTelegraph[habilidade.id] =
+    agora + habilidade.cooldown;
+
+  // a trava: enquanto o telegraph corre, o chefe nao escolhe outro
+  enemy.telegraphAtivo = true;
+
+  const execucao = this.world.telegraphs
+    ? this.world.onIniciarTelegraph?.(
+      enemy,
+      habilidade,
+      agora,
+      jogador,
+    )
+    : null;
+
+  // se o motor nao tem o sistema ligado, a trava nao pode ficar presa
+  if (!execucao) {
+    enemy.telegraphAtivo = false;
+    return false;
+  }
+
+  /**
+   * O CHEFE VIRA PARA O ALVO no instante da preparacao.
+   *
+   * E aqui, e nao no `TelegraphSystem`, porque a orientacao e do corpo do
+   * chefe: um cone que sai para a esquerda enquanto o chefe olha para a
+   * direita e um telegraph mentindo
+   */
+  enemy.facing = normalize(
+    jogador.x - enemy.x,
+    jogador.y - enemy.y,
+  );
+
+  // o chefe fica parado durante a preparacao: e a janela do jogador
+  enemy.aiState = "attack";
+
+  return true;
+}
+
+updateBehavior(enemy, deltaTime) {
+    /**
+     * O CHEFE QUE ENCOSTOU NUMA PROP VOLTA PARA CASA.
+     *
+     * E o `updateReturn` sendo chamado antes de qualquer outro raciocinio â€”
+     * antes do `isAggressive`, antes do combate, antes do passeio. O chefe
+     * que encosta numa pedra nao persegue, nao ataca e nao passeia: ele volta
+     *
+     * ## POR QUE ISSO E DO CHEFE, E NAO DE TODA CRIATURA
+     *
+     * Porque o pedido e do chefe do centro do vale, e o motivo e o
+     * `wanderRadius` de 340 dele. Um mob comum passeia em 70 e nunca chega
+     * perto de prop nenhuma; o chefe do vale sai do centro, e o anel de
+     * pedras comeca a 1100px do centro â€” entao ele CRUZA a linha das pedras
+     * com o passeio, e o que estava la e uma parede solida de 139x180
+     *
+     * Sem esta regra o chefe fica empurrando ooze contra uma pedra que ele
+     * nao atravessa, e o `stuck` do colisor vira um chefe tremendo no lugar
+     *
+     * ## E POR QUE VOLTAR, E NAO TELEPORTAR
+     *
+     * Porque `updateReturn` e o caminho que o jogo ja tem para "volta para
+     * casa", e ele e o mesmo que a `leash` usa. O chefe volta andando, o
+     * jogador ve ele se afastando, e a luta nao perde um quadro. Um
+     * teleporte aqui zeraria a perseguicao no meio do golpe e o chefe
+     * reapareceria no centro do nada
+     */
+    if (resetouPorProp(this.world, enemy)) {
+      this.updateReturn(enemy, deltaTime);
+
+      return;
+    }
+
+    /**
+     * O CHEFE COM TELEGRAPH TEM PRIORIDADE SOBRE O COMBATE COMUM.
+     *
+     * E antes do `isAggressive` porque a decisao de habilidade e a
+     * INTENCAO da acao: enquanto um telegraph esta correndo, o chefe nao
+     * persegue, nao ataca e nao passeia. E ele quem escolhe entre as cinco
+     * habilidades
+     *
+     * ## E POR QUE `tentarHabilidadeDeChefe` DEVOLVE UM BOOLEANO
+     *
+     * Porque "nenhuma habilidade cabe agora" e "uma habilidade comecou" sao
+     * respostas diferentes, e o motor precisa das duas: a primeira segue
+     * para o combate normal de proximity, a segunda sai do `updateBehavior`
+     * sem nada mais
+     */
+    if (this.tentarHabilidadeDeChefe(enemy, deltaTime)) {
+      return;
+    }
+
     if (!this.isAggressive(enemy)) {
       const home = {
         x: enemy.spawnX,
@@ -525,6 +1086,25 @@ export class EnemyAI {
         return;
       }
 
+      /**
+       * JA ESTA EM CASA: a trava do `retreating` abre.
+       *
+       * O `updateReturn` so limpa a trava quando o chefe chega a menos de
+       * `RETURN_ARRIVE` (20px) do ponto exato. Mas ele so continua no
+       * `updateReturn` enquanto estiver FORA do `restRadius` (aqui, 360px) —
+       * dentro dele o `updateBehavior` desvia para o `updateIdle`, e o
+       * `updateIdle` nao conhece a trava
+       *
+       * O efeito era um chefe parado em casa com `retreating: true` para
+       * sempre: ele nao perseguia mais (a trava segurava o `isAggressive`),
+       * mas tambem nao reagia a ninguem. Um chefe morto em vida
+       *
+       * Aqui e o lugar certo de abrir: dentro do `restRadius` o chefe JA
+       * voltou ao posto, que e o que a trava representa. Abrir aqui e
+       * deixar o `updateReturn` cuida do resto nao deixa buraco
+       */
+      enemy.retreating = false;
+
       this.updateIdle(enemy, deltaTime, restRadius);
       return;
     }
@@ -538,6 +1118,83 @@ export class EnemyAI {
     // o jogador desconectou entre o `isAggressive` e aqui. sem
     // este retorno o `distance` abriria o `null`
     if (!player) return;
+
+    /**
+     * A `leash` E VERIFICADA ANTES DE TUDO, e antes do golpe.
+     *
+     * ## O QUE ESTAVA ERRADO
+     *
+     * A checagem vivia DEPOIS do `if (toPlayer <= alcanceEfetivo(enemy))`,
+     * e esse `if` tem um `return` dentro. Um chefe no limite com o jogador
+     * dentro do alcance do golpe entrava por ali, atacava e saia — sem nunca
+     * chegar na linha da `leash`
+     *
+     * Pior: a linha da `leash` fazia `enemy.alerted = false`, e o
+     * `isAggressive` comeca por `if (enemy.alerted || enemy.provoked)`. Um
+     * chefe que ja estava `alerted` ficava agressivo para sempre. Resultado
+     * na tela: o chefe seguia o jogador ate a borda do mapa e ali ficava
+     * batendo nele, travado, sem nunca voltar
+     *
+     * ## E A DISTANCIA MEDIDA E A DO CHEFE, E NAO A DO JOGADOR
+     *
+     * A conta antiga era `distance(spawn, player)`: o quanto a BRIGA andou
+     * para longe de casa. O que a `leash` restringe e o CHEFE. Sao coisas
+     * diferentes no momento em que importa — com o jogador parado dentro do
+     * circulo de casa e o chefe do lado dele depois de uma colisao, a conta do
+     * jogador nao disparava e o chefe ficava fora do posto para sempre
+     *
+     * ## E POR QUE AGORA MARCA `retreating`
+     *
+     * Porque sem isso o retorno so dura UM quadro. O `updateReturn` anda
+     * na direcao de casa, e no quadro seguinte o `isAggressive` ve o jogador
+     * ainda dentro da `aggroRange`, reacende o `alerted` e o chefe volta a
+     * perseguir — dois estados brigando pelo mesmo quadro, que e o mesmo
+     * defeito do `wanderTarget` velho descrito no `updateReturn`
+     *
+     * O `retreating` e a trava: enquanto ele estiver ligado, o chefe nao
+     * volta a ser agressivo ate chegar em casa
+     */
+    const distanciaDaCasa = distance(enemy, {
+      x: enemy.spawnX,
+      y: enemy.spawnY,
+    });
+
+    const distanciaDoJogadorDaCasa = distance(
+      { x: enemy.spawnX, y: enemy.spawnY },
+      player,
+    );
+
+    if (
+      enemy.behavior === BEHAVIOR.ACTIVE &&
+      !enemy.provoked &&
+      (distanciaDaCasa > enemy.leash ||
+        distanciaDoJogadorDaCasa > enemy.leash)
+    ) {
+      enemy.alerted = false;
+      enemy.retreating = true;
+
+      /**
+       * A VOLTA POR `leash` E RAPIDA MESMO COM O JOGADOR PERTO.
+       *
+       * O `updateReturn` tem dois的速度: o normal, quando ha alvo na
+       * `aggroRange`, e o `velocidadeDeRetorno`, quando nao ha. Esta volta
+       * e o segundo caso — o jogador esta COLADO no chefe e o `
+       * temAlvoNaRange` responderia `true`, e o chefe voltaria a 82 devagar,
+       * tremendo na borda do mapa ate chegar em casa
+       *
+       * E o sintoma reportado: o chefe no limite, o jogador em cima dele, e
+       * o chefe andando devagar de volta com o jogador do lado. Numa borda
+       * de mapa, "devagar" e "travado"
+       *
+       * A trava `retreating` garante que ele chegue: enquanto andar para
+       * casa, nao reacende o `alerted`, e nao ha mais oscilacao
+       */
+      enemy.velocidadeDeRetornoForcada = true;
+      this.updateReturn(enemy, deltaTime);
+      enemy.velocidadeDeRetornoForcada = false;
+
+      return;
+    }
 
     const toPlayer = distance(enemy, player);
 
@@ -578,7 +1235,7 @@ export class EnemyAI {
      * O `tryAttack` ainda exige o alcance de verdade para acertar: ele
      * recebe `toPlayer` e compara com `tuning.attackRange`. Aqui a
      * comparacao e a do `alcanceEfetivo`, que e o mesmo alcance mais meia
-     * raio — o suficiente para o anel de oito ogres caber
+     * raio â€” o suficiente para o anel de oito ogres caber
      */
     if (toPlayer <= alcanceEfetivo(enemy)) {
       enemy.aiState = "attack";
@@ -588,22 +1245,6 @@ export class EnemyAI {
       );
 
       this.tryAttack(enemy, toPlayer, player);
-
-      return;
-    }
-
-    const homeDistance = distance(
-      { x: enemy.spawnX, y: enemy.spawnY },
-      player,
-    );
-
-    if (
-      enemy.behavior === BEHAVIOR.ACTIVE &&
-      !enemy.provoked &&
-      homeDistance > enemy.leash
-    ) {
-      enemy.alerted = false;
-      this.updateReturn(enemy, deltaTime);
 
       return;
     }
@@ -653,6 +1294,19 @@ export class EnemyAI {
     };
 
     if (distance(enemy, home) < RETURN_ARRIVE) {
+      /**
+       * CHEGOU: a trava do `retreating` abre aqui.
+       *
+       * E o unico lugar onde ela abre. Se abrisse no `updateBehavior` o
+       * chefe abriria a trava no primeiro quadro fora da `restRadius`, ou
+       * seja, ANTES de chegar em casa — e voltaria a perseguir o jogador a
+       * meio caminho, que e o mesmo defeito de novo
+       *
+       * `return` e o que mantem o chefe parado em casa no quadro da chegada.
+       * Sem ele o `updateIdle` ainda entraria no mesmo quadro e escolheria um
+       * passeio novo
+       */
+      enemy.retreating = false;
       enemy.aiState = "idle";
       enemy.wanderTarget = null;
       return;
@@ -664,7 +1318,7 @@ export class EnemyAI {
      * Sem esta linha o bicho fica segurando o alvo de passeio antigo,
      * que aponta para FORA da area, enquanto ele volta para casa. No
      * quadro seguinte, ja dentro do `restRadius`, o `updateIdle`
-     * encontra esse alvo velho e continua a caminhada para fora — e o
+     * encontra esse alvo velho e continua a caminhada para fora â€” e o
      * `updateBehavior` puxa de volta no quadro seguinte. Os dois
      * estados brigam pelo mesmo quadro, para sempre
      *
@@ -672,7 +1326,7 @@ export class EnemyAI {
      * o bicho saltava entre a linha de caminhada de uma direcao e a da
      * direcao OPOSTA, 60 vezes por segundo. Como o `wanderRadius` e
      * maior que o `restRadius` na diagonal, isso atingia qualquer bicho
-     * que passeasse — o rato era so o mais comum de ver
+     * que passeasse â€” o rato era so o mais comum de ver
      *
      * Zerar o alvo aqui ainda deixa a pausa natural: o `wanderWait`
      * congelou em 1.2 a 3.4s no momento em que o passeio comecou, e
@@ -686,11 +1340,50 @@ export class EnemyAI {
       home.y - enemy.y,
     );
 
+    /**
+     * A VELOCIDADE DO RETORNO, e ela depende de ter alguem por perto
+     *
+     * ## COM ALVO PERTO: A VELOCIDADE DE NORMAL
+     *
+     * Ha alguem na `aggroRange`, entao este retorno e consequencia de uma
+     * briga — o jogador puxou o chefe, ou o chefe perseguiu e desistiu. O
+     * chefe anda no passo dele e chega logo: ele esta indo para a briga
+     * recomecar, nao indo embora
+     *
+     * ## SEM ALVO PERTO: A VELOCIDADE DE RETORNO
+     *
+     * Nao ha ninguem na `aggroRange`, entao o retorno nao tem nada a ver com
+     * luta: e o chefe refazendo a ronda do ponto de origem. E aqui que entra
+     * `velocidadeDeRetorno`, o campo que a criatura declara no catalogo
+     *
+     * Sem esse campo a diferenca nao existe e o chefe volta no passo normal
+     * de todo mundo. Com ele, o retorno fica visivelmente mais rapido que a
+     * caminhada, e o jogador ve o chefe "desistindo" em vez de arrastando
+     * os pes de volta
+     *
+     * ## E POR QUE O CHEFE DO VALE PRECISA DISSO
+     *
+     * Porque ele e lento por escolha — `speed: 82`, abaixo dos 93 do Hulk da
+     * arena, para a fuga continuar valendo num mapa aberto. Mas um chefe que
+     * passeia a 82 e volta a 82 gasta quase 3 segundos para atravessar o
+     * centro do vale, e nesse tempo ele parece quebrado, e nao um chefe que
+     * desistiu da briga e esta voltando para o posto
+     */
+    const semAlvo =
+      enemy.velocidadeDeRetornoForcada ||
+      enemy.retreating ||
+      !temAlvoNaRange(this, enemy);
+
+    const velocidade =
+      semAlvo && enemy.velocidadeDeRetorno
+        ? enemy.velocidadeDeRetorno
+        : enemy.speed;
+
     const andou = this.moveToward(
       enemy,
       home,
       deltaTime,
-      enemy.speed,
+      velocidade,
     );
 
     enemy.aiState = andou ? "return" : "idle";
@@ -719,7 +1412,7 @@ export class EnemyAI {
        * `wanderRadius + 20`, qualquer bicho com raio acima de ~48
        * sorteava um alvo diagonal que estava FORA do limite: ele
        * andava para fora, era puxado de volta no meio do caminho, e
-       * ainda segurava o alvo velho — e o `updateReturn` agora limpa o
+       * ainda segurava o alvo velho â€” e o `updateReturn` agora limpa o
        * alvo, o que impede o piscar, mas deixaria o bicho fazendo
        * vaivem de ida e volta na borda
        *
@@ -776,7 +1469,7 @@ export class EnemyAI {
      *
      * E o que permite o mob travado na borda do anel acertar o golpe. Sem
      * esta troca, o `updateCombat` o colocaria em `attack` (dentro da
-     * tolerancia) e o `tryAttack` recusaria de novo pelo alcance real —
+     * tolerancia) e o `tryAttack` recusaria de novo pelo alcance real â€”
      * o bicho ficaria parado em `attack` para sempre
      */
     if (targetDistance > alcanceEfetivo(tuning)) return;
@@ -847,7 +1540,7 @@ export class EnemyAI {
      * criaturas do mapa 1 itera as 93, o que da 8.649 pares por tique.
      * Com `Math.hypot` em cada par eram 173.000 chamadas nativas por
      * segundo por mapa, e o `hypot` e varias vezes mais lento que
-     * `Math.sqrt(dx*dx + dy*dy)` — ele existe para nao estourar o
+     * `Math.sqrt(dx*dx + dy*dy)` â€” ele existe para nao estourar o
      * numero, e aqui os valores sao coordenadas de mapa, que nao
      * estouram
      *
@@ -878,7 +1571,7 @@ export class EnemyAI {
       /**
        * `distancia` em 0 daria `NaN` na divisao. Dois corpos exatamente
        * sobrepostos e o caso que a multidao produz, porque todos miram o
-       * mesmo ponto — e e o pior estado possivel do sistema
+       * mesmo ponto â€” e e o pior estado possivel do sistema
        */
       if (distancia < 0.0001) {
         const ang = anguloDoSlot(thisEnemy);
@@ -935,7 +1628,7 @@ export class EnemyAI {
      *
      * A primeira versao somava a empurrao inteira na direcao do alvo. Com
      * oito ogres em volta do jogador, cada um empurrava o vizinho para
-     * FORA do centro, e o equilibrio era um anel a 84px — seis pixels
+     * FORA do centro, e o equilibrio era um anel a 84px â€” seis pixels
      * fora do alcance de golpe de 78. O resultado era o pior dos dois:
      * nenhum se sobrepunha e nenhum batia
      *
@@ -945,7 +1638,7 @@ export class EnemyAI {
      * contorna de lado ate a posicao estar livre. Empurrar para longe do
      * alvo fights o objetivo em vez de servir a ele
      *
-     * A projecao em `(perpendicular · empurrao)` joga fora a componente
+     * A projecao em `(perpendicular Â· empurrao)` joga fora a componente
      * que aponta para tras e guarda a que corre ao longo do anel. Com
      * isso o anel aperta o quanto precisar para todos caberem e o
      * primeiro que chega bate

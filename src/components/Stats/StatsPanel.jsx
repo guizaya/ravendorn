@@ -31,17 +31,33 @@ function StatRow({ row }) {
         .filter(Boolean)
         .join(" ")}
     >
+      {/*
+        O NOME NA FRENTE, E A SIGLA DEPOIS, EM OUTRA COR.
+
+        ## POR QUE ISSO, E NAO A SIGLA SOZINHA
+
+        Porque "Força" e o que o jogador procura e "STR" e a sigla de quem ja
+        conhece o jogo. Com a sigla na frente, o olho parava nela e traduzia
+        sozinho — trabalho que o painel existe para fazer
+
+        E as duas na MESMA linha, e nao empilhadas: empilhadas, viravam dois
+        dados, e a coluna do rotulo crescia ate o nome do stat ser cortado.
+        Aqui a sigla e legenda do nome, e fica menor e apagada
+
+        O `title` continua com o nome inteiro porque a sigla de um stat raro
+        nao se decifra sem ajuda
+      */}
       <span
         className="sts-row__label"
-        title={row.name}
+        data-tip={row.name}
       >
-        <b>{row.label}</b>
-        <small>{row.name}</small>
+        <span className="sts-row__nome">{row.name}</span>
+        <span className="sts-row__sigla">{row.label}</span>
       </span>
 
       <span
         className="sts-row__base"
-        title={`Base da classe: ${formatStat(row, row.base)}`}
+        data-tip={`Base da classe: ${formatStat(row, row.base)}`}
       >
         {formatStat(row, row.base)}
       </span>
@@ -128,16 +144,6 @@ export default function StatsPanel({
   return (
     <section className="inv-panel sts-panel">
       <header className="inv-close-row">
-        <button
-          type="button"
-          className="inv-close"
-          onClick={onClose}
-          title="Fechar (S)"
-          aria-label="Fechar o painel de status"
-        >
-          ✕
-        </button>
-
         <h2>Status</h2>
 
         {className && (
@@ -149,6 +155,24 @@ export default function StatsPanel({
         <span className="sts-panel__level">
           Nv.{level ?? folha.level ?? 1}
         </span>
+
+        {/*
+          O X NO FIM DO CABEÇALHO.
+
+          Era o primeiro filho, entao abria na esquerda do "Status" — o
+          unico painel em que o botao de fechar nao ficava do lado do
+          titulo. Agora ele e o ultimo, e o `margin-left: auto` faz o
+          que faz nos outros
+        */}
+        <button
+          type="button"
+          className="inv-close"
+          onClick={onClose}
+          data-tip="Fechar (S)"
+          aria-label="Fechar o painel de status"
+        >
+          ✕
+        </button>
       </header>
 
       {grupos.length === 0 ? (
@@ -157,6 +181,16 @@ export default function StatsPanel({
         </p>
       ) : (
         <div className="sts-panel__body">
+          {/*
+            O CABECALHO DAS COLUNAS.
+
+            ## POR QUE SO UM, PARA AS QUATRO COLUNAS
+
+            Porque `Base`, `Bonus` e `Total` significam a mesma coisa em todos
+            os grupos. Repetir o cabecalho em cada um faria a coluna ficar mais
+            larga do que o conteudo, e o jogador teria que procurar a mesma
+            palavra quatro vezes
+          */}
           <div
             className="sts-head"
             aria-hidden="true"
@@ -167,6 +201,19 @@ export default function StatsPanel({
             <span>Total</span>
           </div>
 
+          {/*
+            OS QUATRO GRUPOS, E OS ATRIBUTOS NO MESMO PADRAO DELES.
+
+            Houve uma ficha de cinco tiles no topo do painel, com os atributos
+            destacados. Saiu: ela ocupava uma tela inteira para mostrar cinco
+            numeros que a tabela embaixo ja mostrava — e o jogador que abriu o
+            painel para ler "quanto eu tenho de ataque" tinha que passar por
+            eles antes
+
+            O atributo volta a ser LINHA, como todo o resto, e continua
+            marcado pela faixa dourada da `is-attribute`: ele e o que o resto
+            deriva, e essa distincao vale — so a forma de caixa nao valia
+          */}
           {grupos.map((group) => (
             <StatGroup key={group.id} group={group} />
           ))}

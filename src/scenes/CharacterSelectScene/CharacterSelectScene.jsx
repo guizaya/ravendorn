@@ -1,5 +1,8 @@
-import { useId, useState } from "react";
-import { CHARACTER_CLASSES } from "../../data/characters/index.js";
+import { useEffect, useId, useState } from "react";
+import {
+  CHARACTER_CLASSES,
+  CLASSES_NA_SELECAO,
+} from "../../data/characters/index.js";
 import ClassPortrait from "../../components/UI/ClassPortrait.jsx";
 import {
   NAME_MAX,
@@ -157,6 +160,67 @@ export default function CharacterSelectScene({
     return resposta.json();
   }
 
+  /**
+   * A CLASSE DE QUEM JA TEM SAVE, quando ela nao esta na grade.
+   *
+   * ## O QUE ESTA COBERTURA RESOLVE
+   *
+   * Uma classe pode estar fora da tela de selecao e continuar no jogo. O
+   * jogador que JÁ ESTA ONLINE voltando pelas abas nem sente: o `App`
+   * preserva o `selectedClass` e a cena ja abre com ele. Quem sente e o
+   * jogador que entra num navegador novo, ou depois de o servidor
+   * reiniciar: ele digita o nome e a grade nao tem a classe dele — e sem
+   * isto, ele ficaria trancado FORA do proprio save
+   *
+   * Ele nao teria como entrar. O `entrar` so recusa classe diferente; com
+   * nenhuma classe igual na tela, nao ha nem como tentar
+   *
+   * ## POR QUE CONSULTA AO DIGITAR, E NAO SO NO BOTAO
+   *
+   * Porque o `entrar` ja descobre a classe do save — tarde demais. Quando
+   * ele descobre, o jogador ja esta na tela de recusa, e a resposta certa
+   * (mostrar o card dele) exige uma ida e volta que ele nao pediu
+   *
+   * A consulta aqui e a MESMA funcao do `entrar`, e as duas sao ADIANTACAO:
+   * quem pular esta continua barrado no JOIN do servidor
+   */
+  const [classeDoSave, setClasseDoSave] = useState(null);
+
+  useEffect(() => {
+    let cancelado = false;
+
+    if (!nome.ok) {
+      setClasseDoSave(null);
+      return undefined;
+    }
+
+    /**
+     * O ESPERA DE 300ms, e ela e o que impede uma consulta por tecla.
+     *
+     * Sem isso, "Ana" dispara quatro requisições e o servidor responderia
+     * fora de ordem — e a classe exibida no card seria a de um nome que o
+     * jogador já corrigiu
+     */
+    const espera = setTimeout(async () => {
+      const ficha = await conferirNickname();
+
+      if (cancelado) return;
+
+      const id = ficha?.existe ? (ficha.classe ?? null) : null;
+
+      setClasseDoSave(
+        id && !CLASSES_NA_SELECAO.some((c) => c.id === id)
+          ? id
+          : null,
+      );
+    }, 300);
+
+    return () => {
+      cancelado = true;
+      clearTimeout(espera);
+    };
+  }, [nome.value, nome.ok]);
+
   const entrar = async () => {
     setTentouEntrar(true);
     setRecusaServidor(null);
@@ -230,7 +294,20 @@ export default function CharacterSelectScene({
       ) : null}
 
       <section className="class-grid">
-        {CHARACTER_CLASSES.map((definition) => {
+        {[
+          ...CLASSES_NA_SELECAO,
+
+          /*
+            A CARA DE QUEM JA TEM SAVE, acrescentada por ultimo.
+
+            Ela entra na MESMA lista e nao numa segunda fileira: o card e
+            identico, e um bloco separado faria o jogador ler como uma
+            tela diferente dentro da tela
+          */
+          ...(classeDoSave
+            ? CHARACTER_CLASSES.filter((c) => c.id === classeDoSave)
+            : []),
+        ].map((definition) => {
           const selected =
             selectedClass?.id === definition.id;
 

@@ -33,8 +33,6 @@
 export default function BossBox({
   naArena = false,
   nomeChefe = "Chefe",
-  minimapTop = 84,
-  minimapHeight = 146,
   onSair = null,
 }) {
   if (!naArena) return null;
@@ -42,13 +40,6 @@ export default function BossBox({
   return (
     <div
       className="prt-box prt-box--chefe"
-      style={{
-        // a MESMA conta da `PortalBox`: o minimapa e desenhado no
-        // canvas, entao nao ha elemento DOM para se grudar. Se esta
-        // box usasse outra conta, ela nasceria embaixo de um lugar e o
-        // minimapa desenharia em outro
-        top: minimapTop + minimapHeight + 10,
-      }}
       data-boss-box="sim"
     >
       <p className="prt-box__label">Arena do chefe</p>
@@ -72,7 +63,7 @@ export default function BossBox({
         type="button"
         className="prt-box__go prt-box__go--chefe"
         onClick={() => onSair?.()}
-        title="Sair da arena do chefe"
+        data-tip="Sair da arena do chefe"
       >
         Sair do chefe
       </button>

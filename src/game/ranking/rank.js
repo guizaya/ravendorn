@@ -28,8 +28,66 @@ import { nameKey } from "../../data/characterName.js";
 /** Os criterios que o painel oferece, na ordem em que aparecem. */
 export const RANK_CRITERIO = {
   NIVEL: "nivel",
-  BESTIARIO: "bestiario",
+  PODER: "poder",
 };
+
+/**
+ * OS PESOS DO PODER, e nao a conta espalhada pelo arquivo.
+ *
+ * Sao BALANCEAMENTO, e nao dado inventado: cada peso multiplica um stat que
+ * o `Player` ja tem. Eles ficam numa tabela porque e a unica parte do rank
+ * que um designer precisa mudar, e uma conta escrita em varias linhas daria
+ * tres lugares diferentes para editar
+ *
+ * O poder BRUTA e o numero que a coluna mostra, e nao um numero redondinho:
+ * um caçador com 3 de ataque e 950 de vida e mais forte que um com 950 de
+ * ataque e 3 de vida, e um numero redondido esconderia essa diferenca
+ */
+export const PODER_PESOS = Object.freeze({
+  /** nivel pesa, porque todo stat da ficha cresce com ele */
+  nivel: 40,
+
+  /** o dano, e o que o jogador sente na hora */
+  attack: 3,
+
+  /** a vida, que e o que segura o caçador vivo */
+  maxHp: 1,
+
+  /** a defesa, que reduz o que entra */
+  defense: 2,
+
+  /** a mana, que e o recurso das classes magicas */
+  maxResource: 1,
+
+  /** o critico, que e o pico do dano */
+  critRate: 120,
+
+  /** o dano critico, que multiplica esse pico */
+  critDamage: 12,
+});
+
+/**
+ * O PODER de um jogador, dos stats REAIS que o `Player` ja guarda.
+ *
+ * E por que o poder e GRAVADO no save e nao recalculado na leitura: o mesmo
+ * motivo do `bonus` da `Collection`. Se o balanceamento mudar, quem foi
+ * medido com a tabela antiga continua com o numero antigo — o jogador nao
+ * perde nem ganha poder por causa de uma mudanca que nao tem nada a ver com
+ * ele
+ */
+export function poderDe(stats = {}) {
+  let total = 0;
+
+  for (const [campo, peso] of Object.entries(PODER_PESOS)) {
+    const valor = Number(stats[campo]);
+
+    if (!Number.isFinite(valor)) continue;
+
+    total += valor * peso;
+  }
+
+  return Math.max(0, Math.round(total));
+}
 
 /** O icone de posicao: 1 a 3 ganham medalha, o resto fica neutro. */
 export const RANK_MEDALHA = {
@@ -79,6 +137,14 @@ export function dadosDoJogador(sessao) {
 
     cacadas: bestiary.completed.size,
     abates,
+
+    /**
+     * O PODER, calculado da sessao viva.
+     *
+     * `player` e a fonte: os stats do `Player` ja incluem o equipamento
+     * vestido, entao o numero mede o caçador de verdade e nao a ficha base
+     */
+    poder: poderDe(player),
 
     // quem esta na partida agora. Um jogador offline entra na lista
     // com `false`, e o painel usa isso para nao mostrar a lista toda
@@ -132,6 +198,25 @@ export function dadosDoSalvo(save, nome) {
     nivel: Math.max(1, Math.floor(player.level ?? 1)),
     xp: Math.max(0, Math.floor(player.xp ?? 0)),
 
+    /**
+     * O PODER DE UM JOGADOR QUE DESLIGOU.
+     *
+     * ## POR QUE VEM DO ARQUIVO E NAO E RECALCULADO
+     *
+     * Porque o save NAO guarda os stats de combate: ele grava `level`, `xp`,
+     * `x` e `y`, e nada mais. Um poder recalculado aqui sairia zero para
+     * todo mundo que nao esta conectado — que e metade da tabela
+     *
+     * E por isso que o `GameEngine` GRAVA o poder no save quando a sessao
+     * fecha. Sem essa linha, o criterio "Poder" mostraria so os online, e
+     * o jogador que salvou e saiu perderia a posicao
+     *
+     * Um save bem antigo, sem o campo, cai em zero — e o painel trata zero
+     * como "sem medicao", botando o jogador depois dos medidos em vez de
+     * misturado com eles
+     */
+    poder: Math.max(0, Math.floor(save.poder ?? 0)),
+
     cacadas: completed.length,
     abates,
 
@@ -157,15 +242,17 @@ function ordenarPorNivel(lista) {
   });
 }
 
-/** Cacadas fechadas primeiro, abates no desempate. */
-function ordenarPorBestiario(lista) {
+/**
+ * Poder primeiro, nivel como desempate.
+ *
+ * O nivel no desempate e o que segura a ordem de quem nao tem medicao: um
+ * save antigo sem `poder` vale zero, e o nivel coloca esse jogador depois
+ * dos medidos em vez de numa posicao aleatoria
+ */
+function ordenarPorPoder(lista) {
   return [...lista].sort((a, b) => {
-    if (b.cacadas !== a.cacadas) return b.cacadas - a.cacadas;
-    if (b.abates !== a.abates) return b.abates - a.abates;
+    if (b.poder !== a.poder) return b.poder - a.poder;
 
-    // com o bestiario empatado, o nivel ainda separa: e melhor do
-    // que ordenar so por nome e ver dois jogadores nivel 40 com o
-    // mesmo numero de cacadas em ordem alfabetica
     if (b.nivel !== a.nivel) return b.nivel - a.nivel;
 
     return a.name.localeCompare(b.name, "pt-BR");
@@ -226,6 +313,6 @@ export function montarRank(sessoes, salvos = []) {
 
   return {
     [RANK_CRITERIO.NIVEL]: comPosicao(ordenarPorNivel(dados)),
-    [RANK_CRITERIO.BESTIARIO]: comPosicao(ordenarPorBestiario(dados)),
+    [RANK_CRITERIO.PODER]: comPosicao(ordenarPorPoder(dados)),
   };
 }

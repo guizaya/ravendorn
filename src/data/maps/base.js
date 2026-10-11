@@ -9,7 +9,7 @@ import { NPC_SHEETS } from "../npc/sheets.js";
  * mapa_1 — continua existindo com as 12 zonas de criatura, mas nao e por
  * onde o jogo comeca
  *
-* O que o diferencia do mapa_1, e por que:
+ * O que o diferencia do mapa_1, e por que:
  *
  *   - **28% do tamanho**: 1680x1176 contra 6000x4200. Saiu de 40% e
  *     caiu mais 30%, entao sobraram 70% dos 2400x1680 que eram antes.
@@ -46,7 +46,7 @@ export const BASE_BOUNDS = {
  * O CENTRO do mapa base.
  *
  * `bounds.x + width / 2` da 840, e `width / 2` do mapa inteiro tambem:
- * a margem de 40 e igual dos dois lados, entao os dois centros coincidem
+ * a margem e igual dos dois lados, entao os dois centros coincidem
  */
 export const BASE_SPAWN = {
   x: Math.round(BASE_BOUNDS.x + BASE_BOUNDS.width / 2),
@@ -107,13 +107,24 @@ export const BASE_MAP = {
   /**
    * A CAMERA MAIS PERTO, NESTE MAPA.
    *
-   * `1.4286` e `1 / 0.7`, e nao `1.3`. A camera 30% mais perto ve
-   * 70% da distancia, e o que cabe na tela e proporcional a distancia:
-   * entao ver 70% de antes e multiplicar por `1 / 0.7`
+   * `1 / 0.62` e `1.6129`, e nao `1.6`. A camera ve 62% da distancia, e
+   * o que cabe na tela e proporcional a distancia: entao ver 62% de antes e
+   * multiplicar por `1 / 0.62`
    *
-   * E `1.3` seria outra coisa — 30% MAIS ampliado, que corta menos da
-   * tela. A diferenca aparece: em 1.43 a area visivel cai 30%, em 1.3
-   * cai 23%
+   * E `1.6` seria outra coisa — 60% MAIS ampliado, que corta menos da
+   * tela. A diferenca aparece: em 1.61 a area visivel cai 38%, em 1.6 cai
+   * 36%
+   *
+   * ## POR QUE BAIXOU DE 0.7 PARA 0.62
+   *
+   * Porque o calcamento da base entrou com a arte de 1254px e o ladrilho
+   * caiu para 64px. Com o ladrilho antigo, a 128px, a pedra ainda media o
+   * suficiente para o jogador ler o chao como chao de perto; a 64px ela e
+   * miudo, e a camera perto de antes empurrava o resto do hub para fora da
+   * tela sem dar nada em troca
+   *
+   * O boneco continua com 128px de largura no mundo: ele so ocupa mais
+   * espaco na TELA
    *
    * Isto nao muda o TAMANHO do personagem no mundo. O boneco continua
    * com 128px de largura; ele so ocupa mais espaco na TELA, porque a
@@ -124,7 +135,41 @@ export const BASE_MAP = {
    * fica no enquadramento de sempre e o hub aperta o enquadramento.
    * Todo mapa que nao declarar nada usa 1
    */
-  cameraZoom: 1 / 0.7,
+  cameraZoom: 1 / 0.62,
+
+  /**
+   * AS DUAS CLASSES GRANDES DESTA MAPA, 30% MENORES.
+   *
+   * ## POR QUE SO ESTAS DUAS E SO AQUI
+   *
+   * Porque a base tem `cameraZoom` de `1 / 0.62`, que e 1.61: o boneco e o
+   * resto do hub sao desenhados 61% MAIORES que no vale. O arqueiro e o
+   * sorcerer medem os dois 62.7px em unidades de mundo — a arte deles e
+   * maior, mas a escala compensa — entao sem um fator aqui os dois
+   * ocupariam uma fatia grande demais da tela do hub
+   *
+   * ## E POR QUE O MESMO 0.7 NOS DOIS
+   *
+   * Porque nao e um numero escolhido para o arqueiro: e o que igualiza uma
+   * classe de 62.7px contra as de ~37px que o hub tem por padrao. Como o
+   * sorcerer mede exatamente os mesmos 62.7px do arqueiro, o mesmo fator o
+   * deixa do mesmo tamanho — e os dois saem em 70.7px na base
+   *
+   * ## E POR QUE UM FATOR E NAO UM `scale` NOVO
+   *
+   * Porque o `scale` da definicao e o tamanho do PERSONAGEM, e ele e o mesmo
+   * em todos os mapas. Este e um FATOR do LUGAR, e o motor multiplica um pelo
+   * outro no desenho. Trocar o `scale` da definicao aqui mexeria no vale
+   * tambem, que e o oposto do pedido
+   *
+   * ## E OS OUTROS MAPAS
+   *
+   * Nenhum precisa de fator. No vale e no mapa 2 o zoom e 1 e as duas ja
+   * saem iguais; no boss 1 o zoom e 1.43 e continua igual
+   *
+   * Todo mapa que nao declarar isto usa 1
+   */
+  escalaSprites: { arbalist: 0.7, sorcerer: 0.7 },
 
 
 /**

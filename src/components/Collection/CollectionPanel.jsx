@@ -1,8 +1,8 @@
-import ItemIcon from "../UI/ItemIcon.jsx";
+import { useMemo } from "react";
+import CollectionCard from "./CollectionCard.jsx";
 import StatsPanel from "../Stats/StatsPanel.jsx";
+import { useArrastarScroll } from "../../game/ui/arrastarScroll.js";
 import PermanentBonus from "../UI/PermanentBonus.jsx";
-import { RARITY_STYLE, getItem } from "../../data/items/index.js";
-import { statBonusEntries } from "../../game/stats/StatSheet.js";
 
 /**
  * O painel de COLECAO.
@@ -69,7 +69,25 @@ export default function CollectionPanel({
   collection,
   onDeliver,
   onClose,
+  filtroItemId = null,
 }) {
+  /**
+   * A LISTA ROLA COM A RODA E COM O ARRASTO.
+   *
+   * E o mesmo hook que a guilda e o passe usam, e nao um `onWheel` escrito
+   * aqui: o `useArrastarScroll` ja sabe as tres coisas que uma lista com
+   * rolagem precisa — trocar de eixo conforme o container, precisao do
+   * `pointer` para o arrasto, e o limiar que separa um clique de um
+   * arrasto. Escrever isso de novo aqui seria a terceira versao
+   *
+   * ## POR QUE A ROLAGEM PRECISA DO ARRASTO
+   *
+   * Porque a lista mostra TRES cards e existem cinco. Com a barra de 8px
+   * embaixo, o jogador teria que acertar um alvo que some quando o cursor
+   * sai, e a roda do mouse nao funciona em todo container com
+   * `overflow: hidden` — que e o caso deste painel
+   */
+  const lista = useArrastarScroll({ eixo: "y" });
   /**
    * O painel precisa funcionar antes do primeiro snapshot.
    *
@@ -86,55 +104,142 @@ export default function CollectionPanel({
     bonuses: {},
   };
 
+  /**
+   * A LISTA COM O QUE DA PARA ENTREGAR EM CIMA.
+   *
+   * ## POR QUE ORDENAR AQUI E NAO NO `Collection.snapshot`
+   *
+   * O mesmo motivo do bestiario: a ordem e uma decisao de LEITURA da
+   * tela. O `snapshot` diz o que cada entrega tem; quem decide o que o
+   * jogador ve primeiro e o painel. Ordenar la faria o estado do jogo
+   * depender de um criterio visual
+   *
+   * ## POR QUE SO `done`
+   *
+   * Porque o que desce e o ENTREGUE. Uma entrega que ainda falta um item
+   * continua valendo o lugar dela em cima — e quando o jogador cai para
+   * o que falta, e para essa parte da lista que ele olha
+   *
+   * E o `[...entries]` e obrigatorio: o `data.entries` pode ser o mesmo
+   * array que o servidor mandou, e ordenar no lugar mexeria no dado de
+   * quem recebeu. O `snapshot` chega a cada quadro
+   *
+   * ## POR QUE SO `done`, SEM `pronta` no meio
+   *
+   * Porque "pronta" muda a cada item que o jogador pega e larga, e a
+   * lista inteira saltaria de lugar enquanto ele caminha pelo mapa. A
+   * ordem so pode depender de uma coisa que nao muda sozinha
+   */
+const entries = [...data.entries].sort(
+      (a, b) => Number(a.done) - Number(b.done),
+    );
+
+    /**
+     * O FILTRO QUE CHEGA DO MENU DO ITEM.
+     *
+     * E um `itemId`, nao um indice: quem abre a colecao pelo atalho quer ver
+     * as entregas que PEDEM aquele item, e nao a entrada de um numero fixo.
+     * A lista de requisitos e o lugar da verdade, e o filtro le exatamente a
+     * mesma coisa que o `entrega()` escreveu
+     *
+     * O `enhance` e ignorado de proposito. Um arco `+3` satisfaz o mesmo par
+     * item/requisito que um `+0`, e o atalho nao pode desaparecer no jogo
+     * avancado, que e onde ele serve mais
+     *
+     * Sem filtro — que e o caso normal, quando o jogador abriu a colecao pelo
+     * botao da HUD — nada muda e o filtro nao custa nem um segundo array
+     */
+    const filtroItem = filtroItemId ?? null;
+
+    const visiveis = useMemo(() => {
+      if (!filtroItem) return entries;
+
+      return entries.filter((entry) =>
+        (entry.requirements ?? []).some(
+          (requirement) => requirement?.itemId === filtroItem,
+        ),
+      );
+    }, [entries, filtroItem]);
+
   return (
     <section className="col-panel">
       <header className="col-panel__head">
-        <button
-          type="button"
-          className="inv-close"
-          onClick={onClose}
-          title="Fechar (K)"
-        >
-          ✕
-        </button>
-
         <h2>Colecao</h2>
 
         <span className="col-panel__tally">
           {data.completed}/{data.total} entregues
         </span>
+
+        {/*
+          O X NO FIM, como no bestiario e nas missoes.
+
+          Os tres cabecalhos tinham o botao como PRIMEIRO filho, e o
+          `margin-left: auto` que o joga para a direita so vale para o
+          ultimo da linha. O X abria a esquerda do titulo, ao contrario
+          de todos os outros paineis
+        */}
+        <button
+          type="button"
+          className="inv-close"
+          onClick={onClose}
+          data-tip="Fechar (K)"
+        >
+          ✕
+        </button>
       </header>
 
       <div className="col-panel__body">
         {/*
-          O BONUS PERMANENTE, no mesmo lugar e com a mesma forma do
-          bestiario.
+          O BONUS PERMANENTE, numa COLUNA AO LADO dos cartoes.
 
-          A cacada e a colecao dao a mesma coisa — stat que fica no
-          personagem — e o jogador que entende uma le a outra sem
-          traduzir. E esta e a unica linha do painel que responde
-          "quanto a colecao ja me deu": cada cartao mostra o que AQUELA
-          entrega daria, e a soma so existe aqui
+          ## POR QUE SAIU DE CIMA
 
-          O aviso de "recompensa esperando espaco na mochila" vivia
-          neste espaco e foi embora com a recompensa em item: um bonus
-          de stat nao ocupa lugar nenhum, entao nao ha o que esperar
+          Porque em cima ele empurrava a lista para baixo e o jogador tinha
+          de rolar ate os cartoes para ver o que ia ganhar. Ao lado, o
+          bonus fica visivel enquanto ele le os cartoes, e o olho vai do
+          "o que eu ganho com ESTA entrega" para o "quanto eu ja ganhei"
+          sem voltar
+
+          E a unica coisa do painel que responde "quanto a colecao ja me
+          deu": cada cartao mostra o que AQUELA entrega daria, e a soma so
+          existe aqui
         */}
-        <section className="perm-bonus-box">
-          <span className="eyebrow">Bônus permanente</span>
+        <section className="col-panel__coluna">
+          <div className="perm-bonus-box">
+            <span className="eyebrow">Bônus permanente</span>
 
+{/* `layout="lista"`: aqui o bonus e o TOTAL, e o que o jogador
+              compara com o que ja tem no personagem. Lista deixa os
+              valores na mesma coluna; chip solto nao
+
+              `todos`: mostra os 26 stats da ficha, e nao so os que o
+              jogador ja tem. A lista completa e o que diz o que ainda da
+              para buscar — com so os que ele tem, ele veria duas linhas e
+              nao saberia se era tudo */}
           <PermanentBonus
             bonuses={data.bonuses}
+            layout="lista"
+            todos
             empty="Nenhuma entrega concluída ainda. Junte material para desbloquear bônus permanentes."
           />
-        </section>
+          </div>
 
-        {data.entries.length === 0 ? (
-          <p className="col-empty">Nenhuma colecao disponivel.</p>
-        ) : (
-          <ul className="col-list">
-            {data.entries.map((entry) => (
-              <EntryCard
+{visiveis.length === 0 ? (
+            <p className="col-empty">
+              {filtroItem
+                ? "Nenhuma entrega pede este item."
+                : "Nenhuma colecao disponivel."}
+            </p>
+          ) : (
+            /* a lista rola: o `ref` e os eventos `pointer` vem do hook, e ele
+               mesmo aplica a classe `is-dragging` durante o gesto */
+            <ul
+              className="col-list"
+              ref={lista.ref}
+              {...lista.evento}
+            >
+              {visiveis.map((entry) => (
+              <CollectionCard
                 key={entry.id}
                 entry={entry}
                 onDeliver={onDeliver}
@@ -142,6 +247,7 @@ export default function CollectionPanel({
             ))}
           </ul>
         )}
+        </section>
 
         {data.isComplete && (
           <p className="col-complete">
@@ -153,177 +259,4 @@ export default function CollectionPanel({
   );
 }
 
-/**
- * Uma colecao, com os requisitos e o botao.
- *
- * A separacao existe pelo mesmo motivo do `EntryCard` do bestiario:
- * o componente principal fica com a forma do painel e este fica com a
- * forma de uma linha, que muda mais
- */
-function EntryCard({ entry, onDeliver }) {
-  return (
-    <li
-      className={[
-        "col-entry",
-        entry.done ? "is-done" : "",
-        entry.pronta ? "is-ready" : "",
-      ]
-        .filter(Boolean)
-        .join(" ")}
-    >
-      <header className="col-entry__head">
-        <span className="col-entry__icon">{entry.icon}</span>
 
-        <span className="col-entry__names">
-          <strong>{entry.name}</strong>
-          <small>{entry.summary}</small>
-        </span>
-
-        {entry.done ? (
-          <span className="col-entry__done">
-            ✓ Entregue
-          </span>
-        ) : (
-          <button
-            type="button"
-            className="col-entry__give"
-            onClick={() => onDeliver?.(entry.id)}
-            disabled={!entry.pronta}
-            title={
-              entry.pronta
-                ? `Entregar ${entry.name}`
-                : "Faltam materiais"
-            }
-          >
-            Entregar
-          </button>
-        )}
-      </header>
-
-      <ul className="col-needs">
-        {entry.needs.map((need, index) => (
-          <NeedRow
-            key={`${need.itemId ?? need.rarity}-${index}`}
-            need={need}
-            entryPronta={entry.pronta}
-          />
-        ))}
-      </ul>
-
-      <RewardLine reward={entry.rewards} />
-    </li>
-  );
-}
-
-/**
- * Uma linha de requisito.
- *
- * A mesma linha serve para a colecao pronta e para a entregue, porque
- * o `snapshot` devolve `needs` normalizado nos dois casos. Sem isso a
- * linha mudaria de forma — e de posicao na tela — no instante da
- * entrega, que e quando o jogador esta olhando
- */
-function NeedRow({ need, entryPronta }) {
-  const completo = need.falta === 0;
-
-  const conta = `${need.have}/${need.need}`;
-
-  const cor =
-    need.rarity !== null && need.rarity !== undefined
-      ? RARITY_STYLE[need.rarity]?.color
-      : undefined;
-
-  return (
-    <li
-      className={[
-        "col-need",
-        completo ? "is-ok" : "is-missing",
-      ]
-        .join(" ")}
-      style={cor ? { "--need": cor } : undefined}
-    >
-      {/*
-        Requisito de MATERIAL mostra o icone do item.
-
-        Requisito de EQUIPAMENTO nao tem item nenhum — e "1 peca rara",
-        nao "1 arco raro" — entao nao ha glifo para desenhar. Um
-        `<ItemIcon>` vazio deixava um quadradinho em branco na linha,
-        e o requisito de equipamento ficava parecendo um elemento
-        quebrado no meio do painel. No lugar dele entra um losango na
-        cor da raridade, que e a mesma cor que a borda da linha ja
-        usa
-      */}
-      {need.itemId ? (
-        <ItemIcon
-          item={getItem(need.itemId)}
-          itemId={need.itemId}
-          rarity={need.rarity}
-          className="col-need__icon"
-          alt=""
-        />
-      ) : (
-        <span
-          className="col-need__icon col-need__icon--rarity"
-          aria-hidden="true"
-        >
-          ◈
-        </span>
-      )}
-
-      <span className="col-need__label">{need.label}</span>
-
-      <span className="col-need__count">
-        {completo ? conta : `faltam ${need.falta} (${conta})`}
-      </span>
-
-      {/*
-        O texto de "completo" e "faltando" mora num elemento escondido
-        em vez de num `aria-label` na linha inteira: um `aria-label` no
-        `<li>` esconderia o `col-need__label` e o `col-need__count`
-        do leitor de tela, que sao justamente a informacao
-      */}
-      <span className="col-need__state">
-        {completo ? "completo" : "faltando"}
-        {entryPronta ? "" : " para esta entrega"}
-      </span>
-    </li>
-  );
-}
-
-/**
- * A recompensa de uma colecao: SO STATS.
- *
- * Cada stat e um selo com o rotulo do jogo e o valor com o sinal, e o
- * texto vem do `StatSheet` — o mesmo formatador que o painel de status
- * e o aviso de entrega usam. Escrever "+40" aqui e "40 HP" la faria o
- * jogador aprender duas notacoes para o mesmo numero
- *
- * Fica visivel mesmo na colecao ja entregue: o jogador precisa ver o
- * que ganhou, e a linha de "✓ Entregue" sozinha nao diz o que foi
- */
-function RewardLine({ reward }) {
-  const entradas = statBonusEntries(reward);
-
-  if (entradas.length === 0) return null;
-
-  return (
-    <div className="col-reward">
-      <span className="col-reward__label">
-        Bônus de status
-      </span>
-
-      <span className="col-reward__chips">
-        {entradas.map((entrada) => (
-          <span
-            key={entrada.id}
-            className="col-reward__chip"
-            title={entrada.name}
-          >
-            <b>{entrada.text}</b>
-            <i>{entrada.label}</i>
-          </span>
-        ))}
-      </span>
-    </div>
-  );
-}

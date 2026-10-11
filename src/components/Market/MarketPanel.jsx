@@ -28,15 +28,17 @@ import {
 /**
  * O painel do MARKET.
  *
- * Tres abas porque sao tres perguntas diferentes, e cada uma precisa
+ * Quatro abas porque sao quatro perguntas diferentes, e cada uma precisa
  * de uma tela diferente:
  *
  * - COMPRAR: a vitrine alheia, filtrada, do mais barato para o mais
  *   caro. E onde o jogador olha o que os outros tem
  * - VENDER: a propria mochila, com o preco. E onde ele monta o
  *   anuncio
- * - HISTORICO: o que ja foi vendido, de quem e para quem. A terceira aba
- *   e a unica que o jogador usa para saber o PRECO: ver o que os outros
+ * - MEUS ANUNCIOS: o que ele ja deixou a venda, com o tempo que resta e o
+ *   botao de cancelar. A aba que ele abre todo dia
+ * - HISTORICO: o que ja foi vendido, de quem e para quem. E a unica aba
+ *   que o jogador usa para saber o PRECO: ver o que os outros
  *   cobraram e a forma de o jogador saber se 200 e caro ou barato
  *
  * O filtro fica NESTE componente e nao no servidor, ao contrario do
@@ -51,6 +53,7 @@ import {
 const ABAS = [
   { id: "comprar", icone: "⇄", label: "Comprar" },
   { id: "vender", icone: "⚑", label: "Vender" },
+  { id: "meus", icone: "▤", label: "Meus anuncios" },
   { id: "historico", icone: "≡", label: "Historico" },
 ];
 
@@ -82,6 +85,144 @@ const VAZIO = {
   },
 };
 
+/**
+ * A LISTA DE ANUNCIOS, e ela e USADA EM DOIS LUGARES.
+ *
+ * ## POR QUE UM COMPONENTE E NAO A MARCACAO DIRETA
+ *
+ * Porque a aba "Meus anuncios" e o bloco "Seus anuncios" da aba VENDER
+ * mostram a MESMA coisa: os anuncios deste jogador, com o tempo que resta
+ * e o botao de cancelar. A diferenca e so o que esta em volta — a aba tem
+ * cabecalho e a lista de filtro, a outra tem a mochila
+ *
+ * Duplicar as 40 linhas faria as duas divergirem no primeiro ajuste: o
+ * tempo que resta apareceria num e nao no outro, e o jogador veria dois
+ * numeros para o mesmo anuncio
+ *
+ * ## POR QUE O CARD NAO TEM O NOME DO COMPRADOR
+ *
+ * Porque todos estes anuncios sao DO jogador que esta olhando. Nome de
+ * vendedor so faz sentido na vitrine alheia, e aqui ele repetiria o nome
+ * do proprio jogador em cada linha
+ */
+function ListaDeAnuncios({ anuncios, onCancel }) {
+  return (
+    <ul className="mkt-list">
+      {(anuncios ?? []).map((listing) => (
+        <li
+          key={listing.id}
+          className="mkt-item is-own"
+          style={listing.color ? { "--mkt": listing.color } : undefined}
+        >
+          <header className="mkt-item__head">
+            <ItemIcon
+              itemId={listing.itemId}
+              rarity={listing.rarity}
+              className="mkt-item__icon"
+              alt=""
+            />
+
+            <span className="mkt-item__names">
+              <strong>
+                {describeAnuncioItem({
+                  itemId: listing.itemId,
+                  rarity: listing.rarity,
+                  count: listing.count,
+                })}
+              </strong>
+            </span>
+
+            <span className="mkt-item__price">
+              <strong>{listing.price}</strong>
+            </span>
+          </header>
+
+          <footer className="mkt-item__foot">
+            <BarraTempo restanteMs={listing.restanteMs} />
+
+            <button
+              type="button"
+              className="mkt-item__cancel"
+              onClick={() => onCancel?.(listing.id)}
+            >
+              Cancelar
+            </button>
+          </footer>
+        </li>
+      ))}
+    </ul>
+  );
+}
+
+/**
+ * A ABA "MEUS ANUNCIOS".
+ *
+ * E a quarta pergunta do mercado, e ela e a mais especifica: nao "o que
+ * os outros vendem" (Comprar), nem "o que eu tenho para vender" (Vender) —
+ * e "o que EU ja coloquei a venda, e ate quando"
+ *
+ * ## POR QUE ELA PRECISA EXISTIR SENDO QUE A LISTA JA APARECE NA VENDER
+ *
+ * Porque a lista na aba VENDER esta embaixo da mochila e dos filtros, e o
+ * jogador precisa montar um anuncio para chegar nela. Quem veio conferir um
+ * anuncio so, para ver quanto tempo falta ou cancelar, tem que rolar a aba
+ * inteira — e a aba VENDER e a mais longa do painel, porque tem dois
+ * filtros e o formulario inteiro
+ *
+ * E o caso comum: quem anuncia, volta para ver se vendeu. Todo dia, ate
+ * o anuncio sair ou o prazo acabar
+ *
+ * ## E POR QUE A LISTA CONTINUA NA VENDER
+ *
+ * Porque quem esta no formulario e precisa ver o que ja tem aberto sem
+ * trocar de aba: o limite de anuncios so faz sentido com os dois visiveis
+ * ao mesmo tempo. Tirar de la obrigaria o jogador a alternar entre duas
+ * abas para montar um anuncio
+ */
+export function MeusAnunciosAba({ data, onCancel }) {
+  const meus = data?.meus ?? [];
+
+  const limites = data?.limites ?? VAZIO.limites;
+
+  if (meus.length === 0) {
+    return (
+      <div className="mkt-historico__escopo">
+        {/*
+          A CLASSE DO ESTADO VAZIO E A DO HISTORICO.
+          *
+          * `mkt-empty` nao tem regra nenhuma no CSS — quem escreve a classe
+          * nao recebe estilo. O estado vazio que ja funciona no historico e o
+          * `inv-panel__empty`, e e ele que centra o texto e da o respiro
+          *
+          * Nao criei uma regra nova para o nome certo, porque o nome certo
+          * aqui e o do estado vazio de um painel do jogo, e nao uma coisa
+          * so de lista vazia
+        */}
+        <p className="inv-panel__empty">
+          Voce nao tem anuncios abertos.
+        </p>
+
+        <p className="mkt-hint">
+          Use o botao + ANUNCIAR para colocar algo a venda. O anuncio aparece
+          aqui, com o tempo que resta e o botao de cancelar.
+        </p>
+      </div>
+    );
+  }
+
+  return (
+    <>
+      <p className="mkt-hint">
+        {meus.length < limites.maxAnuncios
+          ? `Anuncios abertos: ${meus.length}/${limites.maxAnuncios}. Validade: ${ANUNCIO_DIAS} dias.`
+          : `Voce atingiu o limite de ${limites.maxAnuncios} anuncios. Cancele um para abrir outro.`}
+      </p>
+
+      <ListaDeAnuncios anuncios={meus} onCancel={onCancel} />
+    </>
+  );
+}
+
 export default function MarketPanel({
   market,
   inventory,
@@ -99,83 +240,7 @@ export default function MarketPanel({
   };
 
   return (
-    <section className="inv-panel mkt-panel">
-      <nav className="inv-tabs mkt-tabs">
-        {ABAS.map((entrada) => (
-          <button
-            key={entrada.id}
-            type="button"
-            role="tab"
-            aria-selected={aba === entrada.id}
-            className={[
-              "inv-tab",
-              aba === entrada.id ? "is-active" : "",
-            ]
-              .filter(Boolean)
-              .join(" ")}
-            onClick={() => setAba(entrada.id)}
-            title={entrada.label}
-          >
-            <span className="mkt-tab__icon">
-              {entrada.icone}
-            </span>
-
-            <small>{entrada.label}</small>
-
-            {entrada.id === "vender" && (
-              <i className="mkt-tab__count">
-                {data.meus.length}/
-                {data.limites.maxAnuncios}
-              </i>
-            )}
-          </button>
-        ))}
-
-        <button
-          type="button"
-          className="inv-close"
-          onClick={onClose}
-          title="Fechar (M)"
-        >
-          ✕
-        </button>
-      </nav>
-
-      {/*
-        O CORPO, COM A COLUNA QUANDO A ABA E A DE COMPRAR.
-        *
-        * A modifier so vale para a vitrine: as outras duas abas
-        * (vender e historico) sao listas de uma coluna com a barra de rolagem
-        * do proprio corpo, e um `display: flex` aqui as quebraria
-      */}
-      <div
-        className={[
-          "mkt-panel__body",
-          aba === "comprar" ? "mkt-panel__body--vitrine" : "",
-        ]
-          .filter(Boolean)
-          .join(" ")}
-      >
-        {aba === "comprar" && (
-          <ComprarAba
-            data={data}
-            inventory={inventory}
-            onBuy={onBuy}
-          />
-        )}
-
-        {aba === "vender" && (
-          <VenderAba
-            data={data}
-            inventory={inventory}
-            onCancel={onCancel}
-            onList={onList}
-          />
-        )}
-
-        {aba === "historico" && <HistoricoAba data={data} />}
-      </div>
-    </section>
+    <></>
   );
 }
 
@@ -188,7 +253,7 @@ export default function MarketPanel({
  * O `useMemo` existe porque o filtro reordena e re-corta a lista, e
  * sem isso a vitrine inteira seria recalculada a cada tecla digitada
  */
-function ComprarAba({ data, inventory, onBuy }) {
+export function ComprarAba({ data, inventory, onBuy }) {
   const [tipo, setTipo] = useState("");
   const [raridade, setRaridade] = useState("");
   const [busca, setBusca] = useState("");
@@ -367,7 +432,7 @@ function ComprarAba({ data, inventory, onBuy }) {
                 className="mkt-item__buy mkt-card__buy"
                 onClick={() => onBuy?.(listing.id)}
                 disabled={!cabe(listing)}
-                title={
+                data-tip={
                   cabe(listing)
                     ? "Comprar"
                     : `Nao cabe: precisa de ${slotsNecessarios(
@@ -397,7 +462,7 @@ function ComprarAba({ data, inventory, onBuy }) {
  * O preco e um campo livre, e nao um `<select>` com opcoes. O jogador
  * precisa poder escrever 137, que e o preco que ele，愿意 pagar
  */
-function VenderAba({ data, inventory, onCancel, onList }) {
+export function VenderAba({ data, inventory, onCancel, onList }) {
   const [selecionado, setSelecionado] = useState(null);
   const [preco, setPreco] = useState("");
   const [quantidade, setQuantidade] = useState("");
@@ -506,54 +571,10 @@ function VenderAba({ data, inventory, onCancel, onList }) {
         <>
           <p className="mkt-section">Seus anuncios</p>
 
-          <ul className="mkt-list">
-            {data.meus.map((listing) => (
-              <li
-                key={listing.id}
-                className="mkt-item is-own"
-                style={
-                  listing.color
-                    ? { "--mkt": listing.color }
-                    : undefined
-                }
-              >
-                <header className="mkt-item__head">
-                  <ItemIcon
-                    itemId={listing.itemId}
-                    rarity={listing.rarity}
-                    className="mkt-item__icon"
-                    alt=""
-                  />
-
-                  <span className="mkt-item__names">
-                    <strong>
-                      {describeAnuncioItem({
-                        itemId: listing.itemId,
-                        rarity: listing.rarity,
-                        count: listing.count,
-                      })}
-                    </strong>
-                  </span>
-
-                  <span className="mkt-item__price">
-                    <strong>{listing.price}</strong>
-                  </span>
-                </header>
-
-                <footer className="mkt-item__foot">
-                  <BarraTempo restanteMs={listing.restanteMs} />
-
-                  <button
-                    type="button"
-                    className="mkt-item__cancel"
-                    onClick={() => onCancel?.(listing.id)}
-                  >
-                    Cancelar
-                  </button>
-                </footer>
-              </li>
-            ))}
-          </ul>
+          <ListaDeAnuncios
+            anuncios={data.meus}
+            onCancel={onCancel}
+          />
         </>
       )}
 
@@ -721,7 +742,7 @@ function VenderAba({ data, inventory, onCancel, onList }) {
 
 /* ------------------------------------------------------------------ */
 
-function HistoricoAba({ data }) {
+export function HistoricoAba({ data }) {
   /**
    * O HISTORICO E MEU DE PRIMEIRO.
    *
@@ -892,7 +913,7 @@ function Filtros({ tipo, raridade, onTipo, onRaridade }) {
  * com uma hora. A fracao do prazo mostra "quanto da oportunidade de
  * venda ainda existe", que e o que o vendedor precisa saber
  */
-function BarraTempo({ restanteMs }) {
+export function BarraTempo({ restanteMs }) {
   const total = ANUNCIO_DIAS * 24 * 60 * 60 * 1000;
 
   const fracao = Math.max(0, Math.min(1, restanteMs / total));
@@ -908,7 +929,7 @@ function BarraTempo({ restanteMs }) {
         : `${Math.max(0, Math.floor(restanteMs / 60_000))}m`;
 
   return (
-    <span className="mkt-time" title="Tempo que resta ate expirar">
+    <span className="mkt-time" data-tip="Tempo que resta ate expirar">
       <span
         className="mkt-time__bar"
         style={{ width: `${fracao * 100}%` }}

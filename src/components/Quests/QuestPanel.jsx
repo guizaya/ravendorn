@@ -1,4 +1,153 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
+
+/**
+ * O NOME LEGIVEL DE CADA PAINEL, para o botao do tutorial.
+ *
+ * E um mapa e nao um rotulo generico ("ABRIR") porque o botao que abre o
+ * CRAFT e o que abre a COLECAO precisam dizer onde vao. Um "ABRIR" em sete
+ * botoes identicos obriga o jogador a lembrar o nome de cada aba, que e
+ * exatamente o que o tutorial deveria ensinar
+ *
+ * A chave e o `PAINEL` do `HUD`, e o valor e o que o `data/quests`
+ * declara como `painel` no passo
+ */
+const ROTULO_DO_PAINEL = {
+  craft: "ABRIR CRAFT",
+  enchant: "ENCANTAR",
+  collection: "COLEÇÃO",
+  loja: "LOJA",
+};
+
+/**
+ * O MESMO MAPA, EXPORTADO.
+ *
+ * E a MISMA fonte para o botao do tutorial no painel e o da box da HUD.
+ * Sao dois botoes para a mesma acao: se um disser "ABRIR CRAFT" e o outro
+ * "ABRIR", o jogador leria como dois botoes diferentes para coisas
+ * diferentes
+ */
+export { ROTULO_DO_PAINEL };
+/**
+ * A WALKTHROUGH INTERATIVA DO TUTORIAL.
+ *
+ * ## O QUE ELA E
+ *
+ * Um cartao grande que abre junto com a missao de tutorial, e mostra tres
+ * coisas: em qual dos SETE passos o jogador esta, o que ele tem que fazer, e
+ * um botao que abre a aba certa
+ *
+ * ## POR QUE UM PASSO SEPARADO, E NAO MAIS UM TEXTO NO CARD
+ *
+ * Porque a lista de missoes e um HISTORICO de 29 linhas, e o tutorial
+ * atual esta no meio dela. O jogador abre o painel, ve "Passo 2 de 7" em um
+ * card separado acima da lista, e nao precisaachar qual das 29 linhas e a
+ * dele — ele ja sabe, e o numero responde
+ *
+ * ## POR QUE SO COM TUTORIAL EM FOCO
+ *
+ * Porque a walkthrough e ENSINO, e nao HUD. Ela some no instante em que a
+ * missao de tutorial e concluida e o proximo degrau de cacada vira o atual —
+ * e e ai que ela deve sumir, porque o jogador ja sabe jogar
+ *
+ * ## O BOTAO E O QUE FAZ ELA SER INTERATIVA
+ *
+ * Porque a alternativa era o jogador ler "crie 1 item no craft" e sair
+ * procurando a aba. O botao abre a aba, e o contador de passos mostra que
+ * ha seis mais
+ */
+function Walkthrough({ passos, atual, aoAbrirPainel }) {
+  const [passo, setPasso] = useState(0);
+
+  /**
+   * OS SETE PASSOS, e so os que tem `dica`.
+   *
+   * O filtro e o que garante que a walkthrough nao inventa um passo que nao
+   * existe: um tutorial sem `dica` nao tem o que ensinar, e um degrau de
+   * cacada nunca entra na conta
+   */
+  const trilha = passos.filter((p) => p.tutorial && p.dica);
+
+  /**
+   * O PASSO QUE ESTA EM FOCO.
+   *
+   * E o do tutorial atual, e nao o `passo` do `useState`. O estado e a
+   * navegacao entre passos ja vistos — o botao "anterior" anda por ele — mas
+   * quando a missao avanca para o proximo tutorial, o estado tem de seguir
+   * o jogo e nao o ultimo clique
+   *
+   * Sem este `useEffect`, o jogador terminaria o tutorial do craft, o proximo
+   * entraria em foco, e a walkthrough continuaria mostrando o passo 1 de 7
+   * enquanto a missao em tela e a de encantar
+   */
+  const indiceDoAtual = trilha.findIndex((p) => p.id === atual?.id);
+
+  useEffect(() => {
+    if (indiceDoAtual >= 0) setPasso(indiceDoAtual);
+  }, [indiceDoAtual]);
+
+  /**
+   * SEM TUTORIAL EM FOCO, NAO HA WALKTHROUGH.
+   *
+   * E o que a mantem fora da campanha de cacada, e o unico lugar que decide
+   * se ela existe
+   */
+  if (!atual?.tutorial || trilha.length === 0) return null;
+
+  const visivel = trilha[Math.min(passo, trilha.length - 1)];
+
+  return (
+    <div className="wt">
+      <div className="wt__topo">
+        <span className="wt__icone">{visivel.icone ?? "?"}</span>
+
+        <div className="wt__titulo">
+          <span className="wt__passo">
+            Passo {passo + 1} de {trilha.length}
+          </span>
+          <strong>{visivel.name}</strong>
+        </div>
+      </div>
+
+      <p className="wt__objetivo">{visivel.summary}</p>
+
+      {visivel.dica && <p className="wt__dica">{visivel.dica}</p>}
+
+      <div className="wt__pe">
+        {visivel.painel && aoAbrirPainel ? (
+          <button
+            type="button"
+            className="wt__ir"
+            onClick={() => aoAbrirPainel(visivel.painel)}
+          >
+            {ROTULO_DO_PAINEL[visivel.painel] ?? "ABRIR"}
+          </button>
+        ) : (
+          <span className="wt__sem-painel">
+            Acontece no mapa, na zona em que voce esta
+          </span>
+        )}
+
+        <div className="wt__pontos">
+          {trilha.map((p, i) => (
+            <button
+              key={p.id}
+              type="button"
+              className={[
+                "wt__ponto",
+                i === passo ? "is-on" : "",
+                i < passo ? "is-feito" : "",
+              ]
+                .filter(Boolean)
+                .join(" ")}
+              onClick={() => setPasso(i)}
+              data-tip={p.name}
+            />
+          ))}
+        </div>
+      </div>
+    </div>
+  );
+}
 import ItemIcon from "../UI/ItemIcon.jsx";
 import { getItem } from "../../data/items/index.js";
 import { QUEST_SCOPE } from "../../data/quests/index.js";
@@ -69,13 +218,19 @@ function contarPendentes(data, mapaId) {
       step.state !== "done" && mapaDaZona(step.location) === mapaId,
   ).length;
 
-  const sidePendentes = [
-    ...(data.side?.available ?? []),
-    ...(data.side?.current ? [data.side.current] : []),
-  ].filter(
-    (quest) =>
-      !quest.done && mapaDaZona(quest.location) === mapaId,
-  ).length;
+  /**
+   * A MESMA REGRA DO `contarProgresso`: so a secundaria EM ANDAMENTO.
+   *
+   * Sem esta linha as duas contas discordavam: a barra dizia 61% e o
+   * contador de pendencias dizia 24, porque uma lia as 12 secundarias
+   * disponiveis do mapa e a outra lia so a que estava em andamento
+   */
+  const sidePendentes =
+    data.side?.current &&
+    !data.side.current.done &&
+    mapaDaZona(data.side.current.location) === mapaId
+      ? 1
+      : 0;
 
   return passosPendentes + sidePendentes;
 }
@@ -91,20 +246,45 @@ function contarPendentes(data, mapaId) {
  * os `steps` da principal e as secundarias disponiveis/ativa
  */
 function contarProgresso(data, mapaId) {
-  if (!data) return { feitas: 0, total: 0, percent: 0 };
+    if (!data) return { feitas: 0, total: 0, percent: 0 };
 
-  const passos = (data.main?.steps ?? []).filter(
-    (step) => mapaDaZona(step.location) === mapaId,
-  );
+    const passos = (data.main?.steps ?? []).filter(
+      (step) => mapaDaZona(step.location) === mapaId,
+    );
 
-  const secundarias = [
-    ...(data.side?.available ?? []),
-    ...(data.side?.current ? [data.side.current] : []),
-  ].filter((quest) => mapaDaZona(quest.location) === mapaId);
+    /**
+     * A SECUNDARIA QUE CONTA E A QUE O JOGADOR ACEITOU.
+     *
+     * ## O QUE ESTAVA ERRADO
+     *
+     * O `available` traz as 23 secundarias do jogo inteiro, ACEITAS OU NAO.
+     * Elas entavam todas no total, e o mapa 1 ficava em `19/31` mesmo com as
+     * 19 missoes da campanha feitas — a barra nunca chegava a 100%
+     *
+     * E o oposto tambem era verdade: uma secundaria que o jogador fez e
+     * depois ARRASOU nao saia do total, porque `available` e o catalogo
+     * inteiro e nao o que ele esta fazendo
+     *
+     * ## POR QUE SO A `current` E A QUE ESTA NO `done`
+     *
+     * Porque `current` e a secundaria em andamento, e e a unica que o
+     * jogador pegou de verdade. Uma que ele fez e nao esta em andamento
+     * ja foi resgatada e saiu da `current` — e a barra conta o que ele FEZ,
+     * nao o que ele tem pendente
+     *
+     * E o `done` do `current` e lido daqui e nao do `done` de cada
+     * `available`: o `available` tem o `done` de todas, e usar ele aqui
+     * traria de volta o mesmo problema pelo outro lado
+     */
+    const secundarias = data.side?.current
+      ? [data.side.current].filter(
+          (quest) => mapaDaZona(quest.location) === mapaId,
+        )
+      : [];
 
-  const feitas =
-    passos.filter((step) => step.state === "done").length +
-    secundarias.filter((quest) => quest.done).length;
+    const feitas =
+      passos.filter((step) => step.state === "done").length +
+      secundarias.filter((quest) => quest.done).length;
 
   const total = passos.length + secundarias.length;
 
@@ -132,17 +312,127 @@ const TYPE_LABEL = {
 };
 
 /**
- * O bloco de RECOMPENSAS de uma missao: ouro, xp e itens.
+ * O NUMERO DA MISSAO, como `mapa.missao`.
  *
- * Fica a DIREITA do cartao, na ordem em que o jogador lida com eles:
- * moedas, xp, itens. E sempre o que a missao promete, e nao o que o
- * jogador ja recebeu — e o valor da coluna e ver antes de clicar no
- * [RECEBER]
+ * ## DE ONDE SAI OS DOIS NUMEROS
  *
- * Cada icone e a arte do item quando ele tem (`ItemIcon` cai no
- * glifo do catalogo quando nao tem), a moeda usa o mesmo `◉` do
- * contador de ouro da HUD, e o xp e um selo de texto. Nenhum dos
- * tres e um item do catalogo, entao os tres tem tratamento proprio
+ * Do id, que ja tem os dois: `map1_main_1_limo_pantano` e
+ * `map2_main_3_lanca_vale01`. O primeiro pedaco e o mapa, o terceiro e o
+ * indice do degrau dentro da escada daquele mapa
+ *
+ * ## POR QUE LER O ID E NAO PASSAR OS DOIS COMO PROP
+ *
+ * Porque o id e a unica coisa que os DOIS lados tem: o painel recebe a missao
+ * ja montada pelo servidor, e o servidor nao manda `mapa` nem `degrau` como
+ * campos. Passar os dois como prop seria criar um segundo lugar para o mesmo
+ * numero, e o primeiro lugar a divergir quando o save for antigo
+ *
+ * ## POR QUE VOLTA `null` E NAO UM NUMERO CHUTADO
+ *
+ * Porque um id fora do padrao e um save de outra versao, nao uma missao. O
+ * `null` some o numero e deixa o nome sozinho, que e o que o jogador ainda
+ * consegue ler. Um "0.0" no lugar seria pior que nada
+ */
+function numeroDaMissao(id) {
+    const partes = String(id ?? "").split("_");
+
+    /**
+     * O MAPA ESTA PARTIDO EM DUAS PARTES, e nao em uma.
+     *
+     * O `id` e `map_1_main_1_limo_pantano`, e dividir por underscore da
+     * `["map", "1", "main", "1", "limo", "pantano"]`. A expressao testava a
+     * PRIMEIRA parte esperando `map_1` inteiro, e ela e so `map` — o `1` foi
+     * junto com o separador
+     *
+     * A forma antiga do id era `map1_main_1`, que nao tinha separador entre
+     * o mapa e o numero
+     */
+    const temSeparador = partes[0] === "map";
+
+    const mapa = temSeparador
+      ? (/^\d+$/.test(partes[1] ?? "") ? partes[1] : null)
+      : (/^map(\d+)$/.exec(partes[0] ?? "")?.[1] ?? null);
+
+    /**
+     * O INDICE E REINICIADO A CADA MAPA, e nao lido do `id`.
+     *
+     * ## O QUE ESTAVA ERRADO
+     *
+     * O numero do `id` e a POSICAO GLOBAL na campanha: o mapa 1 tem 18
+     * passos, `1` a `18`, e o mapa 2 comeca em `19`. Ler o `id` direto
+     * mostrava `2.19` no primeiro passo do mapa 2
+     *
+     *## POR QUE ISSO E ERRADO PARA O JOGADOR
+     *
+     * Porque o numero na tela tem que responder "onde eu to", e nao "quantas
+     * coisas eu ja fiz". Quem abre o mapa 2 espera 2.1 — e `2.19` faz o
+     * jogador achar que pulou dezenove degraus, ou que o mapa tem capitulo
+     * anterior. O prefixo `2.` ja diz que e o segundo mapa; repetir dezenove
+     * vezes o primeiro digito so polui
+     *
+     * ## POR QUE NAO BASTAVA DESCONTAR OS DEGRAUS DO MAPA 1
+     *
+     * Porque os ids sao usados como CHAVE DE SAVE. Reescrever o `id` do mapa
+     * 2 para `main_1` faria todo save que guardou `map_2_main_19_...` deixar
+     * de achar a missao — e o jogador perderia o progresso sem nenhum erro
+     *
+     * Entao o `id` continua global e inalterado. O numero da tela e calculado
+     * pela POSICAO DENTRO DO MAPA, que e o que o jogador enxerga
+     */
+    const indiceGlobal = Number(
+      partes.find((parte, i) => i > 1 && /^\d+$/.test(parte)),
+    );
+
+    if (!mapa || !Number.isInteger(indiceGlobal) || indiceGlobal < 1) {
+      return null;
+    }
+
+    /**
+     * O `PRIMEIRO` indice global de cada mapa, para saber quantos degraus
+     * existiram antes
+     *
+     * E uma tabela de duas linhas e nao um calculo sobre `MAIN_QUESTS` porque
+     * a funcao nao pode depender da ordem do catalogo: um passo novo
+     * inserido no meio do mapa 1 mudaria o numero do mapa 2 inteiro, e o
+     * numero impresso passaria a depender de um arquivo que esta a tres
+     * `import` de distancia
+     */
+    const primeiroIndiceDoMapa = { 1: 1, 2: 19 };
+
+    const base = primeiroIndiceDoMapa[mapa] ?? 1;
+
+    const indice = indiceGlobal - base + 1;
+
+    if (indice < 1) return null;
+
+    return `${mapa}.${indice}`;
+  }
+
+/**
+ * O bloco de RECOMPENSAS: ouro, xp e itens, cada um num SLOT DE ITEM.
+ *
+ * ## POR QUE UM SLOT E NAO UM NUMERO SOLTO
+ *
+ * Porque o jogador nao le "45" e "120" como duas promessas diferentes: ele le
+ * uma fileira de coisas que vai receber. E o mesmo motivo do card da colecao,
+ * que e a referencia visual desta tela — os dois ficam com o nome a
+ * esquerda e os icones a direita, e o olho aprende o layout uma vez
+ *
+ * ## POR QUE UM SLOT PARA O OURO E PARA O XP
+ *
+ * Porque sao coisas que EXISTEM no jogo do mesmo jeito que um item. Ouro e
+ * a moeda que o jogador ve na HUD, xp e a barra do rodape, e um numero
+ * flutuando solto nao se liga a nenhuma das duas. Dentro do quadrado do
+ * slot, o glifo ja diz sozinho o que e
+ *
+ * ## POR QUE NAO HÁ BONUS DE ATRIBUTO AQUI
+ *
+ * O card da colecao mostra os bonuses permanentes porque E de la que eles
+ * vem — a entrega de material e o que sobe ataque, defesa e vida. Repetir
+ * um bonus de atributo no cartao da missao ensinaria que matar o mesmo
+ * numero de monstros tbem sobe stats, e o jogador passaria a contar as duas
+ * coisas como uma so. A missao paga ouro, xp e material; atributo e da
+ * colecao
  */
 function Rewards({ rewards }) {
   const coins = rewards?.coins ?? 0;
@@ -154,65 +444,71 @@ function Rewards({ rewards }) {
   }
 
   return (
-    <div
-      className="qst-rewards"
-      title="Recompensa ao concluir a missão"
+    <ul
+      className="qst-row__recompensas"
+      data-tip="Recompensa ao concluir a missão"
     >
       {coins > 0 && (
-        <span className="qst-reward qst-reward--gold">
-          <i aria-hidden="true">◉</i>
-          {coins}
-          <span className="qst-reward__sr">
-            {" "}
-            moedas
+        <li className="qst-premio">
+          <span className="inv-slot qst-premio__slot">
+            <span className="inv-slot__icon qst-premio__glifo">◉</span>
           </span>
-        </span>
+
+          <span className="qst-premio__conta">{coins}</span>
+
+          <span className="qst-reward__sr"> moedas</span>
+        </li>
       )}
 
       {xp > 0 && (
-        <span className="qst-reward qst-reward--xp">
-          <i aria-hidden="true">XP</i>
-          {xp}
+        <li className="qst-premio">
+          <span className="inv-slot qst-premio__slot">
+            <span className="qst-premio__selo">XP</span>
+          </span>
+
+          <span className="qst-premio__conta">{xp}</span>
+
           <span className="qst-reward__sr"> de xp</span>
-        </span>
+        </li>
       )}
 
       {items.map((premio) => {
         /**
          * O item do CATALOGO, e nao so o `itemId`.
          *
-         * O `ItemIcon` tira a arte do `itemId` + raridade, mas o
-         * glifo de quem nao tem arte vem do `item.icon`. Passando so
-         * o `itemId`, os materiais da missao — que sao todos sem arte
-         * desenhada — desenharia um icone VAZIO, que e pior que
-         * nenhum icone
+         * O `ItemIcon` tira a arte do `itemId` + raridade, mas o glifo de
+         * quem nao tem arte vem do `item.icon`. Passando so o `itemId`, os
+         * materiais da missao — que sao todos sem arte desenhada —
+         * desenharia um icone VAZIO, que e pior que nenhum icone
          */
         const item = getItem(premio.itemId);
 
         return (
-          <span
+          <li
             key={premio.itemId}
-            className="qst-reward qst-reward--item"
-            title={`${premio.count}x ${
-              item?.name ?? premio.itemId
-            }`}
+            className="qst-premio"
+            data-tip={`${premio.count}x ${item?.name ?? premio.itemId}`}
           >
-            <ItemIcon
-              item={item}
-              itemId={premio.itemId}
-              rarity={item?.rarity ?? null}
-              className="qst-reward__icon"
-              alt=""
-            />
-            <b>{premio.count}</b>
+            <span className="inv-slot qst-premio__slot">
+              <ItemIcon
+                item={item}
+                itemId={premio.itemId}
+                rarity={item?.rarity ?? null}
+                className="qst-premio__icone"
+                alt=""
+              />
+            </span>
+
+            <span className="qst-premio__conta">{premio.count}</span>
+
             <span className="qst-reward__sr">
               {" "}
               {item?.name ?? premio.itemId}
             </span>
-          </span>
+          </li>
         );
       })}
-    </div>
+    </ul>
   );
 }
 
@@ -243,14 +539,15 @@ function Progress({ progress, count }) {
  * icones por espaco
  */
 function QuestRow({
-  quest,
-  state,
-  onAccept,
-  onAbandon,
-  onFocus,
-  onClaim,
-  auto,
-}) {
+    quest,
+    state,
+    onAccept,
+    onAbandon,
+    onFocus,
+    onClaim,
+    aoAbrirPainel,
+    auto,
+  }) {
   const waiting = quest.autoCompletable === false;
   const claimable = Boolean(quest.claimable) || state === "claimed";
 
@@ -270,25 +567,84 @@ function QuestRow({
   return (
     <li className={classe}>
       <div className="qst-row__info">
-        <div className="qst-row__head">
-          <strong>{quest.name}</strong>
-          <span className="qst-row__type">
-            {TYPE_LABEL[quest.type] ?? quest.type}
-          </span>
-        </div>
+<div className="qst-row__head">
+                {/*
+                  O NUMERO DA MISSAO, ANTES DO NOME.
 
-        <p className="qst-row__text">
-          {quest.summary}
-        </p>
+                  ## POR QUE NAO E PARTE DO NOME
 
-        {progresso &&
-          !waiting &&
-          (state === "active" || state === "available") && (
-            <Progress
-              progress={quest.progress ?? 0}
-              count={quest.count}
-            />
-          )}
+                  Porque o nome e dado pelo catalogo e o numero e a posicao na
+                  escada. Sao coisas diferentes: renomear a missao no catalogo
+                  nao pode renumerar a campanha, e mudar a escada nao pode
+                  reescrever o nome que o jogador le no historico
+
+                  ## POR QUE ESPAÇADO E NAO COMO UM SEPARADOR
+
+                  Porque "1.2" colado em "Aco e Erro" leria como um numero de
+                  versioning. Com o ponto e o espaco, o olho le como
+                  coordenada — mapa 1, degrau 2 — que e o que o jogador precisa
+                  para pedir ajuda sobre a missao certa
+                */}
+                {numeroDaMissao(quest.id) && (
+                  <span className="qst-row__numero">
+                    {numeroDaMissao(quest.id)}
+                  </span>
+                )}
+
+                <strong>{quest.nameCompleto ?? quest.name}</strong>
+
+              {/*
+                A TAG DE TIPO SAIU, E O ESPACAMENTO FICOU.
+
+                "Cacada" nao dizia nada que o titulo nao dissesse: a missao se
+                chama "Aco e Erro", o resumo diz "Mate 8..." e o icone de alvo
+                ja esta na recompensa. A etiqueta ocupava uma caixa entre o
+                nome e a coluna de icones, e era o unico elemento da linha que
+                nao respondia a pergunta "quanto eu ganho com isto"
+
+                O que fica no lugar dela e um espaco vazio do MESMO tamanho, e
+                nao um espacamento novo: o espaco era parte do que o jogador
+                ja leu, entao tira-lo junto com a caixa mexeria na posicao dos
+                icones e faria o card parecer quebrado em vez de limpo
+              */}
+            </div>
+
+<p className="qst-row__text">
+            {quest.summary}
+          </p>
+
+          {/*
+            A DICA DO TUTORIAL, SO NO TUTORIAL E SO NA MISSAO ATIVA.
+
+            E o que separa "Crie 1 item no craft" de "Abra o CRAFT (C). A
+            primeira receita do Osso Quebrado usa 5 unidades e nao custa
+            ouro". O `summary` e o QUE, e a dica e o COMO — e sem o como o
+            jogador so descobre onde fica o craftcuando ele ja devolveu o
+            tutorial sem ter clicado em nada
+
+            Aparece so quando a missao esta em foco (`active`) ou disponivel:
+            uma dica de tutorial numa missao que o jogador ainda nao pegou
+            seria spoil da campanha, e uma dica na campanha inteira poluiria
+            a coluna de texto
+
+            E so em tutorial: o campo `dica` so existe neles, e o
+            `quest.tutorial` e a trava — um campo vazio nao passaria aqui
+            mesmo
+          */}
+          {quest.dica &&
+            quest.tutorial &&
+            (state === "active" || state === "available") && (
+              <p className="qst-row__dica">{quest.dica}</p>
+            )}
+
+          {progresso &&
+            !waiting &&
+            (state === "active" || state === "available") && (
+              <Progress
+                progress={quest.progress ?? 0}
+                count={quest.count}
+              />
+            )}
 
         {waiting && state === "active" && (
           <span className="qst-row__waiting">
@@ -313,7 +669,7 @@ function QuestRow({
             type="button"
             className="qst-action qst-action--claim"
             onClick={() => onClaim?.(quest.id)}
-            title="Receber moedas, xp e itens"
+            data-tip="Receber moedas, xp e itens"
           >
             RECEBER
           </button>
@@ -325,7 +681,60 @@ function QuestRow({
           >
             Aceitar
           </button>
+        ) : quest.tutorial && state === "active" && aoAbrirPainel && quest.painel ? (
+          /*
+            O BOTAO DO TUTORIAL, E ELE ABRE O PAINEL CERTO.
+
+            ## POR QUE ELE SUBSTITUI O "IR" DO CARD
+
+            Porque o "IR" marca o objetivo para o AUTO, e o AUTO nao sabe
+            fazer tutorial nenhum. O jogador chega no degrau, liga o auto,
+            o auto vai ate a zona e fica parado olhando um esqueleto — ele
+            nao abre craft, nao encanta e nao minera. E o auto parametro
+            e o comportamento CORRETO: nenhuma acao de sistema cabe em "mate
+            o bicho da zona"
+
+            ## POR QUE SO NOS TUTORIAIS
+
+            Porque so eles precisam do painel. Uma missao de cacada tem zona
+            e o auto resolve; uma de tutorial tem aba, e o que resolve e um
+            clique
+
+            ## E POR QUE A CONDIÇÃO TEM `quest.painel`
+
+            Porque o tutorial de minerar nao tem painel nenhum: ele acontece
+            no mapa, numa pedra. Sem `painel` ele cai no `onFocus` como antes,
+            que e o comportamento certo — ele marca o objetivo e o auto leva
+            o jogador ate a zona
+          */
+          <button
+            type="button"
+            className="qst-action qst-action--tutorial"
+            onClick={() => aoAbrirPainel(quest.painel)}
+            data-tip={`Abre ${ROTULO_DO_PAINEL[quest.painel] ?? "o painel"}`}
+          >
+{ROTULO_DO_PAINEL[quest.painel] ?? "ABRIR"}
+          </button>
         ) : onFocus && state === "active" && !waiting ? (
+          /*
+            ESTE BOTAO E O "IR", E O AUTO DO CARD.
+
+            ## POR QUE O ROTULO MUDOU
+
+            Porque "Completar auto" prometia uma coisa que o botao nao faz:
+            ele nao completa nada, ele APONTA. O `onFocus` marca o objetivo
+            como o atual, e quem vai la e o motor da missao automatica — a
+            execucao depende do AUTO do cabecalho estar ligado
+
+            Dizer "Completar auto" num botao que so seleciona levava o
+            jogador a clicar esperando ver o boneco correr, e nada acontecia
+            enquanto o AUTO do cabecalho estivesse desligado
+
+            ## E POR QUE O TUTORIAL NAO VEM AQUI
+
+            Porque o auto nao sabe fazer tutorial: ele nao abre aba nenhuma.
+            O tutorial cai no botao de cima, que abre o painel certo
+          */
           <button
             type="button"
             className={[
@@ -336,15 +745,39 @@ function QuestRow({
               .filter(Boolean)
               .join(" ")}
             onClick={() => onFocus(quest.id)}
-            title="Completar esta missão em modo automático"
+            data-tip={
+              auto
+                ? "Esta é a missão que o modo automático está seguindo"
+                : "Seguir esta missão automaticamente"
+            }
           >
-            {auto ? "AUTO" : "Completar auto"}
+            IR
           </button>
-        ) : state === "done" ? (
-          <span className="qst-action qst-action--done">
-            ✓ CONCLUÍDA
-          </span>
         ) : null}
+
+        {/*
+          A COLUNA DA DIREITA NAO MOSTRA NADA QUANDO A MISSAO FOI RECEBIDA.
+
+          ## POR QUE O "✓ CONCLUÍDA" SAIU
+
+          Porque ele e um resumo de um ESTADO INTERMEDIO que o jogador nunca ve.
+          A sequencia real e: o objetivo acaba -> [RECEBER] aparece -> o jogador
+          clica -> a recompensa entra. O "CONCLUÍDA" aparecia depois do clique,
+          quando ja nao havia nada a fazer ali — e um carimbo nao-acao no
+          lugar onde o jogador procura o proximo passo
+
+          ## POR QUE O CARD CONTINUA NA LISTA
+
+          Porque a lista e o HISTORICO. A missao precisa continuar visivel para
+          o jogador conferir que fez, e para o numero `mapa.missao` fazer
+          sentido. Some a ETIQUETA, nao o cartao
+
+          ## POR QUE NAO TROQUEI POR "PRONTA"
+
+          Porque "pronta" e o estado ANTES do resgate, e esse ja tem o
+          [RECEBER] falando por ele. Duas etiquetas para o mesmo estado e o
+          jogador tendo que decidir qual das duas e a correta
+        */}
 
         {onAbandon && state === "active" && (
           <button
@@ -418,7 +851,7 @@ function MapRail({ mapaAtivo, onSelect, quests }) {
             .join(" ")}
           aria-selected={mapaAtivo === mapa.id}
           onClick={() => onSelect(mapa.id)}
-          title={`${mapa.name} — ${mapa.pendentes} missão(ões) a fazer`}
+          data-tip={`${mapa.name} — ${mapa.pendentes} missão(ões) a fazer`}
         >
           {/*
             A BARRA DE AVANCO DO MAPA.
@@ -477,6 +910,7 @@ export default function QuestPanel({
   onFocus,
   onToggleAuto,
   onClaim,
+  aoAbrirPainel,
 }) {
   const data = quests ?? {
     main: { steps: [], current: null, total: 0 },
@@ -506,12 +940,29 @@ export default function QuestPanel({
    */
   const [mapa, setMapa] = useState(MAPO_INICIAL);
 
-  // a aba segue o trabalho do jogador: com uma side ativa e uma
-  // principal em andamento, a principal tem prioridade, porque e
-  // ela que desbloqueia a campanha
-  const [tab, setTab] = useState(() =>
-    data.main?.current ? "main" : "side",
-  );
+  /**
+   * A ABA, E ELA COMECA SEMPRE NA PRINCIPAL.
+   *
+   * ## POR QUE NAO "PRINCIPAL, OU SECUNDARIA SE NAO HOUVER PRINCIPAL"
+   *
+   * Era esse o codigo antes, e ele abria na aba errada. O inicializador de
+   * um `useState` roda UMA vez, na primeira montagem do componente — e nessa
+   * hora o `snapshot` das missoes pode ainda nao ter chegado. Com
+   * `data.main.current` valendo `null` naquele instante, o painel fixava
+   * `"side"` e ficava nela para sempre, mesmo depois de a campanha comecar
+   *
+   * O defeito era invisivel em desenvolvimento e na playteste, porque ali o
+   * snapshot ja estava carregado quando o painel abria. Ele aparecia em jogo
+   * online, onde a primeira abertura acontece logo apos conectar
+   *
+   * ## E POR QUE A PRINCIPAL E A PADRAO MESMO SEM NENHUMA
+   *
+   * Porque a campanha e a escada: ela e o que existe, e a secundaria e o
+   * desvio. Quando a campanha acaba, a aba da principal continua sendo a
+   * certaina — e mostrar uma lista de concluidas e melhor que abrir em
+   * branco numa aba que o jogador nao pediu
+   */
+  const [tab, setTab] = useState("main");
 
   /**
    * O QUE PERTENCE A ABA ABERTA.
@@ -619,15 +1070,6 @@ export default function QuestPanel({
   return (
     <section className="qst-panel">
       <header className="qst-panel__head">
-        <button
-          type="button"
-          className="inv-close"
-          onClick={onClose}
-          title="Fechar (Q)"
-        >
-          ✕
-        </button>
-
         <h2>Missões</h2>
 
         {resgataveis.length > 0 && (
@@ -640,20 +1082,52 @@ export default function QuestPanel({
           </span>
         )}
 
-        <button
-          type="button"
-          className={[
-            "qst-auto",
-            auto.enabled ? "is-on" : "",
-          ]
-            .filter(Boolean)
-            .join(" ")}
-          onClick={onToggleAuto}
-          title="Completar a missão em modo automático"
-        >
-          {auto.enabled ? "AUTO ON" : "AUTO"}
-        </button>
-      </header>
+{/*
+    O LADO DIREITO DO CABECALHO: o AUTO e o X, COLADOS.
+
+    ## POR QUE UM WRAPPER
+
+    Antes o AUTO era um filho solto com `margin-left: auto`, e o X vinha
+    depois. Os dois ficavam a direita, mas separados pelo `gap: 12px` do
+    cabecalho — um espaco que existe para o TITULO nao encostar em nada, e
+    que aqui estava empurrando o AUTO para longe do X
+
+    ## POR QUE O X CONTINUA SENDO O ULTIMO
+
+    Porque e a convencao de todos os outros paineis: o X fecha a coluna da
+    direita e o jogador aprende a procurar ele no canto. O AUTO vem antes
+    dele, no mesmo par
+
+    ## POR QUE O AUTO FICA NA MESMA LINHA E NAO NUM SEGUNDO BLOCO
+
+    Porque sao o mesmo tempo de leitura — acao do painel e o fim do painel.
+    Um AUTO numa barra propria embaixo transformaria uma linha em duas
+  */}
+          <div className="qst-panel__acoes">
+            <button
+              type="button"
+              className={[
+                "qst-auto",
+                auto.enabled ? "is-on" : "",
+              ]
+                .filter(Boolean)
+                .join(" ")}
+              onClick={onToggleAuto}
+              data-tip="Completar a missão em modo automático"
+            >
+              {auto.enabled ? "AUTO ON" : "AUTO"}
+            </button>
+
+            <button
+              type="button"
+              className="inv-close"
+              onClick={onClose}
+              data-tip="Fechar (Q)"
+            >
+              ✕
+            </button>
+          </div>
+        </header>
 
       <div className="qst-panel__split">
         <MapRail
@@ -681,7 +1155,7 @@ export default function QuestPanel({
               .join(" ")}
             aria-selected={ativa === entry.id}
             onClick={() => setTab(entry.id)}
-            title={
+            data-tip={
               entry.id === "side"
                 ? hasActiveSide
                   ? "Uma secundária ativa por vez"
@@ -776,6 +1250,7 @@ export default function QuestPanel({
                       current ? onFocus : undefined
                     }
                     onClaim={onClaim}
+                      aoAbrirPainel={aoAbrirPainel}
                   />
                 );
               })}
@@ -795,6 +1270,7 @@ export default function QuestPanel({
                   onAbandon={onAbandon}
                   onFocus={onFocus}
                   onClaim={onClaim}
+                      aoAbrirPainel={aoAbrirPainel}
                 />
               </ul>
             )}
@@ -832,6 +1308,7 @@ export default function QuestPanel({
                       state === "available" ? onAccept : null
                     }
                     onClaim={onClaim}
+                      aoAbrirPainel={aoAbrirPainel}
                   />
                 );
               })}

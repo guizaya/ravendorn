@@ -22,6 +22,11 @@
  *
  * A do mestre de habilidades e 1205x1306, que e o MAIOR arquivo de NPC
  * do jogo. E a escala dele que corrige isso — ver `NPC_TYPES.habilidades`
+ *
+ * O bau tambem e 1254x1254, e ele e QUADRADO: a arte antiga preenchia a
+ * moldura inteira e a nova (`storage_2.png`) tem margem transparente em
+ * volta do desenho. E o desenho que mede na tela, nao a moldura — ver
+ * `NPC_TYPES.bau`
  */
 export const NPC_SPRITE_SIZES = Object.freeze({
   mercador: Object.freeze({
@@ -31,6 +36,10 @@ export const NPC_SPRITE_SIZES = Object.freeze({
   habilidades: Object.freeze({
     width: 1205,
     height: 1306,
+  }),
+  bau: Object.freeze({
+    width: 1254,
+    height: 1254,
   }),
 });
 
@@ -46,6 +55,24 @@ export const NPC_SHEETS = Object.freeze({
   ).href,
   habilidades: new URL(
     "../../assets/npc/habilidades_base.png",
+    import.meta.url,
+  ).href,
+
+  /**
+   * O BAU: `storage_2.png`, e nao o `storage.png` antigo.
+   *
+   * O caminho e um literal inteiro de propósito — o Vite so empacota
+   * `new URL` escrito na mão, e montar o nome por variável faz a arte
+   * sumir no build (ver o comentario do topo deste arquivo)
+   *
+   * O `storage.png` antigo continua em `src/assets/npc/` e nenhum codigo
+   * aponta para ele. Ele ficou no disco de proposito: apagar um arquivo de
+   * arte que o jogador pode querer de volta nao faz parte de trocar a
+   * referencia, e o Vite ja o deixa de fora do build por nao ser
+   * importado por nada
+   */
+  bau: new URL(
+    "../../assets/npc/storage_2.png",
     import.meta.url,
   ).href,
 });

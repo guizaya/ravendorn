@@ -208,30 +208,65 @@ describe("ogre da predeira: corpo a corpo", () => {
   });
 });
 
-describe("ogre da predeira: sprite direcional sem idle", () => {
+describe("o goblin: sprite direcional com idle por direcao e morte", () => {
   it("tem sprite directional registrado pelo id da criatura", () => {
     const sprite = getEnemySprite(TIPO);
 
     expect(sprite).toBeTruthy();
-    expect(sprite.id).toBe(TIPO);
-    expect(sprite.frameWidth).toBe(68);
+    expect(sprite.frameWidth).toBe(84);
   });
 
-  it("TODO ogre usa a folha da predeira, o da pedreira incluso", () => {
-    // O que motivou isto: no jogo apareciam os dois ogres lado a
-    // lado com artes diferentes. O `ogre` da pedreira usava
-    // `enemies/ogre.png`, uma folha de 32px, e o da predeira a
-    // direcional de 68px. A regra e que todo ogre usa a folha da
-    // predeira
+  it("os DOIS ogres do mapa 1 agora sao o MESMO goblin", () => {
+    // ## O QUE MUDOU
+    //
+    // O `ogre` da pedreira e o `ogre_da_predeira` do Campo de Provas eram
+    // duas criaturas com nomes diferentes e folhas diferentes. Os dois
+    // ids viraram goblins, e os dois usam a folha nova
+    //
+    // Sao o mesmo bicho: mesmo preco, mesmo couro, mesmos numeros base.
+    // O que separa os dois no jogo e o nivel — 7 no Campo de Provas, de 8
+    // a 12 na pedreira — e nao a aparencia
     const daPedreira = getEnemySprite("ogre");
 
     expect(daPedreira).toBeTruthy();
     expect(daPedreira.format).toBe("directional");
-    expect(daPedreira.frameWidth).toBe(68);
+    expect(daPedreira.frameWidth).toBe(84);
 
-    // e as DUAS criaturas compartilham a mesma definicao, e nao duas
-    // copias que podem divergir com o tempo
+    // o MESMO objeto, e nao duas copias: os dois ogres do mapa 1 sao um
+    // bicho so, e duas definicoes que podem divergir com o tempo
     expect(daPedreira).toBe(getEnemySprite(TIPO));
+  });
+
+  it("o goblin tem animacao de morte, com ultimo quadro travado", () => {
+    const goblin = getEnemySprite("ogre");
+
+    // a arte de morte veio so do sul, e por isso ela aponta para uma
+    // linha com `row` e nunca por `rowOffset`
+    expect(goblin.animations.death.row).toBe(24);
+    expect(goblin.animations.death.rowOffset).toBeUndefined();
+
+    // o `holdLast` e o que segura o cadaver no ultimo quadro durante o
+    // esmaecimento. Sem ele o ciclo recomecaria e o cadaver voltaria a
+    // se mexer enquanto some
+    expect(goblin.animations.death.holdLast).toBe(true);
+
+    // o relogio do motor sai destes dois numeros: ciclo mais esmaecimento
+    expect(goblin.deathDuration).toBeGreaterThan(0);
+    expect(goblin.deathFade).toBeGreaterThan(0);
+  });
+
+  it("o idle do goblin e POR DIRECAO, e nao uma linha so", () => {
+    const { idle, attack, walk } = getEnemySprite("ogre").animations;
+
+    // a folha do goblin e 8 walk + 8 idle + 8 attack + 1 death, entao o
+    // idle comeca na 8 e o golpe na 16 — e nao na 9, que era o do
+    // ogre de antes
+    expect(idle.rowOffset).toBe(8);
+    expect(idle.row).toBeUndefined();
+
+    expect(attack.rowOffset).toBe(16);
+
+    expect(walk.rowOffset ?? 0).toBe(0);
   });
 
   it("o ogre da pedreira virou direcional de verdade, e nao so no nome", () => {
@@ -251,36 +286,38 @@ describe("ogre da predeira: sprite direcional sem idle", () => {
         ?.definition;
 
       expect(definicao?.format, ogre.id).toBe("directional");
-      expect(definicao?.frameWidth, ogre.id).toBe(68);
+
+      // a celula subiu de 68 para 84: a arte nova do goblin veio maior
+      // em quase todos os angulos
+      expect(definicao?.frameWidth, ogre.id).toBe(84);
     }
 
     engine.destroy();
   });
 
-  it("usa a linha 8 para o golpe, e a da direcao para o andar", () => {
+  it("usa a linha 16 para o golpe, e a da direcao para o andar", () => {
     const sprite = getEnemySprite(TIPO);
 
     const { attack, walk, idle } = sprite.animations;
 
-    // a folha tem 8 linhas de caminhada e 8 de golpe, sem a de idle
-    // no meio: por isso o `rowOffset` do golpe e 8, e nao 9 como no
-    // arqueiro zumbi
-    expect(attack.rowOffset).toBe(8);
+    // a folha do goblin tem 8 de caminhada, 8 de idle e 8 de golpe, mais
+    // uma de morte: por isso o `rowOffset` do golpe e 16, e nao 8
+    expect(attack.rowOffset).toBe(16);
 
     // o andar e por direcao, sem deslocamento
     expect(walk.rowOffset ?? 0).toBe(0);
 
-    // o idle e UM frame, sem `row`: e o primeiro frame da
-    // caminhada da propria direcao
-    expect(idle.length).toBe(1);
+    // o idle e por direcao tambem: oito linhas de verdade, e nao um frame
+    // da caminhada. O `idle.length` e 8, nao 1
+    expect(idle.length).toBe(8);
     expect(idle.row).toBeUndefined();
-    expect(idle.rowOffset).toBeUndefined();
+    expect(idle.rowOffset).toBe(8);
   });
 
   it("congela o idle na direcao certa, em vez de marchar parado", () => {
     const sprite = getEnemySprite(TIPO);
 
-    // virado para o norte: a linha de walk do norte e a 6
+    // virado para o norte: a linha de idle do norte e a 14
     const norte = resolveFrameRect(
       sprite,
       "idle",
@@ -295,10 +332,11 @@ describe("ogre da predeira: sprite direcional sem idle", () => {
       { x: 0, y: 1 },
     );
 
-    // linhas diferentes por direcao, e sempre na faixa da
-    // caminhada (0 a 7): nunca na linha 8, que e o golpe
+    // linhas diferentes por direcao, e sempre na faixa do idle
+    // (8 a 15): nunca na caminhada (0 a 7) nem no golpe (16 a 23)
     expect(norte.y).not.toBe(sul.y);
-    expect(norte.y).toBeLessThan(8 * sprite.frameHeight);
+    expect(norte.y).toBeGreaterThanOrEqual(8 * sprite.frameHeight);
+    expect(norte.y).toBeLessThan(16 * sprite.frameHeight);
 
     // e o MESMO frame, com o tempo parado: um idle que anda no
     // tempo viraria uma marcha no lugar
@@ -332,7 +370,7 @@ describe("ogre da predeira: sprite direcional sem idle", () => {
     // pacote
     expect(resolveCreatureAnimation(ogre)).toBe("attack");
 
-    // e a arte de golpe sai da linha 8, nao da caminhada
+    // e a arte de golpe sai da linha 16, nao da caminhada nem do idle
     const rect = resolveFrameRect(
       sprite,
       "attack",
@@ -341,7 +379,7 @@ describe("ogre da predeira: sprite direcional sem idle", () => {
     );
 
     // virado para o leste: a linha 0 do bloco de golpe
-    expect(rect.y).toBe(8 * sprite.frameHeight);
+    expect(rect.y).toBe(16 * sprite.frameHeight);
 
     engine.destroy();
   });
@@ -366,16 +404,32 @@ describe("ogre da predeira: sprite direcional sem idle", () => {
         sprite.frameHeight,
     );
 
-    // Oito linhas DISTINTAS, de 8 a 15. A duplicacao da arte esta
-    // nos PIXELS dessas linhas, e nao no indice: a folha tem oito
-    // slots de golpe, tres deles com a arte copiada de outro lado.
-    // O `ogreSheet.test.js` e quem trava essa copia
-    expect(linhas).toEqual([8, 9, 10, 11, 12, 13, 14, 15]);
+    // Oito linhas DISTINTAS, de 16 a 23. A arte do goblin veio completa
+    // nas oito direcoes do golpe, sem nenhuma copia: a pasta `attack/`
+    // tem um gif por angulo
+    expect(linhas).toEqual([16, 17, 18, 19, 20, 21, 22, 23]);
 
-    // e nenhuma delas cai na faixa da caminhada (0 a 7)
+    // e nenhuma delas cai na caminhada (0 a 7) nem no idle (8 a 15)
     for (const linha of linhas) {
-      expect(linha).toBeGreaterThanOrEqual(8);
-      expect(linha).toBeLessThan(16);
+      expect(linha).toBeGreaterThanOrEqual(16);
+      expect(linha).toBeLessThan(24);
+    }
+  });
+
+  it("a MORTE e a MESMA linha para as oito direcoes", () => {
+    const sprite = getEnemySprite(TIPO);
+
+    // A arte veio so do sul, entao a morte nao tem direcao: e a linha 24
+    // para qualquer angulo que o goblin estivesse olhando quando morreu
+    for (const lado of lados) {
+      const rect = resolveFrameRect(
+        sprite,
+        "death",
+        0.05,
+        lado,
+      );
+
+      expect(rect.y).toBe(24 * sprite.frameHeight);
     }
   });
 });

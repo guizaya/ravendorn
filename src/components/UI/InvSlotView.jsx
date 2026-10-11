@@ -35,6 +35,16 @@ export default function InvSlotView({
   children = null,
   onSelect = null,
   selected = false,
+
+  /**
+   * O ITEM ESTA MARCADO PARA EXCLUSAO EM LOTE?
+   *
+   * E separado do `selected` de proposito. O `selected` e o item COMPRADO, com
+   * o fundo dourado; este e o item MARCADO, com um quadrado no canto. Sao
+   * dois estados diferentes e eles nunca podem virar o mesmo visual, senao o
+   * jogador marcaria um item e oaria que comprou
+   */
+  marcado = false,
 }) {
   const item = getItem(entry.itemId);
 
@@ -144,15 +154,95 @@ export default function InvSlotView({
         </span>
       )}
 
-      {item.tier > 0 && (
-        <span className="inv-slot__badge inv-slot__badge--tier">
-          T{item.tier}
+      {/*
+        O NIVEL DE APRIMORAMENTO, e nao mais o tier do item.
+
+        ## POR QUE O `item.tier` SUMIU
+
+        O badge mostrava `T3` — o tier do catalogo, que e uma propriedade
+        do ITEM e nao da peca na mao do jogador. Todas as espadas T3
+        mostravam a mesma coisa
+
+        Agora o que aparece e o APRIMORAMENTO: quantos niveis o jogador
+        pagou nesta peca especifica. Duas espadas T3 saem da loot table com
+        o mesmo tier, e so uma delas foi aprimorada tres vezes
+
+        E por isso que o tier sumiu em vez de virar outra linha: ele e
+        dedutivel pela raridade, e a raridade ja esta escrita no card.
+        O badge sobrou para a informacao que o card nao tem
+
+        ## POR QUE SO APARECE COM APRIMORAMENTO
+
+        Porque um `+0` nao informa nada — e o pior lugar para um numero
+        que nao informa nada e o CANTO do slot, onde o olho vai antes de
+        qualquer leitura. A peca sem aprimoramento fica sem badge, e o
+        silencio e a informacao
+
+        ## POR QUE A CLASSE E `--nivel` E NAO `--tier`
+
+        Porque o `inv-slot__badge--tier` continua existindo no CraftPanel,
+        onde e a tier da RECEITA — outra coisa, que nao tem aprimoramento.
+        Reusar a classe antiga deixaria o nome mentindo para quem for mexer
+        depois
+      */}
+      {(entry.enhance ?? 0) > 0 && (
+        <span
+          className="inv-slot__badge inv-slot__badge--nivel"
+          data-tip={`Aprimoramento nível ${entry.enhance}`}
+        >
+          +{entry.enhance}
         </span>
       )}
 
       {unique && (
-        <span className="inv-slot__mark" title="Item único" />
+        <span className="inv-slot__mark" data-tip="Item único" />
       )}
+
+      {/*
+        A BALANCA DA NEGOCIABILIDADE.
+
+        ## POR QUE UM GLIFO E NAO UM TEXTO
+
+        Porque o slot tem 68px e quatro coisas ja disputam o canto: o badge de
+        aprimoramento, o de equipado, a marca de unico e a conta. Uma palavra
+        nao cabe em nenhum canto desse, e um icone de balanca e reconhecido
+        sem leitura
+
+        ## POR QUE NO CANTO E NAO NO CENTRO
+
+        Porque o centro e da arte. A balanca é informacao sobre a peca, e
+        informacao sobre a peca neste jogo vive na borda — e o que o jogador
+        procura sem tirar o olho do sprite
+
+        ## POR QUE SO COMERCIALIZAVEL E NAO TAMBEM "NAO COMERCIALIZAVEL"
+
+        Porque o silencio ja e a resposta. Marcar as duas exigiria um segundo
+        icone, um segundo canto, e o jogador leria a ausenca do segundo icone do
+        mesmo jeito que leria a presenca do primeiro. A regra do jogo e "a
+        maioria nao pode", entao o incomum e o que merece o destaque
+      */}
+      {entry.comercializavel && (
+        <span
+          className="inv-slot__badge inv-slot__badge--negociavel"
+          data-tip="Pode ser anunciado no mercado"
+        >
+          ⚖
+        </span>
+      )}
+
+      {/*
+        O MARCA DE SELECAO.
+
+        E um quadrado vazio que vira ooso quando o item esta marcado. Sem ele
+        o jogador nao teria como distinguir "item selecionado" de "item com
+        borda highlightada", e a selecao viraria um estado invisivel
+      */}
+{marcado && (
+          <span
+            className="inv-slot__selecao"
+            aria-hidden="true"
+          />
+        )}
 
       {entry.count > 1 && (
         <span className="inv-slot__count">{entry.count}</span>

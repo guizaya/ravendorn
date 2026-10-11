@@ -93,6 +93,18 @@ export class GameClient {
     /** o ultimo painel que o servidor mandou (inventario, missoes...) */
     this.painel = null;
 
+    /**
+     * QUEM QUER REAGIR AO PAINEL CHEGANDO.
+     *
+     * Um `Set` e nao um `onState` novo porque o `onState` ja e do dono do
+     * jogo — o `GameCanvas` — e um segundo callback overwrite o primeiro
+     *
+     * Existe para o `iniciarFarmOffline`, que precisa saber que o
+     * servidor JA_atendeu antes de deixar o jogador sair. O painel e a
+     * unica resposta que existe: o pedido nao tem confirmacao propria
+     */
+    this.painelOuvintes = new Set();
+
     this.keys = new Set();
     this.ponteiro = { x: 0, y: 0, inside: false };
 
@@ -285,8 +297,31 @@ export class GameClient {
   }
 
   /**
-   * Pede a limpeza da mochila pelo filtro.
+   * AVISA QUEM ESTAVA ESPERANDO O PAINEL.
    *
+   * ## POR QUE COPIA O SET ANTES DE ITERAR
+   *
+   * Porque um listener pode se remover no meio da chamada — o
+   * `iniciarFarmOffline` faz isso ao confirmar. Iterar o `Set` enquanto
+   * ele se modifica pula o proximo, e o painel pararia de avisar depois
+   * do primeiro uso
+   *
+   * E o `try` porque um listener que lanca nao pode impedir os outros de
+   * serem avisados: o painel ja chegou, e quem nao foi avisado ficaria
+   * esperando para sempre
+   */
+  avisaPainel() {
+    for (const ouvinte of [...this.painelOuvintes]) {
+      try {
+        ouvinte(this.painel);
+      } catch {
+        // um listener quebrado nao derruba o painel dos outros
+      }
+    }
+  }
+
+  /**
+   * Pede a limpeza da mochila pelo filtro.
    * Antes o botao "Limpar mochila" chamava o motor da tela, que
    * online nao tem a sessao do jogador: o pedido morria no cliente e
    * a mochila continuava cheia. Online quem limpa e o servidor, e so
@@ -311,8 +346,137 @@ export class GameClient {
     });
   }
 
-  alternarAutoPlay() {
-    return this.pedirPainel({ op: PANEL_OPS.TOGGLE_AUTO_PLAY });
+  /**
+   * LIGA O FARM OFFLINE, e ESPERA o servidor confirmar.
+   *
+   * ## POR QUE ISSO DEVOLVE UMA PROMISE E NAO UM BOOLEAN
+   *
+   * Porque o proximo passo do jogador e DESCONECTAR, e o
+   * `desconectar` faz `this.fila = []`. Um `true` aqui seria a promessa
+   * de que o pedido saiu, e o jogador sairia na mesma hora em que a
+   * linha seguinte do React desmonta a tela
+   *
+   * A WebSocket garante ordem — o que foi enviado antes do `close`
+   * chega antes do `close` — entao o pedido nao se perde. Mas o cliente
+   * nao tem como saber isso, e sem esperar o `disconectar` pode correr
+   * primeiro por causa do agendamento do navegador
+   *
+   * Entao a UI espera: resolve quando o proximo painel trouxer o farm
+   * ligado, e resolve tambem se o painel nao chegar, depois de um
+   * prazo. O prazo existe porque um servidor velho, ou uma queda de
+   * rede, deixaria a tela travada para sempre esperando uma confirmacao
+   * que nunca vem
+   *
+   * @returns {Promise<boolean>} `true` se o servidor confirmou
+   */
+  iniciarFarmOffline({ timeoutMs = 2500 } = {}) {
+    if (!this.jogando()) return Promise.resolve(false);
+
+    return new Promise((resolve) => {
+      let resolvido = false;
+
+      const concluir = (confirmado) => {
+        if (resolvido) return;
+
+        resolvido = true;
+
+        this.ouvinteFarmOffline = null;
+
+        clearTimeout(timer);
+
+        resolve(confirmado);
+      };
+
+      /**
+       * O QUE ESCUTA: o painel, nao uma resposta dedicada.
+       *
+       * Nao existe um `SERVER_EVENTS.FARM_OFFLINE`. O painel ja viaja a
+       * 4Hz com o estado de tudo, e o `iniciarFarmOffline` do servidor
+       * dispara um `enviarPainel` junto com as outras ops de painel
+       */
+      this.ouvinteFarmOffline = () => {
+        if (this.painel?.farmOffline?.ativo === true) {
+          concluir(true);
+        }
+      };
+
+      const timer = setTimeout(() => concluir(false), timeoutMs);
+
+      this.painelOuvintes.add(this.ouvinteFarmOffline);
+
+      this.pedirPainel({ op: PANEL_OPS.INICIAR_FARM_OFFLINE });
+    });
+  }
+
+  /**
+   * O JOGADOR FECHOU O MODAL do farm.
+   *
+   * Sem isto o relatorio voltaria a cada entrada, porque ele mora na
+   * sessao e a sessao sobrevive enquanto o jogador estiver online
+   */
+  viuFarmOffline() {
+    return this.pedirPainel({ op: PANEL_OPS.FARM_OFFLINE_VISTO });
+  }
+
+alternarAutoPlay() {
+      return this.pedirPainel({ op: PANEL_OPS.TOGGLE_AUTO_PLAY });
+    }
+
+    /**
+     * Pede o DASH, na direcao da mira do jogador.
+     *
+     * ## POR QUE NAO LE NENHUM ARGUMENTO
+     *
+     * Porque a direcao JA esta no servidor. O `INPUT` manda `aimX`/`aimY` a
+     * 45Hz, e o `GameServer` transforma em um ponto no mundo antes de
+     * aplicar. Mandar a mira de novo aqui seria o mesmo numero em dois
+     * lugares, e os dois poderiam discordar — o dash iria para a direcao do
+     * pacote mais antigo
+     *
+     * E por isso que o pedido e tao vazio quanto possivel: um dash e um
+     * deslocamento, e o deslocamento nao se negocia — ou o servidor aceita
+     * e decide a direcao, ou nao ha dash
+     */
+    dash() {
+      return this.pedirPainel({ op: PANEL_OPS.DASH });
+    }
+
+  /**
+   * A CONFIGURACAO DO USO AUTOMATICO DA POCAO.
+   *
+   * Os tres campos num pedido so, e nao um pedido por acao, pelo mesmo
+   * motivo do motor: trocar a pocao com o automatico ligado desliga o
+   * automatico, e um pedido so garante que essa regra chegue inteira
+   *
+   * ## O `itemId` AUSENTE PRECISA VIR `undefined`, E NAO `null`
+   *
+   * Sao tres estados num campo, e o terceiro e o que o painel usa no
+   * interruptor e no limiar:
+   *
+   * - string: equipou aquela pocao
+   * - `null`: tirou a pocao do slot
+   * - ausente: so mexeu no interruptor ou no limiar
+   *
+   * O `JSON.stringify` desta linha DESCARTA a chave quando o valor e
+   * `undefined`, e e isso que faz o ausente chegar como ausente: se este
+   * metodo transformasse o ausente em `null`, todo clique em "usar
+   * automaticamente" mandaria ALSO "tirar a pocao do slot", e o motor
+   * obedeceria as duas metades do pedido
+   */
+  configurarAutoPocao({ ligado, limiar, itemId } = {}) {
+    return this.pedirPainel({
+      op: PANEL_OPS.SET_AUTO_POTION,
+      pocaoLigado: typeof ligado === "boolean" ? ligado : null,
+      pocaoLimiar: Number.isFinite(limiar) ? limiar : null,
+
+      /**
+       * O `null` explicito chega como `null` porque o `JSON.stringify`
+       * escreve `null` — e o que o `parsePanel` le como "tirar". O
+       * `undefined` nao vira nada no pacote, e e o que o servidor le como
+       * "nao mexeu na pocao"
+       */
+      pocaoItemId: itemId === undefined ? undefined : (itemId ?? null),
+    });
   }
 
   /**
@@ -333,11 +497,51 @@ export class GameClient {
      guilda com 24 pontos, ou abrir o cofre sem ser da diretoria
      ------------------------------------------------------------------ */
 
-  criarGuilda(nome, tag) {
+  criarGuilda(nome, tag, estilo = null) {
     return this.pedirPainel({
       op: PANEL_OPS.GUILD_CRIAR,
       guildName: nome,
       guildTag: tag,
+
+      /**
+       * O ESTILO viaja por ID, e nunca como glifo ou hex.
+       *
+       * O `parsePanel` so deixa passar o que existe em `GUILD_ICONS` e
+       * `GUILD_CORES`, e o que ele recusar chega `null` no servidor — que cai
+       * no padrao. Mandar o hex abriria a porta para um cliente modificado
+       * gravar qualquer cor no arquivo de guildas
+       */
+      icone: estilo?.icone ?? null,
+      cor: estilo?.cor ?? null,
+    });
+  }
+
+  /**
+   * MUDA O EMBLEMA e A COR da guilda.
+   *
+   * E o caminho do LIDER. O servidor devolve "semPermissao" para qualquer
+   * outro, e o store e quem confere — nao aqui, porque quem decide quem e
+   * lider e o servidor
+   */
+  definirEstiloGuilda(icone, cor) {
+    return this.pedirPainel({
+      op: PANEL_OPS.SET_GUILD_STYLE,
+      icone,
+      cor,
+    });
+  }
+
+  /**
+   * LIGA OU DESLIGA a tag sobre o boneco deste jogador.
+   *
+   * Leva o valor novo e nao um "inverter", pelo mesmo motivo do
+   * `definirPassePremium`: dois cliques rapidos podem chegar em qualquer
+   * ordem no servidor
+   */
+  definirMostrarTag(mostrar) {
+    return this.pedirPainel({
+      op: PANEL_OPS.SET_SHOW_TAG,
+      mostrar: mostrar === true,
     });
   }
 
@@ -551,8 +755,35 @@ export class GameClient {
     });
   }
 
-  atravessarPortal(portalId) {
+  /**
+   * O BAU DA BASE: deposita e retira itens.
+   *
+   * ## POR QUE UM OBJETO SO, E NAO `mexerNoBau(acao, uid, count)`
+   *
+   * Porque o `uid` e o `count` so fazem sentido JUNTOS com a acao, e uma
+   * assinatura de tres posicoes soltas deixa o chamador trocar `uid` por
+   * `acao` sem nenhum aviso do compilador. O `mexerNoCofre` acima ja
+   * sofre disso e resolveu com um objeto em `dados`; aqui as duas metades
+   * do pedido entram juntas no mesmo objeto
+   *
+   * E `quantidade`, e nao `count`, porque o `count` e o nome do campo
+   * interno da pilha: o que o jogador pede e uma quantidade, e quem decide
+   * o que sai da pilha e o servidor
+   *
+   * O `uid` e sempre o do ESPACO DE ORIGEM: da mochila no deposito, do
+   * bau na retirada. Sao espacos com ids proprios, e o espaco e o que diz
+   * de onde o item vem
+   */
+  mexerNoBau(bauAcao, { uid, quantidade } = {}) {
     return this.pedirPainel({
+      op: PANEL_OPS.BAU,
+      bauAcao,
+      uid,
+      count: quantidade,
+    });
+  }
+
+  atravessarPortal(portalId) {    return this.pedirPainel({
       op: PANEL_OPS.TRAVESSAR_PORTAL,
       portalId,
     });
@@ -572,6 +803,33 @@ export class GameClient {
   irParaArena() {
     return this.pedirPainel({ op: PANEL_OPS.IR_PARA_ARENA });
   }
+
+  /**
+   * ENTRA NO MAPA DE TESTE, E SAI DELE.
+   *
+   * O mesmo `op` da arena e pelo mesmo motivo: quem decide o sentido e o
+   * mapa em que o jogador esta, e nao o botao. O servidor guarda a
+   * origem e devolve o jogador para la
+   */
+irParaTeste() {
+      return this.pedirPainel({ op: PANEL_OPS.IR_PARA_TESTE });
+    }
+
+  /**
+   * ENCOSTAR NUMA PEDIDA DE STEEL, E SAIR DELA.
+   *
+   * O mesmo `op` nos dois sentidos, pelo mesmo motivo do mapa de teste: quem
+   * decide e o servidor, olhando se a sessao ja esta encostada em alguma
+   * pedra. O cliente nao guarda se esta minerando — esse estado vem no
+   * painel, do servidor, e e de la que a HUD le
+   *
+   * O `propId` viaja mesmo quando o sentido e PARAR. Nao ha como o cliente
+   * saber em qual sentido esta, e mandar o id de qualquer forma deixa o
+   * servidor com o pedido completo nos dois casos
+   */
+  minerar(propId) {
+      return this.pedirPainel({ op: PANEL_OPS.MINERAR, propId });
+    }
 
   /**
    * Teleporta para o fim da viagem, gastando um pergaminho.
@@ -643,6 +901,56 @@ export class GameClient {
   }
 
   /**
+   * Resgata UM dia do passe.
+   *
+   * ## POR QUE SO O PAR `passId` E `dia` VIAJA
+   *
+   * Porque o item e a quantidade NAO viajam. O servidor procura o dia no
+   * catalogo pelo par e paga o que estiver la, entao um pedido forjado com
+   * `quantidade: 999` seria ignorado. E o par tambem e o que garante a
+   * unicidade: o servidor confere a lista de resgates antes de pagar, e o
+   * segundo pedido do mesmo dia nao paga de novo
+   *
+   * O `dia` vai como numero ja, e nao como texto do botao: o `Number` aqui
+   * deixa o servidor receives um `3` e nao um `"3"`, e assim o `===` da
+   * lista de resgates bate sem conversao do lado de la
+   */
+  resgatarDiaDoPasse(passId, dia) {
+    return this.pedirPainel({
+      op: PANEL_OPS.CLAIM_PASS_REWARD,
+      passId,
+      dia: Math.floor(Number(dia)),
+    });
+  }
+
+  /**
+   * Liga ou desliga o passe premium.
+   *
+   * E um interruptor de ESTADO, entao o pedido leva o valor novo e nao um
+   * "inverter": dois cliques rapidos no botao podem chegar em qualquer
+   * ordem no servidor, e mandar "inverter" duas vezes deixaria o
+   * interruptor como estava
+   */
+  definirPassePremium(ativo, passId) {
+    return this.pedirPainel({
+        op: PANEL_OPS.SET_PASS_PREMIUM,
+        ativo: ativo === true,
+
+        /**
+         * O PASSE, e nao o painel.
+         *
+         * O premium e uma compra por passe: 100 diamantes pagam UM dos tres.
+         * Sem o `passId` o servidor cairia no passe padrao, e o jogador
+         * pagaria pela Praga e receberia os dias pagos dos tres
+         *
+         * E o id vem do catalogo, no servidor: um `passId` forjado cai em
+         * `getPasse(null)` e nao cobra nem liga nada
+         */
+        passId: passId ?? null,
+      });
+    }
+
+  /**
    * Pede a cacada de UMA criatura no bestiario.
    *
    * O botao "ir matar" chamava o motor da tela, que online nao tem
@@ -677,10 +985,11 @@ export class GameClient {
    * recompensa e o servidor: um cliente que mandasse "items: 10" seria
    * ignorado
    */
-  entregarColecao(collectionId) {
+  entregarColecao(collectionId, indice = null) {
     return this.pedirPainel({
       op: PANEL_OPS.DELIVER_COLLECTION,
       collectionId,
+      indice,
     });
   }
 
@@ -703,6 +1012,29 @@ export class GameClient {
    */
   encantar(alvo) {
     const pedido = { op: PANEL_OPS.ENCHANT };
+
+    if (alvo?.slotId) {
+      pedido.slotId = alvo.slotId;
+    } else if (alvo?.uid) {
+      pedido.uid = alvo.uid;
+    } else {
+      return false;
+    }
+
+    return this.pedirPainel(pedido);
+  }
+
+  /**
+   * APRIMORA uma peca, da mochila OU do corpo.
+   *
+   * ## POR QUE A MESMA FORMA DO `encantar`
+   *
+   * Porque agora o `enhance` mora na PECA, entao os dois lados servem —
+   * igual ao afixo. O `uid` e o da mochila e o `slotId` e o do corpo, e
+   * nunca os dois: o servidor recusa o pedido ambiguo
+   */
+  aprimorar(alvo) {
+    const pedido = { op: PANEL_OPS.ENHANCE };
 
     if (alvo?.slotId) {
       pedido.slotId = alvo.slotId;
@@ -797,6 +1129,27 @@ export class GameClient {
     });
   }
 
+  /**
+   * Compra um PRODUTO da loja.
+   *
+   * E o unico pedido de compra que leva so o ID do produto: nem `count`, nem
+   * preco, nem a lista de itens. O pacote tem tres ou quatro coisas dentro
+   * e um preco, e nenhum dos dois vem do cliente — mandar qualquer um dos
+   * dois aqui seria mandar "quanto eu quero pagar" para o servidor
+   *
+   * O card desativando e a resposta do `snapshot.loja.comprados`, e nao um
+   * estado que este lado guarda: se o cliente marcasse, o F5 devolveria o
+   * card e o jogador pagaria duas vezes
+   */
+  comprarProduto(produtoId) {
+    if (!produtoId) return false;
+
+    return this.pedirPainel({
+      op: PANEL_OPS.BUY_SHOP,
+      produtoId,
+    });
+  }
+
   /** Desiste da cacada. */
   pararCacada() {
     return this.pedirPainel({
@@ -870,6 +1223,15 @@ export class GameClient {
       painel: this.painel,
 
       /**
+       * As pedras que o servidor tirou do mapa.
+       *
+       * Sai daqui e nao do `NetworkWorld` porque e o unico caminho que o
+       * `GameCanvas` usa: ele entrega ESTE objeto ao `aplicar`. O
+       * `NetworkWorld` le `estado.pedidasFora` e escreve no motor
+       */
+      pedidasFora: this.pedidasFora ?? [],
+
+      /**
        * Em que mapa o servidor esta. O `NetworkWorld` compara com o
        * motor e troca quando o id muda
        */
@@ -891,6 +1253,7 @@ export class GameClient {
   desconectar() {
     this.fechadoDeProposito = true;
     this.fila = [];
+    this.painelOuvintes.clear();
 
     try {
       this.socket?.close();
@@ -935,6 +1298,7 @@ export class GameClient {
       // pelo mesmo codigo que a tela offline consome, entao nao ha
       // duas descricoes do formato para divergirem
       this.painel = payload;
+      this.avisaPainel();
       this.onState(this.amostra());
       return;
     }
@@ -951,6 +1315,30 @@ export class GameClient {
       if (payload.mapa) {
         this.mapaAnterior = payload.mapa;
       }
+
+      /**
+       * AS PEDRAS QUE SAIRAM DO MAPA, e guardadas para a amostra.
+       *
+       * ## POR QUE FICA AQUI E NAO ENTRA DIRETO NO MOTOR
+       *
+       * Porque quem escreve no motor NAO e este arquivo. O `aplicar` daqui
+       * recebe o pacote CRU, que nao tem `eu`, e devolve `false` de
+       * propósito — o mesmo caminho do estado vazio do `desconectar`. Quem
+       * escreve no motor de verdade e o `GameCanvas`, com a AMOSTRA deste
+       * arquivo
+       *
+       * Sem este campo a pedra demolida nunca chegava ao motor: o servidor
+       * tirava a pedra do mundo, o cliente continuava desenhando o cristal e
+       * o colisor dele continuava barrando o jogador
+       *
+       * E uma COPIA, e nao a referencia do pacote: a lista muda a 20Hz e o
+       * `CollisionSystem` le um `Set`, que e construido do zero a cada
+       * aplicacao. Guardar a referencia nao custaria nada, mas a copia
+       * deixa obvio que este e o unico dono do estado
+       */
+      this.pedidasFora = Array.isArray(payload.pedidasFora)
+        ? [...payload.pedidasFora]
+        : [];
 
       if (!this.mundo.aplicar(payload)) return;
 

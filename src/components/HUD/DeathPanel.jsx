@@ -64,6 +64,84 @@ export default function DeathPanel({
 
   const semPrazo = restante <= 0;
 
+  /**
+   * A MORTE DO CHEFE.
+   *
+   * ## POR QUE UM PAINEL E NAO O MESMO DELE
+   *
+   * Porque nenhuma das duas saidas do painel comum serve. "Reviver" devolve
+   * o jogador ao meio da arena com o Hulk vivo e a vida cheia: e a segunda
+   * derrota identica, e o preco em ouro seria a unica coisa entre as duas.
+   * "Voltar para a base" joga ele num mapa onde a campanha do mapa 1 nao tem
+   * nada — ele escolheu este mapa
+   *
+   * E o jogador que perdeu um boss precisa ler que PERDEU. "Voce morreu" e um
+   * texto de inventario; "Missao falhada" e o texto da luta
+   *
+   * ## POR QUE UM SO BOTAO
+   *
+   * Porque ele e a unica saida. Um segundo botao seria uma escolha que nao
+   * existe: nao ha como tentar de novo sem sair, e o destino e o portal de
+   * onde ele entrou — que e onde a proxima tentativa comeca
+   */
+  const naLutaDoChefe = morte.chefe === true;
+
+  if (naLutaDoChefe) {
+    return (
+      <div
+        className="dth dth--chefe"
+        role="alertdialog"
+        aria-modal="true"
+        aria-labelledby="dth-chefe-title"
+        aria-describedby="dth-chefe-hint"
+      >
+        <div className="dth__veil" />
+
+        <div className="dth__panel">
+          <span className="dth__mark" aria-hidden="true">
+            ☠
+          </span>
+
+          <h2 className="dth__title" id="dth-chefe-title">
+            Missao falhada
+          </h2>
+
+          <p className="dth__hint" id="dth-chefe-hint">
+            O chefe venceu. Voce volta para o portal para tentar de novo.
+          </p>
+
+          {/*
+            O XP PERDIDO FICA AQUI, e nao some do painel.
+
+            O custo sai do servidor e e o mesmo da saida comum. Esconder o
+            numero faria o jogador perder XP sem ter lido o preco — e o
+            preco e a unica parte desta tela que ele pode escolher
+          */}
+          <p className="dth__countdown">
+            {custoVoltar > 0
+              ? `Voce perde ${custoVoltar} de XP.`
+              : "Sem XP a perder."}
+          </p>
+
+          <div className="dth__options">
+            <button
+              type="button"
+              className="dth__btn dth__btn--base"
+              onClick={() => onVoltarBase?.()}
+              disabled={semPrazo}
+            >
+              <span className="dth__btn-label">Voltar</span>
+
+              <small className="dth__btn-note">
+                Te coloca no portal do chefe
+              </small>
+            </button>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
   return (
     <div
       className="dth"

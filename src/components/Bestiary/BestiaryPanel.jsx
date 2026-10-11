@@ -60,13 +60,16 @@ function EntryCard({ entry, hunting, onHunt }) {
         .join(" ")}
     >
       <header className="bst-entry__head">
-        <span
-          className="bst-entry__icon"
-          style={{ color: entry.color }}
-        >
-          {entry.icon}
-        </span>
+        {/*
+          SEM O ICONE DO INIMIGO, e o nome comeca na borda do cartao.
 
+          Havia um glifo colorido de 26px antes do nome e do nivel. Ele
+          era o mesmo de todas as criaturas daquele tipo — o catalogo tem
+          um icone por TIPO, e nao um por criatura — entao dois slimes de
+          nivel diferente mostravam o glifo identico ao lado de numeros que
+          nao eram. O que ele acrescentava era cor, e a cor do tipo ja
+          aparece na barra de progresso da cacada logo abaixo
+        */}
         <span className="bst-entry__names">
           <strong>{entry.name}</strong>
           <small>
@@ -88,7 +91,7 @@ function EntryCard({ entry, hunting, onHunt }) {
           className="bst-entry__go"
           onClick={() => onHunt?.(entry.creatureId)}
           disabled={!canHunt}
-          title={
+          data-tip={
             hunting
               ? `Parar de caçar ${entry.name}`
               : canHunt
@@ -124,23 +127,63 @@ export default function BestiaryPanel({
     bonusesLabel: "",
   };
 
+  /**
+   * A LISTA COM O QUE AINDA DA PARA CAÇAR EM CIMA.
+   *
+   * ## POR QUE ORDENAR AQUI E NAO NO `Bestiary.snapshot`
+   *
+   * Porque a ordem e uma decisao de LEITURA da tela, e nao do estado. O
+   * `snapshot` monta o que cada criatura tem; quem decide o que o jogador
+   * ve primeiro e o painel. Ordenar la deixaria o estado do jogo
+   * dependendo de um criterio visual
+   *
+   * ## POR QUE SO `done`
+   *
+   * Porque o que desce e o ACABADO. Uma criatura com cacada em andamento
+   * continua sendo trabalho do jogador e continua valendo o lugar dela
+   * em cima, mesmo com metade feita
+   *
+   * ## POR QUE UM `[...].sort` E NAO `toSorted`
+   *
+   * Porque `toSorted` cria um array novo e o `entries` do snapshot pode
+   * ser o mesmo objeto que o servidor mandou. Ordenar no lugar mexeria no
+   * dado de quemRecebeu — e da proxima vez que o painel fosse aberto sem
+   * um pacote novo, a lista ja viria fora de ordem
+   *
+   * ## E POR QUE SO DESEMPATA POR `done`, SEM `localeCompare`
+   *
+   * Porque dentro de cada grupo a ordem do catalogo se mantem, e e a
+   * ordem em que as criaturas foram pensadas. Um `sort` por nome tiraria
+   * o slime do primeiro lugar do Brejo e colocaria no meio, e o jogador
+   * perderia o mapa mental do bestiario
+   */
+  const entries = [...data.entries].sort(
+    (a, b) => Number(a.done) - Number(b.done),
+  );
+
   return (
     <section className="bst-panel">
       <header className="bst-panel__head">
-        <button
-          type="button"
-          className="inv-close"
-          onClick={onClose}
-          title="Fechar (B)"
-        >
-          ✕
-        </button>
-
         <h2>Bestiario</h2>
 
         <span className="bst-panel__tally">
           {data.completed}/{data.total} cacadas
         </span>
+
+        {/*
+          O X NO FIM DO CABEÇALHO, e nao no começo.
+
+          `margin-left: auto` só joga um elemento para a direita quando ele
+          é o ÚLTIMO da linha. Sendo o primeiro, ele encostava no título
+        */}
+        <button
+          type="button"
+          className="inv-close"
+          onClick={onClose}
+          data-tip="Fechar (B)"
+        >
+          ✕
+        </button>
       </header>
 
       <div className="bst-panel__body">
@@ -164,7 +207,7 @@ export default function BestiaryPanel({
         </section>
 
         <ul className="bst-list">
-          {data.entries.map((entry) => (
+          {entries.map((entry) => (
             <EntryCard
               key={entry.id}
               entry={entry}

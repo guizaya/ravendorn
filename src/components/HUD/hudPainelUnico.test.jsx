@@ -59,7 +59,7 @@ const PAINEL = [
     alterna: false,
   },
   { nome: "bestiario", seletor: ".bst-panel", botao: ".hud-btn--bestiary", tecla: "KeyB", alterna: true },
-  { nome: "rank", seletor: ".rnk-panel", botao: ".hud-btn--rank", tecla: "KeyR", alterna: true },
+  { nome: "rank", seletor: ".rnk-panel", botao: ".hud-btn--rank", tecla: "KeyL", alterna: true },
   { nome: "craft", seletor: ".cft-panel", botao: ".hud-btn--craft", tecla: "KeyC", alterna: true },
   { nome: "colecao", seletor: ".col-panel", botao: ".hud-btn--collection", tecla: "KeyK", alterna: true },
   { nome: "market", seletor: ".mkt-panel", botao: ".hud-btn--market", tecla: "KeyM", alterna: true },

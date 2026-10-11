@@ -256,23 +256,46 @@ export const STAT_DEFS = Object.freeze([
     group: "progresso",
     unit: "percent",
   },
+  /*
+    ## AS SIGLAS DESTES TRES
+
+    Os de cima do grupo ja cabiam: "EXP Gain", "Drop Rate" e "Gold Gain" sao
+    duas palavras curtas e a coluna do rotulo aguentava.
+
+    Estes tres nao aguentavam. "Rare Drop Rate", "Equipment Drop Rate" e
+    "Enhancement Success" sao tres palavras cada, e o mais longo deles —
+    "Equipment Drop Rate" — era exatamente o que media onde a coluna parava de
+    caber e comecava a cortar o texto com reticencias
+
+    A sigla e o que resolve, e e o mesmo papel que a sigla cumpre em
+    `STR`, `ATK` e `MATK`: o `name` continua com o texto inteiro para quem
+    precisa dele, no `title` da linha e no tooltip
+
+    ## POR QUE NAO ESCOLHI AS MESMAS PALAVRAS
+
+    Porque "Raro", "Equip" e "Aprim." iam obrigar o jogador a traduzir a sigla
+    de volta toda vez que lesse. Estas sao as palavras que o jogador JA USA
+    quando fala do jogo: um drop raro e "raro", a peca que cai e "equip", e o
+    +5 da aba e "aprimoramento". A sigla e o atalho para a palavra que ele ja
+    diz em voz alta
+  */
   {
     id: "rareDropRate",
-    label: "Rare Drop Rate",
+    label: "Raro",
     name: "Chance de Drop Raro",
     group: "progresso",
     unit: "percent",
   },
   {
     id: "equipmentDropRate",
-    label: "Equipment Drop Rate",
+    label: "Equip",
     name: "Chance de Drop de Equipamento",
     group: "progresso",
     unit: "percent",
   },
   {
     id: "enhanceSuccess",
-    label: "Enhancement Success",
+    label: "Aprim.",
     name: "Sucesso de Aprimoramento",
     group: "progresso",
     unit: "percent",
@@ -731,7 +754,7 @@ export function statValueOf(sheet, id) {
  * As entradas com valor zero saem. Um `+0 ATK` numa entrega e o
  * jogador procurando por que ele nao subiu de nivel
  */
-export function statBonusEntries(bonus) {
+export function statBonusEntries(bonus, { todos = false } = {}) {
   if (!bonus || typeof bonus !== "object") return [];
 
   const entradas = [];
@@ -739,9 +762,23 @@ export function statBonusEntries(bonus) {
   for (const def of STAT_DEFS) {
     const valor = Number(bonus[def.id]);
 
-    if (!Number.isFinite(valor) || valor === 0) continue;
+    /**
+     * `todos` E O MODO DA TABELA COMPLETA.
+     *
+     * Sem ele, um stat que o jogador nao tem fica de fora da lista, e a
+     * lista cresce so com o que ele ja ganhou. E o certo no card da
+     * entrega, onde o que importa e o que DA para receber
+     *
+     * No painel do bonus permanente e o contrario: o jogador quer ver a
+     * ficha inteira, os 26 stats, para saber o que ainda nao tem. Sem o
+     * modo, ele veria uma lista de duas linhas e nao teria como saber se
+     * aquilo era tudo ou so o que ele achou
+     */
+    const semValor = !Number.isFinite(valor) || valor === 0;
 
-    const texto = formatBonus(def, valor);
+    if (semValor && !todos) continue;
+
+    const texto = semValor ? "—" : formatBonus(def, valor);
 
     if (!texto) continue;
 
@@ -750,10 +787,11 @@ export function statBonusEntries(bonus) {
       label: def.label,
       name: def.name,
       unit: def.unit,
-      value: valor,
+      value: Number.isFinite(valor) ? valor : 0,
+      zero: semValor,
       text: texto,
       /** `+2 VIT` — o texto curto do aviso */
-      short: `${texto} ${def.label}`,
+      short: semValor ? `— ${def.label}` : `${texto} ${def.label}`,
     });
   }
 

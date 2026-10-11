@@ -4,966 +4,408 @@ import {
   ZONE_ROSTER,
 } from "../enemies/index.js";
 import { getZoneById } from "../maps/index.js";
-import { BESTIARY_ICON } from "../bestiary/index.js";
 import {
   ITEM_TYPE,
   ITEM_TYPE_LABEL,
-  RARITY,
   RARITY_ORDER,
   getItem,
 } from "../items/index.js";
+import {
+  BASES,
+  DEGRAUS,
+  MATERIAIS,
+  idDoGrau,
+  nomeDoGrau,
+  receitaDeRefino,
+  todosOsMateriais,
+} from "../materiais/index.js";
 
 /**
- * Receitas de craft.
+ * As receitas do jogo.
  *
- * As de MATERIAL sao escritas a mao, e continuam sendo. A cadeia de
- * materiais e a parte do jogo que depende de caca: quanto material
- * cada bicho dropa, e em que ordem o jogo vai liberando, e isso e
- * design, nao aritmetica.
+ * ## POR QUE NADA E ESCRITO A MAO
  *
- * As de EQUIPAMENTO nao sao escritas a mao. Um item de equipamento
- * sao cinco receitas com a MESMA escalada de quantidade e de nivel de
- * material, e com quatro classes isso sao vinte receitas iguais com o
- * id diferente. Escritas a mao elas divergem - uma quantidade errada
- * so aparece quando o jogador tenta criar. `gerarEquipamento.js`
- * monta essas vinte de uma vez, e o comando
- * `tools/gerar-equipamento.mjs` e o que as escreve no arquivo.
+ * Porque existem duas familias de receita e as duas sao uma REGRA:
  *
- * O formato e uma lista por item, com as cinco raridades dentro:
+ * - o REFINO de material, que e sempre "cinco de um grau viram um do
+ *   seguinte", nas onze cadeias da tabela `data/materiais`
+ * - o EQUIPAMENTO, que e sempre "tres familias de material, com a
+ *   quantidade da raridade", em catorze pecas
  *
- *   {
- *     itemId: "willow_bow",
-  *     common:    { coins: 0,  ingredients: [...] },
-  *     uncommon:  { coins: 0,  ingredients: [...] },
-  *     rare:      { coins: 0,  ingredients: [...] },
-  *     epic:      { coins: 0,  ingredients: [...] },
-  *     legendary: { coins: 0,  ingredients: [...] },
-  *   }
-  *
-  * A receita do item continua sendo a do catalogo: `coins` e
-  * `ingredients` no topo sao o que os chamadores antigos leem, e
-  * apontam para a variante na raridade NATURAL do item.
-  *
-* `coins` existe porque a cadeia de materiais precisa de uma raiz:
-   * os tres materiais mais basicos so se compram. Como nao existe
-   * loja no jogo, essa e a finalidade das moedas. So esses tres,
-   * mais os dois materiais de ogro, cobram moeda: nos outros a
-   * progressao e de material, e a moeda viraria um segundo obstaculo
-   * sem motivo.
-   *
-  * Duas regras de design valem para TODAS as receitas:
-   *
-   * 1. A cadeia so desce de nivel. Nenhuma receita usa um material
-   *    de nivel igual ou superior ao seu, o que mantem a progressao
-   *    de caça valendo e garante que nao existe ciclo.
-   *
-   * 2. Subir de raridade troca ingrediente, nao so multiplica
-   *    quantidade. O comum e barato e usa material de bicho pequeno;
-   *    o lendario exige material de bicho grande. Nas receitas escritas
-   *    a mao isso e responsabilidade de quem escreve; nas geradas, e o
-   *    que `gerarEquipamento.js` garante.
-   *
- * Consequencia pratica: subir de raridade NUNCA e mais barato.
- * A auditoria em craftData.test.js garante isso em todas.
+ * Escritas a mao seriam 44 + 70 receitas e mais de mil linhas em que um
+ * id errado so apareceria quando o jogador tentasse criar. Aqui as duas
+ * sao geradas de uma tabela curta, e a tabela e o que se edita
  *
- * ================================================================
- * A CADEIA FOI REESCRITA PARA O MAPA 1
- * ================================================================
+ * ## O FORMATO QUE O RESTO DO JOGO ESPERA
  *
- * A regra que manda em TODA receita escrita aqui e uma so:
+ * Continua sendo o de sempre: uma lista por item, com as cinco raridades
+ * dentro. `CRAFT_VARIANTS` le `recipe[rarity]` e monta as 195
+ * combinacoes, e o `Craft` valida por variante
  *
- *   nenhum ingrediente pode ser material que o jogador nao consiga
- *   no mapa 1, exceto no epic e no lendario
+ * ## E AS CINCO RARIDADES DE UM MATERIAL
  *
- * A razao e concreta. O mapa 1 tem tres criaturas no roster - `slime`,
- * `ogre` e `ogre_da_predeira` - e elas dropam exatamente cinco
- * materiais: `slime_gel`, `slime_core`, `skeleton_bone`,
- * `ogre_pebble` e `ogre_hide`. Todo o resto da cadeia antiga
- * dependia de `dummy_wood` e `rat_tail`, e nenhum dos dois cai no
- * mapa 1: o primeiro so sai de boneco de treino, e
- * `TRAINING_DUMMY_BLUEPRINTS` e vazio; o segundo so sai de `rat`, e o
- * rato nao esta em nenhum `mix` do `ZONE_ROSTER`.
- *
- * O efeito era que o mapa 1 nao era autossuficiente. Tudo dava para
- * fabricar, mas comprando `dummy_wood` com moeda - e `dummy_wood` era
- * a base de todas as doze pecas de equipamento na raridade comum.
- *
- * O MAPA 2 GUARDA O TOPO. Ele nao tem material proprio: reaproveita
- * `slime` virando `zumbi_arbalist` e `ogre` virando `skeleton`. O que
- * ele dropa so dele sao `ghoul_rot`, `ghoul_claw` e `skeleton_skull`, e
- * sao esses tres que seguram o epic e o lendario. E o que da sentido
- * ao segundo mapa: ele e o degrau final da cadeia, e nao um lugar
- * que repete o primeiro.
- *
- * TRES MATERIAIS FICARAM DE FORA DA CADEIRA
- *
- * `rat_pelt`, `goblin_cloth` e `ghoul_rib` nao dropam de criatura
- * nenhuma que esteja no roster - rato, goblin e ghoul nao estao em
- * nenhum `mix`. Eles continuam no catalogo e continuam com receita, e
- * ainda dao para fabricar e vender, mas nenhum item os usa como
- * ingrediente: um ingrediente que ninguem consegue cacar nem
- * comprar so aparecia na tela como exigencia imposible.
- *
- * DETALHE QUE A CADEIA EXIGE
- *
- * A regra 1 acima (a cadeia so desce de nivel) NAO sozinha impede
- * ciclo entre dois materiais do mesmo nivel. `slime_core` e
- * `skeleton_bone` sao os dois nivel 1, entao um poderia usar o outro -
- * e se os dois fizessem isso, fechava ciclo e dava para fabricar os
- * dois com um unico par. Por isso a camada do nivel 1 tem uma ordem
- * fixa e so usa de tras para frente:
- *
- *     slime_gel -> skeleton_bone -> slime_core -> goblin_cloth
- *
- * O mesmo vale no nivel 2 com `ghoul_rot` e `ghoul_claw`, os dois
- * materia do mapa 2: a garra e o mais simples e nao usa a podricao, e
- * a podricao usa a garra so no topo dela.
+ * Um material so existe na raridade do seu grau, mas a receita
+ * declara as cinco assim mesmo. Sem os cinco blocos, a variante nascia
+ * com `ingredients: []` e `coins: 0` — e uma receita de material sem
+ * ingrediente e uma receita que cria o item de graa
  */
-
-/** shorthands de ingrediente, para a receita ficar legivel */
 const i = (itemId, count) => ({ itemId, count });
 
 /**
- * Materiais.
+ * O MESMO BLOCO NAS CINCO RARIDADES, que e o que um material pede.
  *
- * A base comum usa materia de bicho pequeno. A lendaria troca por
- * material de bicho grande, e a moeda entra so nos materiais de
- * ogro: ele e lento de matar, e quem tem pouco tempo de caça paga
- * para nao repetir a caça.
+ * E por que o preco do refino e sempre zero: o refino troca material por
+ * material, e nao ha trabalho nenhum. Se houvesse moeda, o primeiro
+ * grau seria mais barato que o drop e o jogador nunca voltaria a cacar
  */
-export const RECIPES = [
-  /* ---- raiz: materia bruta so se compra ---- */
-  {
-    itemId: "dummy_wood",
-    coins: 25,
-    ingredients: [],
-    common: { coins: 25, ingredients: [] },
-    uncommon: { coins: 45, ingredients: [] },
-    rare: { coins: 75, ingredients: [] },
-    epic: { coins: 120, ingredients: [] },
-    legendary: { coins: 200, ingredients: [] },
-  },
-  {
-    itemId: "slime_gel",
-    coins: 20,
-    ingredients: [],
-    common: { coins: 20, ingredients: [] },
-    uncommon: { coins: 38, ingredients: [] },
-    rare: { coins: 62, ingredients: [] },
-    epic: { coins: 100, ingredients: [] },
-    legendary: { coins: 165, ingredients: [] },
-  },
-  {
-    itemId: "rat_tail",
-    coins: 15,
-    ingredients: [],
-    common: { coins: 15, ingredients: [] },
-    uncommon: { coins: 30, ingredients: [] },
-    rare: { coins: 50, ingredients: [] },
-    epic: { coins: 82, ingredients: [] },
-    legendary: { coins: 140, ingredients: [] },
-  },
-  /* ---- nivel 1: o que o SLIME da ---- */
-  {
-    itemId: "slime_core",
-    coins: 0,
-    ingredients: [
-      i("slime_gel", 6),
-    ],
-    common: { coins: 0, ingredients: [i("slime_gel", 4)] },
-    uncommon: { coins: 0, ingredients: [i("slime_gel", 6)] },
-    rare: { coins: 0, ingredients: [i("slime_gel", 9)] },
-    epic: { coins: 0, ingredients: [i("slime_gel", 11), i("skeleton_bone", 2)] },
-    legendary: { coins: 0, ingredients: [i("slime_gel", 14), i("skeleton_bone", 4)] },
-  },
-  {
-    itemId: "skeleton_bone",
-    coins: 0,
-    ingredients: [
-      i("slime_gel", 3),
-    ],
-    common: { coins: 0, ingredients: [i("slime_gel", 3)] },
-    uncommon: { coins: 0, ingredients: [i("slime_gel", 5)] },
-    rare: { coins: 0, ingredients: [i("slime_gel", 7)] },
-    epic: { coins: 0, ingredients: [i("slime_gel", 10)] },
-    legendary: { coins: 0, ingredients: [i("slime_gel", 14), i("rat_tail", 6)] },
-  },
-  {
-    itemId: "rat_pelt",
-    coins: 0,
-    ingredients: [
-      i("slime_gel", 4),
-    ],
-    common: { coins: 0, ingredients: [i("slime_gel", 3)] },
-    uncommon: { coins: 0, ingredients: [i("slime_gel", 4)] },
-    rare: { coins: 0, ingredients: [i("slime_gel", 7)] },
-    epic: { coins: 0, ingredients: [i("slime_gel", 10), i("slime_core", 2)] },
-    legendary: { coins: 0, ingredients: [i("slime_gel", 14), i("slime_core", 4)] },
-  },
-  {
-    itemId: "goblin_cloth",
-    coins: 30,
-    ingredients: [
-      i("slime_core", 3),
-    ],
-    common: { coins: 30, ingredients: [i("slime_core", 3)] },
-    uncommon: { coins: 55, ingredients: [i("slime_core", 5), i("skeleton_bone", 3)] },
-    rare: { coins: 95, ingredients: [i("slime_core", 7), i("skeleton_bone", 4)] },
-    epic: { coins: 150, ingredients: [i("slime_core", 9), i("skeleton_bone", 5)] },
-    legendary: {
-      coins: 240,
-      ingredients: [
-        i("slime_core", 12),
-        i("skeleton_bone", 7),
-        i("rat_tail", 6),
-      ],
-    },
-  },
-  /* ---- nivel 2: o SEIXO do ogre, e a materia do mapa 2 ---- */
-  {
-    itemId: "ghoul_rot",
-    coins: 0,
-    ingredients: [
-      i("slime_core", 3),
-      i("skeleton_bone", 2),
-    ],
-    common: { coins: 0, ingredients: [i("slime_core", 3), i("skeleton_bone", 2)] },
-    uncommon: { coins: 0, ingredients: [i("slime_core", 5), i("skeleton_bone", 3)] },
-    rare: { coins: 0, ingredients: [i("slime_core", 7), i("skeleton_bone", 4)] },
-    epic: {
-      coins: 0,
-      ingredients: [
-        i("slime_core", 9),
-        i("skeleton_bone", 5),
-        i("ghoul_claw", 2),
-      ],
-    },
-    legendary: {
-      coins: 0,
-      ingredients: [
-        i("slime_core", 12),
-        i("skeleton_bone", 7),
-        i("ghoul_claw", 4),
-      ],
-    },
-  },
-  {
-    itemId: "ghoul_claw",
-    coins: 0,
-    ingredients: [
-      i("slime_core", 3),
-      i("skeleton_bone", 2),
-    ],
-    common: { coins: 0, ingredients: [i("slime_core", 2), i("skeleton_bone", 1)] },
-    uncommon: { coins: 0, ingredients: [i("slime_core", 3), i("skeleton_bone", 2)] },
-    rare: { coins: 0, ingredients: [i("slime_core", 5), i("skeleton_bone", 4)] },
-    epic: { coins: 0, ingredients: [i("slime_core", 7), i("skeleton_bone", 5)] },
-    legendary: {
-      coins: 0,
-      ingredients: [
-        i("slime_core", 9),
-        i("skeleton_bone", 7),
-        i("rat_tail", 6),
-      ],
-    },
-  },
-  {
-    itemId: "ogre_pebble",
-    coins: 60,
-    ingredients: [
-      i("slime_core", 4),
-      i("skeleton_bone", 3),
-    ],
-    common: { coins: 60, ingredients: [i("slime_core", 4), i("skeleton_bone", 3)] },
-    uncommon: { coins: 95, ingredients: [i("slime_core", 6), i("skeleton_bone", 4)] },
-    rare: { coins: 150, ingredients: [i("slime_core", 8), i("skeleton_bone", 6)] },
-    epic: {
-      coins: 230,
-      ingredients: [
-        i("slime_core", 10),
-        i("skeleton_bone", 7),
-        i("ghoul_claw", 2),
-      ],
-    },
-    legendary: {
-      coins: 380,
-      ingredients: [
-        i("slime_core", 13),
-        i("skeleton_bone", 9),
-        i("ghoul_claw", 4),
-      ],
-    },
-  },
-  /* ---- nivel 3: o COURO do ogre, e o cranio ---- */
-  {
-    itemId: "ghoul_rib",
-    coins: 0,
-    ingredients: [
-      i("slime_core", 6),
-      i("skeleton_bone", 4),
-    ],
-    common: { coins: 0, ingredients: [i("slime_core", 3), i("skeleton_bone", 2)] },
-    uncommon: { coins: 0, ingredients: [i("slime_core", 4), i("skeleton_bone", 3)] },
-    rare: { coins: 0, ingredients: [i("slime_core", 6), i("skeleton_bone", 4)] },
-    epic: {
-      coins: 0,
-      ingredients: [
-        i("slime_core", 8),
-        i("skeleton_bone", 5),
-        i("skeleton_skull", 2),
-      ],
-    },
-    legendary: {
-      coins: 0,
-      ingredients: [
-        i("slime_core", 11),
-        i("skeleton_bone", 7),
-        i("skeleton_skull", 4),
-      ],
-    },
-  },
-  {
-    itemId: "skeleton_skull",
-    coins: 0,
-    ingredients: [
-      i("skeleton_bone", 9),
-      i("slime_core", 5),
-    ],
-    common: { coins: 0, ingredients: [i("skeleton_bone", 4), i("slime_core", 2)] },
-    uncommon: { coins: 0, ingredients: [i("skeleton_bone", 6), i("slime_core", 3)] },
-    rare: { coins: 0, ingredients: [i("skeleton_bone", 9), i("slime_core", 5)] },
-    epic: {
-      coins: 0,
-      ingredients: [
-        i("skeleton_bone", 12),
-        i("slime_core", 6),
-        i("ogre_pebble", 3),
-        i("ghoul_claw", 2),
-      ],
-    },
-    legendary: {
-      coins: 0,
-      ingredients: [
-        i("skeleton_bone", 16),
-        i("slime_core", 8),
-        i("ogre_pebble", 5),
-        i("ghoul_claw", 4),
-      ],
-    },
-  },
-  {
-    itemId: "ogre_hide",
-    coins: 130,
-    ingredients: [
-      i("ogre_pebble", 5),
-      i("slime_core", 3),
-    ],
-    common: { coins: 80, ingredients: [i("ogre_pebble", 3), i("slime_core", 2)] },
-    uncommon: { coins: 130, ingredients: [i("ogre_pebble", 5), i("slime_core", 3)] },
-    rare: {
-      coins: 200,
-      ingredients: [
-        i("ogre_pebble", 7),
-        i("slime_core", 5),
-        i("skeleton_bone", 3),
-      ],
-    },
-    epic: {
-      coins: 300,
-      ingredients: [
-        i("ogre_pebble", 9),
-        i("slime_core", 6),
-        i("skeleton_skull", 2),
-        i("ghoul_claw", 2),
-      ],
-    },
-    legendary: {
-      coins: 500,
-      ingredients: [
-        i("ogre_pebble", 12),
-        i("slime_core", 8),
-        i("skeleton_skull", 4),
-        i("ghoul_claw", 4),
-      ],
-    },
-  },
-  /* ---- o arco e a aljava do arbalist ---- */
+function mesmoEmTodas(ingredients) {
+  const bloco = { coins: 0, ingredients };
+
+  return {
+    common: bloco,
+    uncommon: bloco,
+    rare: bloco,
+    epic: bloco,
+    legendary: bloco,
+  };
+}
+
+/**
+ * AS RECEITAS DE REFINO: 5 de um grau viram 1 do seguinte.
+ *
+ * Sao 44 — onze cadeias de quatro graus — e nenhuma delas e escrita
+ * aqui: `todosOsMateriais` ja sabe, para cada item de material, de que
+ * grau ele vem, e `receitaDeRefino` monta a partir dai
+ *
+ * O ingrediente e SEMPRE o grau de baixo. E o que mantem a cadeia andando
+ * para cima e impede que dois materiais do mesmo grau se usem: nao existe
+ * nenhuma receita aqui que aceite o proprio resultado
+ */
+const RECEITAS_DE_REFINO = todosOsMateriais()
+  .filter((entrada) => entrada.grau)
+  .map((entrada) => {
+    const { destino, ingrediente } = receitaDeRefino(entrada);
+
+    return {
+      itemId: destino.id,
+      ...mesmoEmTodas([i(ingrediente.id, ingrediente.count)]),
+    };
+  });
+
+/**
+ * AS RECEITAS DE EQUIPAMENTO, e as duas tabelas que as geram.
+ *
+ * ## A COLUNA DE CADA PEÇA
+ *
+ * `materiais` sao as TRES familias que a peca consome, e `contagens` tem
+ * uma linha por raridade, na ordem `comum, incomum, raro, epico,
+ * legendary`
+ *
+ * ## O GRAU SOBE COM A RARIDADE
+ *
+ * Uma peca comum consome material BASE, a incomum consome REFORCADO, a
+ * rara RESISTENTE, a epica REFINADO e a lendaria LENDARIO. A peca e o
+ * material andam na mesma escada, e e por isso que a receita nao escreve
+ * o grau: ele sai da raridade
+ *
+ * A excecao esta marcada em `grauFixo` — sao os materiais que o desenho
+ * do texto de criacao usou de proposito em outro grau, e o comentario de
+ * cada um diz qual
+ */
+const GRAU_DA_RARIDADE = {
+  common: null,
+  uncommon: "reforcado",
+  rare: "resistente",
+  epic: "refinado",
+  legendary: "lendario",
+};
+
+/**
+ * Um ingrediente de receita, escrito na forma curta.
+ *
+ * `m("osso_quebrado", null, 8)` e "8 de Osso Quebrado" — o material
+ * base. `m("osso_quebrado", "reforcado", 3)` e "3 de Osso Quebrado
+ * Reforcado"
+ *
+ * Devolve um PAR `[id, quantidade]` e nao o objeto `{ itemId, count }`
+ * porque a tabela de equipamento e uma lista de pares, e um `{...}` em
+ * cada um dos 210 ingredientes transformaria a leitura da receita numa
+ * parede de chaves
+ */
+function m(baseId, grau, quantidade) {
+  return [idDoGrau(baseId, grau), quantidade];
+}
+
+/**
+ * AS RECEITAS DE EQUIPAMENTO, e as tabelas do desenho de criacao.
+ *
+ * ## POR QUE SAO EXPLICITAS E NAO GERADAS POR REGRA
+ *
+ * Porque o desenho NAO e uma escada uniforme. O arco sobe de grau com a
+ * raridade, mas o anel comeca em "Minério Bruto + Pedra Verde" e o
+ * amuleto troca Tecido Militar por Aço Temperado quando chega no grau
+ * raro. Um gerador de "tres familias, grau = raridade" nao reproduz
+ * nenhuma das duas pecas
+ *
+ * E porque as tabelas do desenho sao o CONTEUDO. As 44 receitas de refino
+ * sao uma regra e sao geradas; estas catorze sao design e sao escritas
+ *
+ * ## O GRAU QUE CADA RARIDADE USA
+ *
+ * As pecas seguem a escada `reforcado, resistente, refinado, lendario`
+ * combinada para os materiais. Onde o desenho escreveu "Epico" ou
+ * "Refinado" num degrau que nao era o da escada, vale o grau da escada —
+ * e o comentario da peca diz onde isso aconteceu
+ *
+ * O preco sobe com a raridade porque material de grau alto exige
+ * caca de grau alto: 1 / 1,5 / 2,5 / 4 / 6,5
+ */
+const EQUIPAMENTOS = [
+  /* ---- arqueiro: as sete do desenho de criacao ---- */
+
   {
     itemId: "willow_bow",
-    coins: 0,
-    ingredients: [
-      i("slime_gel", 6),
-      i("slime_core", 3),
-      i("skeleton_bone", 2),
+    /** as tres familias do arco: osso, tendao e madeira */
+    linhas: [
+      [m("osso_quebrado", null, 8), m("tendao_ressecado", null, 5), m("madeira_de_lanca", null, 3)],
+      [m("osso_quebrado", "reforcado", 3), m("tendao_ressecado", "reforcado", 2), m("madeira_de_lanca", "reforcado", 2)],
+      [m("osso_quebrado", "resistente", 3), m("tendao_ressecado", "resistente", 2), m("aco_temperado", null, 2)],
+      [m("osso_quebrado", "refinado", 3), m("tendao_ressecado", "refinado", 2), m("aco_temperado", "refinado", 2)],
+      [m("osso_quebrado", "lendario", 3), m("tendao_ressecado", "lendario", 2), m("aco_temperado", "lendario", 2)],
     ],
-    common: { coins: 0, ingredients: [i("slime_gel", 4), i("slime_core", 2)] },
-    uncommon: {
-      coins: 0,
-      ingredients: [
-        i("slime_gel", 6),
-        i("slime_core", 3),
-        i("skeleton_bone", 2),
-      ],
-    },
-    rare: {
-      coins: 0,
-      ingredients: [
-        i("slime_gel", 9),
-        i("slime_core", 5),
-        i("skeleton_bone", 3),
-        i("ogre_pebble", 2),
-      ],
-    },
-    epic: {
-      coins: 0,
-      ingredients: [
-        i("slime_gel", 12),
-        i("slime_core", 6),
-        i("skeleton_bone", 4),
-        i("ogre_pebble", 3),
-        i("ghoul_claw", 2),
-      ],
-    },
-    legendary: {
-      coins: 0,
-      ingredients: [
-        i("slime_gel", 16),
-        i("slime_core", 8),
-        i("skeleton_bone", 6),
-        i("ogre_pebble", 4),
-        i("ghoul_claw", 3),
-        i("skeleton_skull", 2),
-      ],
-    },
   },
-  {
-    itemId: "aljava_arbalist",
-    coins: 0,
-    ingredients: [
-      i("slime_gel", 5),
-      i("slime_core", 2),
-    ],
-    common: { coins: 0, ingredients: [i("slime_gel", 3), i("slime_core", 1)] },
-    uncommon: { coins: 0, ingredients: [i("slime_gel", 5), i("slime_core", 2)] },
-    rare: {
-      coins: 0,
-      ingredients: [
-        i("slime_gel", 8),
-        i("slime_core", 4),
-        i("skeleton_bone", 2),
-      ],
-    },
-    epic: {
-      coins: 0,
-      ingredients: [
-        i("slime_gel", 11),
-        i("slime_core", 5),
-        i("skeleton_bone", 3),
-        i("ogre_pebble", 2),
-        i("ghoul_claw", 1),
-      ],
-    },
-    legendary: {
-      coins: 0,
-      ingredients: [
-        i("slime_gel", 14),
-        i("slime_core", 7),
-        i("skeleton_bone", 5),
-        i("ogre_pebble", 3),
-        i("ghoul_claw", 2),
-        i("skeleton_skull", 1),
-      ],
-    },
-  },
-  /* ---- as dez pecas de armadura: o MESMO modelo, so muda o slot ---- */
-  {
-    itemId: "botas_arbalist",
-    coins: 0,
-    ingredients: [
-      i("slime_gel", 3),
-      i("slime_core", 1),
-    ],
-    common: { coins: 0, ingredients: [i("slime_gel", 3), i("slime_core", 1)] },
-    uncommon: {
-      coins: 0,
-      ingredients: [
-        i("slime_gel", 6),
-        i("slime_core", 2),
-        i("skeleton_bone", 2),
-      ],
-    },
-    rare: {
-      coins: 0,
-      ingredients: [
-        i("slime_gel", 9),
-        i("slime_core", 4),
-        i("skeleton_bone", 3),
-        i("ogre_pebble", 2),
-      ],
-    },
-    epic: {
-      coins: 0,
-      ingredients: [
-        i("slime_gel", 12),
-        i("slime_core", 5),
-        i("skeleton_bone", 4),
-        i("ogre_pebble", 3),
-        i("ghoul_claw", 2),
-      ],
-    },
-    legendary: {
-      coins: 0,
-      ingredients: [
-        i("slime_gel", 16),
-        i("slime_core", 7),
-        i("skeleton_bone", 5),
-        i("ogre_pebble", 4),
-        i("ghoul_claw", 3),
-        i("skeleton_skull", 2),
-      ],
-    },
-  },
-  {
-    itemId: "calca_arbalist",
-    coins: 0,
-    ingredients: [
-      i("slime_gel", 3),
-      i("slime_core", 1),
-    ],
-    common: { coins: 0, ingredients: [i("slime_gel", 3), i("slime_core", 1)] },
-    uncommon: {
-      coins: 0,
-      ingredients: [
-        i("slime_gel", 6),
-        i("slime_core", 2),
-        i("skeleton_bone", 2),
-      ],
-    },
-    rare: {
-      coins: 0,
-      ingredients: [
-        i("slime_gel", 9),
-        i("slime_core", 4),
-        i("skeleton_bone", 3),
-        i("ogre_pebble", 2),
-      ],
-    },
-    epic: {
-      coins: 0,
-      ingredients: [
-        i("slime_gel", 12),
-        i("slime_core", 5),
-        i("skeleton_bone", 4),
-        i("ogre_pebble", 3),
-        i("ghoul_claw", 2),
-      ],
-    },
-    legendary: {
-      coins: 0,
-      ingredients: [
-        i("slime_gel", 16),
-        i("slime_core", 7),
-        i("skeleton_bone", 5),
-        i("ogre_pebble", 4),
-        i("ghoul_claw", 3),
-        i("skeleton_skull", 2),
-      ],
-    },
-  },
-  {
-    itemId: "capuz_arbalist",
-    coins: 0,
-    ingredients: [
-      i("slime_gel", 3),
-      i("slime_core", 1),
-    ],
-    common: { coins: 0, ingredients: [i("slime_gel", 3), i("slime_core", 1)] },
-    uncommon: {
-      coins: 0,
-      ingredients: [
-        i("slime_gel", 6),
-        i("slime_core", 2),
-        i("skeleton_bone", 2),
-      ],
-    },
-    rare: {
-      coins: 0,
-      ingredients: [
-        i("slime_gel", 9),
-        i("slime_core", 4),
-        i("skeleton_bone", 3),
-        i("ogre_pebble", 2),
-      ],
-    },
-    epic: {
-      coins: 0,
-      ingredients: [
-        i("slime_gel", 12),
-        i("slime_core", 5),
-        i("skeleton_bone", 4),
-        i("ogre_pebble", 3),
-        i("ghoul_claw", 2),
-      ],
-    },
-    legendary: {
-      coins: 0,
-      ingredients: [
-        i("slime_gel", 16),
-        i("slime_core", 7),
-        i("skeleton_bone", 5),
-        i("ogre_pebble", 4),
-        i("ghoul_claw", 3),
-        i("skeleton_skull", 2),
-      ],
-    },
-  },
-  {
-    itemId: "luvas_arbalist",
-    coins: 0,
-    ingredients: [
-      i("slime_gel", 3),
-      i("slime_core", 1),
-    ],
-    common: { coins: 0, ingredients: [i("slime_gel", 3), i("slime_core", 1)] },
-    uncommon: {
-      coins: 0,
-      ingredients: [
-        i("slime_gel", 6),
-        i("slime_core", 2),
-        i("skeleton_bone", 2),
-      ],
-    },
-    rare: {
-      coins: 0,
-      ingredients: [
-        i("slime_gel", 9),
-        i("slime_core", 4),
-        i("skeleton_bone", 3),
-        i("ogre_pebble", 2),
-      ],
-    },
-    epic: {
-      coins: 0,
-      ingredients: [
-        i("slime_gel", 12),
-        i("slime_core", 5),
-        i("skeleton_bone", 4),
-        i("ogre_pebble", 3),
-        i("ghoul_claw", 2),
-      ],
-    },
-    legendary: {
-      coins: 0,
-      ingredients: [
-        i("slime_gel", 16),
-        i("slime_core", 7),
-        i("skeleton_bone", 5),
-        i("ogre_pebble", 4),
-        i("ghoul_claw", 3),
-        i("skeleton_skull", 2),
-      ],
-    },
-  },
+
   {
     itemId: "peito_arbalist",
-    coins: 0,
-    ingredients: [
-      i("slime_gel", 3),
-      i("slime_core", 1),
+    linhas: [
+      [m("couro_goblin", null, 8), m("couro_reforcado", null, 5), m("tecido_militar", null, 3)],
+      [m("couro_goblin", "reforcado", 3), m("tecido_militar", "reforcado", 3), m("fragmento_de_ferro", null, 2)],
+      [m("couro_goblin", "resistente", 3), m("tecido_militar", "resistente", 3), m("fragmento_de_aco", null, 2)],
+      [m("couro_goblin", "refinado", 3), m("tecido_militar", "refinado", 3), m("aco_temperado", "refinado", 2)],
+      [m("couro_goblin", "lendario", 3), m("tecido_militar", "lendario", 3), m("aco_temperado", "lendario", 2)],
     ],
-    common: { coins: 0, ingredients: [i("slime_gel", 3), i("slime_core", 1)] },
-    uncommon: {
-      coins: 0,
-      ingredients: [
-        i("slime_gel", 6),
-        i("slime_core", 2),
-        i("skeleton_bone", 2),
-      ],
-    },
-    rare: {
-      coins: 0,
-      ingredients: [
-        i("slime_gel", 9),
-        i("slime_core", 4),
-        i("skeleton_bone", 3),
-        i("ogre_pebble", 2),
-      ],
-    },
-    epic: {
-      coins: 0,
-      ingredients: [
-        i("slime_gel", 12),
-        i("slime_core", 5),
-        i("skeleton_bone", 4),
-        i("ogre_pebble", 3),
-        i("ghoul_claw", 2),
-      ],
-    },
-    legendary: {
-      coins: 0,
-      ingredients: [
-        i("slime_gel", 16),
-        i("slime_core", 7),
-        i("skeleton_bone", 5),
-        i("ogre_pebble", 4),
-        i("ghoul_claw", 3),
-        i("skeleton_skull", 2),
-      ],
-    },
   },
+
   {
-    itemId: "botas_warrior",
-    coins: 0,
-    ingredients: [
-      i("slime_gel", 3),
-      i("slime_core", 1),
+    itemId: "calca_arbalist",
+    linhas: [
+      [m("couro_goblin", null, 6), m("tendao_ressecado", null, 4), m("tecido_militar", null, 3)],
+      [m("couro_goblin", "reforcado", 3), m("tendao_ressecado", "reforcado", 2), m("tecido_militar", "reforcado", 2)],
+      [m("couro_goblin", "resistente", 3), m("tendao_ressecado", "resistente", 2), m("tecido_militar", "resistente", 2)],
+      [m("couro_goblin", "refinado", 3), m("tendao_ressecado", "refinado", 2), m("tecido_militar", "refinado", 2)],
+      [m("couro_goblin", "lendario", 3), m("tendao_ressecado", "lendario", 2), m("tecido_militar", "lendario", 2)],
     ],
-    common: { coins: 0, ingredients: [i("slime_gel", 3), i("slime_core", 1)] },
-    uncommon: {
-      coins: 0,
-      ingredients: [
-        i("slime_gel", 6),
-        i("slime_core", 2),
-        i("skeleton_bone", 2),
-      ],
-    },
-    rare: {
-      coins: 0,
-      ingredients: [
-        i("slime_gel", 9),
-        i("slime_core", 4),
-        i("skeleton_bone", 3),
-        i("ogre_pebble", 2),
-      ],
-    },
-    epic: {
-      coins: 0,
-      ingredients: [
-        i("slime_gel", 12),
-        i("slime_core", 5),
-        i("skeleton_bone", 4),
-        i("ogre_pebble", 3),
-        i("ghoul_claw", 2),
-      ],
-    },
-    legendary: {
-      coins: 0,
-      ingredients: [
-        i("slime_gel", 16),
-        i("slime_core", 7),
-        i("skeleton_bone", 5),
-        i("ogre_pebble", 4),
-        i("ghoul_claw", 3),
-        i("skeleton_skull", 2),
-      ],
-    },
   },
+
   {
-    itemId: "calca_warrior",
-    coins: 0,
-    ingredients: [
-      i("slime_gel", 3),
-      i("slime_core", 1),
+    itemId: "botas_arbalist",
+    linhas: [
+      [m("couro_goblin", null, 5), m("couro_reforcado", null, 3), m("madeira_de_lanca", null, 2)],
+      [m("couro_goblin", "reforcado", 3), m("madeira_de_lanca", "reforcado", 2), m("fragmento_de_ferro", null, 2)],
+      [m("couro_goblin", "resistente", 3), m("madeira_de_lanca", "resistente", 2), m("fragmento_de_aco", null, 2)],
+      [m("couro_goblin", "refinado", 3), m("madeira_de_lanca", "refinado", 2), m("aco_temperado", "refinado", 2)],
+      [m("couro_goblin", "lendario", 3), m("madeira_de_lanca", "lendario", 2), m("aco_temperado", "lendario", 2)],
     ],
-    common: { coins: 0, ingredients: [i("slime_gel", 3), i("slime_core", 1)] },
-    uncommon: {
-      coins: 0,
-      ingredients: [
-        i("slime_gel", 6),
-        i("slime_core", 2),
-        i("skeleton_bone", 2),
-      ],
-    },
-    rare: {
-      coins: 0,
-      ingredients: [
-        i("slime_gel", 9),
-        i("slime_core", 4),
-        i("skeleton_bone", 3),
-        i("ogre_pebble", 2),
-      ],
-    },
-    epic: {
-      coins: 0,
-      ingredients: [
-        i("slime_gel", 12),
-        i("slime_core", 5),
-        i("skeleton_bone", 4),
-        i("ogre_pebble", 3),
-        i("ghoul_claw", 2),
-      ],
-    },
-    legendary: {
-      coins: 0,
-      ingredients: [
-        i("slime_gel", 16),
-        i("slime_core", 7),
-        i("skeleton_bone", 5),
-        i("ogre_pebble", 4),
-        i("ghoul_claw", 3),
-        i("skeleton_skull", 2),
-      ],
-    },
   },
+
   {
-    itemId: "elmo_warrior",
-    coins: 0,
-    ingredients: [
-      i("slime_gel", 3),
-      i("slime_core", 1),
+    itemId: "luvas_arbalist",
+    linhas: [
+      [m("tendao_ressecado", null, 5), m("couro_goblin", null, 4), m("tecido_militar", null, 2)],
+      [m("tendao_ressecado", "reforcado", 3), m("couro_goblin", "reforcado", 3), m("tecido_militar", "reforcado", 2)],
+      [m("tendao_ressecado", "resistente", 3), m("couro_goblin", "resistente", 3), m("tecido_militar", "resistente", 2)],
+      [m("tendao_ressecado", "refinado", 3), m("couro_goblin", "refinado", 3), m("tecido_militar", "refinado", 2)],
+      [m("tendao_ressecado", "lendario", 3), m("couro_goblin", "lendario", 3), m("tecido_militar", "lendario", 2)],
     ],
-    common: { coins: 0, ingredients: [i("slime_gel", 3), i("slime_core", 1)] },
-    uncommon: {
-      coins: 0,
-      ingredients: [
-        i("slime_gel", 6),
-        i("slime_core", 2),
-        i("skeleton_bone", 2),
-      ],
-    },
-    rare: {
-      coins: 0,
-      ingredients: [
-        i("slime_gel", 9),
-        i("slime_core", 4),
-        i("skeleton_bone", 3),
-        i("ogre_pebble", 2),
-      ],
-    },
-    epic: {
-      coins: 0,
-      ingredients: [
-        i("slime_gel", 12),
-        i("slime_core", 5),
-        i("skeleton_bone", 4),
-        i("ogre_pebble", 3),
-        i("ghoul_claw", 2),
-      ],
-    },
-    legendary: {
-      coins: 0,
-      ingredients: [
-        i("slime_gel", 16),
-        i("slime_core", 7),
-        i("skeleton_bone", 5),
-        i("ogre_pebble", 4),
-        i("ghoul_claw", 3),
-        i("skeleton_skull", 2),
-      ],
-    },
   },
+
   {
-    itemId: "luvas_warrior",
-    coins: 0,
-    ingredients: [
-      i("slime_gel", 3),
-      i("slime_core", 1),
+    /**
+     * O ANEL, e o unico equipamento que NAO e de uma classe.
+     *
+     * E o desenho do txt o chama de "generico para qualquer classe", e a
+     * trava de classe do craft e a familia da arma: sem `kind`, nenhuma
+     * classe e barrada
+     *
+     * E o unico que sobe de familia: comeca em minerio e pedra verde, e
+     * no grau raro entra o ferro fragmentado do Kaelen
+     */
+    itemId: "anel",
+    linhas: [
+      [m("minerio_bruto", null, 5), m("pedra_verde_bruta", null, 2)],
+      [m("minerio_bruto", "reforcado", 3), m("pedra_verde_bruta", "reforcado", 2)],
+      [m("fragmento_de_ferro", null, 3), m("pedra_verde_bruta", "resistente", 2)],
+      [m("fragmento_de_aco", null, 3), m("pedra_verde_bruta", "refinado", 2)],
+      [m("aco_temperado", null, 3), m("pedra_verde_bruta", "lendario", 2)],
     ],
-    common: { coins: 0, ingredients: [i("slime_gel", 3), i("slime_core", 1)] },
-    uncommon: {
-      coins: 0,
-      ingredients: [
-        i("slime_gel", 6),
-        i("slime_core", 2),
-        i("skeleton_bone", 2),
-      ],
-    },
-    rare: {
-      coins: 0,
-      ingredients: [
-        i("slime_gel", 9),
-        i("slime_core", 4),
-        i("skeleton_bone", 3),
-        i("ogre_pebble", 2),
-      ],
-    },
-    epic: {
-      coins: 0,
-      ingredients: [
-        i("slime_gel", 12),
-        i("slime_core", 5),
-        i("skeleton_bone", 4),
-        i("ogre_pebble", 3),
-        i("ghoul_claw", 2),
-      ],
-    },
-    legendary: {
-      coins: 0,
-      ingredients: [
-        i("slime_gel", 16),
-        i("slime_core", 7),
-        i("skeleton_bone", 5),
-        i("ogre_pebble", 4),
-        i("ghoul_claw", 3),
-        i("skeleton_skull", 2),
-      ],
-    },
   },
+
+  {
+    /**
+     * O AMULETO, a peca mais cara do conjunto.
+     *
+     * E a unica que tem Essencia Necrotica nas cinco raridades, e a unica
+     * em que a Essencia entra pelo proprio grau enquanto o resto do
+     * conjunto sobe de familia
+     */
+    itemId: "amuleto_arqueiro",
+    linhas: [
+      [m("osso_quebrado", null, 4), m("pedra_verde_bruta", null, 2), m("tecido_militar", null, 2)],
+      [m("essencia_necrotica", "reforcado", 3), m("pedra_verde_bruta", "reforcado", 2), m("tecido_militar", "reforcado", 2)],
+      [m("essencia_necrotica", null, 3), m("pedra_verde_bruta", "resistente", 2), m("aco_temperado", null, 2)],
+      [m("essencia_necrotica", "refinado", 3), m("pedra_verde_bruta", "refinado", 2), m("aco_temperado", "refinado", 2)],
+      [m("essencia_necrotica", "lendario", 3), m("pedra_verde_bruta", "lendario", 2), m("aco_temperado", "lendario", 2)],
+    ],
+  },
+
+  /* ---- arqueiro: as duas que o desenho nao listou ----
+     O capuz e a aljava nao aparecem nas tabelas do txt. Montados no mesmo
+     padrao das outras: duas ou tres familias e a escala da raridade. Sao
+     as duas unicas pecas do arquiro que ficariam sem receita, e uma peca
+     sem receita e uma aba de craft que mostra a peca e nunca da para criar */
+
+  {
+    itemId: "capuz_arbalist",
+    linhas: [
+      [m("couro_goblin", null, 4), m("tendao_ressecado", null, 3), m("tecido_militar", null, 2)],
+      [m("couro_goblin", "reforcado", 3), m("tendao_ressecado", "reforcado", 2), m("tecido_militar", "reforcado", 2)],
+      [m("couro_goblin", "resistente", 3), m("tendao_ressecado", "resistente", 2), m("tecido_militar", "resistente", 2)],
+      [m("couro_goblin", "refinado", 3), m("tendao_ressecado", "refinado", 2), m("tecido_militar", "refinado", 2)],
+      [m("couro_goblin", "lendario", 3), m("tendao_ressecado", "lendario", 2), m("tecido_militar", "lendario", 2)],
+    ],
+  },
+
+  {
+    itemId: "aljava_arbalist",
+    linhas: [
+      [m("madeira_de_lanca", null, 5), m("tendao_ressecado", null, 2), m("pedra_verde_bruta", null, 2)],
+      [m("madeira_de_lanca", "reforcado", 3), m("tendao_ressecado", "reforcado", 2), m("pedra_verde_bruta", "reforcado", 2)],
+      [m("madeira_de_lanca", "resistente", 3), m("tendao_ressecado", "resistente", 2), m("pedra_verde_bruta", "resistente", 2)],
+      [m("madeira_de_lanca", "refinado", 3), m("tendao_ressecado", "refinado", 2), m("pedra_verde_bruta", "refinado", 2)],
+      [m("madeira_de_lanca", "lendario", 3), m("tendao_ressecado", "lendario", 2), m("pedra_verde_bruta", "lendario", 2)],
+    ],
+  },
+
+  /* ---- guerreiro: as cinco pecas ----
+     O desenho lista sete pecas, todas do arquiro. Sem estas o Guerreiro
+     ficaria sem nenhuma armadura craftavel, entao entram com as MESMAS
+     familias de material do arquiro e a mesma escala — e o que mantem o
+     Guerreiro no mesmo ritmo de progressao, e nao atrasado por causa de
+     uma lista que nao o citava */
+
   {
     itemId: "peito_warrior",
-    coins: 0,
-    ingredients: [
-      i("slime_gel", 3),
-      i("slime_core", 1),
+    linhas: [
+      [m("couro_goblin", null, 8), m("couro_reforcado", null, 5), m("tecido_militar", null, 3)],
+      [m("couro_goblin", "reforcado", 3), m("tecido_militar", "reforcado", 3), m("fragmento_de_ferro", null, 2)],
+      [m("couro_goblin", "resistente", 3), m("tecido_militar", "resistente", 3), m("fragmento_de_aco", null, 2)],
+      [m("couro_goblin", "refinado", 3), m("tecido_militar", "refinado", 3), m("aco_temperado", "refinado", 2)],
+      [m("couro_goblin", "lendario", 3), m("tecido_militar", "lendario", 3), m("aco_temperado", "lendario", 2)],
     ],
-    common: { coins: 0, ingredients: [i("slime_gel", 3), i("slime_core", 1)] },
-    uncommon: {
-      coins: 0,
-      ingredients: [
-        i("slime_gel", 6),
-        i("slime_core", 2),
-        i("skeleton_bone", 2),
-      ],
-    },
-    rare: {
-      coins: 0,
-      ingredients: [
-        i("slime_gel", 9),
-        i("slime_core", 4),
-        i("skeleton_bone", 3),
-        i("ogre_pebble", 2),
-      ],
-    },
-    epic: {
-      coins: 0,
-      ingredients: [
-        i("slime_gel", 12),
-        i("slime_core", 5),
-        i("skeleton_bone", 4),
-        i("ogre_pebble", 3),
-        i("ghoul_claw", 2),
-      ],
-    },
-    legendary: {
-      coins: 0,
-      ingredients: [
-        i("slime_gel", 16),
-        i("slime_core", 7),
-        i("skeleton_bone", 5),
-        i("ogre_pebble", 4),
-        i("ghoul_claw", 3),
-        i("skeleton_skull", 2),
-      ],
-    },
+  },
+
+  {
+    itemId: "elmo_warrior",
+    linhas: [
+      [m("fragmento_de_ferro", null, 6), m("couro_goblin", null, 3), m("tecido_militar", null, 3)],
+      [m("fragmento_de_ferro", "reforcado", 3), m("couro_goblin", "reforcado", 3), m("tecido_militar", "reforcado", 2)],
+      [m("fragmento_de_ferro", "resistente", 3), m("couro_goblin", "resistente", 3), m("tecido_militar", "resistente", 2)],
+      [m("fragmento_de_ferro", "refinado", 3), m("couro_goblin", "refinado", 3), m("tecido_militar", "refinado", 2)],
+      [m("fragmento_de_ferro", "lendario", 3), m("couro_goblin", "lendario", 3), m("tecido_militar", "lendario", 2)],
+    ],
+  },
+
+  {
+    itemId: "calca_warrior",
+    linhas: [
+      [m("couro_goblin", null, 6), m("tendao_ressecado", null, 4), m("tecido_militar", null, 3)],
+      [m("couro_goblin", "reforcado", 3), m("tendao_ressecado", "reforcado", 2), m("tecido_militar", "reforcado", 2)],
+      [m("couro_goblin", "resistente", 3), m("tendao_ressecado", "resistente", 2), m("tecido_militar", "resistente", 2)],
+      [m("couro_goblin", "refinado", 3), m("tendao_ressecado", "refinado", 2), m("tecido_militar", "refinado", 2)],
+      [m("couro_goblin", "lendario", 3), m("tendao_ressecado", "lendario", 2), m("tecido_militar", "lendario", 2)],
+    ],
+  },
+
+  {
+    itemId: "botas_warrior",
+    linhas: [
+      [m("couro_goblin", null, 5), m("couro_reforcado", null, 3), m("madeira_de_lanca", null, 2)],
+      [m("couro_goblin", "reforcado", 3), m("madeira_de_lanca", "reforcado", 2), m("fragmento_de_ferro", null, 2)],
+      [m("couro_goblin", "resistente", 3), m("madeira_de_lanca", "resistente", 2), m("fragmento_de_aco", null, 2)],
+      [m("couro_goblin", "refinado", 3), m("madeira_de_lanca", "refinado", 2), m("aco_temperado", "refinado", 2)],
+      [m("couro_goblin", "lendario", 3), m("madeira_de_lanca", "lendario", 2), m("aco_temperado", "lendario", 2)],
+    ],
+  },
+
+  {
+    itemId: "luvas_warrior",
+    linhas: [
+      [m("tendao_ressecado", null, 5), m("couro_goblin", null, 4), m("tecido_militar", null, 2)],
+      [m("tendao_ressecado", "reforcado", 3), m("couro_goblin", "reforcado", 3), m("tecido_militar", "reforcado", 2)],
+      [m("tendao_ressecado", "resistente", 3), m("couro_goblin", "resistente", 3), m("tecido_militar", "resistente", 2)],
+      [m("tendao_ressecado", "refinado", 3), m("couro_goblin", "refinado", 3), m("tecido_militar", "refinado", 2)],
+      [m("tendao_ressecado", "lendario", 3), m("couro_goblin", "lendario", 3), m("tecido_militar", "lendario", 2)],
+    ],
   },
 ];
 
-/** a vitrine de uma criatura, mesma regra do bestiario */
-function zoneOf(typeId) {
-  let best = null;
+/**
+ * A receita de UMA peca, com as cinco raridades montadas.
+ *
+ * E o preco que sobe: material de grau alto custa caca de grau alto, e
+ * uma peca lendaria exige material lendario. A curva 1 / 1,5 / 2,5 / 4 /
+ * 6,5 e a mesma que os custos de mercado usam
+ */
+function receitaDeEquipamento(equipamento) {
+  const precos = [1, 1.5, 2.5, 4, 6.5];
 
-  for (const row of ZONE_ROSTER) {
-    const weight = row.mix?.[typeId] ?? 0;
+  const bloco = {};
 
-    if (weight <= 0) continue;
-    if (best && weight <= best.weight) continue;
+  RARITY_ORDER.forEach((raridade, indice) => {
+    bloco[raridade] = {
+      coins: Math.round(60 * precos[indice]),
+      ingredients: (equipamento.linhas[indice] ?? []).map((entrada) => ({
+        itemId: entrada[0],
+        count: entrada[1],
+      })),
+    };
+  });
 
-    best = { zone: row.zone, weight };
-  }
-
-  return best ? getZoneById(best.zone) : null;
+  return { itemId: equipamento.itemId, ...bloco };
 }
 
+export const RECIPES = [
+  ...RECEITAS_DE_REFINO,
+  ...EQUIPAMENTOS.map(receitaDeEquipamento),
+];
+
+/**
+ * Quem dropa um item, e o tanto do pool daquele bicho que ele representa.
+ *
+ * ## POR QUE O ICONE FICOU AQUI
+ *
+ * Porque este arquivo e o que o painel do craft le para mostrar "onde
+ * isso cai". O icone morava no catalogo de bestiario, e o bestiario
+ * sai nesta etapa: sem mover o mapa para ca, o painel passaria a buscar
+ * um modulo que nao existe mais
+ *
+ * Sao os glifos de reserva do catalogo de criaturas, e nao arte: o icone
+ * de um bicho aqui e um detalhe de uma linha de texto, nao a coisa que o
+ * jogador esta olhando
+ */
+const ICONE_DA_CRIATURA = {
+  slime: "☠",
+  rat: "⌇",
+  goblin: "◆",
+  ghoul: "☣",
+  skeleton: "⚔",
+  zumbi_arbalist: "⚑",
+  ogre_da_predeira: "◈",
+  ogre: "◈",
+  hulk: "⬤",
+};
+
+/** a soma dos pesos de um pool de drop */
 function poolTotal(table) {
   let total = 0;
 
@@ -974,12 +416,22 @@ function poolTotal(table) {
   return total;
 }
 
+/** a zona de uma criatura, ou `null` */
+function zoneOf(creatureId) {
+  for (const zone of ZONE_ROSTER) {
+    if (zone.creatures?.includes(creatureId)) {
+      return getZoneById(zone.id) ?? null;
+    }
+  }
+
+  return null;
+}
+
 /**
  * Indice reverso item -> quem dropa.
  *
- * Nao existe nada disso pronto no projeto, e a resposta e sempre
- * derivada das tabelas de loot, entao uma tabela nova de drop
- * aparece no craft sem tocar em nada aqui.
+ * E DERIVADO das tabelas de loot, e nao escrito: uma tabela de drop nova
+ * aparece no painel do craft sem tocar em nada aqui
  */
 function buildDropIndex() {
   const index = new Map();
@@ -1000,20 +452,20 @@ function buildDropIndex() {
       register(entry.id, {
         id: creatureId,
         name: type.name,
-        icon: BESTIARY_ICON[creatureId] ?? "◆",
+        icon: ICONE_DA_CRIATURA[creatureId] ?? "◆",
         level: type.level,
         color: type.color,
         zoneName: zone?.name ?? null,
         weight: entry.weight ?? 1,
-        // quanto do pool daquela criatura e este item. util para
-        // o jogador saber se e uma fonte confiavel ou um sorteio
         share: total > 0 ? (entry.weight ?? 1) / total : 0,
       });
     }
   }
 
-  // os bonecos de treino compartilham uma unica tabela, entao
-  // viram uma fonte agregada em vez de sete entradas repetidas
+  /**
+   * Os bonecos de treino compartilham uma unica tabela, entao viram uma
+   * fonte agregada em vez de sete entradas repetidas
+   */
   const dummyTotal = poolTotal(DUMMY_LOOT);
 
   for (const entry of DUMMY_LOOT?.items ?? []) {
@@ -1025,14 +477,8 @@ function buildDropIndex() {
       color: "#b78555",
       zoneName: "Acampamento",
       weight: entry.weight ?? 1,
-      share:
-        dummyTotal > 0 ? (entry.weight ?? 1) / dummyTotal : 0,
+      share: dummyTotal > 0 ? (entry.weight ?? 1) / dummyTotal : 0,
     });
-  }
-
-  // a fonte mais provavel vem primeiro
-  for (const list of index.values()) {
-    list.sort((a, b) => b.share - a.share);
   }
 
   return index;
@@ -1046,14 +492,17 @@ export function dropSourcesOf(itemId) {
 }
 
 export const CRAFT_RECIPES = RECIPES.map((recipe, index) => {
-  // o tipo vem do item, e nao de uma lista paralela aqui, para a
-  // aba do craft nunca divergir do item de verdade
+  // o tipo vem do item, e nao de uma lista paralela aqui, para a aba do
+  // craft nunca divergir do item de verdade
   const item = getItem(recipe.itemId);
-  const baseRarity = item?.rarity ?? RARITY.COMMON;
+  const baseRarity = item?.rarity ?? "common";
 
-  // o preco e os ingredientes do topo sao a receita na raridade
-  // NATURAL do item. Os chamadores antigos leem recipe.coins e
-  // recipe.ingredients, e essa e a variante que eles esperam.
+  /**
+   * O topo da receita e a variante na raridade NATURAL do item.
+   *
+   * Os chamadores antigos leem `recipe.coins` e `recipe.ingredients`, e
+   * e essa variante que eles esperam
+   */
   const natural = recipe[baseRarity] ?? recipe;
 
   return {
@@ -1064,9 +513,7 @@ export const CRAFT_RECIPES = RECIPES.map((recipe, index) => {
     ingredients: natural.ingredients ?? [],
     itemType: item?.type ?? ITEM_TYPE.MATERIAL,
     baseRarity,
-    ingredientCount: (
-      natural.ingredients ?? []
-    ).reduce(
+    ingredientCount: (natural.ingredients ?? []).reduce(
       (sum, ingredient) => sum + ingredient.count,
       0,
     ),
@@ -1074,12 +521,11 @@ export const CRAFT_RECIPES = RECIPES.map((recipe, index) => {
 });
 
 /**
- * Cada receita existe nas cinco raridades, e as 195 sao escritas.
+ * Cada receita existe nas cinco raridades.
  *
- * Aqui nao ha calculo nenhum: a variante e lida direto do bloco
- * da raridade no objeto da receita. Se um item nao trouxer a
- * raridade, isso quebra em vez de cair num preco inventado, que
- * era exatamente o que o multiplicador antigo escondia.
+ * Aqui nao ha calculo nenhum: a variante e lida direto do bloco da
+ * raridade no objeto da receita. Um item que nao traga a raridade quebra
+ * em vez de cair num preco inventado
  */
 function variantOf(recipe, rarity) {
   const written = recipe[rarity] ?? null;
@@ -1092,12 +538,10 @@ function variantOf(recipe, rarity) {
     rarity,
     isBaseRarity: rarity === recipe.baseRarity,
     coins: written?.coins ?? 0,
-    ingredients: (written?.ingredients ?? []).map(
-      (ingredient) => ({
-        itemId: ingredient.itemId,
-        count: ingredient.count,
-      }),
-    ),
+    ingredients: (written?.ingredients ?? []).map((ingredient) => ({
+      itemId: ingredient.itemId,
+      count: ingredient.count,
+    })),
   };
 }
 
@@ -1115,22 +559,17 @@ const VARIANTS_BY_ITEM = CRAFT_RECIPES.reduce((map, recipe) => {
 }, new Map());
 
 for (const variant of CRAFT_VARIANTS) {
-  VARIANTS_BY_ITEM.get(variant.itemId).set(
-    variant.rarity,
-    variant,
-  );
+  VARIANTS_BY_ITEM.get(variant.itemId).set(variant.rarity, variant);
 }
 
 /**
  * A receita de um item numa raridade.
  *
- * Sem `rarity`, cai na raridade natural do item, que e o que a
- * maioria dos chamadores quer. Aceita tanto o id completo da
- * variante quanto o id do item.
+ * Sem `rarity`, cai na raridade natural do item. Aceita tanto o id
+ * completo da variante quanto o id do item
  */
 export function getCraftVariant(itemId, rarity = null) {
-  const byItem =
-    VARIANTS_BY_ITEM.get(itemId) ?? null;
+  const byItem = VARIANTS_BY_ITEM.get(itemId) ?? null;
 
   if (byItem) {
     const target = rarity ?? getItem(itemId)?.rarity;
@@ -1138,7 +577,6 @@ export function getCraftVariant(itemId, rarity = null) {
     return byItem.get(target) ?? null;
   }
 
-  // veio um id completo: craft_item_rarity
   return VARIANTS_BY_ID.get(itemId) ?? null;
 }
 
@@ -1152,16 +590,10 @@ export function variantsOf(itemId) {
 }
 
 /**
- * Abas do craft, na mesma ordem de tipos do inventario.
- * Um tipo sem receita nao entra, para nao mostrar aba vazia.
- */
-/**
  * Ordem das abas.
  *
- * Material fecha a lista: ele e o ingrediente, nao o resultado,
- * e o inventario tambem deixa "Mat." por ultimo. A ordem e
- * explicita porque a do enum de tipos comeca pelo material, que
- * aqui viraria a primeira aba de proposito contrario.
+ * Material fecha a lista: ele e o ingrediente, nao o resultado, e o
+ * inventario tambem deixa "Mat." por ultimo
  */
 const CATEGORY_ORDER = [
   ITEM_TYPE.WEAPON,
@@ -1177,13 +609,11 @@ const CATEGORY_ICON = {
   [ITEM_TYPE.MATERIAL]: "⛏",
 };
 
-export const CRAFT_CATEGORIES = CATEGORY_ORDER.map(
-  (type) => ({
-    id: type,
-    label: ITEM_TYPE_LABEL[type],
-    icon: CATEGORY_ICON[type],
-  }),
-)
+export const CRAFT_CATEGORIES = CATEGORY_ORDER.map((type) => ({
+  id: type,
+  label: ITEM_TYPE_LABEL[type],
+  icon: CATEGORY_ICON[type],
+}))
   .map((category) => ({
     ...category,
     recipes: CRAFT_RECIPES.filter(
@@ -1199,3 +629,11 @@ export function getCraftRecipe(id) {
     ) ?? null
   );
 }
+
+/**
+ * As cadeias de material inteiras, para o painel mostrar a escada.
+ *
+ * Nao e usado pelo craft — que so precisa das receitas — e sim por
+ * qualquer tela que queira mostrar "este material tem quatro graus acima"
+ */
+export { MATERIAIS, DEGRAUS, BASES, nomeDoGrau };

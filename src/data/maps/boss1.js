@@ -200,6 +200,27 @@ export const BOSS_1_MAP = {
   cameraZoom: 1 / 0.7,
 
   /**
+   * O SORCERER DESTA ARENA, COM O MESMO TAMANHO DO MAPA 1.
+   *
+   * ## A CONTA, E POR QUE O NUMERO NAO E O DO MAPA 1
+   *
+   * O alvo e o mesmo 67.7px do vale, mas este mapa tem `cameraZoom` de 1.43,
+   * e o zoom multiplica o personagem junto com o resto da arena. O fator e o
+   * que sobra depois que o zoom ja agiu:
+   *
+   *     67.7 / (62.7 x 1.43) = 0.755
+   *
+   * E por isso que aqui o fator e MENOR que 1 enquanto no mapa 1 ele e maior:
+   * o mesmo destino, alcancado por caminhos opostos
+   *
+   * ## E NAO A ESCALA DA CLASSE
+   *
+   * Porque a base depende do proprio `escalaSprites` para o sorcerer sair do
+   * tamanho do arqueiro, e mexer na `SORCERER_SCALE` arrastaria a base junto
+   */
+  escalaSprites: { sorcerer: 0.755 },
+
+  /**
    * A SEMENTE do sorteio.
    *
    * Igual a do hub, e pelo mesmo motivo: a arena nao tem zona nem prop,

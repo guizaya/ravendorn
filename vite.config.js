@@ -1,8 +1,42 @@
+import { readFile } from "node:fs/promises";
 import { defineConfig } from "vite";
 import react from "@vitejs/plugin-react";
 
+/**
+ * O `.tmj` COMO MODULO.
+ *
+ * O plugin de JSON do Vite so reconhece `.json` — nao existe opcao
+ * `jsonExtensions` na versao 6 — entao o mapa do Tiled chegava no Rollup
+ * como arquivo JavaScript e o build morria no primeiro `{`.
+ *
+ * `export default` na frente do JSON e o mesmo truque que o proprio plugin
+ * de JSON usa: o arquivo ja e um objeto literal valido de JavaScript, e o
+ * unico coisa que falta e o `export`. Sem passo de geracao: editar o mapa no
+ * Tiled e salvar recarrega a tela
+ */
+function tiledTmj() {
+  return {
+    name: "tiled-tmj",
+
+    // antes do plugin de JSON, que nao reconheceria a extensao
+    enforce: "pre",
+
+    async load(id) {
+      // o id vem com `?import` e afins colados; o caminho real e o que vem
+      // antes do primeiro `?`
+      const caminho = id.split("?")[0];
+
+      if (!caminho.endsWith(".tmj")) return null;
+
+      const codigo = await readFile(caminho, "utf8");
+
+      return `export default ${codigo};`;
+    },
+  };
+}
+
 export default defineConfig({
-  plugins: [react()],
+  plugins: [react(), tiledTmj()],
 
   test: {
     // o painel de craft e a tela de selecao tem estado proprio:

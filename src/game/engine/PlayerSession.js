@@ -5,7 +5,36 @@ import { QuestLog } from "../quests/QuestLog.js";
 import { Bestiary } from "../bestiary/Bestiary.js";
 import { Craft } from "../craft/Craft.js";
 import { Collection } from "../collection/Collection.js";
-import { darKitDeTeste } from "../entities/kitDeTeste.js";
+import {
+  passLogDoSave,
+  premiumLogDoSave,
+} from "../pass/passLog.js";
+import { PASSE_PADRAO } from "../../data/passes/index.js";
+import { AUTO_POCAO_LIMIAR_PADRAO } from "../../data/potions/index.js";
+import { estadoInativo } from "../progression/OfflineFarm.js";
+
+/**
+ * QUANTOS SLOTS o bau da base tem.
+ *
+ * ## POR QUE 60, E NAO O MESMO 20 DA MOCHILA
+ *
+ * Porque o bau e para o que NAO cabe na mochila. Com o mesmo tamanho, o
+ * jogador nao teria para onde levar o excesso: ele esbarraria no limite
+ * nos dois lugares ao mesmo tempo, e o bau seria um segundo lugar onde a
+ * coisa nao cabe
+ *
+ * Tres vezes a mochila faz o baU ler como "espaco de sobra" e nao como
+ * "outra mochila". E 60 continua cabendo em um painel de duas colunas sem
+ * a coluna do bau virar uma lista sem fim
+ *
+ * ## POR QUE FICA AQUI E NAO NO `Inventory`
+ *
+ * Porque e o bau que e 60. O `INVENTORY_CAPACITY` e a mochila, e mudar o
+ * numero la mudaria a mochila junto — que e o lugar onde um numero
+ * solto estraga mais coisa
+ */
+export const BAU_CAPACITY = 60;
+
 
 /**
  * Tudo o que pertence a UM jogador, e nao ao mundo.
@@ -30,6 +59,7 @@ export function createPlayerSession(
     name,
     input,
     donoKey = null,
+    farmOffline = null,
   } = options;
 
   const player = createPlayer(
@@ -38,26 +68,32 @@ export function createPlayerSession(
     { id: id ?? `p_${classDefinition.id}`, name },
   );
 
-  const equipment = new Equipment();
+const equipment = new Equipment();
 
-  /* ==============================================================
-     KIT DE TESTE — APAGAR ESTAS DUAS LINHAS
-     ==============================================================
-     Um equipamento para o personagem novo, só para a classe que já
-     tem item no catálogo. É teste, não conteúdo do jogo.
-
-     Apague o bloco abaixo E o import do `darKitDeTeste` lá em cima.
-     Não há flag de desligamento: uma flag esquecida continua dando
-     equipamento a todo mundo, e isso é pior do que código apagado.
-
-     A chamada acontece ANTES do objeto da sessão ser montado, porque
-     o `darKitDeTeste` recebe a sessão pronta e preenche o
-     `equipment` dela. Ele foi chamado antes deste bloco justamente
-     para isso: é a única linha dele que depende da ordem
-     ============================================================== */
-  darKitDeTeste({ classId: classDefinition.id, equipment });
-
-  return {
+/**
+ * SEM KIT INICIAL.
+ *
+ * Havia aqui uma chamada de `darKitDeTeste` que vestia o personagem novo com
+ * a primeira peca do catalogo que coubesse em cada slot — sete pecas de
+ * graaca, na pior raridade, sem o jogador caçar nada. O proprio bloco se
+ * declarava "kit de teste, apague estas duas linhas"
+ *
+ * Someu com a chamada e com o import. O arquivo `entities/kitDeTeste.js` foi
+ * apagado junto, em vez de ficar no projeto desligado: um modulo de teste
+ * sem quem o chama parece conteudo, e alguem ia religa-lo achando que era
+ * conteudo de verdade
+ *
+ * ## O QUE AINDA EXISTE PARA O PERSONAGEM NOVO
+ *
+ * A `createPlayer` acima, que monta o boneco com a classe escolhida, e o
+ * `gold`/`steel` do objeto da sessao. Sao os numeros base do personagem, e nao
+ * itens: nenhuma peca, nenhum material e nenhum livro entra no inventario de
+ * um personagem recem-criado
+ *
+ * O primeiro item do jogo vem do loot, de um drop ou de uma entrega de
+ * colecao — que e o que o `equipment` vazio faz o jogador buscar
+ */
+const returnObjeto = {
     id: player.id,
     name: player.name,
     classId: classDefinition.id,
@@ -79,7 +115,8 @@ export function createPlayerSession(
     player,
 
     // o estado privado deste jogador
-    inventory: new Inventory(),
+inventory: new Inventory(),
+
     equipment,
     quests: new QuestLog(),
     bestiary: new Bestiary(),
@@ -105,6 +142,33 @@ export function createPlayerSession(
     },
 
     /**
+     * O FARM OFFLINE deste jogador.
+     *
+     * ## O MESMO DESENHO DA GUILDA, E DE PROPOSITO
+     *
+     * `ultimoEm` e um RELOGIO, nao um contador. E o que faz o accrue
+     * funcionar sem ninguem de guarda: o servidor nao roda nenhum timer
+     * enquanto o jogador esta fora, ele so compara as duas horas quando
+     * o jogador volta a entrar. Guardar QUANDO o farm comecou, e nao
+     * QUANTO rendeu, e o que faz o tempo com o jogo fechado contar
+     *
+     * ## POR QUE FICA NA SESSAO E NAO NO `GameServer`
+     *
+     * Pelo mesmo motivo da guilda, e com o mesmo custo: a sessao e
+     * destruida no `removePlayer` a cada desconexao. Se o estado vivesse
+     * no servidor, o jogador que iniciasse o farm e fechasse o jogo
+     * voltaria com o farm ligado e o relogio reiniciado a cada entrada
+     *
+     * ## E POR QUE `relatorio` FICA AQUI
+     *
+     * Porque ele e o que o jogador ainda nao viu. O accrue acontece antes
+     * do primeiro pacote, o modal so aparece depois, e entre um e outro o
+     * relatorio tem de sobreviver em algum lugar. A sessao e esse lugar:
+     * ela viaja no painel, e some quando o jogador confirma que viu
+     */
+    farmOffline: farmOffline ?? estadoInativo(options.mapId ?? null),
+
+    /**
      * A COLECAO: as entregas.
      *
      * Vive aqui, e nao no `GameEngine`, pelo mesmo motivo de todo o
@@ -113,6 +177,86 @@ export function createPlayerSession(
      * colecao do outro
      */
     collection: new Collection(),
+
+    /**
+     * O PASSE: os resgates e se o premium esta ligado.
+     *
+     * ## POR QUE FICA AQUI E NAO NO `GameEngine`
+     *
+     * Pelo mesmo motivo de todo o resto desta lista: e estado privado. Duas
+     * sessoes com o mesmo objeto compartilhado fariam o resgate de um jogador
+     * marcar o dia como pego no passe do outro
+     *
+     * ## POR QUE `resgatados` E UM OBJETO COMUM E NAO UMA CLASSE
+     *
+     * Porque nao ha regra alem de "adicionar um dia" e "perguntar se o dia
+     * esta la" — e `src/game/pass/passLog.js` ja tem as duas. Uma classe aqui
+     * seria um embrulho em volta de `Array.includes` que ainda teria de ser
+     * ensinado a se gravar e se ler do JSON de gra
+     *
+     * ## E POR QUE O PREMIUM EH PARTE DO MESMO BLOCO
+     *
+     * Porque `premium` responde a pergunta "os dias premium podem ser
+     * resgatados", e o resgate usa a MESMA resposta do painel: se o painel
+     * desenhasse "Resgatar" num dia premium com o interruptor desligado, o
+     * servidor recusaria o clique e o jogador veria o botao morrer na mao
+     * dele. Os dois precisam ler o mesmo lugar, entao moram juntos
+     */
+passe: {
+    /**
+     * O PREMIUM E POR PASSE, e nao um booleano da sessao.
+     *
+     * Era `premium: options.passePremium ?? false` — um campo so, e valia
+     * para os tres passes do jogo. Pagar os dias pagos da Praga abria tambem
+     * os da Cripta e os do Arsenal de graca
+     *
+     * `options.passePremium` continua aceito porque e o nome que o save usa,
+     * e um save antigo tem `premium: true` la. Ele vira `{ praga: true }`:
+     * o passe padrao e o que o jogador tem na ma quando abre o painel pela
+     * primeira vez, entao e a leitura menos enganosa de um save que nao
+     * sabia a qual passe o premium pertencia
+     */
+    premium: premiumLogDoSave(
+      options.passePremiumPorPasse ??
+        (options.passePremium ? { [PASSE_PADRAO.id]: true } : null),
+    ),
+    resgatados: passLogDoSave(options.passeResgatados),
+    },
+
+    /**
+     * O BAU DA BASE: o que o jogador deixou guardado.
+     *
+     * ## POR QUE UM `Inventory` E NAO UM ARRAY DE PILHAS
+     *
+     * Porque o baU e uma SEGUNDA MOCHILA, e ele precisa das mesmas tres
+     * coisas que a primeira tem: contar slots, recusar o que nao cabe e
+     * dizer o que sobrou. Reimplementar as tres em um array proprio
+     * seria a terceira versao da mesma regra neste arquivo — o
+     * `Collection` e o `Craft` ja fazem o que sabem, e o `Inventory` faz
+     * tudo isso
+     *
+     * E o `overflow` que salva a operacao: um deposito que estoura o bau
+     * devolve a peca pela `mochila.cabe`, e o painel mostra "guardou 3 de
+     * 5" em vez de sumir com o que nao coube
+     *
+     * ## POR QUE O `coins` FICAM AQUI E NAO SAO USADOS
+     *
+     * Porque o `Inventory` sempre teve moedas, e o bau e um inventario.
+     * Guardar ouro no bau e uma feature que precisa de decisao — se o
+     * ouro sobrevive a um servidor trocar, se duas sessoes do mesmo
+     * personagem dividem a mesma moeda. Ate essa decisao existir, o
+     * `bauSnapshot` NAO manda `coins`, e o painel nao mostra lugar nenhum
+     * para depositar moeda
+     *
+     * ## POR QUE VIVE NA SESSAO E NAO NUM STORE
+     *
+     * Porque o bau e POR PERSONAGEM, e a sessao e o que o save do
+     * personagem le e escreve. O cofre de guilda precisou de um store
+     * porque e COMPARTILHADO entre jogadores; o bau nao tem com quem
+     * compartilhar, entao um store seria estado global sem nenhum
+     * consumidor
+     */
+    bau: new Inventory(BAU_CAPACITY),
 
     // a ultima intencao recebida do cliente. e o que o motor
     // consome no tick: o cliente manda para ONDE quer ir, nunca
@@ -177,6 +321,71 @@ export function createPlayerSession(
      */
     habilidadesAprendidas: new Set(),
 
+  /**
+   * OS PRODUTOS DA LOJA QUE ESTE JOGADOR JA COMPROU.
+   *
+   * ## POR QUE FICA NA SESSAO E NAO NA TELHA
+   *
+   * Porque um `Set` na tela se perde no F5. O card desativava, o jogador
+   * recarregava, e o pacote voltava a ficar compravel — e ele podia pagar
+   * duas vezes pelo mesmo bau sem nunca ter visto o primeiro
+   *
+   * E o servidor quem escreve: o `comprarProduto` marca aqui, e o card le
+   * o que veio no snapshot. Nenhum dos dois lados guarda a resposta
+   *
+   * ## POR QUE UM PRODUTO COMPRADO NAO VOLTA
+   *
+   * Porque todo produto da loja e um CONJUNTO fechado — bau, pacote,
+   * moeda. Nao ha "comprar de novo" que faça sentido: o bau ja esta na
+   * mochila, e o ouro ja esta no saldo
+   */
+  lojaComprados: new Set(),
+
+    /**
+     * O USO AUTOMATICO DA POCAO DE CURA.
+     *
+     * Nasce DESLIGADO, e isso e regra e nao esquecimento: beber sozinho
+     * tira do jogador a decisao de quando gastar um item, e o jogo nao
+     * pode decidir isso por ele antes de ele pedir
+     *
+     * ## `itemId` E NAO `uid`
+     *
+     * Porque a pilha da pocao muda de `uid` toda vez que o jogador muda de
+     * mapa, deposita no bau ou pega de volta. Guardar o `uid` faria o
+     * automatico quebrar sozinho: o jogador deixava o bao com a pocao
+     * equipada, voltava, e a flag apontava para uma pilha que nao existia
+     * mais. O `itemId` sobrevive a isso, e o `uid` e resolvido na hora de
+     * beber pelo `findStack`
+     *
+     * ## `limiar` E PORCENTAGEM, E NAO HP
+     *
+     * Porque o `maxHp` muda com nivel, com equipamento e com pocao de
+     * recurso. Um limiar guardado em HP absoluto deixaria de valer sozinho
+     * na metade da carreira, e o jogador teria de mexer nele de novo sem
+     * nenhuma mudanca no jogo
+     */
+autoPocao: {
+        ligado: false,
+        limiar: AUTO_POCAO_LIMIAR_PADRAO,
+        itemId: null,
+      },
+
+      /**
+       * O RELOGIO DO DASH, e nao um contador.
+       *
+       * E um instante ABSOLUTO do `world.time`, e nao "faltam 3 segundos".
+       * Um contador decrementado por quadro erra a cada travamento do
+       * servidor: com o tick atrasado, o contador cairia mais devagar e o
+       * jogador ganharia tempo de recarga de graca
+       *
+       * E o mesmo relogio do resto do estado privado, entao o icone da HUD e
+       * o `useDash` do motor leem o mesmo numero e nunca discordam
+       *
+       * Vive na sessao e nao no jogador porque o cooldown e do CONTROLE, e
+       * nao do boneco: trocar de mapa nao recarrega o dash
+       */
+      dashAte: 0,
+
     // o caminho que o auto esta percorrendo
     autoWaypoint: null,
     autoMoveDirection: null,
@@ -217,6 +426,100 @@ export function createPlayerSession(
      * jogadores com planos diferentes nao podem compartilhar um campo
      */
     travelPlan: [],
+
+    /**
+     * DE ONDE O JOGADOR VEIO PARA O MAPA DE TESTE, ou `null`.
+     *
+     * O botao da HUD e um `op` so, e o servidor decide o sentido pelo
+     * mapa em que o jogador esta. Para isso ele precisa saber qual era o
+     * mapa e a posicao ANTES da primeira troca — e e isto que guarda
+     *
+     * O `arenaOrigem` e o mesmo campo para a arena, e nao foi declarado
+     * em nenhum lugar: ele aparecia como propriedade solta, o que faz um
+     * erro de digitacao criar um segundo campo em vez de tocar este
+     *
+     * Vive na sessao e nao no motor pelo mesmo motivo do `travelPlan`:
+     * no servidor dois jogadores com origens diferentes nao podem
+     * compartilhar um campo
+     */
+    mapaTesteOrigem: null,
+
+    /**
+     * A PEDIDA EM QUE O JOGADOR ESTA ENCOSTADO, ou `null`.
+     *
+     * ## O QUE FICA AQUI E O QUE FICA NO MUNDO
+     *
+     * Aqui nesta sessao: para ONDE o jogador esta indo, o que ainda falta
+     * e quando da a proxima batida. Um campo so, e o servidor e o unico
+     * que escreve nele
+     *
+     * No mundo, no `GameServer`: QUANTAS batidas a PEDIDA tem, e ate que
+     * hora ela volta. A pedida e do mapa, nao do jogador — dois jogadores
+     * na mesma pedra veem o mesmo numero de batidas, senao a segunda
+     * pessoa a minerar veria o painel mentindo
+     *
+     * ## POR QUE `null` E NAO UM OBJETO VAZIO
+     *
+     * Porque `null` e o estado de nao estar minerando, e o painel inteiro
+     * gira em torno disso. Com um objeto vazio, `mineracao.batidasRestantes`
+     * seria 0 e o painel abriria mostrando "0 batidas" para quem nao
+     * esta minerando nada
+     *
+     * ## POR QUE O TEMPO E ABSOLUTO E NAO UM CONTADOR
+     *
+     * `proximoGolpeEm` e um relogio, nao um "faltam 8". O servidor roda a
+     * 20 Hz e o painel chega a 4 Hz: se o estado fosse um contador
+     * descontado no tick, o cliente mostraria um numero que so muda a
+     * cada 250ms, com tres quartos de segundo parado entre um numero e o
+     * seguinte. Guardando o instante, o painel calcula o que falta a
+     * partir do relogio dele e anda sozinho
+     */
+    mineracao: null,
+
+    /**
+     * O CAMINHO QUE O MOTOR JA CALCOU PARA ENCOSTAR NA PEDIDA.
+     *
+     * Vive ao lado do `cacadaCaminho` e pelo mesmo motivo: e um caminho
+     * caro de se refazer, e o A* de 40px sobre o campo inteiro levava o
+     * jogador a recalcular a cada 0.5s enquanto ele atravessava o vale. A
+     * diferenca e que este caminho e CONSUMIDO com `shift()`, igual ao do
+     * `travelPlan`: ele descreve uma ida, e no fim dele o jogador esta
+     * encostado
+     */
+    mineracaoCaminho: [],
+    mineracaoRecalcula: 0,
+
+    /**
+     * A MENOR DISTANCIA A PEDIDA QUE O JOGADOR JA ALCANCOU, e ha quanto
+     * tempo ele nao melhora esse numero.
+     *
+     * E o que mede AVANCO na caminhada, e nao tempo de mineracao. Um
+     * jogador esbarrado num espaco estreito entre duas pedras nao ganha
+     * distancia e nao ganha batida: ele simplesmente empurra. Sem estes dois
+     * campos o pedido ficaria aberto com a locomocao travada, e o sintoma
+     * visivel e o boneco tremendo contra a rocha
+     *
+     * `Infinity` e "ainda nao andou nada", e e o estado de partida
+     */
+    mineracaoMelhor: Infinity,
+    mineracaoTravado: 0,
+
+    /**
+     * O `random` DA MINERACAO, e o que a ultima batida rendeu.
+     *
+     * O `random` e um `createRandom` criado pelo servidor no instante em
+     * que o jogador encostou na pedra. Fica na sessao porque e o HISTORICO
+     * daquela pedra: trocar o sorteio no meio da mineracao faria a mesma
+     * pedra render duas vezes sem que o jogador pudesse notar
+     *
+     * Os dois ultimos sao o que o painel usa para piscar o numero do steel
+     * na hora da batida. Eles sao ZERADOS a cada tique pelo servidor, e
+     * por isso o painel so mostra o ganho quando o tique em que ele
+     * chegou era o tique da batida
+     */
+    mineracaoRandom: null,
+    mineracaoSteelNoTique: 0,
+    mineracaoSteelEm: 0,
 
     /**
      * O JOGADOR QUE ESTE ESTA SEGUINDO, ou `null`.
@@ -400,8 +703,37 @@ export function createPlayerSession(
       restante: 0,
     },
 
-    message: null,
+message: null,
     messageRemaining: 0,
     messageTick: null,
-  };
+    };
+
+  /**
+   * A MOCHILA APONTA PARA O `Equipment` DESTA SESSAO.
+   *
+   * ## O QUE ISSO CONSERTA
+   *
+   * A tela mostrava `7/20` e o loot nao entrava, com o aviso de "mochila
+   * cheia". Duas contagens do mesmo numero discordavam:
+   *
+   * - o `summary` da HUD desconta o que esta VESTIDO, e por isso via 7
+   * - o `cabe`, que decide se o drop entra, usava `stacks.length` CRU — que
+   *   inclui o vestido — e via zero espaco
+   *
+   * O `cabe` nao tem parametro para receber o `equipment`, entao ele nao
+   * tinha como saber o que estava vestido. A referencia e o que fecha isso:
+   * a partir daqui as DUAS contagens leem a mesma pilha de vests
+   *
+   * ## E POR QUE UM `return` ANTES, E NAO NO CONSTRUTOR
+   *
+   * Porque os dois se referenciam: o `inventory` e criado com `new` dentro do
+   * objeto de sessao e nao existe antes dele. O `equipment` ja existia, e o
+   * `new Inventory()` acontece na mesma expressao — nao ha linha entre os
+   * dois onde um `usarEquipment` caberia
+   */
+  const sessao = returnObjeto;
+
+  sessao.inventory.usarEquipment(sessao.equipment);
+
+  return sessao;
 }

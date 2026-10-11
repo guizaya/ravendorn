@@ -53,16 +53,16 @@ export function createAction(name, type, configuration = {}) {
  *
  * ## O LIMITE
  *
- * Cinco, e o `ultimate` NAO conta: ele fica no botao proprio e nao ocupa
+ * Quatro, e o `ultimate` NAO conta: ele fica no botao proprio e nao ocupa
  * um dos slots de habilidade
  *
  * ## POR QUE O CORTE E AQUI E NAO NAS LISTAS
  *
  * As listas ainda escrevem todas as acoes, e o corte acontece em
- * `slice(0, 5)` no `createPack`. Isso e deliberado:
+ * `slice(0, MAX_SKILLS)` no `createPack`. Isso e deliberado:
  *
  * - o que fica e sempre a PRIMEIRA metade, na ordem em que foi escrita, e
- *   o criterio "as cinco primeiras" fica visivel no dado
+ *   o criterio "as quatro primeiras" fica visivel no dado
  * - trocar a ordem de uma lista muda o que o jogador recebe, e isso nao
  *   deve acontecer por acidente ao editar uma acao no meio do arquivo
  *
@@ -70,8 +70,20 @@ export function createAction(name, type, configuration = {}) {
  * nao entram no save e nao aparecem na barra — mas ficam legiveis para
  * uma classe nova, e apagar codigo que funciona e o jeito mais rapido de
  * perder trabalho
+ *
+ * ## POR QUE QUATRO, E COMO UMA CLASSE PERDE A SUA
+ *
+ * Baixou de cinco para quatro por decisao do jogador. O que caiu NAO foi
+ * sempre a mesma posicao: o Warrior, o Lancer e o Arbalist perderam o
+ * TERCEIRO slot, e o Sorcerer perdeu o QUARTO
+ *
+ * Isso e por isso que a acao removida foi MOVIDA para depois do limite em
+ * vez de apagada. O `slice` e por posicao, entao "remover o terceiro" e
+ * "deixar o terceiro de fora" sao coisas diferentes: apagando o codigo, o
+ * quinto viraria o quarto e a classe ganharia uma habilidade nova sem
+ * ninguem pedir
  */
-const MAX_SKILLS = 5;
+const MAX_SKILLS = 4;
 
 function createPack(prefix, actions, ultimateAction) {
   const skills = actions
@@ -114,15 +126,6 @@ export const SKILL_PACKS = {
         effects: [{ type: "knockback", value: 90 }],
       }),
 
-      createAction("Body Check", "dash", {
-        damage: 72,
-        cooldown: 7,
-        resourceCost: 18,
-        distance: 220,
-        width: 55,
-        effects: [{ type: "stun", duration: 0.35 }],
-      }),
-
       createAction("Ground Smash", "circle", {
         damage: 108,
         cooldown: 9,
@@ -141,6 +144,27 @@ export const SKILL_PACKS = {
         radius: 145,
         hits: 3,
         hitInterval: 0.32,
+      }),
+
+      /*
+       * A PARTIR DAQUI NINGUEM VIRA HABILIDADE.
+       *
+       * O `Body Check` era o TERCEIRO slot do Warrior, e saiu da fileira
+       * por decisao do jogador. Ele NAO foi apagado: virou uma das acoes
+       * alem do `MAX_SKILLS`, que e exatamente o que acontece com as
+       * acoes que sempre ficaram fora daqui
+       *
+       * Ele e o `dash` do Warrior — o unico da classe com `stun` curto e
+       * recuo curto. `Sweeping Storm` e `Dragon Tail` cobrem o avanco e
+       * o controle de linha sem custar um slot
+       */
+      createAction("Body Check", "dash", {
+        damage: 72,
+        cooldown: 7,
+        resourceCost: 18,
+        distance: 220,
+        width: 55,
+        effects: [{ type: "stun", duration: 0.35 }],
       }),
 
       createAction("Lion's Roar", "circle", {
@@ -254,14 +278,6 @@ export const SKILL_PACKS = {
         hitInterval: 0.18,
       }),
 
-      createAction("Nirvana Kick", "dash", {
-        damage: 78,
-        cooldown: 7,
-        resourceCost: 15,
-        distance: 240,
-        width: 60,
-      }),
-
       createAction("Sweeping Storm", "circle", {
         damage: 61,
         cooldown: 9,
@@ -278,6 +294,25 @@ export const SKILL_PACKS = {
         range: 190,
         radius: 60,
         effects: [{ type: "knockback", value: 210 }],
+      }),
+
+      /*
+       * A PARTIR DAQUI NINGUEM VIRA HABILIDADE.
+       *
+       * O `Nirvana Kick` era o TERCEIRO slot do Lancer, e saiu da fileira
+       * por decisao do jogador. Continua no arquivo como acao de reserva,
+       * junto com as outras que o corte sempre deixou de fora
+       *
+       * O Lancer ficava com dois `cone` de raspão (Ravaging Blow e
+       * Crescent Blade) e nenhum avanco; sem o dash, o alcance curto
+       * dele passa a ser problema do jogador e nao da classe
+       */
+      createAction("Nirvana Kick", "dash", {
+        damage: 78,
+        cooldown: 7,
+        resourceCost: 15,
+        distance: 240,
+        width: 60,
       }),
 
       createAction("Crushing Blow", "cone", {
@@ -377,6 +412,28 @@ export const SKILL_PACKS = {
         effects: [{ type: "pull", value: 230 }],
       }),
 
+      createAction("Magic Shield", "self", {
+        cooldown: 14,
+        resourceCost: 28,
+        shield: 300,
+        shieldResourceCost: 18,
+        selfEffects: [
+          { type: "shieldMaintenance", duration: 6, value: 12 },
+        ],
+      }),
+
+      /*
+       * A PARTIR DAQUI NINGUEM VIRA HABILIDADE.
+       *
+       * O `Thunderstorm` era o QUARTO slot do Sorcerer, e saiu da fileira
+       * por decisao do jogador — Repare que aqui a habilidade que caiu foi
+       * a quarta e nao a terceira: o corte e por POSICAO, e cada classe
+       * perdeu uma diferente
+       *
+       * Com ele fora, o Sorcerer fica com tres projeteis e um escudo, sem
+       * nenhuma area marcada no chao. `Blizzard`, que ja vivia alem do
+       * limite, e o `ground` mais próximo que a classe ainda tem escrito
+       */
       createAction("Thunderstorm", "ground", {
         damage: 162,
         damageType: "magic",
@@ -386,16 +443,6 @@ export const SKILL_PACKS = {
         radius: 195,
         hits: 3,
         hitInterval: 0.32,
-      }),
-
-      createAction("Magic Shield", "self", {
-        cooldown: 14,
-        resourceCost: 28,
-        shield: 300,
-        shieldResourceCost: 18,
-        selfEffects: [
-          { type: "shieldMaintenance", duration: 6, value: 12 },
-        ],
       }),
 
       createAction("Blizzard", "ground", {
@@ -497,14 +544,36 @@ export const SKILL_PACKS = {
   arbalist: createPack(
     "arbalist",
     [
-      createAction("Quick Shot", "projectile", {
-        damage: 49,
-        cooldown: 1.3,
-        resourceCost: 4,
-        range: 560,
-        projectileSpeed: 720,
-        projectileStyle: "arrow",
-      }),
+createAction("Quick Shot", "projectile", {
+            damage: 49,
+            cooldown: 1.3,
+            resourceCost: 4,
+            range: 560,
+            projectileSpeed: 720,
+            projectileStyle: "arrow",
+
+            /**
+             * O EFEITO DE VELOCIDADE, e so nesta skill.
+             *
+             * ## POR QUE PELA ACAO E NAO PELA ARTE
+             *
+             * As tres flechas do arquiro compartilham a MESMA imagem. Se o
+             * efeito estivesse na arte, as tres esticariam — e `Illusion Arrow`
+             * e `Arrow Rain` nao sao tiros rapidos: sao lentos, pesados e
+             * precisos. O que distingue a `Quick Shot` nao e a arte, e a
+             * velocidade, entao a marca vai na velocidade
+             *
+             * E o `720` acima e a prova: esta e a flecha mais rapida do jogo,
+             * e e a unica que precisa parecer estar correndo
+             *
+             * ## O QUE O MOTOR FAZ COM ISTO
+             *
+             * Estica a arte em 1,45x no eixo do tiro nos primeiros 90ms e
+             * desenha tres riscos atras dela. O eixo X do canvas ja e a
+             * direcao do projétil, entao nao ha conta de angulo nenhuma
+             */
+            speedEffect: true,
+          }),
 
       createAction("Illusion Arrow", "projectile", {
         damage: 72,
@@ -516,14 +585,6 @@ export const SKILL_PACKS = {
           { type: "speedBoost", duration: 1.5, value: 0.2 },
         ],
         projectileStyle: "arrow",
-      }),
-
-      createAction("Burst Shell", "dash", {
-        damage: 96,
-        cooldown: 8,
-        resourceCost: 19,
-        distance: 305,
-        width: 58,
       }),
 
       createAction("Venom Mist Shell", "projectile", {
@@ -552,6 +613,28 @@ export const SKILL_PACKS = {
           { type: "cloak", duration: 5 },
           { type: "speedBoost", duration: 5, value: 0.15 },
         ],
+      }),
+
+      /*
+       * A PARTIR DAQUI NINGUEM VIRA HABILIDADE.
+       *
+       * O `Burst Shell` era o TERCEIRO slot do Arbalist, e saiu da fileira
+       * por decisao do jogador. Continua escrito, como as outras acoes
+       * que o corte deixa de fora
+       *
+       * ## POR QUE ISSO NAO QUEBRA O TESTE DO SPRITE
+       *
+       * `arbalistSprite.test.js` exige que a classe tenha uma habilidade
+       * `self`, e ela continua sendo o `Cloaking`. O que saiu foi o
+       * `dash`, nao o `self` — se o `Cloaking` tivesse sido o removido,
+       * o teste precisaria mudar junto
+       */
+      createAction("Burst Shell", "dash", {
+        damage: 96,
+        cooldown: 8,
+        resourceCost: 19,
+        distance: 305,
+        width: 58,
       }),
 
       createAction("Seeking Bolt", "projectile", {
@@ -598,14 +681,14 @@ export const SKILL_PACKS = {
  *
  * ## POR QUE A ULTIMATE E A UNICA EXCECAO
  *
- * As cinco habilidades de slot sao ensinadas por livro, compradas com o
+ * As quatro habilidades de slot sao ensinadas por livro, compradas com o
  * Mestre. A ultimate nao: ela libera por NÍVEL
  *
- * A razao e a diferenca de papel. As cinco slots sao o repertorio e sao
+ * A razao e a diferenca de papel. As quatro slots sao o repertorio e sao
  * compradas — um livro e um item, entao o jogador sabe exatamente o que
  * falta e o preco. A ultimate e a assinatura da classe, e um livro
- * dela seria um item novo, com arte nova e preco novo, que a unica
- * coisa que ele teaching é "esperar mais um nivel"
+ * dela seria um item novo, com arte nova e preco novo, e a unica coisa
+ * que ele ensinaria e "esperar mais um nivel"
  *
  * E o nivel 6 e o primeiro degrau do vale. Um personagem novo no hub nao
  * tem nada contra ninguem ainda, entao travar a ultimate ate la nao tira

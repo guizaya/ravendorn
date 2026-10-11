@@ -4,14 +4,20 @@ import ItemIcon from "../UI/ItemIcon.jsx";
 import InvSlotView from "../UI/InvSlotView.jsx";
 
 import {
+  GUILD_BONUS_ROTULO,
+  GUILD_CORES,
   GUILD_CRIACAO_CUSTO,
+  GUILD_ICONS,
   GUILD_NOME_MAX,
   GUILD_NOME_MIN,
+  GUILD_ROLE_ORDEM,
   GUILD_TAG_MAX,
   GUILD_TAG_MIN,
   formatarMoedas,
 } from "../../data/guild/index.js";
 import { getItem } from "../../data/items/index.js";
+import { useArrastarScroll } from "../../game/ui/arrastarScroll.js";
+import { SeletorEstilo, PreviaEstilo } from "./GuildEstilo.jsx";
 
 /**
  * O painel da GUILDA.
@@ -19,12 +25,19 @@ import { getItem } from "../../data/items/index.js";
  * Quatro abas, e a escolha delas nao e cosmetica: cada aba e uma
  * pergunta que so o SERVIDOR pode responder.
  *
+ * - RESUMO: como esta a guilda. Quantos membros, quantos pontos, e o que a
+ *   guilda esta dando de bonus. E a PRIMEIRA aba de quem ja tem uma, porque
+ *   e a primeira pergunta de quem entra aqui ja tendo guilda
  * - CRIAR: o jogador ainda nao tem guilda. Uma pergunta por vez
  * - BUSCAR: quais guildas existem, e o que elas tem. E a unica aba que
  *   olha o MUNDO em vez de voce
  * - MEMBROS: quem esta na guilda, e — so para a diretoria — os pedidos
  *   esperando e o cofre
  * - TALENTOS: a arvore, e o gasto de ponto
+ *
+ * Sao CINCO, e o "quatro" deste comentario ja foi verdade. A ordem da
+ * barra e a ordem das perguntas de quem esta dentro — resumo, membros,
+ * talentos, cofre — e nao a ordem em que as telas foram escritas
  *
  * A arvore aparece para quem NAO tem guilda tambem, toda bloqueada:
  * esconder a arvore de quem vai criar a guilda em um minuto faria a
@@ -46,6 +59,8 @@ export default function GuildPanel({
   onSair = null,
   onTalent = null,
   onCofre = null,
+  onEstilo = null,
+  onMostrarTag = null,
 
   /**
    * A MOCHILA do jogador, no mesmo formato do inventario.
@@ -62,10 +77,29 @@ export default function GuildPanel({
 
   onClose = null,
 }) {
-  const [aba, setAba] = useState(() => (guilda?.guilda ? "membros" : "criar"));
+  const [aba, setAba] = useState(() =>
+    guilda?.guilda ? "resumo" : "criar",
+  );
   const [nome, setNome] = useState("");
   const [tag, setTag] = useState("");
   const [termo, setTermo] = useState("");
+
+  /**
+   * O ARRASTAR COM O MOUSE, no mesmo hook do passe.
+   *
+   * ## POR QUE O MESMO HOOK E NAO UM NOVO
+   *
+   * Porque `useArrastarScroll` ja resolve as tres coisas que faltavam aqui:
+   * descobre o eixo sozinho pelo `scrollWidth` contra o `clientWidth`, arm
+   * a captura de ponteiro so DEPOIS do limiar de 5px — o que deixa o clique
+   * nos botoes chegar no botao — e escuta o `pointerup` no `window`, para o
+   * arrasto nunca ficar preso quando o ponteiro sai da janela
+   *
+   * A unica exigencia e que o elemento seja o que rola. Por isso o hook vai
+   * no `.gld-panel__body`, que e o unico com `overflow-y: auto`: a arvore de
+   * talentos e a aba mais alta e ela rola junto com o resto
+   */
+  const arraste = useArrastarScroll();
 
   /**
    * O prop `guilda` e o SNAPSHOT, e nao a guilda.
@@ -115,9 +149,11 @@ const temGuilda = Boolean(g);
  * E o inverso tambem vale, e e a regra de "Buscar": as duas abas de
  * ESPACO EXISTEM (achar ou criar uma) somem para quem ja tem uma
  */
+      { id: "resumo", label: "Resumo", sempre: temGuilda },
       { id: "membros", label: "Membros", sempre: temGuilda },
       { id: "talentos", label: "Talentos", sempre: temGuilda },
       { id: "cofre", label: "Cofre", sempre: temGuilda && ehDiretoria },
+      { id: "ajustes", label: "Ajustes", sempre: temGuilda },
 
       /**
        * BUSCAR SOME PARA QUEM JA TEM GUILDA.
@@ -144,32 +180,43 @@ const temGuilda = Boolean(g);
 );
 
 /**
- * A aba VISIVEL e a que o jogador escolheu, desde que ela ainda exista.
- *
- * A versao anterior era `g ? aba : "criar"`: sem guilda, `atual` ficava
- * preso em "criar" e clicar em "Buscar" nao fazia NADA — a `aba` mudava
- * para "buscar" e o `atual` sobrescrevia de volta para "criar" no
- * render. Era a aba que mais importa para quem ainda nao tem guilda,
- * e era a unica que o jogador nao conseguia abrir
- *
- * A escolha do jogador vale; o que se corrige e so o caso em que a aba
- * escolhida deixa de existir. Acontece em tres momentos:
- *
- * 1. o jogador cria a guilda estando em "criar", e essa aba some da
- *    barra — sem isto o corpo ficaria vazio, sem aba nenhuma marcada
- * 2. o jogador sai da guilda estando em "membros" ou "talentos"
- * 3. o jogador CRIA a guilda estando em "buscar", que agora so existe
- *    para quem nao tem uma
- *
- * Nos dois primeiros ele cai em "membros", que e a aba do novo estado. No
- * terceiro cai em "buscar" de novo — que e o que o jogador precisa ver
- * depois de criar: a lista do mundo, agora com a guilda dele nela
- */
-const atual = abas.some((a) => a.id === aba)
-  ? aba
-  : temGuilda
-    ? "membros"
-    : "buscar";
+   * A ABA VISIVEL e a que o jogador escolheu, desde que ela ainda exista.
+   *
+   * ## POR QUE A PRIMEIRA DA BARRA E A QUE ABRE
+   *
+   * Porque o Resumo e a aba de quem esta DENTRO, e a primeira pergunta de
+   * quem entra no painel de guilda ja tendo guilda e "como esta a minha
+   * guilda". Antes ela caia em "Membros", que responde "quem esta dentro" —
+   * uma lista de nomes, que e a segunda pergunta e a mais cara de ler
+   *
+   * E o mesmo raciocinio que fez "Buscar" ser a ultima aba: a ordem da
+   * barra e a ordem das perguntas, nao a ordem em que as telas foram
+   * escritas
+   *
+   * A versao anterior era `g ? aba : "criar"`: sem guilda, `atual` ficava
+   * preso em "criar" e clicar em "Buscar" nao fazia NADA — a `aba` mudava
+   * para "buscar" e o `atual` sobrescrevia de volta para "criar" no
+   * render. Era a aba que mais importa para quem ainda nao tem guilda,
+   * e era a unica que o jogador nao conseguia abrir
+   *
+   * A escolha do jogador vale; o que se corrige e so o caso em que a aba
+   * escolhida deixa de existir. Acontece em tres momentos:
+   *
+   * 1. o jogador cria a guilda estando em "criar", e essa aba some da
+   *    barra — sem isto o corpo ficaria vazio, sem aba nenhuma marcada
+   * 2. o jogador sai da guilda estando em "membros" ou "talentos"
+   * 3. o jogador CRIA a guilda estando em "buscar", que agora so existe
+   *    para quem nao tem uma
+   *
+   * Nos dois primeiros ele cai no "resumo", que e a aba do novo estado. No
+   * terceiro cai em "buscar" de novo — que e o que o jogador precisa ver
+   * depois de criar: a lista do mundo, agora com a guilda dele nela
+   */
+  const atual = abas.some((a) => a.id === aba)
+    ? aba
+    : temGuilda
+      ? "resumo"
+      : "buscar";
 
 const usar = (id) => () => setAba(id);
 
@@ -243,26 +290,120 @@ const usar = (id) => () => setAba(id);
           type="button"
           className="inv-close"
           onClick={onClose}
-          title="Fechar (G)"
+          data-tip="Fechar (G)"
         >
           ✕
         </button>
       </nav>
 
-      <div className="gld-panel__body">
-        {/*
-          A IDENTIDADE da guilda, acima do conteudo.
+      {/*
+        O CORPO DO PAINEL, com a classe do PADRAO ao lado da propria.
 
-          Ficava num `<header>` antes das abas, e deu ruim quando as
-          abas passaram a usar a casca `inv-tabs`: o cabecalho empurrava
-          a barra de abas para fora do lugar. Aqui ela mora dentro do
-          corpo, que e a parte que rola
+        ## POR QUE AS DUAS
+
+        Porque `gld-panel__body` sozinho nao e o corpo do painel — e um corpo
+        com as regras do painel de guilda por cima. Sem a `inv-panel__body`
+        na classe, o elemento nao recebia o FUNDO do padrao: o radial que vai
+        de `#2b2118` no topo a `#17110c` embaixo. O resultado era o gradiente
+        liso do `.inv-panel` aparecendo atras do conteudo, e a guilda ficava
+        com um tom de fundo diferente de todos os outros quatro painéis sem
+        nenhuma regra de cor no css da guilda
+
+        E o `gld-panel__body` continua necessario: sao o arrasto, o
+        `flex-direction: column`, o `gap` e o `padding` que o painel de
+        guilha usa e que nenhum dos outros usa
+      */}
+      <div
+        className="inv-panel__body gld-panel__body"
+        ref={arraste.ref}
+        {...arraste.evento}
+      >
+        {/*
+          A BANDEIRA DA GUILDA.
+
+          ## O QUE TROCOU
+
+          Era um `<p>` com `[TAG] Nome` e uma borda embaixo, dentro do corpo
+          que rola. Ficava estranho por tres motivos, e os tres somem aqui:
+
+          1. era uma LINHA de texto com o nome no meio de uma tela cheia de
+             listas. Em Mir4 e Night Crows a identidade da guilda e uma
+             BANDEIRA — uma placa com moldura dourada, brasao a esquerda, nome
+             grande e numeros a direita — e nao um paragrafo
+          2. ela ROLAVA com o conteudo. A identidade de uma guilda e fixa: o
+             jogador desce a lista de membros e a guilda dele nao pode sair
+             da tela junto
+          3. ela repetia o que o Resumo ja mostrava, em duas telas diferentes
+             e com duas grafias
+
+          ## POR QUE FICA FORA DO QUE ROLA
+
+          Porque o banner e a moldura da tela. Ele vive antes do container que
+          arraste, e o `flex: none` impede que ele encolha quando o corpo
+          ganha conteudo. E o que faz a aba parecer um painel de guilda e nao
+          um formulario com um titulo
         */}
         {g && (
-          <p className="gld-panel__tag">
-            <span className="gld-panel__tag-bracket">[{g.tag}]</span>{" "}
-            {g.nome}
-          </p>
+          <header className="gld-bandeira">
+            {/*
+              O BRASAO.
+
+              E um losango com o mesmo desenho do `❈` que o no do topo da
+              arvore usa: no catalogo de talentos ele marca "a coisa mais
+              cara da guilda", e aqui marca "a guilda". Reusar o glifo faz os
+              dois lerem como o mesmo assunto
+            */}
+            <span
+              className="gld-bandeira__brasao"
+              aria-hidden="true"
+            >
+              ❈
+            </span>
+
+            <div className="gld-bandeira__texto">
+              {/*
+                A TAG COMO EMBLEMA, e nao entre colchetes.
+
+                Em Night Crows e Mir4 a tag e um escudo pequeno ao lado do
+                nome, nao um prefixo de texto. O `[TAG]` entre colchetes era a
+                notacao das telas de TEXTO — a lista de buscar, a aba de
+                membros. Num bloco de emblema, os colchetes so fariam um
+                arranjo torto: o jogador leria "[GUAR]" como parte do nome
+              */}
+              <span className="gld-bandeira__tag">{g.tag}</span>
+
+              <h3 className="gld-bandeira__nome">{g.nome}</h3>
+
+              <small className="gld-bandeira__papel">
+                {dados?.ehLider ? "Lider" : null}
+                {dados?.ehLider && dados?.ehDiretoria ? " · " : null}
+                {dados?.ehDiretoria && !dados?.ehLider
+                  ? "Diretoria"
+                  : null}
+                {!dados?.ehDiretoria ? "Membro" : null}
+              </small>
+            </div>
+
+            {/*
+              OS DOIS NUMEROS DA BANDEIRA, e so dois.
+
+              Membros e pontossao os unicos que cabem numa faixa sem virar uma
+              tabela. A arvore inteira, os bonus e a diretoria ficam no
+              Resumo: a bandeira responde "de quem e esta guilda", e a aba
+              responde "o que ela esta dando"
+            */}
+            <div className="gld-bandeira__nums">
+              <span>
+                <strong>{g.membros?.length ?? 0}</strong>
+                <small>/ {g.membrosMax ?? 0} membros</small>
+              </span>
+
+              <span>
+                <strong>{dados?.pontos ?? 0}</strong>
+                <small>pontos</small>
+              </span>
+            </div>
+          </header>
         )}
 
         {atual === "criar" && (
@@ -288,6 +429,10 @@ const usar = (id) => () => setAba(id);
           />
         )}
 
+        {atual === "resumo" && (
+          <AbaResumo guilda={g} dados={dados} />
+        )}
+
         {atual === "membros" && (
           <AbaMembros
             guilda={g}
@@ -302,6 +447,10 @@ const usar = (id) => () => setAba(id);
           <AbaTalentos guilda={dados} onTalent={onTalent} />
       )}
 
+      {atual === "ajustes" && (
+          <AbaAjustes guilda={g} dados={dados} onEstilo={onEstilo} onTag={onMostrarTag} />
+        )}
+
       {atual === "cofre" && (
           <AbaCofre
             guilda={dados}
@@ -314,8 +463,420 @@ const usar = (id) => () => setAba(id);
   );
 }
 
-/* ------------------------------------------------------------------ criar */
+/* ----------------------------------------------------------------- resumo */
 
+/**
+ * O RESUMO DA GUILDA, a aba que abre para quem tem uma.
+ *
+ * ## POR QUE ELA SOME DOS DADOS QUE JA EXISTEM
+ *
+ * Porque cada numero aqui ja eraTrue em outra aba, e e exatamente por isso
+ * que a aba existia: "tres membros de quarenta" estava numa lista de nomes,
+ * "vinte e tres pontos guardados" numa barra no cabecalho de talentos, e os
+ * bonus que a guilda da, espalhados em sete nos que o jogador teria de somar
+ * de cabeca para descobrir quanto a guilda dele vale
+ *
+ * ## E POR QUE SOMAR OS BONUS AQUI, E NAO PEDIR AO SNAPSHOT
+ *
+ * Porque cada no ja traz o `bonus` DELES no payload, como soma ate o nivel
+ * alcancado. Somar aqui usa o mesmo numero que o `applyEquipment` aplica no
+ * personagem — o painel de status e o resumo contariam a mesma historia
+ *
+ * E pedir um total pronto ao servidor seria um segundo lugar onde o bonus
+ * e calculado: o servidor faria a soma, o motor faria a dele, e os dois
+ * divergiriam no primeiro talento novo acrescentado a arvore
+ */
+function AbaResumo({ guilda, dados }) {
+  const arvore = dados?.arvore ?? [];
+
+  /**
+   * O BONUS TOTAL DA GUILDA, por stat.
+   *
+   * O `Map` e o que faz a soma por chave: sete nos com `defense` somados num
+   * objeto comum exigiriam um `+=` em sete lugares, e um stat novo na
+   * arvore apareceria sem ser somado — o resumo prometeria menos do que o
+   * personagem recebe
+   */
+  const bonusTotal = useMemo(() => {
+    const total = new Map();
+
+    for (const no of arvore) {
+      for (const bonus of no.bonus ?? []) {
+        total.set(bonus.stat, (total.get(bonus.stat) ?? 0) + bonus.valor);
+      }
+    }
+
+    /**
+     * A ORDEM DOS STATS E FIXA, e nao a ordem em que apareceram.
+     *
+     * Sem isso o resumo reordenaria a cada ponto investido, porque subir um
+     * no muda o `Map`. Uma lista de bonus que se reordena sozinha parece um
+     * bug mesmo estando certa — e a ordem do `GUILD_BONUS_ROTULO` ja e a
+     * ordem em que o jogador espera: ataque, defesa, vida
+     */
+    return GUILD_BONUS_ROTULO_ORDER.map(([stat, rotulo]) => ({
+      stat,
+      rotulo,
+      valor: total.get(stat) ?? 0,
+    })).filter((linha) => linha.valor > 0);
+  }, [arvore]);
+
+  /**
+   * A ARVORE EM NUMEROS: quantos nos subiram, quantos acabaram, quantos
+   * pontos foram para a guilda.
+   *
+   * Sao tres perguntas que a arvore nao responde numa olhadada. Ver "Nv. 3"
+   * em tres nos e contar na mao; "3 de 7 nos, 18 pontos investidos" e o
+   * resumo da mesma informacao
+   */
+  const progresso = useMemo(() => {
+    let subidos = 0;
+    let completos = 0;
+
+    for (const no of arvore) {
+      if ((no.nivel ?? 0) > 0) subidos += 1;
+      if (no.noMaximo) completos += 1;
+    }
+
+    return { subidos, completos, total: arvore.length };
+  }, [arvore]);
+
+  /**
+   * A PAPEIS CONTADOS, e nao a lista de nomes.
+   *
+   * Uma guilda com trinta e nove membros e um lider e uma guilda com trinta e
+   * nove membros e trinta e nove lideres sao coisas muito diferentes, e a
+   * lista de nomes nao distingue as duas sem o jogador ler 39 linhas
+   */
+  const papeis = useMemo(() => {
+    const conta = new Map();
+
+    for (const membro of guilda?.membros ?? []) {
+      conta.set(
+        membro.papel,
+        (conta.get(membro.papel) ?? 0) + 1,
+      );
+    }
+
+    return conta;
+  }, [guilda?.membros]);
+
+  return (
+    <div className="gld-cartao gld-resumo">
+      {/*
+        OS NUMEROS DA GUILDA.
+
+        ## POR QUE A IDENTIDADE SUMIU DESTA ABA
+
+        Porque a bandeira, la em cima, ja mostra tag, nome, papel,
+        membros e pontos. Deixar a identidade tambem aqui significava duas
+        bandeiras na tela — na aba Resumo, que e a que abre por padrao — e o
+        jogador veria a mesma informacao duas vezes em duas grafias
+
+        E o que sobra e o que a bandeira NAO tem: a arvore em numeros. Ver
+        "Nv. 3" em tres nos e contar na mao
+      */}
+      <div className="gld-resumo__nums">
+        <NumeroResumo
+          valor={`${progresso.subidos}/${progresso.total}`}
+          legenda="Nos subidos"
+        />
+
+        <NumeroResumo
+          valor={progresso.completos}
+          legenda="Nos no maximo"
+        />
+      </div>
+
+      {/*
+        A DIRETORIA, so quando ha mais de um papel em uso.
+
+        Uma guilda de um jogador so tem lider, e "Lider 1" nao informa nada
+        que o titulo da aba nao tenha dito. A condicao e `size > 1` e nao
+        `size > 0`: o que interessa e a composicao, e so ha composicao
+        quando existe mais de um papel
+      */}
+      {papeis.size > 1 && (
+        <section className="gld-resumo__bloco">
+          <h4>Diretoria</h4>
+
+          <ul className="gld-resumo__papeis">
+            {GUILD_ROLE_ORDEM.filter((papel) => papeis.has(papel)).map(
+              (papel) => (
+                <li key={papel}>
+                  <span>{PAPEL[papel] ?? papel}</span>
+                  <strong>{papeis.get(papel)}</strong>
+                </li>
+              ),
+            )}
+          </ul>
+        </section>
+      )}
+
+      {/*
+        O QUE A GUILDA ESTA DANDO.
+
+        O bloco que nao existia em lugar nenhum. Os mesmos numeros que o
+        `applyEquipment` soma no personagem de todo mundo, juntos — que e a
+        unica forma de o jogador saber se vale subir o proximo no
+      */}
+      <section className="gld-resumo__bloco">
+        <h4>Bonus da guilda</h4>
+
+        {bonusTotal.length === 0 ? (
+          <p className="gld-vazio">
+            Nenhum talento subido ainda. Os pontos da guilda viram bonus
+            quando alguem investe na arvore.
+          </p>
+        ) : (
+          <ul className="gld-resumo__bonus">
+            {bonusTotal.map((linha) => (
+              <li key={linha.stat}>
+                <span data-tip={linha.rotulo.nome}>{linha.rotulo.sigla}</span>
+                <strong>+{linha.valor}</strong>
+              </li>
+            ))}
+          </ul>
+        )}
+      </section>
+    </div>
+  );
+}
+
+/**
+ * UMA CAIXA DE NUMERO DO RESUMO.
+ *
+ * E um componente e nao uma classe so porque a mesma caixa aparece em tres
+ * lugares com conteudo diferente. O `destaque` existe para a caixa de
+ * membros cheia: um "40/40" em vermelho e a unica informacao da tela que
+ * significa "voce precisa grow antes de contratar"
+ */
+function NumeroResumo({ valor, legenda, destaque = false }) {
+  return (
+    <div
+      className={[
+        "gld-num",
+        destaque ? "is-cheio" : "",
+      ]
+        .filter(Boolean)
+        .join(" ")}
+    >
+      <strong>{valor}</strong>
+      <small>{legenda}</small>
+    </div>
+  );
+}
+
+/* -------------------------------------------------------------- ajustes */
+
+/**
+ * OS AJUSTES DA GUILDA.
+ *
+ * ## POR QUE UMA ABA PARA CADA MEMBRO E NAO SO PARA O LIDER
+ *
+ * Porque o emblema e a cor sao do LIDER, e a tag no boneco e de CADA UM.
+ * Se a aba so existisse para a diretoria, o membro comum — que e a maioria
+ * de quem abre o painel — nao teria onde ligar a opcao que e sobre o boneco
+ * DELE
+ *
+ * ## E POR QUE O QUE NAO E DELE APARECE DESABILITADO
+ *
+ * Porque esconder o seletor de emblema para um membro comum e pior do que
+ * mostra-lo cinza: o jogador pensaria que a funcao nao existe. Desabilitado
+ * com o rotulo "so o lider muda" responde a pergunta que ele faria — "por
+ * que nao posso?" — sem precisar abrir outra tela
+ *
+ * ## E POR QUE O INTERRUPTOR DA TAG VEM PRIMEIRO
+ *
+ * Porque e a unica coisa desta aba que o jogador comum pode mudar. Se ela
+ * estivesse embaixo de um bloco cinza que ele nao pode tocar, ele sairia da
+ * tela sem ver que aquilo era para ele
+ */
+function AbaAjustes({ guilda, dados, onEstilo, onTag }) {
+  /**
+   * O ESTILO EM EDICAO, e nao o da guilda.
+   *
+   * E local porque o servidor grava na hora: cada clique e um pedido, e o
+   * painel so descobriria que a cor mudou quando o pacote de 4Hz voltasse.
+   * O jogador clicaria duas vezes na mesma amostra esperando o desenho
+   * acompanhar o mouse
+   */
+  const [estilo, setEstilo] = useState({
+    icone: guilda?.icone ?? GUILD_ICONS[0].id,
+    cor: guilda?.corId ?? GUILD_CORES[0].id,
+  });
+
+  const [tagLigada, setTagLigada] = useState(false);
+
+  /**
+   * O QUE O SERVIDOR RESPONDEU, que sobrepoe o que o jogador esta vendo.
+   *
+   * E por dependencia dos CAMPOS e nao do objeto: o painel chega inteiro a
+   * cada pacote, entao uma dependencia do objeto dispararia isto quatro vezes
+   * por segundo mesmo sem mudanca nenhuma — e o `setEstilo` com um objeto
+   * novo a cada vez faria o `SeletorEstilo` repintar inteiro sem motivo
+   */
+  useEffect(() => {
+    setEstilo({
+      icone: guilda?.icone ?? GUILD_ICONS[0].id,
+      cor: guilda?.corId ?? GUILD_CORES[0].id,
+    });
+  }, [guilda?.icone, guilda?.corId]);
+
+  /**
+   * A TAG SAI DA LINHA DO PROPRIO MEMBRO, e nao de um campo no painel.
+   *
+   * Porque o painel traz `eu: true` na linha do jogador e `mostrarTag` em
+   * todas. Ler um campo no topo do `guilda` seria uma segunda fonte de
+   * verdade para a mesma coisa — e as duas divergiriam no primeiro pacote
+   * depois de um clique
+   */
+  const linhaDoEu = useMemo(
+    () => guilda?.membros?.find?.((m) => m.eu) ?? null,
+    [guilda?.membros],
+  );
+
+  useEffect(() => {
+    if (!linhaDoEu) return;
+
+    setTagLigada(linhaDoEu.mostrarTag === true);
+  }, [linhaDoEu]);
+
+  const ehLider = Boolean(dados?.ehLider);
+
+  /**
+   * A TROCA DE ESTILO, e ela so existe para o LIDER.
+   *
+   * O `onChange` do `SeletorEstilo` e separado do `onTag` de proposito: os
+   * dois vao para o servidor por caminhos com permissoes diferentes. Uma
+   * funcao unica que decidisse "isto e meu?" dentro deixaria a regra do
+   * lider no painel — e a regra do lider e do servidor
+   */
+  const escolher = (proximo) => {
+    if (!ehLider) return;
+
+    setEstilo(proximo);
+
+    onEstilo?.(proximo.icone, proximo.cor);
+  };
+
+  const virarTag = () => {
+    const alvo = !tagLigada;
+
+    setTagLigada(alvo);
+
+    onTag?.(alvo);
+  };
+
+  return (
+    <div className="gld-cartao gld-ajustes">
+      {/*
+        A TAG SOBRE O BONECO.
+
+        E a unica coisa aqui que o jogador comum pode mudar, entao vem
+        primeiro. E o texto explica o efeito REAL — que os OUTROS veem —
+        porque "exibir tag" sem isso parece uma opcao de tela, e o jogador
+        nao ligaria se soubesse que e o mundo inteiro
+      */}
+      <section className="gld-ajustes__bloco">
+        <h4>Tag no boneco</h4>
+
+        <button
+          type="button"
+          role="switch"
+          aria-checked={tagLigada}
+          className={[
+            "gld-interruptor",
+            tagLigada ? "is-on" : "",
+          ]
+            .filter(Boolean)
+            .join(" ")}
+          onClick={virarTag}
+        >
+          <span className="gld-interruptor__trilho" aria-hidden="true">
+            <span className="gld-interruptor__botao" />
+          </span>
+
+          <span className="gld-interruptor__texto">
+            <strong>
+              {tagLigada ? "Mostrando a tag" : "Tag escondida"}
+            </strong>
+
+            <small>
+              Desenha [TAG] com a cor da guilda em cima do seu boneco, para
+              todo mundo ver.
+            </small>
+          </span>
+        </button>
+
+        {/*
+          A CONFIRMACAO DE QUE A OPCA PEGOU.
+
+          E porque ligar o interruptor nao muda NADA na tela: a tag e
+          desenhada no canvas, e o mundo estava parado. Sem esta linha o
+          jogador clicaria, veria a mesma coisa, e concluiria que o botao
+          quebrou
+        */}
+        <p className="gld-ajustes__nota">
+          {tagLigada
+            ? "A sua tag aparece em cima do seu personagem para os outros jogadores."
+            : "Ninguem ve a sua tag agora. Voce continua com a guilda, so sem o nome dela em cima do boneco."}
+        </p>
+      </section>
+
+      {/*
+        O EMBLEMA e A COR.
+
+        Vem depois da tag porque e do LIDER, e um membro comum vem a esta aba
+        para mexer so no interruptor de cima
+      */}
+      <section className="gld-ajustes__bloco">
+        <h4>Emblema e cor</h4>
+
+        {!ehLider && (
+          <p className="gld-ajustes__aviso">
+            So o lider muda o emblema e a cor. E o que os outros jogadores veem
+            em cima do boneco de cada membro.
+          </p>
+        )}
+
+        <SeletorEstilo
+          icone={estilo.icone}
+          cor={estilo.cor}
+          onChange={escolher}
+          bloqueado={!ehLider}
+        />
+
+        <PreviaEstilo
+          icone={estilo.icone}
+          cor={estilo.cor}
+          nome={guilda?.nome ?? ""}
+          tag={guilda?.tag ?? ""}
+        />
+      </section>
+    </div>
+  );
+}
+
+/* ----------------------------------------------------------------- criar */
+
+/**
+ * O FORMULARIO DE CRIAR.
+ *
+ * ## POR QUE UM PREVIA DA IDENTIDADE
+ *
+ * Porque nome e tag sao lidos JUNTOS por todo mundo — na lista de buscar, na
+ * aba de membros, na aba de resumo. O jogador escrevia "Os Guardioes" e a tag
+ * "GRD" e nunca via os dois juntos ate procurar a propria guilda na lista do
+ * mundo e confirmar que o "[GRD] Os Guardioes" era ele. A previa e essa
+ * confirmacao, antes de gastar
+ *
+ * ## POR QUE MOSTRAR O QUE VAI ACONTECER
+ *
+ * Porque "Criar guilda" e uma compra irreversivel de 10.000 moedas: o nome
+ * fica ocupado para sempre e nao ha edicao. A tela dizia o preco e nao
+ * dizia o que voce ganha, entao o jogador decidia no escuro
+ */
 function AbaCriar({
   nome,
   tag,
@@ -325,6 +886,18 @@ function AbaCriar({
   jaTem,
   moedas,
 }) {
+  /**
+   * O ESTILO ESCOLHIDO, no estado do painel.
+   *
+   * E local e nao vai pro store ainda: a guilda nao existe, entao nao ha
+   * nada para gravar. O par so viaja no `onCriar`, e o `GuildStore` valida
+   * outra vez antes de escrever no arquivo
+   */
+  const [estilo, setEstilo] = useState({
+    icone: GUILD_ICONS[0].id,
+    cor: GUILD_CORES[0].id,
+  });
+
   if (jaTem) {
     return (
       <p className="inv-panel__empty">
@@ -350,66 +923,223 @@ function AbaCriar({
    */
   const temSaldo = moedas >= GUILD_CRIACAO_CUSTO;
 
+  const preenchido = nome.trim().length > 0 || tag.trim().length > 0;
+
   return (
     <form
       className="gld-form"
       onSubmit={(e) => {
         e.preventDefault();
 
-        onCriar?.(nome, tag);
+        onCriar?.(nome, tag, estilo);
       }}
     >
+      {/*
+        A PREVIA ANTIGA, ACIMA DO CAMPO DE NOME. FOI REMOVIDA.
+
+        ## POR QUE ELA DUPLICAVA A DE BAIXO
+
+        Mostrava `[TAG] Nome` no mesmo formato da `PreviaEstilo` que fica
+        depois do seletor de emblema e cor — so que por cima, e antes de o
+        jogador escolher cor nenhuma
+
+        ## E A DE BAIXO E MELHOR, POR UM MOTIVO ESPECIFICO
+
+        Porque a tag dela sai NA COR ESCOLHIDA. Esta aqui era um `<span>`
+        sem `style`, e o texto saia na cor do texto: o jogador via o
+        `[GUER] Guardaes` em branco e nao tinha como saber a cor que ia
+        escolher dali a pouco
+
+        Ou seja: as duas mostravam a mesma frase, e a unica coisa que elas
+        NAO tinham em comum era a cor — que era justamente o que a previa
+        existe para mostrar
+      */}
+
+      {/*
+        A PREVIA DA TAG E DO NOME, ACIMA DO CAMPO.
+
+        ## POR QUE ESTA E A PREVIA QUE FICOU
+
+        Havia duas mostrando `[TAG] Nome`. A de cima era um `<span>` sem
+        `style`: a tag saia na cor do TEXTO, e nao na cor da guilda. O jogador
+        via o que ia escrever e nao via a cor — que e a unica coisa que ele
+        ainda nao tinha como saber
+
+        Esta usa a `PreviaEstilo`, que aplica `style={{ color: amostra.cor }}`.
+        O texto e o mesmo, a cor e a escolha
+
+        ## E POR QUE ACIMA DO PRIMEIRO CAMPO, E NAO DEPOIS DO SELETOR
+
+        Porque e a IDENTIDADE que o mundo vai ver: nome, tag, emblema e cor,
+        numa placa so, antes de qualquer campo. Depois do seletor, ela ficava
+        no rodape do formulario — o jogador digitava o nome, escolhia a cor
+        tres blocos abaixo, e so entao aparecia o resultado da escolha
+
+        Acima, a previa e o titulo do que o jogador esta preenchendo
+      */}
+      <PreviaEstilo
+        icone={estilo.icone}
+        cor={estilo.cor}
+        nome={nome}
+        tag={tag}
+      />
+
       <label className="gld-field">
         <span>Nome da guilda</span>
+
         <input
           type="text"
           value={nome}
           maxLength={GUILD_NOME_MAX}
           onChange={(e) => setNome(e.target.value)}
+          placeholder="Os Guardioes do Vale"
         />
+
+        {/*
+          O CONTADOR, que vira um problema so quando ele existe.
+
+          Um contador que mostra "0/24" em campo vazio e ruido: o jogador
+          ainda nem comecou. Ele aparece quando ja tem texto, e fica vermelho
+          quando o texto passou do minimo ou esta perto do maximo — que e
+          quando o numero e uma informacao e nao um decoracao
+        */}
+        {nome.trim().length > 0 && (
+          <small
+            className={[
+              "gld-field__conta",
+              nome.trim().length < GUILD_NOME_MIN ? "is-ruim" : "",
+              nome.trim().length >= GUILD_NOME_MAX ? "is-limite" : "",
+            ]
+              .filter(Boolean)
+              .join(" ")}
+          >
+            {nome.trim().length < GUILD_NOME_MIN
+              ? `Faltam ${GUILD_NOME_MIN - nome.trim().length} caracteres`
+              : `${nome.trim().length}/${GUILD_NOME_MAX}`}
+          </small>
+        )}
       </label>
 
       <label className="gld-field">
         <span>Tag</span>
+
         <input
           type="text"
           value={tag}
           maxLength={GUILD_TAG_MAX}
-          onChange={(e) => setTag(e.target.value)}
+          onChange={(e) => setTag(e.target.value.toUpperCase())}
+          placeholder="GUAR"
         />
+
+        {/*
+          A MESMA CONTAGEM da tag, e pela mesma razao. E o `toUpperCase` no
+          `onChange` e nao um `CSS text-transform`: o valor que vai para o
+          servidor passa a ser o que o jogador ve, e nao o que ele digitou
+          minusculo esperando que a tela fizesse o trabalho
+        */}
+        {tag.trim().length > 0 && (
+          <small
+            className={[
+              "gld-field__conta",
+              tag.trim().length < GUILD_TAG_MIN ? "is-ruim" : "",
+              tag.trim().length >= GUILD_TAG_MAX ? "is-limite" : "",
+            ]
+              .filter(Boolean)
+              .join(" ")}
+          >
+            {tag.trim().length < GUILD_TAG_MIN
+              ? `Faltam ${GUILD_TAG_MIN - tag.trim().length}`
+              : `${tag.trim().length}/${GUILD_TAG_MAX}`}
+          </small>
+        )}
       </label>
+
+      {/*
+        O ESTILO, e a previa, logo depois da identidade.
+
+        Vem antes do bloco "O que voce cria" porque e a parte da tela que o
+        jogador vai mexer depois de decidir o nome: o nome e o formato sao a
+        identidade, o emblema e a cor sao a aparencia
+
+        E a previa vem colada no seletor porque e o RESULTADO da escolha.
+        Separadas, o jogador teria de juntar as duas informacoes na cabeca
+        para saber o que esta escolhendo — e o que esta escolhendo e
+        literalmente o que sera pintado no boneco dele no mundo
+      */}
+<SeletorEstilo
+          icone={estilo.icone}
+          cor={estilo.cor}
+          onChange={setEstilo}
+        />
 
       {/*
         O PRECO, e o que falta para ele.
 
-        Fica entre os campos e o botao porque e a resposta da pergunta
+        ## POR QUE O BLOCO "O QUE VOCE CRIA" SAIU
+
+        Eram tres linhas explicando bonus de stat, pontos por hora e cofre
+        compartilhado — e o preco, que vem logo abaixo, e a unica coisa que
+        trava o botao. O jogador que nao tem as moedas ve o "Criar guilda"
+        cinza e a resposta na tela; o que ele ganha vem tres blocos depois,
+        numa lista que ele le como marketing antes de mexer no saldo
+
+        A `PreviaEstilo` FICOU, logo acima deste bloco. Ela repete o
+        `[TAG] Nome` dos dois campos — mas a TAG sai na COR ESCOLHIDA, que o
+        campo de texto nao mostra. Sem ela, a cor escolhida nao aparecia em
+        lugar nenhum antes de a guilda existir
+
+        O `SeletorEstilo` fica acima dela, porque ICONE e COR sao as duas
+        escolhas, e a previa e o resultado delas
+
+        Fica entre o que voce ganha e o botao porque e a resposta da pergunta
         que o jogador faria ao ver "Criar guilda" travado
       */}
-      <p
-        className={[
-          "gld-custo",
-          temSaldo ? "is-ok" : "is-falta",
-        ]
-          .filter(Boolean)
-          .join(" ")}
-      >
-        <span>Criar uma guilda custa</span>
-        <strong>{formatarMoedas(GUILD_CRIACAO_CUSTO)}</strong>
+      {/*
+        O BOTAO E O PRECO, NA MESMA LINHA.
 
-        {!temSaldo && (
-          <small>
-            Faltam {formatarMoedas(GUILD_CRIACAO_CUSTO - moedas)}.
-          </small>
-        )}
-      </p>
+        ## POR QUE O PRECO VAI PARA CAI
 
-      <button
-        type="submit"
-        className="gld-btn gld-btn--primary"
-        disabled={!nomeOk || !tagOk || !temSaldo}
-      >
-        Criar guilda
-      </button>
+        Porque o preco nao e uma informacao do FORMULARIO: e o preco da
+        ACAO. Ele estava num paragrafo solto acima do botao, e o jogador lia
+        "10.000" longe da coisa que custa 10.000
+
+        Ao lado, o par e auto-explicativo: "Criar guilda" + o preço. E quando o
+        saldo nao cobre, o `disabled` do botao e o `is-falta` da cifra falam
+        ao mesmo tempo, sem o jogador ter de casar dois blocos
+
+        ## E O ICONE ANTES DO VALOR
+
+        Porque um numero solto nao diz de que moeda e. O `◉` e o mesmo
+        glifo que a HUD usa no gold e que o mercado usa no preco — e o
+        jogador le `[10.000]` como moedas de guild e `[⌀10.000]` como outra
+        coisa
+      */}
+      <div className="gld-criar-linha">
+        <button
+          type="submit"
+          className="gld-btn gld-btn--primary gld-btn--criar"
+          disabled={!nomeOk || !tagOk || !temSaldo}
+        >
+          Criar guilda
+        </button>
+
+        <span
+          className={[
+            "gld-custo",
+            temSaldo ? "is-ok" : "is-falta",
+          ]
+            .filter(Boolean)
+            .join(" ")}
+          data-tip={
+            temSaldo
+              ? "Voce tem moedas suficientes"
+              : `Faltam ${formatarMoedas(GUILD_CRIACAO_CUSTO - moedas)}`
+          }
+        >
+          <i aria-hidden="true">◉</i>
+          {formatarMoedas(GUILD_CRIACAO_CUSTO)}
+        </span>
+      </div>
     </form>
   );
 }
@@ -491,7 +1221,7 @@ function AbaBuscar({
                    * `aceitarEntrada` e da diretoria, e um "entrar"
                    * direto burlaria essa regra sem o servidor saber
                    */
-                  title={
+                  data-tip={
                     g.cheia
                       ? "Esta guilda esta cheia"
                       : "Pedir entrada. A diretoria precisa aceitar."
@@ -513,10 +1243,21 @@ function AbaBuscar({
 /* ---------------------------------------------------------------- membros */
 
 const PAPEL = {
-  lider: "Lider",
-  coLider: "Co-lider",
-  membro: "Membro",
-};
+    lider: "Lider",
+    coLider: "Co-lider",
+    membro: "Membro",
+  };
+
+/**
+ * A ORDEM DOS BONUS DO RESUMO.
+ *
+ * E a ordem das CHAVES do `GUILD_BONUS_ROTULO`, e nao uma lista a parte.
+ * Sao as mesmas sete, e nao sete de novo: uma segunda lista com os mesmos
+ * sete nomes divergiria na primeira vez que um stat novo aparecesse — o
+ * `GUILD_BONUS_ROTULO` ganharia a sigla e este resumo continuaria sem
+ * mostrar o stat, sem erro nenhum
+ */
+const GUILD_BONUS_ROTULO_ORDER = Object.entries(GUILD_BONUS_ROTULO);
 
 /**
  * A GUILDA, a entidade — e nao o snapshot.
@@ -545,7 +1286,7 @@ function AbaMembros({
   const pedidos = guilda.pedidos ?? [];
 
   return (
-    <div className="gld-membros">
+    <div className="gld-cartao gld-membros">
       <ul className="gld-lista">
         {membros.map((m) => (
           <li key={m.id} className="gld-row">
@@ -685,7 +1426,7 @@ function AbaTalentos({ guilda, onTalent }) {
   );
 
   return (
-    <div className="gld-talentos">
+    <div className="gld-cartao gld-talentos">
       {/*
         O SALDO de pontos.
 
@@ -729,6 +1470,121 @@ function AbaTalentos({ guilda, onTalent }) {
 function ArvoreTalentos({ arvore, colunas, alturaDaColuna, onTalent }) {
   const svgRef = useRef(null);
   const gradeRef = useRef(null);
+  const caixaRef = useRef(null);
+
+  const [arrastando, setArrastando] = useState(false);
+
+  /**
+   * O ARRASTE da arvore.
+   *
+   * ## POR QUE A CAIXA TEM `overflow` E A GRADE NAO
+   *
+   * A arvore tem mais colunas do que cabem num painel de 560px. Antes disso
+   * aqui, a grade usava `grid-auto-columns: 1fr`, e `1fr` nunca desce do
+   * `min-content` do no — entao as colunas ficavam espremidas, a ultima
+   * transbordava, e o `overflow: hidden` do painel cortava o no. O jogador
+   * perdia justamente a ponta da arvore
+   *
+   * Agora a CAIXA e quem rola no eixo X, e a grade mantem a largura que a
+   * arvore precisa. A barra fica escondida: um no tem largura propria e uma
+   * barra de rolagem embaixo deles roubaria a unica pista de que ainda ha
+   * coluna para a direita — que e o arraste
+   *
+   * ## POR QUE O BOTAO "ATRIBUIR" NAO DISPARA O ARRASTE
+   *
+   * O `closest` no `pointerdown` e o que separa as duas intencoes. O jogador
+   * que chega no botao quer ATRIBUIR, nao deslizar; o que chega no fundo da
+   * arvore quer ver a outra ponta. Deixar o arraste comecar no botao
+   * transformaria um clique em "arrastei e nao happened nada"
+   *
+   * E o `movido > 4` no `click` e a trava final: um arrasto que termina
+   * sobre um botao nao pode virar clique. Sem ela, mirar o botao no meio de
+   * um deslize comprava um ponto por acidente
+   */
+  const arraste = useRef({ ativo: false, x: 0, scroll: 0, movido: 0 });
+
+  const aoPointerDown = useCallback((e) => {
+    const caixa = caixaRef.current;
+
+    if (!caixa) return;
+
+    if (e.pointerType === "mouse" && e.button !== 0) return;
+
+    if (e.target.closest("button, a")) return;
+
+    /*
+      A SELECAO DE TEXTO, do lado do JS.
+
+      O `user-select: none` do CSS ja resolve, e este e o reforco para o
+      Firefox: ele comeca a marcar no `pointerdown` antes de a regra entrar
+      em vigor no elemento que esta sob o dedo
+
+      E o `getSelection().removeAllRanges()` limpa o que ja tenha marcado —
+      sem ele, o retangulo continua desenhado mesmo com o `user-select`
+      ligado depois
+    */
+    e.preventDefault();
+
+    window.getSelection?.()?.removeAllRanges();
+
+    /*
+      E O QUE SEPARA OS DOIS ARRASTES.
+
+      O painel tambem se arrasta, e esse gesto vive no `onPointerDown` do
+      CORPO — o pai da arvore. Sem o `stopPropagation`, todo arraste na
+      arvore viraria arraste do painel: o jogador tentava ver a ponta da
+      arvore e ganhava um painel boiando pela tela
+
+      Os dois gestos usam o mesmo evento e o mesmo dedo. So o alvo os
+      distingue
+    */
+    e.stopPropagation();
+
+    arraste.current = {
+      ativo: true,
+      x: e.clientX,
+      scroll: caixa.scrollLeft,
+      movido: 0,
+    };
+  }, []);
+
+  const aoPointerMove = useCallback((e) => {
+    const caixa = caixaRef.current;
+    const d = arraste.current;
+
+    if (!caixa || !d.ativo) return;
+
+    const delta = e.clientX - d.x;
+
+    d.movido = Math.max(d.movido, Math.abs(delta));
+
+    if (d.movido > 4) {
+      setArrastando(true);
+
+      caixa.setPointerCapture?.(e.pointerId);
+    }
+
+    caixa.scrollLeft = d.scroll - delta;
+  }, []);
+
+  const aoPointerUp = useCallback((e) => {
+    const caixa = caixaRef.current;
+
+    arraste.current.ativo = false;
+
+    if (caixa?.hasPointerCapture?.(e.pointerId)) {
+      caixa.releasePointerCapture(e.pointerId);
+    }
+
+    setArrastando(false);
+  }, []);
+
+  const aoClickCapture = useCallback((e) => {
+    if (arraste.current.movido > 4) {
+      e.preventDefault();
+      e.stopPropagation();
+    }
+  }, []);
 
   const [medidas, setMedidas] = useState({
     largura: 0,
@@ -845,7 +1701,20 @@ function ArvoreTalentos({ arvore, colunas, alturaDaColuna, onTalent }) {
   }, [medir]);
 
   return (
-    <div className="gld-arvore">
+    <div
+      className={[
+        "gld-arvore",
+        arrastando ? "is-arrastando" : "",
+      ]
+        .filter(Boolean)
+        .join(" ")}
+      ref={caixaRef}
+      onPointerDown={aoPointerDown}
+      onPointerMove={aoPointerMove}
+      onPointerUp={aoPointerUp}
+      onPointerCancel={aoPointerUp}
+      onClickCapture={aoClickCapture}
+    >
       <div
         className="gld-arvore__grade"
         ref={gradeRef}
@@ -983,7 +1852,7 @@ function NoTalento({ node, onTalent }) {
             <em>Nenhum stat ainda</em>
           ) : (
             node.bonus.map((s) => (
-              <b key={s.stat} title={`${s.nome}: +${s.valor}`}>
+              <b key={s.stat} data-tip={`${s.nome}: +${s.valor}`}>
                 +{s.valor} {s.sigla}
               </b>
             ))
@@ -993,7 +1862,7 @@ function NoTalento({ node, onTalent }) {
         {!node.noMaximo && (node.proximo ?? []).length > 0 && (
           <span className="gld-no__proximo">
             {(node.proximo ?? []).map((s) => (
-              <i key={s.stat} title={`Proximo nivel: +${s.valor} ${s.nome}`}>
+              <i key={s.stat} data-tip={`Proximo nivel: +${s.valor} ${s.nome}`}>
                 +{s.valor} {s.sigla}
               </i>
             ))}
@@ -1026,7 +1895,7 @@ function NoTalento({ node, onTalent }) {
         className="gld-btn gld-btn--sm gld-no__btn"
         disabled={!podeGastar}
         onClick={() => onTalent?.(node.id)}
-        title={
+        data-tip={
           node.noMaximo
             ? "No nivel maximo"
             : !podeAtribuir
@@ -1083,6 +1952,33 @@ function NoTalento({ node, onTalent }) {
 function AbaCofre({ guilda, onCofre, inventory }) {
   const cofre = guilda?.cofre;
 
+  /**
+   * QUAL DOS DOIS LADOS ESTA ABERTO.
+   *
+   * ## POR QUE PAROU DE SER OS DOIS AO MESMO TEMPO
+   *
+   * Porque o painel tem 560px e cada lado recebia metade: 270px. E o
+   * `inv-grid` do jogo e `repeat(5, var(--slot))` com `--slot` de 68px, ou
+   * seja uns 360px fixos. Um grid de 360px dentro de uma caixa de 270px
+   * estourava o painel, e era por isso que os itens apareciam enormes e
+   * cortados: nao era o icone grande, era o grid nao cabendo
+   *
+   * ## E POR QUE UM so, e nao encolher o slot
+   *
+   * Encolher o slot caberia os dois lados, mas em 48px o item vira um
+   * quadrado sem nome legivel — e o nome do item esta logo abaixo de cada
+   * celula. Um cofre com quarenta slots e duas colunas de nomes ilegiveis
+   * e pior que um cofre de uma coluna com nomes bons
+   *
+   * ## POR QUE ABAS E NAO UM BOTÃO DE TROCA
+   *
+   * Porque sao duas ACOES opostas: guardar e tirar. Juntas na mesma tela,
+   * um clique errado deposita um item que o jogador queria retrieve. Em
+   * Mir4 e Night Crows sao telas separadas por essa razao tambem, e o
+   * titulo da aba ja diz o que o botao vai fazer
+   */
+  const [lado, setLado] = useState("depositar");
+
   if (!cofre) {
     return (
       <p className="inv-panel__empty">
@@ -1098,60 +1994,106 @@ function AbaCofre({ guilda, onCofre, inventory }) {
   return (
     <div className="gld-cofre">
       {/*
-        AS MOEDAS no topo, acima dos dois paineis.
+        AS MOEDAS, e a barra das DUAS ACOES.
 
-        E a unica leitura que os dois lados compartilham, e a unica
-        linha da aba que cresce sozinha: o cofre nunca perde moeda, so
-        ganha, porque so a diretoria deposita
+        Continua no topo e nao dentro de nenhum dos lados porque e a leitura
+        que os dois compartilham: o cofre nunca perde moeda, so ganha
       */}
       <p className="gld-cofre__moedas">
         {formatarMoedas(cofre.moedas ?? 0)} moedas no cofre
       </p>
 
-      <div className="gld-cofre__paineis">
-        <PainelCofre
-          titulo="Depositar"
-          dica="Da mochila para o cofre"
-          moedas={inventory?.coins ?? 0}
-          itens={inventory?.items ?? []}
-          rotuloDaQuantidade={(e) => e.count ?? 1}
+      {/*
+        AS DUAS ABAS.
 
-          /**
-           * O `item` e o `uid` da MOCHILA. O servidor procura esse id em
-           * `inventory.findByUid` e tira dali — e um id de slot do cofre
-           * seria recusado, o que e o comportamento certo: sao espacos
-           * diferentes
-           */
-          montarItem={(chave, quantidade) => ({
-            item: chave,
-            quantidade,
-          })}
+        E `role="tablist"` com `aria-selected` porque sao abas de verdade, e
+        nao dois botoes decorados: o leitor de tela tem que anunciar qual
+        lado esta aberto, senao ele anuncia "Depositar, botao" e "Retirar,
+        botao" sem dizer qual dos dois age
+      */}
+      <div
+        className="gld-cofre__abas"
+        role="tablist"
+      >
+        <button
+          type="button"
+          role="tab"
+          aria-selected={lado === "depositar"}
+          className={[
+            "gld-cofre__aba",
+            lado === "depositar" ? "is-active" : "",
+          ]
+            .filter(Boolean)
+            .join(" ")}
+          onClick={() => setLado("depositar")}
+        >
+          Depositar
+        </button>
 
-          onMover={(dados) => onCofre?.(id, "depositar", dados)}
-          vazio="Sua mochila esta vazia."
-        />
-
-        <PainelCofre
-          titulo="Retirar"
-          dica="Do cofre para a mochila"
-          moedas={cofre.moedas ?? 0}
-          itens={slots}
-          rotuloDaQuantidade={(e) => e.quantidade ?? 1}
-
-          /**
-           * Aqui e o `uid` do SLOT. E o mesmo nome de campo do outro
-           * painel porque o SERVIDOR e que sabe qual dos dois o pedido
-           * quer: ele le `uid` para saque e `item` para deposito
-           */
-          montarItem={(chave, quantidade) => ({
-            uid: chave,
-            quantidade,
-          })}
-
-          onMover={(dados) => onCofre?.(id, "retirar", dados)}
-          vazio="O cofre esta vazio."
-        />
+        <button
+          type="button"
+          role="tab"
+          aria-selected={lado === "retirar"}
+          className={[
+            "gld-cofre__aba",
+            lado === "retirar" ? "is-active" : "",
+          ]
+            .filter(Boolean)
+            .join(" ")}
+          onClick={() => setLado("retirar")}
+        >
+          Retirar
+        </button>
       </div>
+
+      {/*
+        SO UM PAINEL POR VEZ.
+
+        O `key` forca a remontagem ao trocar de lado, e e o que impede o
+        item selecionado e a quantidade digitada de vazar de "Depositar"
+        para "Retirar": o estado do `PainelCofre` é local a ele, e sem o
+        `key` o React reaproveitaria a instancia e o jogador veria
+        "Poção Grande (5)" selecionado do outro lado
+      */}
+      <PainelCofre
+        key={lado}
+        titulo={lado === "depositar" ? "Depositar" : "Retirar"}
+        dica={
+          lado === "depositar"
+            ? "Da mochila para o cofre"
+            : "Do cofre para a mochila"
+        }
+        moedas={
+          lado === "depositar"
+            ? inventory?.coins ?? 0
+            : cofre.moedas ?? 0
+        }
+        itens={lado === "depositar" ? inventory?.items ?? [] : slots}
+        rotuloDaQuantidade={(e) =>
+          lado === "depositar" ? e.count ?? 1 : e.quantidade ?? 1
+        }
+
+        /**
+         * O `item` e o `uid` da MOCHILA no deposito, e o `uid` do SLOT no
+         * saque. E o mesmo nome de campo nos dois porque o SERVIDOR e que
+         * sabe qual dos dois o pedido quer: ele le `uid` para saque e `item`
+         * para deposito
+         */
+        montarItem={(chave, quantidade) =>
+          lado === "depositar"
+            ? { item: chave, quantidade }
+            : { uid: chave, quantidade }
+        }
+
+        onMover={(dados) =>
+          onCofre?.(id, lado === "depositar" ? "depositar" : "retirar", dados)
+        }
+        vazio={
+          lado === "depositar"
+            ? "Sua mochila esta vazia."
+            : "O cofre esta vazio."
+        }
+      />
 
       {/*
         A REGRA que esvazia o cofre, escrita uma vez e em voz baixa.
@@ -1202,12 +2144,44 @@ function PainelCofre({
 
   const maximo = item ? rotuloDaQuantidade(item) : 0;
 
+  /**
+   * ESTE ITEM EMPILHA, OU E SO UM?
+   *
+   * ## POR QUE A PERGUNTA PRECISA SER FEITA AQUI
+   *
+   * Porque o campo de quantidade estava sempre na tela, e ele e uma pergunta
+   * sem resposta para o que nao empilha. Um anel chega com `maxStack: 1`: o
+   * jogador via "Quantidade" com o maximo em 1 e nao tinha o que escolher
+   *
+   * A resposta vem do CATALOGO e nao do formato do item, porque quem sabe se
+   * duas espadas iguais podem virar uma pilha e o catalogo — e ele ja tem o
+   * campo, usado pelo inventario e pelo baú para empilhar
+   *
+   * ## POR QUE ESCONDER E NAO TRAVAR
+   *
+   * Porque o `max="1"` do `input` ja impedia digitar mais, e mesmo assim o
+   * campo continuava ali, ocupando espaco e pedindo uma decisao que ja estava
+   * tomada. Esconder deixa a linha com o nome, o "(1)" e o botao — que e
+   * tudo que ha para fazer com aquela peca
+   */
+  const empilha = getItem(item?.itemId)?.stackable ?? false;
+
   const valor = Math.floor(Number(quantidade) || 0);
 
   const enviarItem = () => {
     if (!item) return;
 
-    onMover(montarItem(chave, valor > 0 ? valor : 1));
+    /**
+     * O QUE NAO EMPILHA SAI INTEIRO, E O CODIGO DIZ ISSO.
+     *
+     * Sem este desvio, um numero que sobrou no campo — de um item que empilha
+     * selecionado antes — iria junto para uma peca que so pode sair uma vez.
+     * O `valor` aqui e 0 para o que nao empilha, porque nao ha campo para
+     * digitar nele, mas a defesa fica escrita
+     */
+    const quantidadeFinal = empilha && valor > 0 ? valor : 1;
+
+    onMover(montarItem(chave, quantidadeFinal));
 
     // a quantidade volta a 1 porque o item ja foi mexido: deixar o
     // numero_old na caixa faria o segundo clique mover o valor antigo
@@ -1217,7 +2191,7 @@ function PainelCofre({
   };
 
   return (
-    <section className="gld-cofre__painel">
+    <section className="gld-cartao">
       <header className="gld-cofre__cabeca">
         <h4>{titulo}</h4>
         <small>{dica}</small>
@@ -1231,7 +2205,7 @@ function PainelCofre({
           className="gld-btn gld-btn--sm"
           disabled={moedas <= 0}
           onClick={() => onMover({ moeda: moedas })}
-          title="Tudo o que tem aqui"
+          data-tip="Tudo o que tem aqui"
         >
           {formatarMoedas(moedas)}
         </button>
@@ -1246,13 +2220,34 @@ function PainelCofre({
           aria-label={`Quantidade de moedas para ${titulo.toLowerCase()}`}
         />
 
+        {/*
+        O BOTAO DO DINHEIRO, e ele fala em VERBO AGORA.
+
+        ## POR QUE ELE SEGUE O `titulo` E NAO UM TEXTO FIXO
+
+        Porque este mesmo painel monta os dois lados: o `GuildPanel` passa
+        `titulo="Depositar"` de um lado e `titulo="Retirar"` do outro, com a
+        mesma arvore. Escrever "Depositar" fixo deixaria o botao de saque
+        prometendo o contrario do que ele faz — e o jogador que estava
+        retirando seria mandado pelo texto para o outro caminho
+
+        ## E POR QUE "MOEDAS" NAO SERVIA
+
+        Porque o botao fica do lado de um campo que ja diz "moedas" no
+        placeholder. O texto repetia o que a tela ja mostrava e nao dizia o
+        que o clique FAZ: o jogador tinha de olhar para o titulo do cartao
+        para saber se ia depositsitar ou sacar
+
+        O verbo cabe no mesmo espaco do nome, e ele ja esta decorado pelo
+        cartao — nao e preciso repetir
+        */}
         <button
           type="button"
           className="gld-btn gld-btn--sm"
           disabled={valor <= 0 || valor > moedas}
           onClick={() => onMover({ moeda: valor })}
         >
-          Moedas
+          {titulo}
         </button>
       </div>
 
@@ -1299,6 +2294,12 @@ function PainelCofre({
         So aparece depois de escolher um item. Um campo de quantidade
         permanent ao lado do campo das moedas e um formulario que o
         jogador preenche duas vezes sem saber qual dos dois esta valendo
+
+        ## E SO PARA O QUE EMPILHA
+
+        O anel, a armadura e o botao sao uma peca so. O campo apareceria
+        com o maximo em 1 e sem nada para escolher, e o jogador gastaria o
+        clique preguntando um numero que ja estava respondido
       */}
       {item && (
         <div className="gld-cofre__linha gld-cofre__linha--item">
@@ -1309,18 +2310,20 @@ function PainelCofre({
             {")"}
           </span>
 
-          <input
-            className="gld-cofre__campo"
-            type="number"
-            min="1"
-            max={maximo}
-            value={quantidade}
-            onChange={(e) => setQuantidade(e.target.value)}
-            placeholder="1"
-            aria-label={`Quantidade de ${
-              getItem(item.itemId)?.name ?? item.itemId
-            }`}
-          />
+          {empilha && (
+            <input
+              className="gld-cofre__campo"
+              type="number"
+              min="1"
+              max={maximo}
+              value={quantidade}
+              onChange={(e) => setQuantidade(e.target.value)}
+              placeholder="1"
+              aria-label={`Quantidade de ${
+                getItem(item.itemId)?.name ?? item.itemId
+              }`}
+            />
+          )}
 
           <button
             type="button"

@@ -36,20 +36,161 @@ export const SHEETS = {
     output: "src/assets/sprites/arbalist-sheet.png",
 
     /**
-     * A CELULA SUBIU DE 64 PARA 84.
+     * A CELULA DE 84 PASSOU A SER DE 96.
      *
-     * As 17 lanes da arte nova medem 84x84, todas iguais — e a ferramenta
-     * recusa uma lane maior que a celula em vez de cortar pixel da arte.
-     * A folha antiga (576x1088) era de 64x64; a nova sai de 84x84
+     * A arte do arquiro foi regerada maior: as 25 lanes de `walk`, `idle`,
+     * `shoot` e `mining` medem 92x92. A ferramenta recusa uma lane MAIOR que
+     * a celula em vez de cortar pixel da arte, entao uma celula de 84
+     * parava a geracao
+     *
+     * E 96, e nao 92, porque a arte ENCOSTA na propria borda: o arco do
+     * arqueiro chega na ultima linha da tela em quatro quadros — dois de
+     * caminhada na diagonal e dois de tiro na diagonal. Com a celula do
+     * mesmo tamanho da arte, o arco encosta em `maxY = 91` e a auditoria
+     * recusa a folha, com o aviso de que a arte pode vazar para a celula
+     * vizinha
+     *
+     * Dois pixels a mais dao a margem que o `centraliza` preenche com
+     * transparente: a arte nao e redimensionada nem cortada, so ganha borda
+     *
+     * A folha antiga (756x1428) era de 84; a nova sai de 96
      */
-    frameSize: 84,
+    frameSize: 96,
     prefix: "ARBALIST",
+
+    /**
+     * A CAMINHADA ESTA EM `walk/`, e nao na raiz da pasta.
+     *
+     * Sem este `walkDir` a ferramenta procuraria `east.gif` na raiz de
+     * `new_arbalist_2`, que so tem a subpasta `walk/`, e pararia com "falta
+     * ./east.gif" — sem tocar em nenhum arquivo de arte
+     */
+    walkDir: "walk",
+
+    /**
+     * O idle AGORA E POR DIRECAO, e nao um gif unico.
+     *
+     * A pasta `idle/` do arquiro tem um gif para cada um dos oito angulos,
+     * igual a `walk/`. Sem o `idleDir` a ferramenta procuraria `idle.gif` na
+     * raiz — que nao existe nesta pasta — e a folha sairia sem linha de
+     * parado, com o boneco congelado no primeiro quadro do walk
+     *
+     * ## E ISSO QUE MUDA O LAYOUT INTEIRO
+     *
+     * Idle de uma linha so usa `row` no layout; idle de oito linhas usa
+     * `rowOffset`, porque cada angulo ocupa a sua. Sao dois jeitos diferentes
+     * de apontar a mesma folha, e o arquiro passou do primeiro para o segundo
+     */
+    idleDir: "idle",
+
+    /**
+     * O tiro esta em `shoot/`, e nao em `attack/`.
+     *
+     * O guerreiro e o zombie atiram de `attack/`; o nome da pasta e do ciclo,
+     * e cada folha declara o seu. Aqui o padrao `shoot` da ferramenta ja e o
+     * nome certo, entao nao ha `shootDir` para declarar
+     */
+    shoot: true,
+
+    /**
+     * A MINERACAO, que e a unica arte que entra por um caminho novo.
+     *
+     * Ela vale uma linha so — veio do sul —, entao entra como `lane` unica
+     * no fim da folha, lida pelo layout por `row` fixo
+     */
+    mining: true,
   },
   zumbi: {
     sourceDir: "src/assets/sprites/zumbi_arbalist",
     output: "src/assets/sprites/zumbi_arbalist-sheet.png",
     frameSize: 68,
     prefix: "ZUMBI",
+  },
+
+  /**
+   * O GOBLIN DA PEDREIRA.
+   *
+   * ## A FOLHA SUBSTITUI O OGRE, E O ID CONTINUA SENDO `ogre`
+   *
+   * A criatura deste jogo que aparece nas cinco zonas da pedreira se
+   * chama `goblin` na tela e tem id `ogre` no save. O id nao mudou
+   * porque ele e a chave do bestiario, das missoes de cacada e dos
+   * `mix` de zona: trocar o id apagaria o registro de abate de quem
+   * ja matou o ogre
+   *
+   * ## TRES COISAS QUE SO ESTA FOLHA TEM
+   *
+   * A pasta `src/assets/sprites/goblin` e diferente de todas as outras
+   * em tres pontos, e cada um precisou de uma opcao nova na
+   * ferramenta:
+   *
+   * 1. **Celula de 84.** As lanes medem 84x84, e nao os 68 das folhas
+   *    de bicho de pe. Ja e o que o arqueiro usa, entao o caminho
+   *    esta feito
+   *
+   * 2. **Idle por direcao.** As outras folhas tem UM `idle.gif`, que
+   *    vira uma linha so na folha e serve para as oito direcoes. Aqui
+   *    o idle veio em `idle/`, com um gif por direcao, porque o goblin
+   *    tem uma pose de parado diferente de cada angulo. Sao oito
+   *    linhas, e nao uma — e o `rowOffset` do idle no layout
+   *
+   * 3. **Morte, so no sul.** `death/south.gif` veio e nada mais. A
+   *    ferramenta recebe `deathDirection` para deixar isso explicito
+   *    em vez de aceitar um sprite de frente em qualquer lado
+   *
+   * ## POR QUE A MORTE E UMA LINHA SO
+   *
+   * Sao 17 linhas de gameplay mais 1 de morte: 8 de caminhada, 8 de
+   * idle e 8 de golpe, mais o sul. A folha fica com 25 linhas, e o
+   * layout do goblin le a morte por `row`, nunca por `rowOffset` —
+   * nao ha direcao de morte para somar
+   */
+  goblin: {
+    sourceDir: "src/assets/sprites/goblin",
+    output: "src/assets/sprites/goblin-sheet.png",
+    frameSize: 84,
+    prefix: "GOBLIN",
+
+    /**
+     * A CAMINHADA TAMBEM ESTA EM PASTA.
+     *
+     * Nas folhas antigas os oito gifs de caminhada ficam na raiz da
+     * pasta de arte, e por isso a ferramenta os procura em `.`. Aqui
+     * os tres ciclos estao cada um em sua pasta (`walk/`, `idle/`,
+     * `attack/`, `death/`), que e a organizacao mais comum em pacote
+     * de animacao
+     */
+    walkDir: "walk",
+
+    /**
+     * O idle esta em `idle/`, um gif por direcao.
+     *
+     * Sem este `idleDir`, a ferramenta iria procurar `idle.gif` na
+     * raiz da pasta e pararia com "falta ./idle.gif", porque aqui nao
+     * existe nenhum. Com ele, o idle vira oito lanes como a
+     * caminhada
+     */
+    idleDir: "idle",
+
+    // oito quadros por direcao, em todas as oito
+    idle: true,
+
+    // o golpe esta em `attack/`, e nao em `shoot/`, pelo mesmo nome
+    // que o guerreiro usa: e o nome da arte de origem
+    shootDir: "attack",
+    shoot: true,
+
+    /**
+     * A MORTE VEM SO DO SUL.
+     *
+     * Declarado aqui para que a linha da folha exista e para que
+     * quem ler o layout saiba que nao ha oito direcoes de morte. A
+     * ferramenta usa este valor como nome de arquivo e como direcao
+     * unica do bloco
+     */
+    deathDir: "death",
+    death: true,
+    deathDirection: "south",
   },
   ogre: {
     sourceDir: "src/assets/sprites/ogre_da_predeira",
@@ -155,29 +296,77 @@ export const SHEETS = {
   sorcerer: {
     sourceDir: "src/assets/sprites/sorcerer",
     output: "src/assets/sprites/sorcerer-sheet.png",
-    frameSize: 68,
+
+    /**
+     * A CELULA DE 68 PASSOU A SER DE 132, E A FOLHA MUDOU DE 9 PARA 24 LINHAS.
+     *
+     * ## POR QUE 132 E NAO 68, NEM OS 96 DO ARQUEIRO
+     *
+     * A arte nova e grande: os gifs saem em 128x128 e 132x132. A ferramenta
+     * compara o GIF INTEIRO com a celula e recusa o que for maior, porque
+     * encolher seria cortar pixel de arte. Nos 68 antigos a geracao parava na
+     * primeira lane, e nos 96 do arqueiro pararia tambem — por 36 pixels
+     *
+     * ## E POR QUE ISSO NAO DEIXA O SORCERER GIGANTE NA TELA
+     *
+     * Porque o tamanho na tela nao e a celula: e a celula vezes a `scale` do
+     * layout. Com 132 de celula, a `scale` do sorcerer tem de compensar, e o
+     * `SORCERER_SCALE` em `src/data/sprites/layout.js` faz exatamente isso
+     *
+     * ## E POR QUE NAO O 96 DO ARQUEIRO
+     *
+     * Porque o 96 e o menor tamanho que cabe na arte do ARQUEIRO, que mede
+     * 92. Copiar o numero por simetria faria a ferramenta recusar esta folha
+     * — e um `frameSize` errado e um erro de CONFIGURACAO, que a ferramenta
+     * acusa na hora, e nao um detalhe que se ajusta depois
+     */
+    frameSize: 132,
     prefix: "SORCERER",
 
     /**
-     * O `idle.gif` do sorcerer e uma arte de verdade, com oito
-     * quadros, e nao um frame congelado: a folha ganha a linha 8 de
-     * idle como o guerreiro, o arquiro e o ghoul
+     * A CAMINHADA E O IDLE AGORA ESTAO EM PASTA, um gif por angulo.
+     *
+     * A pasta de origem veio organizada em `walk/`, `idle/` e `attack/`, como
+     * a do arquiro. Antes o idle era um `idle.gif` solto na raiz, e a folha o
+     * punha em UMA linha so, lida por `row`
+     *
+     * ## E ISSO QUE MUDA O LAYOUT INTEIRO
+     *
+     * Idle de uma linha so usa `row` no layout; idle de oito linhas usa
+     * `rowOffset`, porque cada angulo ocupa a sua. Sao dois jeitos diferentes
+     * de apontar a mesma folha, e quem escolhe o layout errado mostra o
+     * sorcerer parado virado para o angulo errado
      */
-    idle: true,
+    walkDir: "walk",
+    idleDir: "idle",
 
     /**
-     * Sem golpe, como o ghoul.
+     * O GOLPE PASSOU A EXISTIR, e ele esta em `attack/`.
      *
-     * O sorcerer e um caster de projetil e a pasta de origem nao tem
-     * arte de ataque: nem em `shoot/`, nem em pasta propria, nem
-     * misturado na caminhada. E o mesmo caso do ghoul, e a folha sai
-     * com oito linhas de direcao mais a de idle
+     * ## O QUE MUDOU
      *
-     * O desenho enquanto o golpe corre fica por conta do
-     * `src/data/sprites/layout.js`: enquanto nao houver arte de
-     * ataque, o `attack` do sorcerer aponta para a linha de idle
+     * Antes esta folha saia com `shoot: false` e o layout apontava o
+     * `attack` para a linha de idle: o sorcerer ficava parado no golpe, sem
+     * arte. Agora a pasta tem `attack/` com os oito angulos, e o golpe passa
+     * a ter arte propria
+     *
+     * ## E POR QUE `shootDir`
+     *
+     * Porque `shoot/` e o nome padrao da ferramenta, e o do arqueiro. O
+     * pacote do sorcerer chamou a pasta de `attack/` — igual ao guerreiro e ao
+     * goblin —, e o nome do ciclo nao interfere em nada: o layout e o cliente
+     * chamam isso de `attack`
      */
-    shoot: false,
+    shootDir: "attack",
+    shoot: true,
+
+    /**
+     * SEM MINERACAO E SEM MORTE.
+     *
+     * A pasta nao tem `mining/` nem `death/`, e as duas linhas ficariam como
+     * buraco na folha se fossem declaradas. O arqueiro e o unico com mineracao
+     * — a picareta e dele, e nenhuma outra classe tem essa arte
+     */
   },
 
   lancer: {
@@ -275,78 +464,75 @@ export const SHEETS = {
     },
   },
 
-  /**
-   * A SENTINELA ESQUELETICA.
-   *
-   * A pasta se chama `sentinela` e a criatura e `skeleton` — o nome de
-   * exibicao e "Sentinela Esquelética". O `id` continua `skeleton`
-   * porque e ele que esta no save, no bestiario e nas missoes que
-   * pedem a caca
-   *
-   * A arte e a mais limpa do jogo: as oito direcoes de caminhada e o
-   * `idle`, todas em 68x68, com oito quadros e nenhum truncado. Nada
-   * precisou de `walkFallback` nem de centralizacao, e a folha sai
-   * direto
-   */
-  sentinela_esqueletica: {
-    sourceDir: "src/assets/sprites/sentinela",
-    output: "src/assets/sprites/sentinela_esqueletica-sheet.png",
-    frameSize: 68,
-    prefix: "SENTINELA_ESQUELETICA",
-
-    // tem `idle` desenhado, com oito quadros
-    idle: true,
-
 /**
-     * O GOLPE TEM ARTE, EM OITRO DIRECOES.
-     *
-     * A pasta do `shoot/` encheu depois de a folha ter sido montada pela
-     * primeira vez: as oito direcoes de golpe chegaram de uma vez. Antes
-     * disso a sentinela atirava sem animacao, e o golpe caia no reserva do
-     * `resolveFrameRect` — a linha do idle, que e a pose de parado
-     *
-     * Sem `walkFallback` nem `shootFallback`: as oito direcoes estao
-     * la, entao a folha sai direto e nada e copiado
-     */
-    shoot: true,
-  },
+ * A SENTINELA ESQUELETICA SAIU DAQUI.
+ *
+ * A criatura agora se chama Kaelen e a folha e montada pela entrada
+ * `kaelen`, logo acima, a partir de `src/assets/sprites/espadas`. A pasta
+ * `sentinela` e o `sentinela_esqueletica-sheet.png` sao a arte antiga: a
+ * pasta nao e mais lida por nenhum layout e o PNG nao e mais importado
+ * por nenhum registro
+ *
+ * Elas ficam no disco por enquanto. Apagar a arte antiga e uma operacao
+ * de uma vez so, e o que decide e se vale a pena — o PNG antigo ocupa
+ * 98KB e a pasta, 17 gifs
+ */
 
   /**
-   * O LIMO PREGUICOSO.
+   * O ESQUELETO — que ainda e a criatura `slime`.
    *
-   * A pasta se chama `guerreiro_2`, e o nome e da arte. A criatura e o
-   * `slime` — o primeiro bicho do jogo, o de nivel 1, e o `slime` que
-   * todo mundo ja matou mil vezes. O `id` nao muda por causa de uma
-   * troca de arte: ele esta no save, no bestiario, nas missoes e, o que
-   * pesa mais aqui, no `slime_gel` e no `slime_core` que o craft e as
-   * missoes pedem
+   * ## POR QUE O NOME DA SAIDA NAO E `limo`
    *
-   * A segunda pasta `guerreiro` do jogo — a primeira e o ghoul faminto.
-   * As duasvem do mesmo lugar e as duas precisam do nome proprio na
-   * saida, porque um `guerreiro-sheet.png` sobrescreveria o do outro
+   * A criatura continua com o id `slime`, e o id e o que esta no save,
+   * no bestiario, nas missoes e no `slime_gel`/`slime_core` que o craft
+   * pede. O que mudou foi o NOME e a ARTE, e a saida usa os dois: o
+   * arquivo se chama `esqueleto` porque ninguem vai procurar uma folha de
+   * limo e encontrar um esqueleto
    *
-   * A arte e limpa como a da sentinela: oito direcoes, `idle`, todas
-   * em 68x68, oito quadros, nenhum truncado
+   * A pasta se chama `new_skeleton` porque e o nome que veio na arte.
+   *
+   * ## O `id` NAO MUDOU, E ISSO E DELIBERADO
+   *
+   * Trocar o id para `esqueleto` arrastaria a colecao "Restos do Brejo",
+   * as missoes de nivel, o loot e o indice do craft — e o `skeleton` ja e
+   * de outra criatura, a Sentinela Esqueletica. O `id` e a identidade da
+   * criatura no jogo, e uma troca de arte nao pode reescrever identidade
    */
-  limo_preguicoso: {
-    sourceDir: "src/assets/sprites/guerreiro_2",
-    output: "src/assets/sprites/limo_preguicoso-sheet.png",
-    frameSize: 68,
-    prefix: "LIMO_PREGUICOSO",
+  esqueleto: {
+    sourceDir: "src/assets/sprites/new_skeleton",
+    output: "src/assets/sprites/esqueleto-sheet.png",
+
+    /**
+     * 88 E NAO 68, que e o das outras folhas.
+     *
+     * A arte veio em celulas de 88x88 e o gerador recusa uma celula
+     * maior em vez de cortar pixel sozinho. Diminuir para 68 cortaria a
+     * arte, e quem decide o tamanho da celula e quem desenhou o boneco
+     *
+     * E a folha sai maior que as outras: 9 colunas de 88 (792px) contra 9
+     * de 68 (612px). E o layout em `enemyLayout.js` que declara o
+     * `frameWidth`/`frameHeight` correspondente
+     */
+    frameSize: 88,
+    prefix: "ESQUELETO",
 
     // tem `idle` desenhado, com oito quadros
     idle: true,
 
     /**
-     * Sem golpe, e aqui isso e questionavel de verdade.
+     * O GOLPE, que e a novelty desta arte.
      *
-     * O limo e PASSIVO com `aggroRange: 0`: ele foge do jogador e
-     * praticamente nunca ataca. O `attackRange: 44` e o `damage: 7` do
-     * catalogo existem para a criatura ter os mesmos campos dos
-     * outros. Sem `attack`, um pedido de golpe cai no reserva do
-     * `resolveFrameRect`, que prefere o `idle`
+     * A pasta se chama `attack/` e nao `shoot/`, porque o esqueleto bate
+     * em vez de atirar — e o `shootDir` existe exatamente para o nome da
+     * pasta poder ser outro sem mexer na ferramenta
+     *
+     * E o que o `limo_preguicoso` nao tinha: o limo era PASSIVO com
+     * `aggroRange: 0` e nunca atacava, entao a linha de golpe ficava
+     * reservada e o pedido caia no `idle`. Agora o esqueleto RETALIA quem
+     * o bate, e a animacao de golpe e o que mostra isso acontecendo
      */
-    shoot: false,
+    shoot: true,
+    shootDir: "attack",
   },
 
   /**
@@ -386,6 +572,97 @@ export const SHEETS = {
   },
 
   /**
+   * O KAELEN, que era a Sentinela Esqueletica.
+   *
+   * ## A PASTA SE CHAMA `espadas`
+   *
+   * E o nome da arte de origem, como `hulk` era antes. A criatura e o
+   * `skeleton`, que e o `id` do save, do bestiario e das missoes — e a
+   * saida usa o nome de exibicao, "Kaelen"
+   *
+   * ## A CELULA E DE 88, E NAO DE 84
+   *
+   * Diferente do goblin, cujas lanes eram todas de 84 (e o `north` de 80,
+   * centralizado). Aqui a arte veio misturada: os quatro angulos do norte
+   * e o `south` saem em 88x88, e os outros quatro em 84x84. A celula tem
+   * que ser a MAIOR, porque a ferramenta recusa uma lane maior que a
+   * celula em vez de cortar pixel da arte — e cortar 4px de um angulo
+   * cortaria o cabelo ou a ponta da lanca
+   *
+   * ## OS MESMOS TRES CICLOS DO GOBLIN
+   *
+   * Idle por direcao, golpe em `attack/` e morte so do sul. E a mesma
+   * organizacao de pasta, entao os mesmos `walkDir`/`idleDir` valem
+   */
+  kaelen: {
+    sourceDir: "src/assets/sprites/espadas",
+    output: "src/assets/sprites/kaelen-sheet.png",
+    frameSize: 88,
+    prefix: "KAELEN",
+
+    walkDir: "walk",
+    idleDir: "idle",
+
+    // o golpe esta em `attack/`, e nao em `shoot/`
+    shootDir: "attack",
+    shoot: true,
+
+    deathDir: "death",
+    death: true,
+    deathDirection: "south",
+  },
+
+  /**
+   * A NYLARA, que era o Arqueiro Zumbi.
+   *
+   * ## A CELULA E DE 88, E A ARTE NAO E TODA DE 84
+   *
+   * Oito dos gifs saem em 84x84, e DOIS — `west` e `north-west`, em
+   * `walk`, `idle` e `attack` — saem em 88x88. A celula tem que ser a
+   * MAIOR, porque a ferramenta recusa cortar pixel de arte, e cortar 4px
+   * cortaria a ponta do arco
+   *
+   * E o mesmo motivo do Kaelen, que tambem veio misturado e tambem ficou
+   * em 88
+   *
+   * ## A MORTE E UMA LINHA SO
+   *
+   * A pasta `death/` traz um `south.gif` apenas — nao sao oito angulos
+   * como o walk, o idle e o golpe. E a folha e a mesma do goblin e do
+   * Kaelen nesses tres blocos:
+   *
+   * ```
+   *   0.. 7  walk   (8 direcoes, 8 quadros)
+   *   8..15  idle   (8 direcoes, 8 quadros)
+   *  16..23  attack (8 direcoes, 9 quadros)
+   *      24  death  (so o sul,   9 quadros)
+   * ```
+   *
+   * ## O GOLPE CONTINUA SENDO DE TIRO
+   *
+   * A Nylara e `ranged: true` e atira de longe, entao a arte do golpe e a
+   * de disparo e o layout precisa de `needsTarget`: sem alvo de verdade
+   * ela nao pode disparar. O Kaelen, que e corpo a corpo, tirou esse
+   * `needsTarget`
+   */
+  nylara: {
+    sourceDir: "src/assets/sprites/nida",
+    output: "src/assets/sprites/nylara-sheet.png",
+    frameSize: 88,
+    prefix: "NYLARA",
+
+    walkDir: "walk",
+    idleDir: "idle",
+
+    shootDir: "attack",
+    shoot: true,
+
+    deathDir: "death",
+    death: true,
+    deathDirection: "south",
+  },
+
+  /**
    * O HULK, O CHEFE DA ARENA.
    *
    * ## A MESMA PASTA DO GOBLIN
@@ -421,6 +698,23 @@ export const SHEETS = {
 
     // tem `idle` desenhado, com oito quadros
     idle: true,
+
+    /**
+     * ## POR QUE A MORTE FICA FORA DESTA FOLHA
+     *
+     * O goblin e o hulk sao a MESMA arte de origem (a pasta `hulk`),
+     * e por isso os dois tem as mesmas 17 linhas. A pasta do goblin
+     * ganhou uma pasta `death/` que a do hulk NAO tem, e essa e a
+     * diferenca que impede as duas criaturas de continuar sendo uma
+     * so folha
+     *
+     * Sem isto, `buildSheet` procuraria `death/south.gif` na pasta
+     * `hulk` e pararia com "falta death/south.gif". A saida seria a
+     * mesma folha de antes mais um erro, entao o ciclo e desligado
+     * aqui explicitamente: o hulk continua morrendo como qualquer
+     * outro inimigo, sumindo na hora
+     */
+    death: false,
 
     /**
      * O golpe esta em `attack/`, e nao em `shoot/`.
@@ -465,6 +759,39 @@ export const SHOOT_DIR = "shoot";
  * fica declarado na folha em vez de ser adivinhado
  */
 export const IDLE_FILE = "idle";
+
+/**
+ * A pasta da arte de MORTE.
+ *
+ * Nenhuma folha usava esse ciclo antes do goblin: o motor nao tinha
+ * animacao de morte nenhuma (o inimigo morto era pulado no desenho) e
+ * a ferramenta so sabia montar `walk`, `idle` e `shoot`
+ *
+ * O nome e `death` por ser o mesmo nome do bloco que o `layout.js`
+ * declara em `animations`, e nao por descricao: e o nome do ciclo, do
+ * jeito que `shootDir` e o nome do ciclo de tiro
+ */
+export const DEATH_DIR = "death";
+
+/**
+ * A pasta da arte de MINERACAO.
+ *
+ * O unico ciclo do jogo que nao e de andar, nem de atirar, nem de morrer:
+ * e o que roda enquanto o jogador esta quebrando uma pedra no vale
+ *
+ * ## POR QUE TEM O NOME DE UM CICLO E NAO DE UMA ACAO
+ *
+ * Pelo mesmo motivo do `shootDir`: `shoot` e o golpe do arqueiro zumbi e do
+ * arquiro, mas o ogre da predeira golpeia corpo a corpo e o nome da arte dele
+ * continua sendo o do ciclo. O nome da pasta e o nome do ciclo no `layout.js`,
+ * e nao uma descricao do que o boneco faz
+ *
+ * ## E UMA LANE SO, COMO A MORTE
+ *
+ * A arte de mineracao veio so do sul, entao ela nao entra como grupo de oito
+ * direcoes. O layout le essa linha por `row`, e nao por `rowOffset` + direcao
+ */
+export const MINING_DIR = "mining";
 
 
 
@@ -1011,13 +1338,31 @@ function alignAnchors(lanes, target, frameSize) {
   return { offsets, targetFoot, targetCenter };
 }
 
-function audit(directions, frameSize) {
+/**
+ * @param semAverificarO QUE NAO PODE SER ACUSADO DE QUADRADO ACHATADO.
+ *
+ * Os indices das lanes onde perder altura e LEGITIMO. E o caso da morte:
+ * o ultimo quadro do cadaver e o personagem deitado no chao, que tem a
+ * largura do personagem em pe e um terco da altura
+ *
+ * A regra do `squashed` foi escrita para pegar stream LZW truncado — que
+ * escreve as primeiras linhas da celula e deixa o resto vazio — e ela se
+ * apoia em "perder ALTURA e assinatura de corrupcao". Numa animacao de
+ * morte essa premissa e falsa: o cadaver deitado e a arte CORRETA, e sem
+ * esta isencao a ferramenta recusaria a propria animacao de morte
+ *
+ * E so a MORTE entra aqui. O `walk`, o `idle` e o `attack` continuam
+ * auditados normalmente, porque neles perder altura ainda e defeito
+ */
+function audit(directions, frameSize, semAverificar = new Set()) {
   const perRow = [];
   const squashed = [];
+  const tocando = [];
   let touching = 0;
   let empty = 0;
 
   for (const [row, direction] of directions.entries()) {
+    const isenta = semAverificar.has(row);
     const boxes = direction.frames.map((frame) =>
       measure(frame, frameSize, frameSize),
     );
@@ -1053,24 +1398,44 @@ function audit(directions, frameSize) {
       // stream LZW truncado escreve as primeiras linhas da celula
       // e o resto fica vazio. largura varia de legitimamente na
       // animacao de tiro, com o arco sendo puxado e estendido.
+      //
+      // A isencao da lane e o que deixa a MORTE passar: o cadaver
+      // deitado perde altura de proposito
       const flat = height < unionHeight * 0.5;
       const sparse = width * height < unionArea * 0.3;
 
-      if (flat || sparse) {
+      if (!isenta && (flat || sparse)) {
         squashed.push(
           `${direction.name} frame ${index} ` +
             `(${width}x${height} contra ${unionWidth}x${unionHeight})`,
         );
       }
 
-      if (
-        box.minX === 0 ||
-        box.maxX === frameSize - 1 ||
-        box.minY === 0 ||
-        box.maxY === frameSize - 1
-      ) {
-        touching += 1;
-      }
+if (
+          box.minX === 0 ||
+          box.maxX === frameSize - 1 ||
+          box.minY === 0 ||
+          box.maxY === frameSize - 1
+        ) {
+          touching += 1;
+
+          /**
+           * O NOME DA CELULA QUE ENCOSTOU, e nao so a contagem.
+           *
+           * A contagem sozinha nao diz o que fazer: "4 celulas tocam a
+           * borda" obriga a abrir a arte na mao e contar de novo.
+           *
+           * O `row` entra porque `name` sozinho e ambiguo: as oito
+           * direcoes existem em `walk`, em `idle` e em `shoot`, e as tres
+           * copias chamam `south-east` igual. A linha da folha e o que
+           * separa "o tiro encostou" de "o idle do norte tem um pixel a
+           * mais", e e o numero que o layout vai ler
+           */
+          tocando.push(
+            `linha ${row} ${direction.dir}/${direction.name} ` +
+              `frame ${index}`,
+          );
+        }
 
       minX = Math.min(minX, box.minX);
       maxX = Math.max(maxX, box.maxX);
@@ -1089,13 +1454,14 @@ function audit(directions, frameSize) {
     };
   }
 
-  return {
-    perRow,
-    touching,
-    empty,
-    squashed,
-    foot: median(perRow.map((info) => info.foot)),
-  };
+return {
+      perRow,
+      touching,
+      tocando,
+      empty,
+      squashed,
+      foot: median(perRow.map((info) => info.foot)),
+    };
 }
 
 function verifySheet(png, data, sheetWidth, lanes, frameSize) {
@@ -1362,11 +1728,46 @@ export function buildSheet(name) {
 
   const querIdle = sheet.idle !== false;
   const querShoot = sheet.shoot !== false;
+  const querDeath = sheet.death === true;
+  const querMining = sheet.mining === true;
 
   // o nome do ciclo vem da arte de origem, e cada folha declara o
   // seu quando nao for o padrao da ferramenta
   const shootDir = sheet.shootDir ?? SHOOT_DIR;
   const idleFile = sheet.idleFile ?? IDLE_FILE;
+
+  /**
+   * O idle pode ser UM gif ou uma pasta de oito.
+   *
+   * Sem `idleDir`, o idle e o `idleFile` na raiz: uma lane so, que a
+   * folha usa para as oito direcoes. Com `idleDir`, e uma lane por
+   * direcao dentro da pasta, e a folha ganha oito linhas de idle
+   *
+   * A escolha muda o layout inteiro: o idle por direcao precisa de
+   * `rowOffset`, e o idle unico precisa de `row`. Sao duas coisas
+   * diferentes e o layout do goblin declara a primeira
+   */
+  const idleDir = sheet.idleDir ?? null;
+
+  /**
+   * O ciclo de MORTE, que so o goblin tem.
+   *
+   * Diferente do walk, do idle e do golpe, a morte NAO tem oito
+   * direcoes: a arte veio so do sul. Por isso ela nao entra como
+   * `normalizarFrames` e `alignAnchors` de um grupo de oito, e sim
+   * como uma lane unica que ocupa uma linha so da folha
+   */
+  const deathDir = sheet.deathDir ?? DEATH_DIR;
+  const deathLaneName = sheet.deathDirection ?? "south";
+
+  /**
+   * A pasta e o angulo da arte de MINERACAO.
+   *
+   * Mesmo formato da morte: uma lane so, numa linha so, lida pelo layout por
+   * `row`. O arquiro mina virado para a pedra, e a arte veio so do sul
+   */
+  const miningDir = sheet.miningDir ?? MINING_DIR;
+  const miningLaneName = sheet.miningDirection ?? "south";
 
   // Nenhuma contagem e esperada na carga: a arte de origem nao tem
   // por que ter o mesmo numero de frames em todas as direcoes, e o
@@ -1375,7 +1776,7 @@ export function buildSheet(name) {
     loadLane(
       sourceDir,
       frameSize,
-      ".",
+      sheet.walkDir ?? ".",
       rowName,
       null,
       sheet.walkFallback ?? null,
@@ -1404,15 +1805,139 @@ export function buildSheet(name) {
     ? normalizarFrames(shoot, shootDir)
     : { alvo: 0, cortes: [] };
 
+/**
+   * A MORTE, UMA LANE SO.
+   *
+   * Nao entra em `normalizarFrames` nem em `alignAnchors` com o resto
+   * do grupo: ela nao e um ciclo de oito direcoes, e a linha dela na
+   * folha e a unica que o layout le por `row`
+   *
+   * As tres criaturas que tem arte de morte — goblin, Kaelen e Nylara —
+   * trazem a pasta `death/` com um `south.gif` so. Nenhuma delas tem os
+   * oito angulos, entao nao existe o caminho de morte por direcao aqui
+   *
+   * A contagem de frames (9 no goblin) e maior que a do walk (8), e a
+   * largura da folha e o maximo de todas as linhas, entao a folha sai
+   * com 9 colunas
+   */
+  const death = [];
+
+if (querDeath) {
+    death.push(
+      loadLane(
+        sourceDir,
+        frameSize,
+        deathDir,
+        deathLaneName,
+        null,
+        sheet.deathFallback ?? null,
+      ),
+    );
+  }
+
+  /**
+   * A MINERACAO, UMA LANE SO, e o ultimo ciclo da folha.
+   *
+   * A arte veio so do sul, como a morte, entao nao existe caminho de
+   * mineracao por direcao: ela ocupa uma linha e o layout a le por `row`.
+   *
+   * Ela e a ULTIMA linha de proposito. A ordem das linhas e o que o layout
+   * le, e o `index.js` precisa saber que a mineracao esta depois do tiro
+   * sem fazer conta — e nenhuma outra arte nova entra sem mexer nessa ordem
+   */
+  const mining = [];
+
+  if (querMining) {
+    /*
+      A MINERACAO PODE SER UMA LANE OU OITO.
+
+      ## POR QUE ISTO EXISTE
+
+      A mineracao nasceu como LANE UNICA — veio so do sul, e `miningDirection`
+      apontava para ela. Isso ainda vale para a folha que declara
+      `miningDirection`, e o `row` fixo continua sendo o jeito de ler uma
+      linha so
+
+      Mas a arte do arquiro agora tem `mining/` com os oito angulos, e o
+      jogador chega na pedra de qualquer lado. Ler `row: 24` mostrava o
+      arqueiro socando para BAIXO enquanto ele estava de norte — o
+      angulo errado na acao que mais se nota, porque a picareta e a mao que
+      o jogador esta olhando
+
+      ## O QUE MUDA COM OITO DIRECOES
+
+      O ciclo passa a ser lido por `rowOffset`, como o `idle` e o `shoot`:
+      a linha do angulo e a linha do ciclo MAIS o deslocamento da direcao.
+      Uma linha so nunca usaria `rowOffset` — apontaria para o tiro ou para
+      fora da folha
+
+      A `miningDirection` continua valendo: e ela que decide o caminho. Com
+      ela declarada, a folha mantem a lane unica de antes
+    */
+    if (sheet.miningDirection) {
+      mining.push(
+        loadLane(
+          sourceDir,
+          frameSize,
+          miningDir,
+          miningLaneName,
+          null,
+          sheet.miningFallback ?? null,
+        ),
+      );
+    } else {
+      for (const rowName of ROWS) {
+        mining.push(
+          loadLane(
+            sourceDir,
+            frameSize,
+            miningDir,
+            rowName,
+            null,
+            sheet.miningFallback ?? null,
+          ),
+        );
+      }
+    }
+  }
+
   // sem idle, a linha de tiro sobe: as linhas da folha sao as que o
   // layout vai ler, e ele e impresso no fim
   const idle = [];
 
-  if (querIdle) {
+  if (querIdle && idleDir) {
+    // idle por direcao: uma lane por linha, na ordem do `ROWS`, que e
+    // a mesma ordem que a caminhada usa. E o que faz o idle do
+    // goblin precisar de `rowOffset` no layout
+    for (const rowName of ROWS) {
+      idle.push(
+        loadLane(
+          sourceDir,
+          frameSize,
+          idleDir,
+          rowName,
+          null,
+          sheet.idleFallback ?? null,
+        ),
+      );
+    }
+  } else if (querIdle) {
     idle.push(
       loadLane(sourceDir, frameSize, ".", idleFile, null),
     );
   }
+
+  /**
+   * O idle por direcao e normalizado como os outros grupos.
+   *
+   * O idle de uma linha so nunca precisou disso, porque nao ha com o
+   * que discordar. Com oito lanes, uma direcao com um quadro a mais
+   * faria o idle daquela direcao correr mais rapido que as outras
+   * sete, e o corte no menor e o mesmo ajuste que o `walk` usa
+   */
+  const idleNorm = idleDir && idle.length > 1
+    ? normalizarFrames(idle, "idle")
+    : { alvo: 0, cortes: [] };
 
   // as direcoes mantem a contagem de frames porque o ciclo de
   // caminhada e compartilhado; o idle descarta os corrompidos
@@ -1420,6 +1945,8 @@ export function buildSheet(name) {
   const repairs = [
     ...repairTruncatedFrames(walk),
     ...(querShoot ? repairTruncatedFrames(shoot) : []),
+    ...(querDeath ? repairTruncatedFrames(death) : []),
+    ...(querMining ? repairTruncatedFrames(mining) : []),
   ];
 
   const drops = [];
@@ -1427,6 +1954,47 @@ export function buildSheet(name) {
   for (const lane of idle) {
     drops.push(...dropTruncatedFrames(lane));
   }
+
+  /**
+   * A MORTE PASSA PELO MESMO REPARO E DESCARTE.
+   *
+   * `loadLane` devolve a lane com os frames dentro de `gif.frames`, e
+   * quem promove para `lane.frames` sao estas duas funcoes. Sem a
+   * morte entrar aqui, `lane.frames` ficava indefinido e a montagem da
+   * folha quebrava em `death[0].frames.length`
+   *
+   * E a arte e um gif como qualquer outro: o stream LZW truncado
+   * acontece com ela igual
+   */
+  for (const lane of death) {
+    drops.push(...dropTruncatedFrames(lane));
+  }
+
+  /**
+   * A MINERACAO TAMBEM PASSA PELO REPARO E DESCARTE.
+   *
+   * Pelos mesmos dois motivos da morte: `lane.frames` so e promovido por
+   * estas funcoes, e um gif corrompido acontece com ela igual
+   */
+  for (const lane of mining) {
+    drops.push(...dropTruncatedFrames(lane));
+  }
+
+  /**
+   * A MINERACAO E CORTADA NO MENOR, COMO TODO GRUPO DE OITO.
+   *
+   * Sem isto, uma lane com mais quadros entraria na folha com eles e o
+   * `length` do layout — que e a contagem do MENOR — deixaria os quadros
+   * extras fora do ciclo. Nao daria erro: a arte valida aparecia, e o
+   * gesto da picareta dava um tranco no fim da volta
+   *
+   * A lane unica nao passa aqui: `miningNorm` fica com alvo 0, e o
+   * `mining[0].frames.length` da impressao continua sendo o comprimento
+   * dela
+   */
+  const miningNorm = mining.length > 1
+    ? normalizarFrames(mining, miningDir)
+    : { alvo: 0, cortes: [] };
 
   if (idle.length > 0) {
     if (idle[0].frames.length < 2) {
@@ -1449,11 +2017,21 @@ export function buildSheet(name) {
     const capacidade = Math.max(
       walkNorm.alvo,
       shootNorm.alvo,
+      death[0]?.frames.length ?? 0,
+      mining.reduce(
+        (maior, lane) => Math.max(maior, lane.frames.length),
+        0,
+      ),
     );
 
-    if (idle[0].frames.length > capacidade) {
+    const idleMaior = idle.reduce(
+      (maior, lane) => Math.max(maior, lane.frames.length),
+      0,
+    );
+
+    if (idleMaior > capacidade) {
       throw new Error(
-        `idle.gif tem ${idle[0].frames.length} frames validos, ` +
+        `idle tem ${idleMaior} frames validos, ` +
           `a grade comporta ${capacidade}`,
       );
     }
@@ -1469,23 +2047,84 @@ export function buildSheet(name) {
   const idleAnchor = alignAnchors(idle, shared, frameSize);
   const shootAnchor = alignAnchors(shoot, shared, frameSize);
 
-  const lanes = [...walk, ...idle, ...shoot];
+  /**
+   * A MORTE USA O PE DO WALK E NAO O SEU.
+   *
+   * O `shared` que a caminhada produz e o ponto de pe de referencia
+   * de toda a folha. A arte de morte ja chega deitada, com o desenho
+   * no chao, e alinhar o PE dela no pe de quem esta em pe alevantaria
+   * o cadaver no ar no ultimo quadro
+   *
+   * `alignAnchors` com `shared` nulo devolve o alvo do proprio grupo,
+   * que e o que a caminhada usa: a lane se alinha nela mesma e o
+   * deslocamento e zero. E o que mantem o corpo no lugar
+   */
+  const deathAnchor = alignAnchors(death, null, frameSize);
+
+  /**
+   * A MINERACAO SE ALINHA NO PE DE QUEM ESTA EM PE, e no dela.
+   *
+   * Diferente da morte, que chega deitada: o arquiro minerando esta de pe e
+   * socando a pedra para baixo. Passar o `shared` do walk e o que impede que
+   * a picareta desca um bloco a cada quadro — o defeito apareceria como um
+   * boneco que afunda no chao enquanto a barra de mineracao sobe
+   */
+  const miningAnchor = alignAnchors(mining, shared, frameSize);
+
+  const lanes = [
+    ...walk,
+    ...idle,
+    ...shoot,
+    ...death,
+    ...mining,
+  ];
 
   const idleRow = walk.length;
   const shootRow = walk.length + idle.length;
+  const deathRow = walk.length + idle.length + shoot.length;
+  const miningRow = deathRow + death.length;
 
   const columns = Math.max(
     walkNorm.alvo,
-    idle[0]?.frames.length ?? 0,
+    idle.reduce(
+      (maior, lane) => Math.max(maior, lane.frames.length),
+      0,
+    ),
     shootNorm.alvo,
+    death[0]?.frames.length ?? 0,
+
+    /**
+     * A COLUNA MAIOR DA MINERACAO, e nao a da lane 0.
+     *
+     * Com oito direcoes, `mining[0]` e so o angulo do leste: usar a
+     * contagem dele deixaria as lanes mais longas do grupo saindo da
+     * folha. O `normalizarFrames` corta no MENOR, e `reduce` no maior e o
+     * mesmo cuidado que o `idle` e o `shoot` ja fazem acima
+     */
+    mining.reduce(
+      (maior, lane) => Math.max(maior, lane.frames.length),
+      0,
+    ),
   );
 
-  const report = audit(lanes, frameSize);
+  /**
+ * A MORTE NAO E AUDITADA COMO QUADRADO ACHATADO.
+ *
+ * O indice da lane de morte e `deathRow`, e ele so existe quando a folha
+ * tem o ciclo. Um `Set` vazio numa folha sem morte e o mesmo comportamento
+ * de antes
+ */
+  const lanesIsentas = new Set(
+    death.length > 0 ? [deathRow] : [],
+  );
+
+  const report = audit(lanes, frameSize, lanesIsentas);
 
   if (report.touching > 0) {
     throw new Error(
       `${report.touching} celulas tocam a borda da celula; ` +
-        "a arte esta encostando e pode vazar para a vizinha",
+        "a arte esta encostando e pode vazar para a vizinha:\n" +
+        report.tocando.map((nome) => `  - ${nome}`).join("\n"),
     );
   }
 
@@ -1566,15 +2205,31 @@ export function buildSheet(name) {
     `\nsheet ${name} gerada: ${sheetWidth}x${sheetHeight} ` +
       `(${columns} colunas x ${lanes.length} linhas: ` +
       `${ROWS.length} walk` +
-      `${idle.length > 0 ? " + 1 idle" : " (sem idle)"}` +
+      // o idle por direcao ocupa uma linha por angulo, e o de uma
+      // linha so ocupa uma: a frase do relatorio muda porque a
+      // estrutura da folha muda
+      `${
+        idle.length === 0
+          ? " (sem idle)"
+          : idle.length > 1
+            ? ` + ${idle.length} idle`
+            : " + 1 idle"
+      }` +
       // o boneco de treino so tem direcao: a frase muda, para o
       // relatorio nao anunciar um golpe que nao esta na folha
       `${
         shoot.length > 0
           ? ` + ${ROWS.length} ${shootDir}`
           : " (sem golpe)"
-      }, ` +
-      `celula ${frameSize}x${frameSize})\n`,
+      }` +
+// a morte e uma linha so, e ela nao tem direcao nenhuma
+`${death.length > 0 ? ` + 1 ${deathDir}` : ""}` +
+        // a mineracao e a ultima: uma linha so quando a folha declara
+        // `miningDirection`, e oito quando a arte trouxe os angulos
+        `${mining.length > 0
+          ? ` + ${mining.length === 1 ? 1 : mining.length} ${miningDir}`
+          : ""}, ` +
+        `celula ${frameSize}x${frameSize})\n`,
   );
 
   /**
@@ -1592,11 +2247,17 @@ export function buildSheet(name) {
  */
 const substituidasPorCiclo = [
   { ciclo: "walk", lanes: walk.filter((lane) => lane.substituiu) },
+  { ciclo: "idle", lanes: idle.filter((lane) => lane.substituiu) },
   {
     ciclo: shootDir,
     lanes: substitutas,
   },
-];
+{ ciclo: deathDir, lanes: death.filter((lane) => lane.substituiu) },
+    {
+      ciclo: miningDir,
+      lanes: mining.filter((lane) => lane.substituiu),
+    },
+  ];
 
 for (const { ciclo, lanes: copiadas } of substituidasPorCiclo) {
   if (copiadas.length === 0) continue;
@@ -1613,22 +2274,28 @@ for (const { ciclo, lanes: copiadas } of substituidasPorCiclo) {
   }
 }
 
-  const allOffsets = [
-    ...walkAnchor.offsets,
-    ...idleAnchor.offsets,
-    ...shootAnchor.offsets,
-  ];
+const allOffsets = [
+      ...walkAnchor.offsets,
+      ...idleAnchor.offsets,
+      ...shootAnchor.offsets,
+      ...deathAnchor.offsets,
+      ...miningAnchor.offsets,
+    ];
 
   for (const [row, lane] of lanes.entries()) {
     const info = report.perRow[row];
     const { dx, dy } = allOffsets[row];
 
-    const group =
-      row < walk.length
-        ? "walk"
-        : row < shootRow
-          ? "idle"
-          : shootDir;
+const group =
+        row < walk.length
+          ? "walk"
+          : row < idleRow + idle.length
+            ? "idle"
+            : row < shootRow + shoot.length
+              ? shootDir
+              : row < deathRow + death.length
+                ? deathDir
+                : miningDir;
 
     // a direcao vem com a marca de quando foi copiada de outra, para
     // o log deixar claro que a linha NAO veio da arte
@@ -1648,6 +2315,7 @@ for (const { ciclo, lanes: copiadas } of substituidasPorCiclo) {
 
   for (const corte of [
     ...walkNorm.cortes,
+    ...idleNorm.cortes,
     ...shootNorm.cortes,
   ]) {
     console.log(
@@ -1685,13 +2353,41 @@ for (const { ciclo, lanes: copiadas } of substituidasPorCiclo) {
       `\n  celula ${frameSize}x${frameSize}` +
       `\n  ${prefix}_WALK_FRAMES = ${walkNorm.alvo}` +
       (idle.length > 0
-        ? `\n  ${prefix}_IDLE_FRAMES = ${idle[0].frames.length}` +
-          `\n  ${prefix}_IDLE_ROW = ${idleRow}`
+        ? idle.length > 1
+          ? `\n  ${prefix}_IDLE_FRAMES = ${idleNorm.alvo}` +
+            `\n  ${prefix}_IDLE_ROW_OFFSET = ${idleRow}` +
+            "\n  (idle por direcao: use rowOffset, nunca row)"
+          : `\n  ${prefix}_IDLE_FRAMES = ${idle[0].frames.length}` +
+            `\n  ${prefix}_IDLE_ROW = ${idleRow}`
         : "\n  (sem idle: aponte o idle para o frame 0 do walk)") +
       (shoot.length > 0
         ? `\n  ${prefix}_${shootDir.toUpperCase()}_FRAMES = ${shootNorm.alvo}` +
           `\n  ${prefix}_${shootDir.toUpperCase()}_ROW = ${shootRow}`
         : "\n  (sem golpe: a arte nao tem ataque)") +
+      (death.length > 0
+        ? `\n  ${prefix}_${deathDir.toUpperCase()}_FRAMES = ${death[0].frames.length}` +
+          `\n  ${prefix}_${deathDir.toUpperCase()}_ROW = ${deathRow}` +
+          "\n  (a morte e uma linha so: use row, nunca rowOffset)"
+        : "\n  (sem morte: o bicho some na hora)") +
+        /*
+    A mineracao e o ULTIMO ciclo impresso, pela mesma razao da morte:
+    quando e lane unica, entra por `row` e nao por `rowOffset`.
+
+    Com as oito direcoes o texto muda: o layout passa a ler por
+    `rowOffset`, porque a linha do angulo e a do ciclo MAIS o
+    deslocamento — e e o que o `idle` e o `shoot` ja fazem
+  */
+        (mining.length > 0
+          ? mining.length === 1
+            ? `\n  ${prefix}_${miningDir.toUpperCase()}_FRAMES = ` +
+                `${mining[0].frames.length}` +
+              `\n  ${prefix}_${miningDir.toUpperCase()}_ROW = ${miningRow}` +
+              "\n  (a mineracao e uma linha so: use row, nunca rowOffset)"
+            : `\n  ${prefix}_${miningDir.toUpperCase()}_FRAMES = ` +
+                `${Math.min(...mining.map((l) => l.frames.length))}` +
+              `\n  ${prefix}_${miningDir.toUpperCase()}_ROW_OFFSET = ${miningRow}` +
+              "\n  (mineracao por direcao: use rowOffset, nunca row)"
+          : "") +
       `\n  ${prefix}_COLUMNS = ${columns}` +
       `\n  ${prefix}_ANCHOR_X = ${walkAnchor.targetCenter / 2}` +
       `\n  ${prefix}_ANCHOR_Y = ${walkAnchor.targetFoot}`,
@@ -1737,12 +2433,30 @@ for (const { ciclo, lanes: copiadas } of substituidasPorCiclo) {
     columns,
     rows: lanes.length,
     idleRow: idle.length > 0 ? idleRow : null,
-    idleFrames: idle[0]?.frames.length ?? 0,
+
+    /**
+     * `null` quando o idle e uma linha so.
+     *
+     * Sao duas coisas diferentes de proposito: o idle unico aponta
+     * para uma linha pelo valor absoluto (`row`), e o idle por direcao
+     * aponta para o inicio do bloco (`rowOffset`), porque a linha real
+     * depende do angulo. Quem ler este retorno precisa saber qual dos
+     * dois usar
+     */
+    idleRowOffset: idle.length > 1 ? idleRow : null,
+    idleFrames: idleNorm.alvo > 0
+      ? idleNorm.alvo
+      : idle[0]?.frames.length ?? 0,
     shootFrames: shoot.length > 0 ? shootNorm.alvo : 0,
     walkFrames: walkNorm.alvo,
+
     // `null` quando a folha nao tem golpe: e melhor que zero, porque
     // zero parece "um golpe de zero frames"
     shootRow: shoot.length > 0 ? shootRow : null,
+
+// a morte e uma linha so, em qualquer folha que a tenha
+deathRow: death.length > 0 ? deathRow : null,
+deathFrames: death[0]?.frames.length ?? 0,
     anchorX: walkAnchor.targetCenter / 2,
     anchorY: walkAnchor.targetFoot,
 

@@ -15,6 +15,7 @@
      3. chrome       - todo painel/box vira moldura dura com raio 4px
      4. botoes       - mesmos botoes do inventario (gradiente + inset)
      5. texto        - a escala de texto do inventario
+ *    5b. loja         - os cards da loja do mercador
      6. selection    - tela de escolha de classe
      7. hud          - vitals, barras, buffs, alvo, skill slots, mensagens
 8. quests       - tracker, painel de missoes e as abas principal/secundaria
@@ -54,9 +55,29 @@
   --t-gold-deep: #c9a227;
   --t-gold-bright: #f0d9a8;
   --t-gold-line: #8a7250;
-  --t-positive: #7ef0b0;
-  --t-danger: #a03434;
-  --t-danger-text: #ff9d9d;
+--t-positive: #7ef0b0;
+    --t-danger: #a03434;
+    --t-danger-text: #ff9d9d;
+
+    /**
+     * O VERMELHO VIVO, e ele existe por causa de UMA coisa: a bolinha de
+     * "tem receita pronta" no craft.
+     *
+     * ## POR QUE O `--t-danger-text` NAO SERVIA
+     *
+     * Porque ele e FEITO PARA TEXTO: `#ff9d9d` e um rosa-salmão, claro de
+     * proposito para nao doer na leitura sobre fundo escuro. Numa bolinha de
+     * 7px — um bloco de cor cheia, lido de relance, sem texto nenhum dentro —
+     * a mesma cor sai pastel, e um sinal que existe para chamar atencao nao
+     * pode ser a coisa mais apagada da tela
+     *
+     * ## E POR QUE ISTO E UMA COR SO, E NAO UM AJUSTE NO `.cft-ponto`
+     *
+     * Porque o brilho do ponto tem que ser a MESMA cor com transparencia: um
+     * halo cor de um vermelho e o ponto de outro leria como dois sinais. Deixando
+     * as duas em `--t-alert`, elas continuam iguais quando o tema mudar
+     */
+    --t-alert: #ff3b30;
 
   /**
    * O AZUL DO MAGICO, e o unico azul da paleta.
@@ -162,9 +183,7 @@ button:focus-visible {
 .bst-auto,
 .bst-entry__go,
 .rnk-panel,
-.rnk-tab,
-.rnk-row,
-.rnk-row__you {
+.rnk-row {
   border-radius: var(--t-radius);
   backdrop-filter: none;
 }
@@ -211,13 +230,6 @@ button:focus-visible {
   border-color: var(--t-positive);
   background: color-mix(in srgb,
     var(--t-positive) 10%, var(--t-sunken));
-}
-
-.col-entry__icon {
-  border: 1px solid var(--t-line-2);
-  border-radius: var(--t-radius);
-  background: var(--t-panel);
-  color: var(--t-text);
 }
 
 .col-entry__give {
@@ -420,7 +432,8 @@ button:focus-visible {
  * A casca e o `.inv-panel` e as abas sao as `.inv-tabs` do inventario,
  * entao so o corpo e as pecas do market entram aqui
  */
-.mkt-panel {
+.mkt-panel,
+.mkt-modal__painel {
   border: 2px solid var(--t-line-2);
   border-radius: var(--t-radius);
 }
@@ -468,7 +481,7 @@ button:focus-visible {
  * `inv-grid`/`inv-slot`. Aqui so o realce do slot escolhido, que e
  * estado do formulario de venda
  */
-.mkt-panel .inv-slot.is-selected {
+.mkt-panel .inv-slot.is-selected , .mkt-modal__painel .inv-slot.is-selected {
   border-color: var(--t-gold);
   background: color-mix(in srgb, var(--t-gold) 16%, var(--t-sunken));
 }
@@ -576,31 +589,19 @@ button:focus-visible {
  * O ouro que sobrou e o de "abrir informacao", que e o do bestiario ao
  * lado. Nao ha mais estado dentro para distinguished
  */
-.hud-btn--arena {
-  border-color: var(--t-line-3);
-  color: var(--t-gold-bright);
-}
+  /**
+   * O BOTAO DA ARENA FOI REMOVIDO DA PRATELEIRA.
+   *
+   * O chefe virou a ultima missao do mapa 1, e quem leva ate ele agora e a
+   * `PortalBox` do portal selado. Estas tres regras estavam aqui para
+   * distinguir a arena dos botoes de painel — e sem botao, a distincao nao
+   * tem onde ser aplicada
+   *
+   * Deixadas no lugar, elas seriam tres seletores que nao casam com nada, e
+   * quem lesse este arquivo contaria um botao a mais do que a tela mostra
+   */
 
-.hud-btn--arena:hover {
-  border-color: var(--t-gold);
-  color: var(--t-gold-bright);
-}
-
-/**
- * SEM REDE, O BOTAO APAGA.
- *
- * A arena e uma viagem entre mapas, e a viagem de rede e do SERVIDOR.
- * Um botao que parecesse funcionar e nao fizesse nada seria pior que um
- * botao visivelmente desligado — e o `not-allowed` diz ao jogador que o
- * motivo e a conexao, nao o jogo
- */
-.hud-btn--arena:disabled {
-  border-color: var(--t-line);
-  color: var(--t-text-faintest);
-  cursor: not-allowed;
-}
-
-.hud-btn--bestiary.is-active {
+  .hud-btn--bestiary.is-active {
   border-color: var(--t-gold);
   color: var(--t-gold-bright);
   background: linear-gradient(180deg, var(--t-active) 0%, var(--t-active-deep) 100%);
@@ -651,6 +652,43 @@ button:focus-visible {
   color: var(--t-abyss);
   background: var(--t-gold);
   font-variant-numeric: tabular-nums;
+}
+
+/* ============================================================================
+   5b. loja do mercador
+
+   O QUE ESTA SECAO CONSERTA
+
+   O mercador e a unica loja do jogo que NAO tinha regra nenhuma aqui.
+   `.qst-row`, `.mkt-*`, `.bst-panel` e `.inv-slot` tem todas as suas
+   cores trocadas para o inventario; o `.pocao-*` ficou com o hex azul
+   original, e o resultado era o mercador aberto do lado de um painel
+   quest e de um mercado ja em tons de madeira — a unica superficie do
+   jogo que nao acompanhava
+
+   ## POR QUE SO AS CORES DE TEXTO, E O RESTO VAI NO STYLES.CSS
+
+   O `styles.css` ja passou a consumir `--panel`, `--panel-strong`,
+   `--border`, `--muted` e `--gold` neste card, e o tema redefine esses
+   cinco em `:root`. Com isso o fundo, a borda e o botao ja acompanham
+   sozinhos, e tambem funcionam se este arquivo for revertido
+
+   Aqui ficam so as tres cores de texto, que sao as que nao tem token em
+   `styles.css`: o nome, a descricao e o estado ativo do seletor de
+   quantidade. Sao as que o jogador le primeiro, e sao as que mais
+   denunciam uma paleta errada
+   ============================================================================ */
+
+.pocao-linha__nome {
+  color: var(--t-text-bright);
+}
+
+.pocao-linha__desc {
+  color: var(--t-text);
+}
+
+.pocao-qtd__btn.is-active {
+  color: var(--t-text-bright);
 }
 
 /* ============================================================================
@@ -950,16 +988,21 @@ button:focus-visible {
 }
 
 /* abas de missao: mesma moldura das abas do inventario, para o
-   jogador ler principal e secundaria do mesmo jeito */
-.qst-tabs,
-.rnk-tabs {
+jogador ler principal e secundaria do mesmo jeito
+
+   O `.rnk-tabs` NAO entra aqui, e e de proposito. Estas sao abas em
+   entalhe, coladas numa barra — o padrao para um criterio que troca SECAO.
+   A aba do ranking e um cartao solto, com subtitulo e contagem e altura
+   propria, nao de entalhe. E o ranking era estilizado duas vezes: aqui, que
+   vem depois no `main` e vencia, e no `styles.css`, que perdia sem nunca
+   aparecer nenhum aviso */
+.qst-tabs {
   border-bottom: 2px solid var(--t-edge);
   background: linear-gradient(180deg, var(--t-bar) 0%, var(--t-panel) 100%);
   box-shadow: var(--t-bevel);
 }
 
-.qst-tab,
-.rnk-tab {
+.qst-tab {
   border: 1px solid var(--t-line);
   border-bottom: 0;
   border-radius: 4px 4px 0 0;
@@ -968,32 +1011,27 @@ button:focus-visible {
   box-shadow: var(--t-bevel);
 }
 
-.qst-tab:hover,
-.rnk-tab:hover {
+.qst-tab:hover {
   color: var(--t-text);
   background: linear-gradient(180deg, var(--t-button) 0%, var(--t-raised) 100%);
 }
 
-.qst-tab.is-active,
-.rnk-tab.is-active {
+.qst-tab.is-active {
   border-color: var(--t-line-3);
   color: var(--t-gold-bright);
   background: linear-gradient(180deg, var(--t-active) 0%, var(--t-active-deep) 100%);
   box-shadow: var(--t-bevel), inset 0 -2px 6px rgba(0, 0, 0, 0.45);
 }
 
-.qst-tab__icon,
-.rnk-tab__icon {
+.qst-tab__icon {
   text-shadow: 0 1px 2px #000;
 }
 
-.qst-tab__count,
-.rnk-tab__count {
+.qst-tab__count {
   color: var(--t-gold);
 }
 
-.qst-tab.is-active .qst-tab__count,
-.rnk-tab.is-active .qst-tab__count {
+.qst-tab.is-active .qst-tab__count {
   color: var(--t-gold-bright);
 }
 
@@ -1147,13 +1185,30 @@ button:focus-visible {
   box-shadow: inset 0 1px 2px rgba(0, 0, 0, 0.75);
 }
 
+/*
+ * AS DUAS BARRAS DE VIDA, no mesmo par de cores do styles.css.
+ *
+ * Este arquivo e a camada que VENCE, entao um override antigo aqui
+ * apagava o gradiente vivo e o brilho da barra de vida e devolvia o
+ * vermelho sem vida que o styles.css ja nao usa mais. Os dois lados
+ * precisam dizer a mesma cor: se so um for mudado, o outro volta a
+ * aparecer no dia que alguem reverter este tema
+ *
+ * ## O RECURSO DEVOLVEU A COR DA CLASSE
+ *
+ * Era `linear-gradient(90deg, #7a5a1c, var(--t-gold))` — marrom para
+ * dourado nas cinco posicoes, para todo mundo. A `Vitals` escreve a cor da
+ * classe no `style` inline como `color`, entao o `currentColor` aqui e o
+ * que faz essa cor aparecer de verdade
+ */
 .hud-gauge__fill--hp {
-  background: linear-gradient(90deg, #8c2328, #c8403a);
-  box-shadow: none;
+  background: linear-gradient(90deg, #c40026, #ff2f3d);
+  box-shadow: 0 0 9px rgba(255, 47, 61, 0.6);
 }
 
 .hud-gauge__fill:not(.hud-gauge__fill--hp) {
-  background: linear-gradient(90deg, #7a5a1c, var(--t-gold));
+  background: currentColor;
+  box-shadow: 0 0 9px currentColor;
 }
 
 .hud-gauge__value {
@@ -1646,12 +1701,6 @@ button:focus-visible {
   border-bottom: 1px solid var(--t-line);
 }
 
-.bst-entry__icon {
-  border: 1px solid var(--t-line-2);
-  border-radius: var(--t-radius-sm);
-  background: rgba(0, 0, 0, 0.4);
-}
-
 .bst-entry__names strong {
   color: var(--t-text-bright);
 }
@@ -1834,6 +1883,317 @@ button:focus-visible {
 }
 
 .pause__btn--primary:hover {
+  background: var(--t-raised);
+}
+
+/*
+ * O BOTAO DO FARM, e a NOTA que confirma que ele ja esta ligado.
+ *
+ * A cor e a MESMA do botao normal, e nao dourada: dourado no pause e a
+ * saida comum ("Continuar"), e um terceiro dourado transformaria a tela
+ * em tres acoes equivalentes. O que distingue este e a NOTA abaixo, que
+ * diz o que aconteceu em vez de repetir o que o botao ja diz
+ */
+.pause__btn--farm {
+  border-style: dashed;
+}
+
+.pause__farm-nota {
+  color: var(--t-gold-bright);
+  opacity: 0.85;
+}
+
+/* ---------------- o painel de teclas ---------------- */
+
+/*
+ * A APARENCIA DO PAINEL DE TECLAS, e ele e IRMAO DO PAUSE.
+ *
+ * ## POR QUE A CAIXA E A DO PAUSE, E NAO UMA NOVA
+ *
+ * Porque sao o mesmo tipo de coisa: um menu que cobre o jogo. Se este painel
+ * tivesse borda, raio e bisco proprio, o jogador veria dois menus parecidos
+ * na mesma tela e nao saberia qual era a moldura de qual
+ *
+ * ## E POR QUE A CORTINA E MAIS ESCURA QUE A DO PAUSE
+ *
+ * Porque tem um menu inteiro por baixo. Com a mesma opacidade, o pause
+ * continuaria aparecendo em volta da caixa, e o jogador nao saberia a qual dos
+ * dois o "Voltar" pertence
+ */
+.keybinds__cortina {
+  background: color-mix(in srgb, var(--t-abyss) 92%, transparent);
+  backdrop-filter: blur(2px);
+}
+
+.keybinds__painel {
+  border: 2px solid var(--t-line-2);
+  border-radius: var(--t-radius);
+  color: var(--t-text);
+  background: linear-gradient(
+    180deg,
+    var(--t-panel) 0%,
+    var(--t-sunken) 100%
+  );
+  box-shadow: var(--t-bevel), var(--t-drop);
+}
+
+.keybinds__titulo {
+  color: var(--t-gold-bright);
+}
+
+/*
+ * A DICA E O NOME DO GRUPO, e os dois sao texto de apoio.
+ *
+ * Eles usam o `--t-text-dim` e nao `--t-text`: sao as duas unicas coisas do
+ * painel que o jogador nao precisa ler para usar. Escurecendo so elas, o olho
+ * vai direto para as teclas — que sao o conteudo
+ */
+.keybinds__dica {
+  color: var(--t-text-dim);
+}
+
+.keybinds__grupo-nome {
+  color: var(--t-text-faint);
+}
+
+/*
+ * O BOTAO DA TECLA, e ele e um `--t-slot`.
+ *
+ * E nao um `--t-raised` como os botoes do pause: botao raised e para ACAO
+ * (continuar, voltar, confirmar), e o quadrado da tecla e uma PECA. A
+ * diferenca de fundo e o que diz "isto se aperta, aquilo se clica" sem
+ * precisar escrever embaixo de cada um
+ */
+.keybinds__slot {
+  border: 1px solid var(--t-line-2);
+  border-radius: var(--t-radius-sm);
+  color: var(--t-text-bright);
+  background: var(--t-slot);
+}
+
+.keybinds__slot:hover {
+  border-color: var(--t-gold-line);
+  color: var(--t-gold-bright);
+}
+
+/*
+ * O SLOT VAZIO, e ele e `--t-sunken`: mais fundo que o slot cheio, para
+ * parecer buraco e nao peca. O tracejado no `styles.css` faz o resto
+ */
+.keybinds__slot--vazio {
+  color: var(--t-text-faintest);
+  background: var(--t-sunken);
+}
+
+/* O SLOT ESPERANDO TECLA mantem a cor e ganha um brilho de foco */
+.keybinds__slot--ouvindo {
+  border-color: var(--t-gold-bright);
+  color: var(--t-gold-bright);
+}
+
+/*
+ * O SLOT QUE VAI PERDER A TECLA, e ele e o unico vermelho do painel.
+ *
+ * Porque o aviso do rodape e TEXTO, e texto nao tem lugar na tela. Marcar o
+ * botao e o que amarra a frase "o Dash fica sem tecla" a um objeto que o
+ * jogador reconhece
+ */
+.keybinds__slot--perdendo {
+  border-color: var(--t-danger);
+  color: var(--t-danger-text);
+  background: color-mix(in srgb, var(--t-danger) 22%, var(--t-slot));
+}
+
+/*
+ * A LINHA ORFA E O SELO.
+ *
+ * A linha inteira fica vermelha, e nao so o selo: um slot vazio se explica
+ * sozinho, mas uma acao INTEIRA sem tecla nao. Sem pintar a linha, o jogador
+ * teria que contar os quatro botoes vazios para perceber que o boneco nao
+ * vai mexer
+ */
+.keybinds__linha--orfa .keybinds__rotulo,
+.keybinds__selo {
+  color: var(--t-danger-text);
+}
+
+.keybinds__apagar {
+  border: 1px solid transparent;
+  border-radius: var(--t-radius-sm);
+  color: var(--t-text-faint);
+  background: transparent;
+}
+
+.keybinds__apagar:hover:not(:disabled) {
+  border-color: var(--t-line-2);
+  color: var(--t-danger-text);
+}
+
+/*
+ * O AVISO DE CONFLITO.
+ *
+ * E o unico bloco do painel com borda propria, porque e o unico que precisa
+ * de atencao imediata: o resto da lista espera o jogador chegar nela
+ */
+.keybinds__aviso {
+  border: 1px solid var(--t-danger);
+  border-radius: var(--t-radius-sm);
+  background: color-mix(in srgb, var(--t-danger) 16%, var(--t-sunken));
+}
+
+.keybinds__aviso-texto {
+  color: var(--t-danger-text);
+}
+
+.keybinds__btn {
+  border: 1px solid var(--t-line-2);
+  border-radius: var(--t-radius-sm);
+  color: var(--t-text);
+  background: var(--t-raised);
+}
+
+.keybinds__btn:hover {
+  border-color: var(--t-gold-line);
+  color: var(--t-gold-bright);
+}
+
+/*
+ * O BOTAO QUE CONFIRMA O CONFLITO, e ele e o unico com cor de perigo.
+ *
+ * "Trocar assim" NAO e um botao neutro: ele apaga a tecla de outra acao. Com a
+ * mesma cara do "Cancelar" ao lado, o jogador escolheria pelo formato da letra
+ * e nao pelo que o texto diz
+ */
+.keybinds__btn--perigo {
+  border-color: var(--t-danger);
+  color: var(--t-danger-text);
+  background: color-mix(in srgb, var(--t-danger) 24%, var(--t-raised));
+}
+
+/*
+ * O "VOLTAR" E DOURADO, como o "Continuar" do pause.
+ *
+ * Sair do painel e a acao comum — o jogador abriu para mexer em uma tecla e
+ * volta. O dourado diz "esta e a saida" sem precisar cobrar nada
+ */
+.keybinds__btn--principal {
+  border-color: var(--t-gold-line);
+  color: var(--t-gold-bright);
+  background: var(--t-panel);
+}
+
+.keybinds__btn--fraco {
+  color: var(--t-text-faint);
+  background: transparent;
+}
+
+.keybinds__btn--fraco:hover {
+  color: var(--t-gold-bright);
+}
+
+/* ============================================================================
+   O RELATORIO DO FARM OFFLINE
+   ============================================================================ */
+
+/*
+ * A APARENCIA, como a de todo painel deste arquivo.
+ *
+ * O panel e o mesmo do pause — cortina, moldura de 2px, bisel — e a
+ * moldura DOURADA e o que separa isto de um painel comum. E o que o
+ * jogador ve quando abre a tela esperando um inventario e encontra um
+ * resultado: a cor carrega a informacao antes de qualquer texto
+ */
+.fof__veil {
+  background: color-mix(in srgb, var(--t-abyss) 80%, transparent);
+  backdrop-filter: blur(5px);
+}
+
+.fof__painel {
+  border: 2px solid var(--t-gold-line);
+  border-radius: var(--t-radius);
+  color: var(--t-text);
+  background: linear-gradient(
+    180deg,
+    var(--t-panel) 0%,
+    var(--t-sunken) 100%
+  );
+  box-shadow: var(--t-bevel), var(--t-drop);
+}
+
+.fof__titulo {
+  color: var(--t-gold-bright);
+}
+
+.fof__quando {
+  color: var(--t-text-dim);
+}
+
+.fof__quando strong {
+  color: var(--t-gold);
+}
+
+/**
+ * OS TRES NUMEROS, e o dourado so no XP.
+ *
+ * O XP e o numero que muda o que o jogador PODE fazer — e o unico dos
+ * tres com esse poder, e o unico que ganha o dourado. Ouro em dourado
+ * seria bonito e mentiroso: ouro se compra, XP se ganha
+ */
+.fof-num strong {
+  color: var(--t-text-bright);
+}
+
+.fof__numeros > .fof-num:nth-child(2) strong {
+  color: var(--t-gold-bright);
+}
+
+.fof-num small {
+  color: var(--t-text-faintest);
+}
+
+/* a subida de nivel e a unica linha com destaque proprio */
+.fof__nivel {
+  color: var(--t-text);
+}
+
+.fof__nivel strong {
+  color: var(--t-gold-bright);
+}
+
+.fof__motivo {
+  color: var(--t-text-dim);
+}
+
+/*
+ * `.fof__destino` e `.fof__perdido` sairam daqui junto com o texto: a
+ * frase "X na mochila, Y no bau" foi removida a pedido, e regra de cor sem
+ * elemento e regra morta
+ */
+
+.fof__secao {
+  color: var(--t-text-faintest);
+}
+
+/**
+ * A GRADE DE ITENS NAO TEM COR AQUI.
+ *
+ * E proposital: o `ItemCard` ja recebe a cor da raridade por
+ * `data-rarity`, e a regra dele esta no tema. Pintar a grade aqui
+ * deixaria a lista com uma cor de fundo por cima da raridade de cada
+ * cartao — e o jogador perderia a leitura que o inventario ensinou
+ */
+.fof__mob {
+  color: var(--t-text-dim);
+}
+
+.fof__btn {
+  border: 1px solid var(--t-gold-line);
+  border-radius: var(--t-radius-sm);
+  color: var(--t-gold-bright);
+  background: var(--t-panel);
+}
+
+.fof__btn:hover {
   background: var(--t-raised);
 }
 
@@ -2182,6 +2542,105 @@ button:focus-visible {
 }
 
 /**
+ * A CONTA DO INGREDIENTE, "precisa de 3 · você tem 8".
+ *
+ * ## POR QUE SO NO TOOLTIP E NAO NO SLOT
+ *
+ * Porque no slot o numero ja esta, e e a arte do slot que precisa de uma
+ * dica curta. Aqui a caixa tem espaco para a frase, e a frase e o que
+ * responde a pergunta que os dois numeros soltos levantam
+ *
+ * E o vermelho do `is-short` e o mesmo do circulo do slot, para o
+ * jogador nao ter duas cores diferentes dizendo "falta"
+ */
+.inv-tip__conta {
+  display: flex;
+  margin-top: 4px;
+  align-items: baseline;
+  gap: 4px;
+  font-size: 10px;
+}
+
+.inv-tip__conta small {
+  color: var(--t-text-faintest);
+}
+
+.inv-tip__conta b {
+  color: var(--t-text-bright);
+  font-size: 11px;
+  font-variant-numeric: tabular-nums;
+}
+
+.inv-tip__conta b.is-short {
+  color: var(--t-danger-text);
+}
+
+.inv-tip__conta i {
+  color: var(--t-text-faintest);
+  font-style: normal;
+}
+
+/**
+ * AS CRIATURAS QUE SOLTAM O ITEM.
+ *
+ * ## POR QUE DENTRO DA CAIXA E NAO COMO UM SEPARADO
+ *
+ * Porque "solta em Goblin 58%" sem o resto da caixa e um dado solto: o
+ * jogador precisa ler o nome do material e a falta primeiro, e so depois
+ * decide onde cacar. A lista embaixo da conta e a terceira coisa que ele
+ * olha, na ordem em que ele precisa
+ *
+ * ## POR QUE A LINHA E UM `grid` DE QUATRO COLUNAS
+ *
+ * Porque sao quatro informacoes de comprimentos muito diferentes: um
+ * glifo de 1 caractere, um nome que pode ser longo, um nivel com zona e uma
+ * porcentagem. Com `flex` e `gap` a porcentagem andaria conforme o nome
+ * crecia; com colunas fixas ela fica na direita em todas as linhas, e o
+ * jogador compara duas criaturas pela MESMA coluna
+ */
+.inv-tip__fontes {
+  display: flex;
+  margin-top: 6px;
+  padding-top: 5px;
+  flex-direction: column;
+  gap: 3px;
+  border-top: 1px solid var(--t-line);
+}
+
+.inv-tip__fontes-rotulo {
+  color: var(--t-text-faintest);
+  font-size: 8px;
+  font-weight: 800;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+
+.inv-tip__fonte {
+  display: grid;
+  grid-template-columns: 12px 1fr auto auto;
+  align-items: baseline;
+  gap: 5px;
+  font-size: 10px;
+}
+
+.inv-tip__fonte i {
+  font-style: normal;
+}
+
+.inv-tip__fonte small {
+  color: var(--t-text-faintest);
+  font-size: 9px;
+}
+
+.inv-tip__fonte b {
+  min-width: 30px;
+  color: var(--t-gold-bright);
+  font-size: 10px;
+  font-variant-numeric: tabular-nums;
+  text-align: right;
+}
+
+/**
  * A DESCRICAO DO ITEM.
  *
  * A dica nao tinha lugar para ela. Todo item do catalogo podia ter
@@ -2379,36 +2838,36 @@ button:focus-visible {
 }
 
 /**
- * O custo de criar a guilda.
+ * O custo de criar a guilda, ao lado do botao.
  *
- * `is-falta` e o estado que o jogador mais ve: um jogador novo tem zero
- * moedas e a fila de dez milhoes e o que ele tem pela frente. O tom e
- * o mesmo do "voce precisa de X" do resto do jogo, e nao vermelho de
- * erro — falta de dinheiro nao e erro do jogador
+ * ## POR QUE ESTE BLOCO ESTAVA AQUI E O QUE ELE FAZIA
+ *
+ * Estas seis regras eram o `.gld-custo` como PARAGRAFO: uma placa com borda,
+ * fundo e padding, contendo o texto "Criar uma guilda custa", o numero e a
+ * linha de "Faltam X". A placa vivia em um `<p>` solto acima do botao
+ *
+ * ## POR QUE A BORDA SUMIU
+ *
+ * Porque uma placa em volta de um numero, do lado de um botao, vira UM SEGUNDO
+ * BOTAO. O jogador lia as duas coisas como acoes lado a lado — e o que trava o
+ * formulario e o botao, nao o preco
+ *
+ * E o `theme-inventory.css` e importado DEPOIS do `styles.css`, entao estas
+ * regras venciam as de la. A correcao de la nao aparecia enquanto estas
+ * existissem
+ *
+ * ## O QUE FICOU
+ *
+ * So a COR do estado, que e o que a regra sempre quis dizer: verde com saldo,
+ * vermelho sem. A forma do elemento — `inline-flex`, sem caixa — esta no
+ * `styles.css`, junto com a regra do `.gld-criar-linha`
  */
-.gld-custo {
-  border: 1px solid var(--t-line-2);
-  border-radius: var(--t-radius-sm);
-}
-
-.gld-custo span {
-  color: var(--t-text-dim);
-}
-
-.gld-custo strong {
-  color: var(--t-gold-bright);
-}
-
-.gld-custo small {
-  color: var(--t-text-faint);
-}
-
-.gld-custo.is-ok strong {
+.gld-custo.is-ok {
   color: var(--t-positive);
 }
 
 .gld-custo.is-falta {
-  border-color: rgba(200, 120, 100, 0.45);
+  color: #c87864;
 }
 
 .gld-field span {
@@ -3234,4 +3693,747 @@ button:focus-visible {
 .pty-btn--invite-target {
   border-color: var(--t-positive);
   color: var(--t-positive);
+}
+
+/* ---------------- o alvo no alto central ---------------- */
+
+/**
+ * O ALVO DEIXOU DE SER UM PAINEL.
+ *
+ * ## POR QUE ESTA REGRA ESTA AQUI E NAO NO `styles.css`
+ *
+ * Porque o `styles.css` ja manda `background: none` e `border: 0` no
+ * `.target-panel`, e mesmo assim a moldura aparecia. A causa e a ordem de
+ * importacao: o tema entra DEPOIS, e as listas agrupadas daqui
+ * (`.hud-vitals, .target-panel, .qst-panel, ...`) tem a mesma
+ * especificidade do seletor simples, entao venciam por vir depois
+ *
+ * Anunciar o alvo num bloco de meio da tela e o jeito errado: vira uma
+ * caixa opaca sobre o mapa. Ele e TEXTO e BARRA agora, e cada um se
+ * segura com a propria sombra
+ *
+ * ## POR QUE NAO APAGUEI DAS LISTAS DO TEMA
+ *
+ * Porque `styles.test.js` exige `background: linear-gradient` em cada
+ * seletor daquela lista, e o `.target-panel` esta nela. Apagar a entrada
+ * quebraria o teste. Esta regra desliga a moldura depois, sem mexer na
+ * lista — e o caminho que fecha de verdade e tirar o `.target-panel`
+ * das listas daqui junto com a entrada do teste
+ *
+ * ## POR QUE ESTA REGULA E A ULTIMA DO ARQUIVO
+ *
+ * Porque ela precisa vencer as listas agrupadas. Mesma especificidade
+ * resolve por ordem, entao o que vem depois ganha
+ */
+.target-panel {
+  border: 0;
+  border-radius: 0;
+  background: none;
+  box-shadow: none;
+}
+
+/**
+ * A COR DOS NUMEROS SOBRE A BARRA.
+ *
+ * ## POR QUE BRANCO E NAO UMA VARIAVEL DO TEMA
+ *
+ * Porque o numero passa por cima de duas coisas: o preenchimento
+ * vermelho quando ha vida, e o fundo escuro quando esta quase vazio.
+ * Nenhuma cor de tema sobrevive as duas, entao o branco com sombra
+ * propria e o que se mantem legivel nas duas pontas
+ */
+.target-panel__hp {
+  color: #fff;
+  text-shadow: 0 1px 2px rgba(0, 0, 0, 0.95);
+}
+
+/* ============================================================
+   MERCADO — A CASCA DO MODAL
+
+   A cor do casco novo mora aqui, e o layout esta no `styles.css`. O veu e o
+   mesmo do pause e do painel da morte: fundo no tom do abyss com `blur`, e a
+   caixa com a borda e o gradiente do tema
+ */
+.mkt-modal__veu {
+  background: color-mix(in srgb, var(--t-abyss) 84%, transparent);
+  backdrop-filter: blur(4px);
+}
+
+.mkt-modal__painel {
+  border: 2px solid var(--t-line-2);
+  border-radius: var(--t-radius);
+  color: var(--t-text-bright);
+  background: linear-gradient(180deg,
+    var(--t-panel) 0%,
+    var(--t-sunken) 100%);
+  box-shadow: var(--t-bevel), var(--t-drop);
+}
+
+.mkt-modal__head {
+  background: linear-gradient(180deg,
+    var(--t-raised) 0%,
+    var(--t-panel) 100%);
+}
+
+.mkt-modal__icone {
+  /* o asset do mercado e colorido; o filtro escurece para o caixote */
+  filter: brightness(1.1) saturate(0.85);
+}
+
+/* A BARRA DE SALDO */
+.mkt-balanco {
+  background: color-mix(in srgb, var(--t-abyss) 45%, transparent);
+}
+
+.mkt-balanco__valor {
+  color: var(--t-gold-bright);
+}
+
+.mkt-balanco__limite {
+  color: var(--t-text-faintest);
+}
+
+/* AS ABAS */
+.mkt-modal__aba {
+  color: var(--t-text-dim);
+}
+
+.mkt-modal__aba:hover {
+  color: var(--t-text);
+  background: color-mix(in srgb, var(--t-raised) 60%, transparent);
+}
+
+.mkt-modal__aba.is-active {
+  color: var(--t-text-bright);
+  background: linear-gradient(0deg,
+    color-mix(in srgb, var(--t-gold) 14%, transparent) 0%,
+    transparent 100%);
+}
+
+.mkt-modal__aba-conta {
+  border: 1px solid var(--t-line-2);
+  color: var(--t-text-faint);
+  background: var(--t-sunken);
+}
+
+.mkt-modal__aba.is-active .mkt-modal__aba-conta {
+  border-color: color-mix(in srgb, var(--t-gold) 45%, transparent);
+  color: var(--t-gold-bright);
+  background: color-mix(in srgb, var(--t-gold) 12%, var(--t-sunken));
+}
+
+/* O BOTAO "+ ANUNCIAR" */
+.mkt-anunciar {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+
+  min-height: 38px;
+  margin-left: auto;
+  padding: 0 22px;
+
+  border: 1px solid color-mix(in srgb, var(--t-gold) 60%, transparent);
+  border-radius: 3px;
+
+  color: var(--t-gold-bright);
+  background: linear-gradient(180deg,
+    color-mix(in srgb, var(--t-gold) 26%, var(--t-sunken)) 0%,
+    color-mix(in srgb, var(--t-gold) 12%, var(--t-sunken)) 100%);
+
+  font-size: 12px;
+  font-weight: 700;
+  letter-spacing: 2px;
+
+  cursor: pointer;
+  transition: filter 150ms ease;
+}
+
+.mkt-anunciar:hover:not(:disabled) {
+  filter: brightness(1.15);
+}
+
+.mkt-anunciar:active:not(:disabled) {
+  transform: translateY(1px);
+}
+
+.mkt-anunciar:disabled {
+  border-color: var(--t-line-2);
+  color: var(--t-text-faintest);
+  background: var(--t-sunken);
+  cursor: not-allowed;
+}
+
+.mkt-anunciar__mais {
+  font-size: 15px;
+  line-height: 1;
+}
+/* ============================================================
+   A VITRINE — COR
+
+   Layout no `styles.css`, cor aqui. O padrao do projeto: o `styles.css` poe
+   a caixa e o espaco, e o tema decide a tinta
+ */
+.mkt-cats__titulo {
+  color: var(--t-text-dim);
+}
+
+.mkt-cats__item {
+  color: var(--t-text);
+
+  /*
+     O FUNDO DAS NÃO SELECIONADAS.
+
+     Sem ele a linha era só texto cinza sobre o painel, e o jogador lia uma
+     lista de palavras em vez de uma lista de botões — o cinza `--t-text-dim`
+     sobre fundo escuro é a cor que o projeto usa para TEXTO SECUNDÁRIO, e
+     texto secundário é o que some. Aqui o fundo é que separa: a caixa existe,
+     a cor é que diz o estado
+
+     A borda continua transparente de propósito, que é o que o desenho pede
+     para as inativas
+  */
+  background: color-mix(in srgb, var(--t-abyss) 40%, transparent);
+}
+
+.mkt-cats__item:hover {
+  color: var(--t-text-bright);
+  background: color-mix(in srgb, var(--t-raised) 75%, transparent);
+}
+
+.mkt-cats__item.is-active {
+  border-color: var(--t-gold);
+  color: var(--t-gold-bright);
+  background: linear-gradient(90deg,
+    color-mix(in srgb, var(--t-gold) 22%, transparent) 0%,
+    color-mix(in srgb, var(--t-gold) 8%, transparent) 100%);
+  box-shadow:
+    inset 2px 0 0 var(--t-gold),
+    0 0 12px rgba(216, 180, 92, 0.18);
+}
+
+/*
+   A CONTAGEM da categoria ativa.
+
+   Fica com a cor do ouro e nao com a do texto, porque ela e o numero que
+   responde "quantos sobraram depois do meu filtro" — e um numero em cor de
+   texto secundario desaparece dentro do proprio destaque
+ */
+.mkt-cats__item.is-active .mkt-cats__conta {
+  color: var(--t-gold-bright);
+}
+
+.mkt-cats__conta {
+  color: var(--t-text-faint);
+}
+
+/* O CAMPO DE BUSCA */
+.mkt-busca-campo {
+  border: 1px solid var(--t-line-2);
+  border-radius: 3px;
+  background: var(--t-abyss);
+}
+
+.mkt-busca-campo:focus-within {
+  border-color: var(--t-gold-line);
+}
+
+.mkt-busca-campo__input {
+  color: var(--t-text-bright);
+}
+
+.mkt-busca-campo__input::placeholder {
+  color: var(--t-text-faintest);
+}
+
+.mkt-busca-campo__enviar {
+  border: 1px solid var(--t-line-2);
+  color: var(--t-text-dim);
+  background: var(--t-sunken);
+}
+
+.mkt-busca-campo__enviar:hover {
+  color: var(--t-text-bright);
+  background: var(--t-raised);
+}
+
+/* OS CHIPS DE CLASSE */
+
+.mkt-chip-classe {
+  color: var(--t-text-dim);
+  background: color-mix(in srgb, var(--t-abyss) 60%, transparent);
+}
+
+.mkt-chip-classe:hover {
+  border-color: var(--t-line-3);
+  color: var(--t-text);
+}
+
+/*
+   O CHIP ATIVO USA A COR DA CLASSE, e nao o dourado.
+
+   Porque o `--classe` e o `accent` que o catalogo ja escreve, e o emoji da
+   classe ao lado ja e colorido. Um chip ativo em dourado com o emoji roxo do
+   Sorcerer ao lado leria como duas cores diferentes: o dourado dizia "ativo" e
+   o roxo dizia "esta classe". Usando o accent, a cor do chip confirma a do
+   emoji. O "Todas" nao tem `--classe` e cai no dourado, que e a cor de
+   destaque sem classe nenhuma
+ */
+.mkt-chip-classe.is-active {
+  border-color: var(--classe, var(--t-gold));
+  color: var(--t-text-bright);
+  background: color-mix(in srgb,
+    var(--classe, var(--t-gold)) 16%,
+    transparent);
+  box-shadow: 0 0 10px color-mix(in srgb,
+    var(--classe, var(--t-gold)) 24%,
+    transparent);
+}
+
+.mkt-chip-classe__conta {
+  color: var(--t-text-faint);
+  background: color-mix(in srgb, var(--t-abyss) 70%, transparent);
+}
+
+.mkt-contador {
+  color: var(--t-text-dim);
+}
+
+/* O CARD */
+.mkt-listing__restricao {
+  border-color: var(--t-line-2);
+  color: var(--t-text-faint);
+  background: color-mix(in srgb, var(--t-abyss) 55%, transparent);
+}
+
+.mkt-listing__preco strong {
+  color: var(--t-gold-bright);
+}
+
+.mkt-listing__preco small {
+  color: var(--t-text-faintest);
+}
+
+.mkt-listing__rodape {
+  color: var(--t-text-faintest);
+}
+/*
+   O "LIMPAR FILTROS", no fim da linha dos chips.
+
+   ## POR QUE ELE E UM `mkt-chip` E NAO O BOTAO GRANDE QUE ERA
+   Porque o botao grande pedia uma acao isolada, e aqui ele e um passo a mais
+   na mesma fita de opcoes. E o `mkt-chip` que o `HistoricoAba` ja usa, entao
+   a forma e a mesma do resto do mercado sem uma regra nova
+
+   ## E POR QUE FICA DO LADO DO ULTIMO CHIP E NAO NO CANTO DA LINHA
+   O `margin-left: auto` empurraria para a borda direita da area principal e
+   o botao ficaria a quatrocentos pixels do chip que ele mexe. Do lado do
+   Arbalist ele esta a um clique de distancia da opcao que o jogador acaba de
+   marcar
+ */
+.mkt-chip--limpar {
+  color: var(--t-text-faint);
+  border-style: dashed;
+}
+
+.mkt-chip--limpar:hover {
+  color: var(--t-danger-text);
+  border-color: color-mix(in srgb, var(--t-danger) 50%, transparent);
+  background: color-mix(in srgb, var(--t-danger) 12%, transparent);
+}
+/* ============================================================
+   O MODAL DE ANUNCIAR — COR
+ */
+.lst-modal__veu {
+  background: color-mix(in srgb, var(--t-abyss) 90%, transparent);
+  backdrop-filter: blur(4px);
+}
+
+.lst-modal__painel {
+  border: 2px solid var(--t-line-2);
+  border-radius: var(--t-radius);
+  color: var(--t-text-bright);
+  background: linear-gradient(180deg,
+    var(--t-panel) 0%,
+    var(--t-sunken) 100%);
+  box-shadow: var(--t-bevel), var(--t-drop);
+}
+
+/*
+   O CABECALHO COM O GRADIENTE QUE DISSIPA PARA A DIREITA.
+
+   E o que o desenho pede: forte a esquerda e sumindo para a direita, para o
+   titulo ler no peso do passo e o X no fundo
+ */
+.lst-modal__head {
+  border-bottom: 1px solid var(--t-line);
+  background: linear-gradient(90deg,
+    color-mix(in srgb, var(--t-gold) 20%, transparent) 0%,
+    transparent 70%);
+}
+
+.lst-painel {
+  background: color-mix(in srgb, var(--t-abyss) 45%, transparent);
+}
+
+.lst-painel__passo {
+  border: 1px solid var(--t-gold);
+  color: var(--t-gold-bright);
+  background: color-mix(in srgb, var(--t-gold) 14%, transparent);
+}
+
+.lst-painel__titulo,
+.lst-rotulo {
+  color: var(--t-text-bright);
+}
+
+.lst-busca {
+  border-color: var(--t-line-2);
+  background: var(--t-abyss);
+}
+
+.lst-busca:focus-within {
+  border-color: var(--t-gold-line);
+}
+
+.lst-busca__lupa {
+  color: var(--t-text-faint);
+}
+
+.lst-busca__input {
+  color: var(--t-text-bright);
+}
+
+.lst-busca__input::placeholder {
+  color: var(--t-text-faintest);
+}
+
+.lst-select > span {
+  color: var(--t-text-dim);
+}
+
+.lst-select__campo {
+  border-color: var(--t-line-2);
+  color: var(--t-text-bright);
+  background-color: var(--t-sunken);
+}
+
+.lst-select__campo option {
+  color: var(--t-text-bright);
+  background: var(--t-sunken);
+}
+
+/* A CELULA SELECIONADA */
+.lst-celula.is-selecionada,
+.lst-celula[aria-selected="true"] .inv-slot {
+  border-color: var(--t-gold);
+}
+
+.lst-celula[aria-selected="true"] {
+  box-shadow: 0 0 0 1px var(--t-gold-line);
+  background: color-mix(in srgb, var(--t-gold) 10%, transparent);
+}
+
+.lst-total {
+  color: var(--t-text-dim);
+}
+
+.lst-paginacao__texto {
+  color: var(--t-text-bright);
+}
+
+.lst-paginacao__btn {
+  border-color: var(--t-line-2);
+  color: var(--t-text-dim);
+  background: var(--t-sunken);
+}
+
+.lst-paginacao__btn:hover:not(:disabled) {
+  border-color: var(--t-gold-line);
+  color: var(--t-text-bright);
+  background: var(--t-raised);
+}
+
+.lst-paginacao__btn:disabled {
+  color: var(--t-text-faintest);
+  background: var(--t-sunken);
+}
+
+/* A PREVIA */
+.lst-previa {
+  border-color: var(--t-line-2);
+  background: rgba(0, 0, 0, 0.22);
+}
+
+.lst-previa.is-preenchida {
+  border-color: var(--t-gold-line);
+}
+
+.lst-previa__texto--vazio,
+.lst-resumo__vazio,
+.lst-dica,
+.lst-aviso {
+  color: var(--t-text-dim);
+}
+
+/* OS CAMPOS */
+.lst-campo {
+  border-color: var(--t-line-2);
+  color: var(--t-text-bright);
+  background: var(--t-abyss);
+}
+
+.lst-campo:focus {
+  border-color: var(--t-gold-line);
+  outline: none;
+}
+
+.lst-moeda {
+  border-color: var(--t-line-2);
+  color: var(--t-text-dim);
+  background: var(--t-sunken);
+}
+
+.lst-duracao {
+  color: var(--t-gold-bright);
+  background: color-mix(in srgb, var(--t-gold) 8%, transparent);
+}
+
+.lst-erro {
+  color: var(--t-danger-text);
+}
+
+/* O RESUMO */
+.lst-resumo {
+  border-color: var(--t-line-2);
+}
+
+.lst-resumo__linha {
+  color: var(--t-text-dim);
+}
+
+.lst-resumo__linha > span:last-child {
+  color: var(--t-text-bright);
+}
+
+.lst-resumo__linha--total > span:last-child {
+  color: var(--t-positive);
+}
+
+/* O AVISO */
+.lst-aviso {
+  color: var(--t-text-faint);
+}
+
+/* B4 O BOTAO DE CANCELAR */
+.lst-btn {
+  border-color: var(--t-line-2);
+  color: var(--t-text-dim);
+  background: var(--t-sunken);
+}
+
+.lst-btn:hover:not(:disabled) {
+  border-color: var(--t-line-3);
+  color: var(--t-text-bright);
+  background: var(--t-raised);
+}
+
+/*
+   O RAIO DAS SKILLS.
+
+   ## POR QUE ESTAVA QUADRADO
+
+   A regra agrupada do começo deste arquivo põe `border-radius: var(--t-radius)`
+   em `.skill-slot`, mas a regra do `.skill-slot` aqui embaixo declara `border`
+   — e um `border` reescrito NAO reseta o raio. O que faltava era o raio em
+   si, nesta regra, para a borda de 1px da skill nao desenhar um quadrado
+   perfeito em volta do sprite
+
+   ## POR QUE 4px E NAO O `--t-radius`
+
+   Porque a skill e um quadrado pequeno em tela. `--t-radius` (4px) num slot de
+   38px ja e visivel; `--t-radius-sm` (3px) some. O valor esta aqui em vez de
+   no grupo porque a skill e quadrada E a barra de acao nao: a barra e retangulo
+   e raio de 4px nela ficaria estranho
+ */
+.skill-slot {
+  border-radius: 4px;
+}
+
+/* a moldura interna precisa acompanhar, senao o quadrado aparece por fora */
+.skill-slot__frame {
+  border-radius: 3px;
+}
+/*
+   A LINHA DO APRIMORAMENTO NO TOOLTIP.
+
+   ## POR QUE DOURADO E NAO A COR DA RARIDADE
+
+   Porque o aprimoramento NAO e um atributo sorteado — e um numero de passos
+   que o jogador subiu pagando aco. A cor de raridade diria "isto veio do
+   sorteio", e o dourado diz "isto veio do trabalho". Sao tres leituras
+   diferentes na mesma caixa: a cor do nome e a raridade, o dourado e o
+   aprimoramento, e a cor do afixo e o afixo
+
+   ## POR QUE ANTES DO AFIXO
+
+   Porque o aprimoramento e FIXO na peca e o afixo e uma surpresa. O olho
+   le de cima para baixo: primeiro o que a peca e, depois o que nela sorteou.
+   Invertido, o jogador le a surpresa e esquece do numero que ele subiu
+ */
+.inv-tip__aprimoramento {
+  color: var(--t-gold-bright);
+  font-size: 10px;
+  font-weight: 700;
+  line-height: 1.3;
+}
+/*
+   O CARD SEM CASCA, PARA O PAINEL QUE NAO USA O TEXTO.
+
+   ## O QUE E
+
+   O `ItemCard` sem nome, sem raridade e sem quantidade deixa de ser um CARTAO
+   e vira so o container do slot. Sem esta regra, a moldura do slot aparecia
+   desenhada dentro de outra moldura — o icone ficava pequeno demais e o
+   jogador via duas caixas onde devia ver uma
+
+   ## POR QUE SOME TUDO E NAO SO O FUNDO
+
+   Porque borda e raio existem para separar um cartao do proximo, e aqui nao ha
+   cartao: o que separa e o vao da grade. Deixar a borda daria ao item um
+   contorno duplo — a linha do slot E a linha do card
+
+   ## POR QUE O PADDING VAI A ZERO E NAO A ALGO MENOR
+
+   Porque o padding do card existia para separar o TEXTO do icone. Sem texto
+   ele nao separa nada: sobraria uma borda invisivel entre a borda do card e a
+   borda do slot, e o item nao ocuparia a celula da grade
+
+   ## O QUE SOBREVIVE
+
+   O `position: relative` vem da regra compartilhada e e o que ancora a caixa
+   de selecao e o balanco do slot. Tira-lo aqui quebraria os dois
+ */
+.inv-item-card.is-bare {
+  padding: 0;
+  border: none;
+  border-radius: 0;
+  background: none;
+  box-shadow: none;
+  gap: 0;
+}
+
+/*
+   E O HOVER, QUE NO CARD NORMAL LEVA BORDA E FUNDO.
+
+   Sem texto o card nao tem onde mudar de cor, entao o realce passa inteiro
+   para o slot — que e onde o jogador esta olhando
+ */
+.inv-item-card.is-bare:hover {
+  border-color: transparent;
+  background: none;
+}
+
+.inv-item-card.is-bare .inv-slot {
+  transition: filter 0.12s;
+}
+
+.inv-item-card.is-bare:hover .inv-slot {
+  filter: brightness(1.18);
+}
+
+/*
+   A BARRINHA DE RARIDADE DESAPARECE NO CARD SEM CASCA.
+
+   ## POR QUE ELA SOBRAVA
+
+   Porque essa barra e um `::before` com `position: absolute` e `top: 0` do
+   CARD. Tirar a borda e o fundo do card nao tira um pseudo-elemento: ele fica,
+   e o resultado era uma linha de 2px em cima do icone, com a cor da
+   raridade, solta no ar
+
+   ## POR QUE A RARIDADE NAO PERDEU A LEITURA
+
+   Porque o slot continua pintando a moldura com a cor da raridade — o
+   `inv-slot--<raridade>`. A barra do card era a segunda leitura da mesma
+   informacao, feita num lugar que a mochila nao usa mais
+ */
+.inv-item-card.is-bare::before {
+  content: none;
+}
+/*
+   O DROPDOWN E O BOTAO DE SELECIONAR, NA MESMA ALTURA.
+
+   ## POR QUE ESTAVAM DESALINHADOS
+
+   Porque o `.inv-sort` tinha `padding-bottom: 4px` e o `.inv-mark-btn` nao
+   tinha. O `align-items: center` do toolbar alinhava as CAIXAS, e a caixa do
+   dropdown era 4px mais alta por causa desse padding — entao o texto do
+   criterio ficava 2px acima do texto do botao
+
+   ## POR QUE TIREI O PADDING E NAO ADICIONEI OUTRO NO BOTAO
+
+   Porque o `padding-bottom` nao servia para nada: o toolbar tem `gap` entre
+   os filhos, entao afastar o dropdown para baixo so o empurrava contra a
+   grade. Ele era um resto de quando o "Ordenar" era um rotulo de texto ao
+   lado do select, e o texto precisava de folga embaixo
+
+   ## E O QUE ALINHA DE FATO
+
+   O `align-items: center` do `.inv-toolbar`, que ja existia. Com as duas
+   caixas do mesmo tamanho, o centro bate
+ */
+.inv-v2 .inv-sort {
+  padding-bottom: 0;
+}
+
+.inv-v2 .inv-mark-btn {
+  /* a mesma altura do select: sem isto o botao fica 4px mais baixo */
+  min-height: 26px;
+  padding-top: 4px;
+  padding-bottom: 4px;
+}
+
+/*
+   O SELECT GANHA A LARGURA DO TEXTO MAIS LONGO.
+
+   Sem isto o dropdown mostra "Raridade" cortado em "Rar…" quando a coluna
+   aperta, e o jogador nao sabe o que esta escolhendo
+ */
+.inv-v2 .inv-sort__select {
+  min-width: 92px;
+}
+/*
+   OS DOIS CONTROLES JUNTOS, NA DIREITA.
+
+   ## POR QUE O DROPDOWN FICAVA NO MEIO
+
+   Porque o toolbar tem `justify-content: space-between` e TRES filhos: as abas
+   de categoria, o dropdown e o botao de selecionar. Com tres filhos, o
+   `space-between` nao e "esquerda e direita" — ele e "primeiro, centro,
+   ultimo". O dropdown ficava no meio da linha, sozinho, longe dos dois lados
+
+   ## A CORRECAO E NO PRIMEIRO FILHO, E NAO NO ULTIMO
+
+   Dar `flex: 1` as abas faz elas ABSORVEREM o espaco que sobra. A partir dai o
+   `space-between` so ve dois grupos — abas a esquerda, controles a direita —
+   e o dropdown encosta no botao
+
+   A alternativa seria embrulhar dropdown e botao num `div`, e ela foi
+   descartada: e uma div nova no JSX para um problema que e de CSS. O numero
+   de filhos nao muda, e o que muda e quem cresce
+ */
+.inv-v2 .inv-toolbar .inv-tabs-compact {
+  flex: 1;
+  min-width: 0;
+}
+
+/*
+   E O VAO ENTRE OS DOIS CONTROLES DIREITOS.
+
+   Fica menor que o vao do toolbar porque eles sao um par: o dropdown escolhe
+   a ORDEM e o botao liga um MODO, e o jogador precisa ler os dois como um
+   bloco so. Com o vao grande do toolbar, eles pareciam dois controles soltos
+ */
+.inv-v2 .inv-toolbar .inv-sort {
+  margin-left: auto;
 }

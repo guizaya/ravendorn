@@ -21,6 +21,23 @@ const TRAVAM_ACAO = ["stun", "freeze"];
 const TRAVAM_SKILL = ["stun", "freeze", "silence"];
 
 export class StatusSystem {
+  /**
+   * @param {{ onHeal?: (entity: object, amount: number) => void }} opcoes
+   *
+   * ## POR QUE O `onHeal` ENTRA POR CONSTRUTOR
+   *
+   * Porque este arquivo nao conhece o `DamageSystem`, e o `DamageSystem`
+   * precisa deste arquivo para os multiplicadores. Um `import` do
+   * `DamageSystem` aqui viraria um ciclo entre os dois
+   *
+   * E e injetado pelo motor, que e o unico lugar que conhece os dois. O
+   * `DamageSystem.heal` respeita o teto de vida e escreve o `+25`
+   * flutuante, e sao as duas coisas que o tick nao pode fazer sozinho
+   */
+  constructor({ onHeal = null } = {}) {
+    this.onHeal = onHeal;
+  }
+
   apply(target, sourceEffect, source = null) {
     const effect = {
       chance: 1,
@@ -103,6 +120,40 @@ export class StatusSystem {
       const effect = entity.statusEffects[index];
 
       effect.remaining -= deltaTime;
+
+      /**
+       * A CURA POR TIQUE, que e o LADO BOM do `damagePerTick`.
+       *
+       * E o que faz a pocao render 25 a cada 2 segundos em vez de 120 de
+       * uma vez. O esqueleto e o mesmo do DoT abaixo — o `tickTimer`
+       * acumulado e o `while` que dispara os ticks perdidos quando o
+       * delta foi grande — e a unica diferenca e o sinal, porque aqui o
+       * numero SOBE
+       *
+       * ## POR QUE PASSO PELO `onHeal` E NAO `entity.hp +=`
+       *
+       * Porque `entity.hp` direto furaria o TETO de vida: um jogador em
+       * 95 de 100 receberia 25 e ficaria em 120, e a barra mostraria mais
+       * do que o maxHp. E porque sem o `onHeal` nao haveria o `+25`
+       * flutuante, que e o unico aviso de que a pocao funcionou
+       *
+       * O `onHeal` e o `DamageSystem.heal` injetado pelo motor. Aqui fica
+       * so a REGUA do tick — quem sabe o que e curar vida e quem tem o
+       * teto e o flutuante
+       */
+      if (
+        effect.healPerTick > 0 &&
+        this.onHeal &&
+        entity.hp > 0
+      ) {
+        effect.tickTimer -= deltaTime;
+
+        while (effect.tickTimer <= 0) {
+          this.onHeal(entity, effect.healPerTick);
+
+          effect.tickTimer += effect.tickInterval;
+        }
+      }
 
       if (
         effect.damagePerTick > 0 &&
@@ -316,11 +367,38 @@ canCastSkill(entity) {
     return Math.min(0.95, resistance);
   }
 
+  /**
+   * O QUE O CLIENTE VEMINHA.
+   *
+   * E a MESMA Lista que o servidor manda, entao o nome do efeito e o
+   * rotulo que o jogador le. `regeneracaoCura` e o que o tooltip da HUD
+   * mostra ("+25 a cada 2s"), e ele vem do item e nao de um `if` por
+   * tipo aqui: a proxima pocao que precisar de outro valor nao passa
+   * pelo motor
+   *
+   * ## POR QUE SO O `healPerTick` ENTRA
+   *
+   * Porque e o unico numero de que o texto precisa. Mandar `tickInterval`
+   * e `label` custaria bytes em TODOS os efeitos de TODOS os inimigos a
+   * cada pacote, e o unico que os usa e a cura por tique
+   */
   snapshot(entity) {
-    return entity.statusEffects.map((effect) => ({
-      type: effect.type,
-      remaining: effect.remaining,
-      value: effect.value,
-    }));
+    return entity.statusEffects.map((effect) => {
+      const dado = {
+        type: effect.type,
+        remaining: effect.remaining,
+        value: effect.value,
+      };
+
+      if (effect.healPerTick > 0) {
+        dado.regeneracaoCura = {
+          porTick: effect.healPerTick,
+          intervalo: effect.tickInterval,
+          rotulo: effect.label ?? "Regeneração",
+        };
+      }
+
+      return dado;
+    });
   }
 }

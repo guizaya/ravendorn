@@ -184,7 +184,7 @@ const conviteAtivo = convite ?? party?.convite ?? null;
           type="button"
           className="pty-btn pty-btn--create"
           onClick={onCreate}
-          title="Criar uma party"
+          data-tip="Criar uma party"
         >
           Criar party
         </button>
@@ -227,7 +227,7 @@ const conviteAtivo = convite ?? party?.convite ?? null;
                   <div className="pty-member__id">
                     <span
                       className="pty-member__name"
-                      title={membro.nome}
+                      data-tip={membro.nome}
                     >
                       {membro.nome}
                     </span>
@@ -255,7 +255,7 @@ const conviteAtivo = convite ?? party?.convite ?? null;
                     {!membro.eu && membro.focandoLider && (
                       <span
                         className="pty-member__tag pty-member__tag--foco"
-                        title="Seguindo o alvo do lider"
+                        data-tip="Seguindo o alvo do lider"
                       >
                         foco
                       </span>
@@ -287,7 +287,7 @@ const conviteAtivo = convite ?? party?.convite ?? null;
                           type="button"
                           className="pty-member__transfer"
                           onClick={() => onTransfer?.(membro.id)}
-                          title={`Passar a lideranca para ${membro.nome}`}
+                          data-tip={`Passar a lideranca para ${membro.nome}`}
                         >
                           L
                         </button>
@@ -298,7 +298,7 @@ const conviteAtivo = convite ?? party?.convite ?? null;
                           type="button"
                           className="pty-member__kick"
                           onClick={() => onKick?.(membro.id)}
-                          title={`Tirar ${membro.nome} da party`}
+                          data-tip={`Tirar ${membro.nome} da party`}
                         >
                           ×
                         </button>
@@ -314,7 +314,7 @@ const conviteAtivo = convite ?? party?.convite ?? null;
                             .filter(Boolean)
                             .join(" ")}
                           onClick={() => onFollow?.(membro.id)}
-                          title={`Seguir ${membro.nome}`}
+                          data-tip={`Seguir ${membro.nome}`}
                         >
                           {seguindo === membro.id ? "•" : "»"}
                         </button>
@@ -325,7 +325,7 @@ const conviteAtivo = convite ?? party?.convite ?? null;
                   <div className="pty-member__life">
                     <div
                       className="pty-member__track"
-                      title={`${membro.hp} de ${membro.maxHp} de vida`}
+                      data-tip={`${membro.hp} de ${membro.maxHp} de vida`}
                     >
                       <i style={{ width: `${vida}%` }} />
                     </div>
@@ -385,7 +385,7 @@ const conviteAtivo = convite ?? party?.convite ?? null;
                   type="button"
                   className="pty-btn pty-btn--invite"
                   onClick={abrirCampo}
-                  title="Convidar por nick"
+                  data-tip="Convidar por nick"
                 >
                   Convidar
                 </button>
@@ -416,7 +416,7 @@ const conviteAtivo = convite ?? party?.convite ?? null;
             .join(" ")}
           aria-pressed={focandoLider}
           onClick={() => onFocus?.(!focandoLider)}
-          title={
+          data-tip={
             focandoLider
               ? "Parar de seguir o alvo do lider"
               : "Bater no mesmo inimigo que o lider, e so quando ele bater"
@@ -431,7 +431,7 @@ const conviteAtivo = convite ?? party?.convite ?? null;
           type="button"
           className="pty-btn pty-btn--leave"
           onClick={onLeave}
-          title="Sair da party"
+          data-tip="Sair da party"
         >
           Sair
         </button>

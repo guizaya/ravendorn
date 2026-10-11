@@ -31,6 +31,26 @@ export class CollisionSystem {
 
     this.cellSize = CELL_SIZE;
 
+    /**
+     * AS PROPS QUE SUMIRAM DO MAPA.
+     *
+     * ## POR QUE ISTO VIVE AQUI E NAO RECONSTRUI A LISTA
+     *
+     * Porque `map.solids` e DADO ESTATICO, montado uma vez no `setMap`, e
+     * a pedra demolida continua nele. Sem esta lista o jogador ficava preso
+     * num cristal invisivel: o servidor dizia que a pedra tinha acabado, o
+     * desenho sumia, e o colisor da artecontinuava la barrando o caminho
+     *
+     * E uma lista mutavel em vez de um `CollisionSystem` novo porque
+     * reconstruir custaria refazer a grade de 220px a cada pedra demolida, e
+     * uma pedra cai no maximo a cada 10s — o filtro e um `Set.has` dentro
+     * do laco que ja existe
+     *
+     * E por `propId` e nao por `kind`: o `kind` e o TIPO, e as 23 pedras
+     * comumas do vale sao todas `cristal_comum`
+     */
+    this.pedidasFora = new Set();
+
     const bounds = map.bounds;
 
     const extentWidth =
@@ -208,6 +228,22 @@ export class CollisionSystem {
       if (rect.passable) continue;
 
       /**
+       * A PROP FOI DEMOLIDA E O SEU SOLIDO JA NAO EXISTE.
+       *
+       * E o filtro que faltava aqui: e este metodo que o `moveEntity`
+       * consulta antes de cada eixo, entao sem ele a pedra demolida
+       * continuava barrando o jogador — e o sintoma era ficar preso num
+       * cristal que ja nao estava na tela
+       *
+       * O `propId` so existe nos solidos que `buildPropSolids` montou a
+       * partir de uma prop com `solidWidth` declarado. O `undefined` nos
+       * outros cai no `has` e passa
+       */
+      if (rect.propId && this.pedidasFora.has(rect.propId)) {
+        continue;
+      }
+
+      /**
        * O circulo e REAPROVEITADO, e nao um literal por solido.
        *
        * `circleIntersectsRect` so le `x`, `y` e `radius`, entao um
@@ -273,6 +309,11 @@ export class CollisionSystem {
 
     for (const rect of candidates) {
       if (rect.passable) continue;
+
+      // a pedra demolida nao bate mais: ver o `isPositionFree`
+      if (rect.propId && this.pedidasFora.has(rect.propId)) {
+        continue;
+      }
 
       if (
         circleIntersectsRect(
@@ -369,8 +410,17 @@ export class CollisionSystem {
         ),
       ];
 
-      for (const rect of candidates) {
+for (const rect of candidates) {
         if (rect.passable) continue;
+
+        /**
+         * A mesma pedra demolida e ignorada aqui: e este laco que tira o
+         * jogador de dentro de solido, e sem o filtro ele seria empurrado
+         * para fora de um cristal que nao existe mais
+         */
+        if (rect.propId && this.pedidasFora.has(rect.propId)) {
+          continue;
+        }
 
         const push = circleRectPenetration(
           { x: entity.x, y: entity.y, radius },

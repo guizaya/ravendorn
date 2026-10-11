@@ -91,7 +91,7 @@ export default function ServerPerf() {
 
       <span
         className="server-perf__num"
-        title={`ultimos 10s, orcamento ${orcamento}ms por tique`}
+        data-tip={`ultimos 10s, orcamento ${orcamento}ms por tique`}
       >
         {dados.duracaoRecenteMs ?? "—"}
         <i>ms</i>
@@ -100,7 +100,7 @@ export default function ServerPerf() {
       <span
         className="server-perf__pior"
         style={{ color: corDoPior }}
-        title="pior tique da janela"
+        data-tip="pior tique da janela"
       >
         pior {dados.duracaoPiorMs ?? "—"}
       </span>
@@ -119,7 +119,7 @@ export default function ServerPerf() {
 
       <span
         className="server-perf__extra"
-        title="jogadores conectados | tiques rodados | erros seguidos"
+        data-tip="jogadores conectados | tiques rodados | erros seguidos"
       >
         {dados.jogadores ?? 0} jog · {dados.tiquesRodados ?? 0} tq
         {dados.errosSeguidos > 0
