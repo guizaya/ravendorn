@@ -21,6 +21,16 @@ export class WorldState {
     /** o primeiro pacote serve de ponto de partida da interpolacao */
     this.primeiro = null;
 
+    /**
+     * QUANTO TEMPO CADA PACOTE COBRE.
+     *
+     * O servidor manda `tickRate` no WELCOME, e e ele que decide o valor.
+     * O padrao e 50ms porque era o tick rate original (20Hz); sem o
+     * WELCOME — nos testes, e antes de entrar no mundo — o 50 continua
+     * valendo, entao nada que existia antes muda de comportamento
+     */
+    this.duracaoPacote = 50;
+
     this.jogadores = new Map();
     this.inimigos = new Map();
     this.drops = new Map();
@@ -139,13 +149,24 @@ export class WorldState {
   /**
    * Em que fracao do caminho estamos.
    *
-   * O servidor roda a 20Hz, entao cada pacote cobre 50ms. O
-   * cliente sabe quanto tempo passou desde o ultimo e usa isso
-   * para o `t`. Fora da janela, trava em 1: sem isso, uma aba em
-   * segundo plano voltaria e o personagem daria um salto de meio
-   * mapa.
+   * A conta e pelo RELOGIO DE CHEGADA: quanto tempo passou desde que este
+   * pacote entrou na tela. Comeca em zero quando o pacote chega e cresce
+   * ate o proximo.
+   *
+   * Ja foi tentada a conta pelo relogio do servidor — o `time` que ele
+   * carimba no pacote — e ela piorou: guardar o deslocamento da menor
+   * latencia faz o relogio correr adiantado, o `t` fica pregado em 1 e a
+   * interpolacao desaparece, deixando o boneco pular de posicao a cada
+   * pacote. E o oposto de suave
+   *
+   * `duracaoPacote` vem do `tickRate` do WELCOME: se o cliente acha que
+   * cada pacote cobre 50ms quando o servidor manda a cada 16ms, o `t` mal
+   * passa de um terco e o boneco e desenhado atrasado do lugar onde esta
+   *
+   * Fora da janela, trava em 1: sem isso, uma aba em segundo
+   * plano voltaria e o personagem daria um salto de meio mapa.
    */
-  fracaoDoCiclo(agora, duracaoPacote = 50) {
+  fracaoDoCiclo(agora, duracaoPacote = this.duracaoPacote) {
     if (!this.atual) return 1;
     if (duracaoPacote <= 0) return 1;
 

@@ -170,6 +170,20 @@ export default function GameCanvas({
 
     if (online && !mundoRef.current) {
       mundoRef.current = new NetworkWorld(engine);
+
+      /**
+       * O GANCHO POR QUADRO DA EXTRAPOLACAO.
+       *
+       * O `NetworkWorld` so escreve posicao quando chega pacote do
+       * servidor, e isso a 60Hz. O motor desenha a 60Hz ou mais, entao
+       * entre um pacote e outro o boneco ficaria parado. Este callback e
+       * o que o motor chama a cada quadro para adiantar a posicao do
+       * MEU jogador ate onde o servidor provavelmente vai mandar o
+       * proximo pacote
+       */
+      engine.extrapolador = (deltaTime) => {
+        mundoRef.current?.avancar(deltaTime, Date.now());
+      };
     }
   }, [estado, engineRef]);
 

@@ -687,6 +687,19 @@ async function repassarParaOFront(request, response) {
 const PASTA_DO_JOGO = process.env.JOGO_DIR ?? "dist";
 
 /**
+ * A RAIZ E O FRONT, NAO O JOGO.
+ *
+ * O `express.static` abaixo tem `index: "jogo.html"`, e por isso ele
+ * responde `GET /` com o `jogo.html` do jogo. Quem chega na raiz pelo
+ * tunnel veria a tela de selecao de classe em vez da vitrine, e o bundle
+ * do jogo fora do iframe trava sem erro visivel.
+ *
+ * Esta rota fica ANTES do static e devolve a raiz para o Nitro. As outras
+ * rotas do site continuam caindo no catch-all no fim do arquivo
+ */
+app.get("/", repassarParaOFront);
+
+/**
  * O `index.html` DO JOGO VIRA `jogo.html`.
  *
  * O `dist/` tem os dois html de entrada: o `index.html` (o jogo aberto

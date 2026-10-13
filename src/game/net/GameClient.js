@@ -1395,6 +1395,16 @@ irParaTeste() {
        */
       mapa: this.mapaAnterior,
 
+      /**
+       * O TEMPO DO PACOTE, para a extrapolacao do `NetworkWorld`.
+       *
+       * Sai daqui porque o `tickRate` do WELCOME mora no `WorldState`, e
+       * o `NetworkWorld` precisa do mesmo numero: a projecao e a
+       * interpolacao tem que concordar sobre quanto dura um pacote, senao
+       * uma corrige a outra a cada quadro
+       */
+      duracaoPacote: this.mundo.duracaoPacote,
+
       eu: this.mundo.amostrar(this.playerId, t),
       outros: this.mundo
         .outros(this.playerId)
@@ -1439,6 +1449,20 @@ irParaTeste() {
 
     if (type === SERVER_EVENTS.WELCOME) {
       this.playerId = payload.playerId;
+
+      /**
+       * O TICK RATE DO SERVIDOR, E NAO UM PALPITE.
+       *
+       * O WELCOME traz `tickRate`, e ele e quem diz de quanto em quanto
+       * tempo chega o pacote. Sem isto o `WorldState` continua com o 50ms
+       * do padrao, que era o do 20Hz original: num servidor a 60Hz o
+       * `t` da interpolacao nunca passaria de um terco e o boneco seria
+       * desenhado uns 28ms atrasado de onde o servidor o colocou
+       */
+      if (Number.isFinite(payload.tickRate) && payload.tickRate > 0) {
+        this.mundo.duracaoPacote = 1000 / payload.tickRate;
+      }
+
       this.status = STATUS.JOGANDO;
       this.mundo.aplicar({
         seq: 0,

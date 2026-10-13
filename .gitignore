@@ -10,6 +10,11 @@ coverage
 # vao para o git: e o progresso de quem joga, nao codigo, e um
 # `git clean` sem cuidado nao pode levar o nivel de ninguem junto
 server/data/personagens
+
+# As contas tambem. Diferente do progresso, aqui o que fica em disco e
+# o endereco da carteira — e um repositorio publico nao e lugar para ele
+server/data/contas
+
 *.json.tmp
 
 # Os prompts com que o jogo foi pedido, na raiz. Sao conversa, nao

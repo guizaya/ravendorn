@@ -1355,6 +1355,16 @@ export class GameEngine {
     // servidor. Ligado por `setNetworked`.
     this.networked = false;
 
+    /**
+     * QUEM AVANCA O MEU JOGADOR ENTRE OS PACOTES.
+     *
+     * O `GameCanvas` registra aqui o `NetworkWorld`, e o motor chama uma
+     * vez por quadro no ramo de rede. Fica como callback — e nao como uma
+     * importacao do `NetworkWorld` — porque o motor nao sabe da rede: ele
+     * so precisa de um gancho, e quem sabe e quem o preenche
+     */
+    this.extrapolador = null;
+
     // Quem receber o clique no modo rede. O motor descobre o alvo
     // sob o cursor (ele sabe converter tela para mundo) e
     // entrega o id; quem fala com o servidor e a camada de rede,
@@ -9035,6 +9045,21 @@ travelPlanParaObjetivo() {
     // resolver.
     if (this.networked) {
       this.spriteTime += deltaTime;
+
+      /**
+       * A EXTRAPOLACAO DO MEU JOGADOR, uma vez por quadro.
+       *
+       * E o unico gancho por quadro do modo rede, e ele existe porque o
+       * pacote do servidor chega a 60Hz enquanto a tela desenha a 60Hz
+       * ou mais: entre um pacote e outro, sem isto, o boneco ficava
+       * parado e so a animacao andava — o mundo parecia viver a 20Hz.
+       *
+       * O gancho e opcional por construcao: quem nao o registra — o single
+       * player, e os testes de motor — nao sente falta, porque o `?.`
+       * simplesmente nao chama nada
+       */
+      this.extrapolador?.(deltaTime);
+
       this.updatePresentation(deltaTime);
 
       /**

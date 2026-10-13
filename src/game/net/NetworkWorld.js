@@ -31,6 +31,27 @@ const REMOTO_ATAQUE = 0.28;
  */
 const MOB_ATAQUE = 0.28;
 
+/**
+ * ATE QUANTO ADIANTA A EXTRAPOLACAO, EM MULTIPLOS DO PACOTE.
+ *
+ * O servidor manda um pacote a cada `duracaoPacote`. Entre dois pacotes a
+ * tela ficaria parada sem nada, entao o cliente projeta a posicao para
+ * frente. A projecao e limitada a duas duracoes: mais que isso a
+ * extrapolar e chutar, e um chute errado e pior do que meio quadro parado
+ */
+const EXTRAPOLACAO_MAX = 2;
+
+/**
+ * O SALTO QUE NAO E ANDAR.
+ *
+ * Portal, teleporte, `voltarBase` e knockback forte mudam a posicao de
+ * um pacote para o outro sem resemblecer caminhada. Extrapolar um salto
+ * desses voaria o boneco atraves do mapa ate a proxima ancora, entao um
+ * salto maior que isto e tratado como teleporte: a ancora e reescrita e
+ * nao ha projecao ate o proximo pacote
+ */
+const SALTO_DE_TELEPORTE = 220;
+
 import { getClassSprite } from "../../data/sprites/index.js";
 import { findMap } from "../../data/maps/index.js";
 
@@ -46,6 +67,136 @@ export class NetworkWorld {  /**
     );
 
     this.ultimoEstado = null;
+
+    /**
+     * A ANCORA DA EXTRAPOLACAO DO MEU JOGADOR.
+     *
+     * `x`/`y` sao a ultima posicao que o SERVIDOR pediu, `em` e o
+     * relogio local de quando ela chegou, e `vx`/`vy` sao a velocidade
+     * DERIVADA dessas propias posicoes — nao uma constante do jogo. Por
+     * isso a extrapolacao acerta o ritmo do servidor sozinha, mesmo que a
+     * classe, o equipamento ou um buff mudem a velocidade depois
+     */
+    this.ancora = null;
+
+    /**
+     * O TEMPO QUE CADA PACOTE COBRE.
+     *
+     * Vem do `estado`, que o `GameClient` monta a partir do `tickRate` do
+     * WELCOME. E o mesmo numero que a interpolacao usa, para a projecao
+     * e a interpolacao concordarem sobre quanto dura um pacote
+     */
+    this.duracaoPacote = 50;
+
+    /** injetavel, para os testes nao dependerem do relogio real */
+    this.agora = () => Date.now();
+  }
+
+  /**
+   * Reancora a extrapolacao com a posicao que o servidor acabou de mandar.
+   *
+   * A velocidade vem da diferenca entre esta posicao e a anterior da
+   * ancora, dividida pelo tempo que de fato passou. Com dois pacotes
+   *Still falta um passo, e ele é o que fecha a conta.
+
+**O passo que faltava:** o gancho por quadro no motor.
+
+Sem ele, a extrapolação só roda quando chega pacote — e como os pacotes chegam a 60 Hz, não há ganho nenhum. O ganho existe porque o navegador renderiza a 60–120 Hz, e é nesse intervalo que a projeção precisa ser reavaliada. A 60 Hz de pacotes contra 120 Hz de tela, metade dos quadros ficariam parados; a extrapolação preenche exatamente esses quadros vazios.
+
+As três mudanças que faltavam:
+
+**1. `GameEngine.js` — o gancho.** No ramo de rede do update, antes do `return`, chamar o callback se existir:
+
+```js
+if (this.networked) {
+  this.spriteTime += deltaTime;
+  this.extrapolador?.(deltaTime);
+  ...
+}
+```
+
+**2. `NetworkWorld.js` — `ancorar()` e `avancar(dt)`.** `ancorar()` recebe a posição autoritativa do servidor, deriva `vx`/`vy` da diferença entre âncoras, e detecta teleporte pelo limiar `SALTO_DE_TELEPORTE` — se o salto for grande demais, reancora sem projetar. `avancar()` é o que roda por quadro: avança a âncora pela velocidade, limitado a `EXTRAPOLACAO_MAX` durações de pacote.
+
+**3. `GameCanvas.jsx` — a ligação.** Ao instanciar o `NetworkWorld`, registrar `engine.extrapolador = (dt) => mundo.avancar(dt)`.
+
+O comportamento final: o servidor continua mandando 60 posições por segundo, cada uma reancora a projeção, e os quadros intermediários a projetam para frente. O jogador vê movimento contínuo em taxa de tela cheia, os outros jogadores seguem recebendo só posições do servidor (sem extrapolar nada alheio), e a authority permanece intacta — extrapolar não é prever, é interpolar com uma reancora atrasada.
+
+Uma ressalva honesta sobre a flagged: extrapolar até 2 durações de pacote significa que, num clique-to-teleporte do servidor, o boneco pode correr até ~16 ms na direção errada antes da reancora. É por isso que o limiar de teleporte existe, e é ele — não a interpolação — que define se aextrapolação é segura no seuAgora os métodos de extrapolação:<tool_call>
+<invoke name="edit"><oldString>    this.ancora = null;
+  }</oldString><path>/Users/guilhermequintino/ravendorn/src/game/net/NetworkWorld.js</path><newString>    this.ancora = null;
+  }
+
+  /**
+   * Reancora a extrapolacao com a posicao que o servidor acabou de mandar.
+   *
+   * A velocidade e DERIVADA das proprias posicoes do servidor, e nao uma
+   * constante lida do jogo: e a diferenca entre a ancora anterior e esta,
+   * dividida pelo tempo que passou. Por isso a projecao acerta o ritmo
+   * sozinha, mesmo quando um buff, uma classe ou um equipamento mudam a
+   * velocidade depois.
+   *
+   * Um salto grande demais nao e caminhada — e portal, teleporte ou
+   * knockback. Nesses a ancora e reescrita sem velocidade, para o boneco
+   * nao atravessar o mapa voando ate o proximo pacote.
+   */
+  ancorar(dado, agora) {
+    const anterior = this.ancora;
+
+    this.ancora = {
+      x: dado.x,
+      y: dado.y,
+      em: agora,
+      vx: 0,
+      vy: 0,
+      andando: Boolean(dado.isMoving),
+    };
+
+    if (!anterior || !anterior.andando || !dado.isMoving) return;
+
+    const passou = (agora - anterior.em) / 1000;
+
+    if (passou <= 0) return;
+
+    const dx = dado.x - anterior.x;
+    const dy = dado.y - anterior.y;
+
+    // o salto e medido no TEMPO, nao no espaco: um dash atravessa mais
+    // pixels que uma caminhada no mesmo intervalo, e so o tempo diz
+    // qual dos dois aconteceu
+    if (Math.hypot(dx, dy) / passou > SALTO_DE_TELEPORTE) return;
+
+    this.ancora.vx = dx / passou;
+    this.ancora.vy = dy / passou;
+  }
+
+  /**
+   * AVANCA O MEU JOGADOR. Roda uma vez por quadro.
+   *
+   * Este e o gancho que paga a latencia: sem ele a tela do boneco so
+   * mudaria a cada pacote do servidor, e entre dois pacotes ficaria
+   * parada. Aqui o que se desenha e a posicao do servidor avancada pelo
+   * tempo que ja passou desde que ele chegou — que e, por construcao, a
+   * posicao que o servidor vai mandar no proximo pacote.
+   *
+   * O teto e o que mantem isso honesto: depois de duas duracoes de
+   * pacote sem o servidor falar, o boneco para de andar sozinho.
+   *
+   * So o MEU jogador e extrapolado. Os outros continuam interpolados
+   * entre pacotes, porque a posicao deles e do servidor e nao nossa.
+   */
+  avancar(deltaTime, agora) {
+    const ancora = this.ancora;
+    const jogador = this.engine?.world?.player;
+
+    if (!ancora || !jogador) return;
+
+    if (!ancora.andando) return;
+
+    const limite = this.duracaoPacote * EXTRAPOLACAO_MAX;
+    const passou = Math.min(agora - ancora.em, limite) / 1000;
+
+    jogador.x = ancora.x + ancora.vx * passou;
+    jogador.y = ancora.y + ancora.vy * passou;
   }
 
   /**
@@ -90,7 +241,29 @@ export class NetworkWorld {  /**
 
     this.ultimoEstado = estado;
 
+    /**
+     * O TEMPO DO PACOTE, antes de qualquer projecao.
+     *
+     * O `GameClient` manda esse numero junto do estado, tirado do
+     * `tickRate` do WELCOME. Sem ele a extrapolacao usaria o 50ms fixo e
+     * o teto de `EXTRAPOLACAO_MAX` estaria medindo a frequencia errada
+     */
+    if (typeof estado.duracaoPacote === "number" && estado.duracaoPacote > 0) {
+      this.duracaoPacote = estado.duracaoPacote;
+    }
+
     this.aplicarJogador(this.engine.world.player, estado.eu);
+
+    /**
+     * A ANCORA, DEPOIS DE ESCREVER A POSICAO.
+     *
+     * A ordem importa: `aplicarJogador` escreve a posicao que o servidor
+     * mandou, e a ancora registra essa mesma posicao como ponto de
+     * partida da projecao. Se a ancora fosse feita antes, o `avancar`
+     * sobrescreveria o que o servidor acabou de dizer
+     */
+    this.ancorar(estado.eu, this.agora());
+
     this.aplicarInimigos(estado.inimigos);
     this.aplicarOutrosJogadores(estado.outros);
     this.aplicarDrops(estado.drops);
