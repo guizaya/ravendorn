@@ -118,6 +118,46 @@ export class DamageSystem {
 
     const baseDamage = (action.damage ?? 0) * (options.scale ?? 1);
 
+    /**
+     * O ATQUE DO ATACANTE, SO NO ATAQUE BASICO.
+     *
+     * ## POR QUE ISTE NUMERO ESTAVA MORTO
+     *
+     * Porque `baseDamage` vinha SO de `action.damage`, uma constante do dado.
+     * O `player.attack` era escrito pelo `applyEquipment`, enviado no snapshot
+     * e lido por nenhum calculo: arco, aljava, luvas, enhance sobre ataque e
+     * afixo com `stat: "attack"` nao mudavam o dano em nada
+     *
+     * ## POR QUE SO NO BASICO E NAO EM TODA SKILL
+     *
+     * Porque o `damage` do basico E o ATQ do personagem: o Guerreiro tem
+     * `attack: 82` e o `damage: 82` no mesmo arquivo. O dado ja dizia que um
+     * veio do outro — so nunca foram ligados
+     *
+     * Numa skill o `damage` e o valor DA HABILIDADE (um `ground_slam` de 200
+     * nao tem nada a ver com a arma na mao). Se o ATQ dividisse ali, uma
+     * skill de 200 viraria `200 * (82/200)` = 82, e todo o balanceamento de
+     * habilidade seria destruido num movimento
+     *
+     * Entao o basico passa a usar `player.attack` direto. Num personagem sem
+     * equipamento nenhum, `82` continua `82`: o numero nao muda, o que
+     * muda e que equipar +8 de ataque agora vale 8 a mais de dano por golpe
+     *
+     * ## E OS INIMIGOS
+     *
+     * Nenhuma criatura declara `attack`, entao o fallback abaixo mantem o
+     * `action.damage` deles exatamente como estava
+     */
+    const eAtaqueBasico =
+      typeof action.id === "string" && action.id.endsWith("_basic_attack");
+
+    const ataqueDoAtacante = attacker?.attack;
+
+    const danoBaseEfetivo =
+      eAtaqueBasico && Number.isFinite(ataqueDoAtacante) && ataqueDoAtacante > 0
+        ? ataqueDoAtacante * (options.scale ?? 1)
+        : baseDamage;
+
     const outgoingMultiplier = this.statuses.getMultiplier(
       attacker,
       "damageDealt",
@@ -150,7 +190,7 @@ export class DamageSystem {
     const amount = Math.max(
       1,
       Math.round(
-        baseDamage *
+        danoBaseEfetivo *
           outgoingMultiplier *
           incomingMultiplier *
           defenseFactor *

@@ -98,7 +98,47 @@ export class SkillSystem {
     const aim = this.createAim(action, pointer, selectedTargetId);
 
     this.player.resource -= action.resourceCost;
-    this.player.cooldowns[action.id] = action.cooldown;
+
+    /**
+     * O COOLDOWN REAL, COM A VELOCIDADE DE ATAQUE POR CIMA.
+     *
+     * ## POR QUE ISTO AQUI E NAO NO DADO
+     *
+     * Porque `action.cooldown` e o valor de um jogador sem nenhum bonus. Ele
+     * e estatico, e o jogo inteiro le o mesmo numero para o primeiro e para
+     * o centesimo golpe
+     *
+     * ## POR QUE O DENOMINADOR E MULTIPLICATIVO
+     *
+     * Porque e assim que a velocidade ja funciona em `movementSpeed`, e
+     * assim que o `Berserk` foi escrito (`+0.35 attackSpeed`). Um `+35%` de
+     * velocidade significa 35% MENOS espera: o cooldown divide por 1.35
+     *
+     * ## POR QUE O MINIMO
+     *
+     * Porque um afixo de velocidade em outro item pode empilhar e chegar
+     * perto de 1. Sem o piso, o cooldown vira negativo e o jogador passa a
+     * atacar sem parar nenhum
+     *
+     * ## E O QUE ESTAVA MORTO ANTES
+     *
+     * `player.attackSpeedBonus` era escrito pelo `applyEquipment` e nunca
+     * lido; `getMultiplier(entity, "attackSpeed")` existia e nao tinha
+     * nenhum chamador. Entao "VEL. ATQ" subia no painel, o `Berserk` era
+     * ativado, e nada no DPS mudava
+     */
+    const attackSpeed =
+      this.world.statuses.getMultiplier(this.player, "attackSpeed");
+
+    const bonusDeAtaque = this.player.attackSpeedBonus ?? 0;
+
+    const totalAttackSpeed = Math.max(
+      0,
+      (attackSpeed - 1) + bonusDeAtaque,
+    );
+
+    this.player.cooldowns[action.id] =
+      action.cooldown / Math.max(0.25, 1 + totalAttackSpeed);
 
     /**
      * A POSE COMECA AQUI, E A FLECHA ESPERA ELA TERMINAR.
@@ -286,11 +326,19 @@ export class SkillSystem {
 
       this.world.pendingPulses.splice(index, 1);
 
+      /**
+       * O DONO VOLTA DO ID.
+       *
+       * Sem esta linha o golpe do segundo jogador do laco era credited ao
+       * primeiro, porque `applyHit` cai em `owner ?? this.player` — e
+       * `this.player` e quem o motor esta movendo, nao quem conjurou
+       */
       this.applyArea(
         pulse.action,
         pulse.aim,
         pulse.origin,
         false,
+        this.donoDoProjetil(pulse),
       );
     }
   }
@@ -527,7 +575,22 @@ export class SkillSystem {
     }
   }
 
-  scheduleRemainingHits(action, aim, origin) {
+  /**
+   * AGENDA OS GOLPES RESTANTES DE UM MULTI-HIT.
+   *
+   * ## POR QUE O PULSO GUARDA O DONO
+   *
+   * Porque `world.pendingPulses` e uma lista POR MAPA, e ela e drenada em
+   * `updatePendingHits`, que roda uma vez por jogador. Sem o `ownerId`, o
+   * primeiro jogador do laco puxava os pulsos de todo mundo e os abates
+   * iam para ele — que e o que `DamageSystem` grava em `lastHitBy`, de onde
+   * sai o loot
+   *
+   * O projétil ja faz isso desde o comeco (`ownerId` em `spawnProjectiles`,
+   * resolvido por `donoDoProjetil`), e a detonacao adiada tambem. Esta era a
+   * terceira via do mesmo cuidado, e a unica que ficou de fora
+   */
+  scheduleRemainingHits(action, aim, origin, owner = null) {
     for (let hit = 1; hit < (action.hits ?? 1); hit += 1) {
       if (
         this.world.pendingPulses.length >= MAX_PENDING_PULSES
@@ -540,6 +603,15 @@ export class SkillSystem {
         aim,
         origin: { ...origin },
         remaining: action.hitInterval * hit,
+
+        /**
+         * O DONO DO GOLPE, em id.
+         *
+         * E id e nao a referencia porque o pulso sobrevive a varios
+         * `update`: guardar o objeto congelaria um `PlayerSession` que o
+         * servidor pode ter trocado no meio
+         */
+        ownerId: owner?.id ?? null,
       });
     }
   }
@@ -568,7 +640,7 @@ export class SkillSystem {
     }
 
     if (scheduleHits && action.hits > 1) {
-      this.scheduleRemainingHits(action, aim, origin);
+      this.scheduleRemainingHits(action, aim, origin, owner);
     }
   }
 
@@ -1009,6 +1081,16 @@ const projectile = this.world.projectiles[index];
         }
       }
 
+      /**
+ * * O ANTERIOR, guardado antes do passo.
+ *
+ * * E o que fecha o teste varrido abaixo: sem ele so sobraria a posicao de
+ * * destino do quadro, e o inimigo que ficou no meio do caminho seria
+ * * perdido
+ */
+      const anteriorX = projectile.x;
+      const anteriorY = projectile.y;
+
       projectile.x += projectile.velocityX * deltaTime;
       projectile.y += projectile.velocityY * deltaTime;
 
@@ -1043,8 +1125,26 @@ const projectile = this.world.projectiles[index];
          *
          * O que mudou e que o teste e do quadrado ANTES do `** 2`, que
          * era recalculado por inimigo dentro do comparador
+         *
+         * ## E O TESTE VARRE O CAMINHO, E NAO SO O DESTINO
+         *
+         * Porque o projétil anda o passo inteiro e so DEPOIS testava a
+         * colisao, na posicao nova. A flecha do Arbalist anda a 720px/s: a
+         * 20fps sao 36px num passo, e a janela de acerto de um mob e
+         * `10 + raio`, uns 30 a 50px. Num quadro perdido o tiro passava por
+         * dentro do mob e saia do outro lado — o acerto sumia sem erro
+         * nenhum, e pior num FPS baixo, que e exatamente quando o jogador
+         * mais precisa que a flecha acerte
+         *
+         * O teste passa a medir a distancia do inimigo ao SEGMENTO
+         * percorrido, e nao a um ponto. E o mesmo `segmentDistanceSquared`
+         * que a hitbox em linha do melee usa, entao nao ha uma segunda
+         * geometria no codigo
          */
         const raio = projectile.radius;
+
+        const inicio = { x: anteriorX, y: anteriorY };
+        const fim = { x: projectile.x, y: projectile.y };
 
         for (const enemy of this.enemies) {
           if (enemy.alive === false) continue;
@@ -1052,7 +1152,7 @@ const projectile = this.world.projectiles[index];
           const soma = raio + enemy.radius;
 
           if (
-            distanceSquared(projectile, enemy) <= soma * soma
+            segmentDistanceSquared(enemy, inicio, fim) <= soma * soma
           ) {
             exploded = true;
             break;

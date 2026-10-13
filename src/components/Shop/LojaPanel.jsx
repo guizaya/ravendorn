@@ -117,7 +117,6 @@ export default function LojaPanel({ onClose, comprados = [], onComprar }) {
         <div className="loj-grade">
           <header className="loj-grade__head">
             <h3>{atual?.nome}</h3>
-            <p className="loj-grade__desc">{atual?.descricao}</p>
           </header>
 
           {pacotes.length === 0 ? (

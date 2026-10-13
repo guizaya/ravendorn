@@ -2017,6 +2017,76 @@ export function dadosDaTrava(exigeMissaoDe, mainIndex) {
 const LIBERADO = Object.freeze({ ok: true, motivo: null });
 
 /**
+ * O JOGADOR PODE ENTRAR NA ARENA DO CHEFE AGORA?
+ *
+ * ## A REGUA
+ *
+ * A arena e do degrau do chefe: o jogador entra nela **enquanto a missao do
+ * Hulk e a missao atual dele**. Nao antes, e nao depois
+ *
+ * Antes nao faz sentido — o degrau ainda nao chegou, e o jogador entraria
+ * numa luta que o painel nem mostra. Depois tambem nao: com o degrau feito, o
+ * portal ja esta aberto e o caminho normal passa a ser o proprio portal
+ *
+ * ## POR QUE O `chefe` DO DEGRAU E A REGUA, E NAO O ID DA ARENA
+ *
+ * Porque `arena` e o **lugar**, e o lugar nao muda com o jogador: ele
+ * descreveria "esta fightindo" em vez de "pode comecar a fightir". O campo
+ * `chefe` mora no degrau da campanha, entao ele responde a pergunta do
+ * jeito certo: o jogador esta NA missao que pede o chefe
+ *
+ * E por isso que um `boss_1` novo nao precisa de codigo: a escada e que
+ * diz onde a arena esta
+ *
+ * ## POR QUE UM VEREDITO E NAO UM BOOLEAN
+ *
+ * Pelos mesmos motivos do `portalLiberado`: a frase que o jogador le mora
+ * aqui, uma vez. O servidor manda no aviso vermelho e a box escreve no
+ * `data-tip` — duas tradicoes do mesmo texto, se cada lado montasse o seu
+ *
+ * ## POR QUE FICA AQUI E NAO NO `GameServer`
+ *
+ * Porque sao dois chamadores com papeis opostos — o `GameEngine`, que
+ * escreve a box, e o `GameServer`, que precisa recusar ANTES de o motor
+ * saber. Eles tem que dar a mesma resposta, entao nao podem ter uma copia
+ * cada
+ *
+ * @param {number} mainIndex onde o jogador esta na escada da campanha
+ * @returns {{ok: boolean, motivo: string|null, quest: object|null}}
+ */
+export function entradaNaArena(mainIndex) {
+  const atual = MAIN_QUESTS[mainIndex] ?? null;
+
+  if (atual?.chefe?.arena) {
+    return {
+      ok: true,
+      motivo: null,
+      quest: atual,
+    };
+  }
+
+  /**
+   * O NOME DA MISSAO NO AVISO, e nao um "faca a missao do chefe".
+   *
+   * O jogador que clica no botao sem estar no degrau esta no meio da
+   * campanha. Dizer o nome e dizer ONDE ele esta agora: a missao que ele
+   * precisa terminar para chegar no degrau do chefe
+   *
+   * E o `name` do degrau atual, e nao o `nome` do degrau bruto: e `MAIN_QUESTS`
+   * que traduz o campo, em `name: degrau.nome`. Ler `nome` aqui daria
+   * `undefined` dentro da frase — e um aviso escrito "Termine "undefined"
+   * para liberar...", que e pior do que nao ter aviso
+   */
+  const ondeEsta = atual?.name ?? "a campanha deste mapa";
+
+  return {
+    ok: false,
+    motivo: `Termine "${ondeEsta}" para liberar a entrada na arena do chefe.`,
+    quest: atual,
+  };
+}
+
+/**
  * De onde veio a missao: `main` ou `side`.
  *
  * O `scope` decide o que a tela mostra depois do resgate (a campanha

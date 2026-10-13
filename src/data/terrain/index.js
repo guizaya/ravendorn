@@ -421,41 +421,29 @@ export function zoneUsesTile(zone) {
 }
 
 /**
- * AS TRANSICOES FORAM REMOVIDAS DO MAPA.
+ * AS TRANSICOES ENTRE ZONAS FORAM REMOVIDAS.
  *
  * Existia uma faixa de 32px em volta de cada zona, tirada da
- * `transitions.png`, que misturava o terreno da zona com o de fora. Sao
- * 15 pares, de `grass_ice` a `sand_ash`
+ * `transitions.png`, que misturava o terreno da zona com o de fora. Saiu
+ * porque o chao novo e uma textura pintada de 128px, e a faixa era pixel art
+ * de 32px: as duas se juntavam num contorno serrilhado em volta de cada uma
+ * das 12 areas de mob
  *
- * Saiu por causa do chao novo: o `grama.jpg` e uma textura pintada de
- * 128px, e a faixa era pixel art de 32px. As duas se juntavam num
- * contorno serrilhado em volta de cada uma das 12 areas de mob
+ * A borda ficou seca, e a leitura de "aqui comeca uma area de mob" continua,
+ * agora por corte em vez de por mistura
  *
- * O que foi embora junto, por ficar sem uso:
+ * ## O QUE FOI EMBORA JUNTO
  *
- *   - a folha `assets/terrain/transitions.png`
- *   - a `TRANSITION_LIST` e a `TRANSITION_ROW`, e com elas o
- *     `transitionIdFor` e o `getTransition`
- *   - a entrada `transitions` do `TERRAIN_SHEETS`
+ * A folha `assets/terrain/transitions.png`, a `TRANSITION_LIST` e a
+ * `TRANSITION_ROW`, o `transitionIdFor`, o `getTransition` e a entrada
+ * `transitions` do `TERRAIN_SHEETS`. Os geradores continuam em
+ * `tools/terrain-art.mjs` e `tools/generate-terrain.mjs`: rodando o
+ * `generate-terrain.mjs` a folha volta, e so falta o `drawZoneEdges`
  *
- * Os geradores continuam em `tools/terrain-art.mjs` e
- * `tools/generate-terrain.mjs`: rodando o `generate-terrain.mjs` a
- * folha volta, e so falta o `drawZoneEdges` para desenha-la
- *
- * A BORDA DA ZONA FICOU SECA. Com o chao em grama pintada e a zona em
- * pixel art, o corte entre as duas e visivel â€” e a leitura de "aqui comeca
- * uma area de mob" continua, agora por corte em vez de por mistura
+ * A `FEATURE_LIST` tambem saiu: era a lista de desenhos que a faixa
+ * misturava, e sem a faixa nao ha o que lista
  */
-export const FEATURE_LIST = [
-  "tufts",
-  "pebbles",
-  "ripples",
-  "cracks",
-  "puddles",
-  "needles",
-  "frost",
-  "embers",
-];
+export {};
 
 /**
  * As folhas de imagem do terreno.

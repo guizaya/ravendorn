@@ -14,21 +14,21 @@
  *    Um NPC e um desenho unico, de centenas de px, que precisa de uma
  *    ancora nos PES para ficar de pe no chao
  *
- * ## A arte
+* ## A arte
  *
- * A imagem e UNICA de 520x597, nao uma folha. Nao
- * ha grade de direcoes, e o que o jogador ve nesta tela e a unica
- * pose do mercador: ele esta de frente, virado para o sul, com a
- * barra de pocoes ao lado
-
+ * A folha e uma FAIXA DE IDLE de 9 quadros de 172x172, vinda do
+ * `idle_npc_potions.gif`. Nao ha grade de direcoes — o que o jogador ve
+ * nesta tela e o mercador parado de frente, virado para o sul, com a barra
+ * de pocoes ao lado, respirando num ciclo de 1.62s
  *
- * A imagem e WAY maior que um boneco de 64px e nao cabe no calcamento
- * do hub sem encolher. `NPC_MERCADOR_SCALE` mede o quanto: 0.34 leva
- * os 597px para 203px, que e um pouco mais alto que o jogador (128px)
- * e le como "alguem" e nao como "um obstaculo"
+ *
+ * A celula e WAY maior que um boneco de 64px e nao cabe no calcamento
+ * do hub sem encolher. A escala mede o quanto: 0.58 leva os 172px da celula
+ * para 100px, que e a MESMA altura que o mercador ocupava antes da troca de
+ * arte — o bau e o mestre ficam do mesmo tamanho no calcamento
  */
 
-import { NPC_SHEETS, NPC_SPRITE_SIZES } from "./sheets.js";
+import { NPC_SHEETS, NPC_SPRITE_CELULAS, NPC_SPRITE_SIZES } from "./sheets.js";
 
 /**
  * O QUE o clique num NPC faz.
@@ -111,10 +111,26 @@ export const NPC_TYPES = Object.freeze({
     /**
      * A FOLHA deste NPC.
      *
-     * Uma imagem so, e nao um indice de quadro: a arte do mercador e
-     * um desenho unico de 520x597, sem grade de direcoes
+     * Uma faixa de idle de 9 quadros, e nao um desenho unico: a arte do
+     * mercador agora e `potions_base.png`, gerada de
+     * `idle_npc_potions.gif`. A celula e `NPC_SPRITE_CELULAS.mercador`, e o
+     * `NpcRenderer` recorta dela o retangulo do quadro do momento
      */
     sheet: NPC_SHEETS.mercador,
+
+    /**
+     * A CELULA E O CICLO DO IDLE.
+     *
+     * `quadros` e quantos retangulos a folha tem na linha; `velocidade` e o
+     * tempo de cada um, em segundos. Os dois juntos sao o que faz o NPC
+     * respirar: 9 * 0.18 = 1.62s por volta, que e o ritmo de um idle sem
+     * pressa
+     *
+     * `quadros: 1` e o caso de um NPC de arte estatica: o `NpcRenderer` le o
+     * `0` e o `1 % 1` da sempre, e o desenho sai igual ao de antes
+     */
+    celula: NPC_SPRITE_CELULAS.mercador,
+    velocidade: 0.18,
 
     /**
      * A arte medida, e a escala que a traz para o mundo do hub.
@@ -137,7 +153,17 @@ export const NPC_TYPES = Object.freeze({
      * Os 100px ficam abaixo do jogador (128px). A leitura de "alguem" se
      * sustenta no desenho e na barra de pocoes ao lado, e nao na altura
      */
-    scale: 0.168,
+    /**
+     * A ESCALA, MEDIDA PARA A ARTE NOVA.
+     *
+     * A antiga dava 100px de altura a 0.168 sobre 597px. A celula nova mede
+     * 172, e 0.168 levaria a 29px — um boneco do tamanho de um prop
+     *
+     * 0.58 leva os 172px para 100px: a MESMA altura que o mercador tinha
+     * antes, entao o calcamento nao muda de lugar nenhum e o bau continua
+     * do mesmo tamanho do lado
+     */
+    scale: 0.58,
 
     /** o inventario, para o retrato e o colisor de clique */
     naturalWidth: NPC_SPRITE_SIZES.mercador.width,
@@ -209,8 +235,23 @@ export const NPC_TYPES = Object.freeze({
     /** o que o clique abre: o painel de habilidades, hoje vazio */
     acao: NPC_ACAO.HABILIDADES,
 
+    /** a faixa de idle, e a celula que o renderer recorta dela */
     sheet: NPC_SHEETS.habilidades,
-    scale: 0.0756,
+    celula: NPC_SPRITE_CELULAS.habilidades,
+    velocidade: 0.18,
+
+    /**
+     * A ESCALA, MEDIDA PARA A ARTE NOVA.
+     *
+     * A antiga dava 100px de altura a 0.0756 sobre 1306px. A celula nova mede
+     * 172, e 0.0756 a levaria a 13px — invisivel
+     *
+     * 0.58 leva os 172px para 100px, a MESMA altura que o mestre ocupava
+     * antes e a mesma do mercador novo. Os dois ficam com a mesma altura em
+     * tela, que e o que mantem o calcamento lendo como duas bancas do mesmo
+     * tamanho
+     */
+    scale: 0.58,
     naturalWidth: NPC_SPRITE_SIZES.habilidades.width,
     naturalHeight: NPC_SPRITE_SIZES.habilidades.height,
     clickRadius: 28,
@@ -261,8 +302,22 @@ export const NPC_TYPES = Object.freeze({
     /** o que o clique abre: o painel do bau, com as duas colunas */
     acao: NPC_ACAO.BAU,
 
+    /** a faixa de idle, e a celula que o renderer recorta dela */
     sheet: NPC_SHEETS.bau,
-    scale: 0.08,
+    celula: NPC_SPRITE_CELULAS.bau,
+    velocidade: 0.18,
+
+    /**
+     * A ESCALA, MEDIDA PARA A ARTE NOVA.
+     *
+     * A antiga dava 94px de altura a 0.08 sobre 1254px. A celula nova mede
+     * 168, e 0.08 a levaria a 13px — invisivel
+     *
+     * 0.58 leva os 168px para 97px. Fica 3px abaixo dos outros dois NPCs, que
+     * estao em 100px: e o suficiente para o bau ler como um OBJETO e nao
+     * como mais uma pessoa, sem parecer menor por acidente
+     */
+    scale: 0.58,
     naturalWidth: NPC_SPRITE_SIZES.bau.width,
     naturalHeight: NPC_SPRITE_SIZES.bau.height,
     clickRadius: 34,
@@ -295,30 +350,49 @@ export const BASE_NPCS = Object.freeze([
   Object.freeze({
     id: "npc_mercado_base",
     typeId: "mercador",
-    x: 710,
-    y: 377,
+
+    /**
+     * O TILE 11, 6.
+     *
+     * A grade do mapa base e de 64px, entao o tile e a celula: coluna 11 ->
+     * 11 * 64 = 704, linha 6 -> 6 * 64 = 384. O `y` e o PE do desenho, e nao
+     * o canto da celula — o `NpcRenderer` ancora a arte por ele
+     *
+     * Antes era (710, 377), que e este mesmo tile medido a olho. A conta
+     * agora e a do tile, e nao um numero solto
+     */
+    x: 704,
+    y: 384,
   }),
 
   /**
    * O MESTRE DE HABILIDADES, AO LADO do mercador.
    *
-   * (880, 377) e 170px a direita do mercador, na MESMA altura — os dois
-   * ficam na mesma linha do calcamento, e nao um atras do outro. A
-   * leitura e a de duas bancas: quem entra no hub ve as duas de uma vez
-   * e escolhe a que precisa
+   * E na mesma linha do calcamento que o mercador, e nunca um atras do outro:
+   * a leitura e a de duas bancas, e quem entra no hub ve as duas de uma vez e
+   * escolhe a que precisa
    *
-   * 170px foi medido quando o mestre tinha 108px em tela. Ele esta em
-   * 91px agora, depois de encolher para 80% e voltar 5%, entao o vao
-   * sobrou em 80px. O passo nao caiu junto com a arte pelo motivo do
-   * outro bloco: 170px e o que mantem os tres separados, e um vao de 80px
-   * ainda le como tres coisas — reduzir o passo agora so apertaria o
-   * calcamento
+   * A coluna e o que separa as tres coisas, e ela mudou com a arte. O
+   * mestre era um desenho de 1205x1306 e depois virou uma faixa de idle de
+   * 172x172; um NPC largo precisa de mais espaco antes do proximo do que um
+   * alto
    */
   Object.freeze({
     id: "npc_habilidades_base",
     typeId: "habilidades",
-    x: 880,
-    y: 377,
+
+    /**
+     * O TILE 18, 6.
+     *
+     * A grade e de 64px: coluna 18 -> 18 * 64 = 1152, linha 6 -> 6 * 64 = 384.
+     * O `y` e o PE, e nao o canto da celula
+     *
+     * Foi o tile 17 mais um, por pedido. Com a arte nova o mestre tem cerca
+     * de 100px de largura e estava a 38px do bau, que fica em (1050, 377):
+     * as silhuetas encostavam. Mais um tile abre 102px de vao
+     */
+    x: 1152,
+    y: 384,
   }),
 
   /**
@@ -352,8 +426,22 @@ export const BASE_NPCS = Object.freeze([
   Object.freeze({
     id: "npc_bau_base",
     typeId: "bau",
-    x: 1050,
-    y: 377,
+
+    /**
+     * O TILE 9, 8.
+     *
+     * A grade e de 64px: coluna 9 -> 9 * 64 = 576, linha 8 -> 8 * 64 = 512.
+     * O `y` e o PE, e nao o canto da celula
+     *
+     * Saiu da linha dos outros dois de proposito. O bau e um OBJETO, e nao
+     * uma pessoa: quando ele estava na mesma altura do mercador e do mestre,
+     * a leitura era de tres bancas iguais — e um bau nao e uma banca
+     *
+     * Uma linha abaixo do mercador (11,6) e o que separa os dois sem
+     * parecerem estar em outra fileira do calcamento
+     */
+    x: 576,
+    y: 512,
   }),
 ]);
 

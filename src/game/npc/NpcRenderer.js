@@ -79,9 +79,60 @@ export class NpcRenderer {
   sizeOf(npc) {
     const scale = npc.scale ?? 1;
 
+    /**
+     * A CELULA, E NAO A FOLHA INTEIRA.
+     *
+     * Porque a folha do mercador tem 9 quadros lado a lado: medir a folha
+     * daria 1548px de largura e o boneco entraria na tela de traversso. O que
+     * ocupa o mundo e UM quadro, que e o que `celula` declara
+     *
+     * `celula` vazio (0) e o caso de um NPC de arte estatica, e o
+     * `naturalWidth` do catalogo volta a ser a medida — o bau e o mestre
+     * continuam exatamente como estavam
+     */
+    const celula = npc.celula;
+
+    const largura = celula?.width > 0 ? celula.width : npc.naturalWidth;
+    const altura = celula?.height > 0 ? celula.height : npc.naturalHeight;
+
     return {
-      width: npc.naturalWidth * scale,
-      height: npc.naturalHeight * scale,
+      width: largura * scale,
+      height: altura * scale,
+    };
+  }
+
+  /**
+   * O RETANGULO DE ORIGEM DO QUADRO, OU `null` PARA ARTE ESTATICA.
+   *
+   * ## POR QUE O TEMPO VAI DIVIDIDO PELA VELOCIDADE
+   *
+   * Porque `drawClock` e um relogio que so cresce, e o indice do quadro e uma
+   * posicao na volta do ciclo: `tempo / velocidade` conta quantos QUADROS
+   * passaram, e o `% quadros` guarda o resto. E a mesma conta de qualquer
+   * animacao por quadro, e o que faz o idle do mercador respirar em 1.62s
+   *
+   * ## E POR QUE `null` E NAO UM RETANGULO ZERO
+   *
+   * Porque o `drawImage` de 5 argumentos e o caminho antigo: ele pinta a
+   * imagem inteira, que e o que um NPC sem celula precisa. Passar um
+   * `sx/sy/sw/sh` de 0 cortaria a arte em vez de desenha-la
+   */
+  frameOf(npc, tempo) {
+    const celula = npc.celula;
+
+    if (!celula || !(celula.quadros > 1) || !(celula.width > 0)) return null;
+
+    const velocidade = npc.velocidade ?? 0.18;
+
+    if (!(velocidade > 0)) return null;
+
+    const quadro = Math.floor(tempo / velocidade) % celula.quadros;
+
+    return {
+      sx: quadro * celula.width,
+      sy: 0,
+      sw: celula.width,
+      sh: celula.height,
     };
   }
 
@@ -93,12 +144,48 @@ export class NpcRenderer {
    * diferentes, o alvo pareceria estar deslocado da arte, e o
    * jogador clicaria "no chao ao lado" e o painel abriria
    */
+  /**
+ * OS PIXELS VAZIOS DA BASE DA CELULA, JA ESCALADOS.
+ *
+ * ## POR QUE O DESENHO DESCE, E NAO SOBE
+ *
+ * Porque o `npc.y` e o PE do boneco, e nao a base da celula. A celula tem
+ * 26px transparentes embaixo, entao ancorar a BASE dela no `y` colocaria o
+ * desenho 26px no ar — o mercador flutuando acima do calcamento
+ *
+ * Descer o desenho e a unica correcao: a celula sai 15px mais baixa e o pe
+ * cai em cima do chao. Subir o `y` do catalogo resolveria a mesma coisa e
+ * quebraria outra: o `y` e o PE por contrato, e o colisor de clique e o
+ * `drawShadow` leem esse mesmo numero
+ *
+ * E o numero ja vem escalado, porque a margem e medida na arte (172) e o
+ * que voa e a arte na tela (172 * scale)
+ */
+margemDoPe(npc) {
+  const margem = npc.celula?.margemBaixo ?? 0;
+
+  if (!(margem > 0)) return 0;
+
+  return margem * (npc.scale ?? 1);
+}
+
+/**
+   * A caixa do NPC, com o PE em (x, y).
+   *
+   * E o retangulo que o colisor de clique e o desenho usam, e o mesmo
+   * objeto para os dois: se o clique e o desenho lessem caixas
+   * diferentes, o alvo pareceria estar deslocado da arte, e o
+   * jogador clicaria "no chao ao lado" e o painel abriria
+   *
+   * E a MESMA margem do desenho, pelos dois motivos de `margemDoPe`: o pe
+   * fica no chao, e o alvo fica sob a arte que o jogador ve
+   */
   boxOf(npc) {
     const { width, height } = this.sizeOf(npc);
 
     return {
       x: npc.x - width / 2,
-      y: npc.y - height,
+      y: npc.y - height + this.margemDoPe(npc),
       width,
       height,
     };
@@ -184,7 +271,29 @@ export class NpcRenderer {
  * hover que sobrou depois que os outros dois sairam
  */
 drawShadow(context, npc, hover = false) {
-  const { width } = this.sizeOf(npc);
+  /**
+   * A LARGURA DA SOMBRA VEM DO DESENHO, E NAO DA CELULA.
+   *
+   * ## POR QUE ISTO MUDOU
+   *
+   * A sombra e uma elipse medida na largura da arte, e a arte de um NPC com
+   * celula e o boneco desenhado DENTRO dela. A celula do mercador mede 172 e
+   * o boneco uns 76: as 96 de diferenca sao margem transparente do GIF de
+   * origem
+   *
+   * Medindo pela celula, a sombra saia com 68px de diametro embaixo de um
+   * boneco de 76 — quase do mesmo tamanho, e o piso virava um disco preto em
+   * vez de uma sombra de pe
+   *
+   * ## E POR QUE O `??`, E NAO UM `||`
+   *
+   * Porque `larguraDesenhada: 0` e o caso de um NPC de arte estatica, e o
+   * `||` cairia nele tambem — que e exatamente onde a largura da arte e a
+   * medida certa. O `??` so substitui por `0`, e ai o `||` abaixo assume
+   */
+  const desenhada = npc.celula?.larguraDesenhada ?? 0;
+
+  const largura = desenhada > 0 ? desenhada * (npc.scale ?? 1) : this.sizeOf(npc).width;
 
   context.save();
 
@@ -195,8 +304,8 @@ drawShadow(context, npc, hover = false) {
     npc.x,
     npc.y,
     // encolhe no hover: o pe do NPC esta fora do chao
-    width * (hover ? 0.3 : 0.34),
-    width * (hover ? 0.08 : 0.1),
+    largura * (hover ? 0.3 : 0.34),
+    largura * (hover ? 0.08 : 0.1),
     0,
     0,
     Math.PI * 2,
@@ -257,13 +366,38 @@ drawShadow(context, npc, hover = false) {
      */
     const sobe = this.alturaDoHover(hover, tempo);
 
-    context.drawImage(
-      image,
-      npc.x - width / 2,
-      npc.y - height - sobe,
-      width,
-      height,
-    );
+    /**
+     * O PE NO CHAO, E A ARTE COM A MARGEM DEBAIXO.
+     *
+     * A soma com `margemDoPe` e o que tira o mercador do ar: os 26px
+     * transparentes da base da celula sao compensados para baixo, e o desenho
+     * passa a terminar exatamente em `npc.y` em vez de 26px acima
+     */
+    const base = npc.y - height - sobe + this.margemDoPe(npc);
+
+    const quadro = this.frameOf(npc, tempo);
+
+    if (quadro) {
+      context.drawImage(
+        image,
+        quadro.sx,
+        quadro.sy,
+        quadro.sw,
+        quadro.sh,
+        npc.x - width / 2,
+        base,
+        width,
+        height,
+      );
+    } else {
+      context.drawImage(
+        image,
+        npc.x - width / 2,
+        base,
+        width,
+        height,
+      );
+    }
 
     context.restore();
   }

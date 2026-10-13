@@ -1,22 +1,47 @@
 import { CHARACTER_CLASSES } from "../../data/characters/index.js";
 
 /**
+ * AS CLASSES QUE O FILTRO DO MARKET MOSTRA.
+ *
+ * ## POR QUE ISTO NAO E SO `CHARACTER_CLASSES`
+ *
+ * Porque o Lancer ja nao esta na selecao de classe, e um chip de filtro
+ * para uma classe que ninguem pode escolher e um botao que leva a uma
+ * vitrine vazia: o jogador clica, nao ve nenhum anuncio, e nao descobre o
+ * motivo
+ *
+ * ## E POR QUE O LANCER CONTINUA NO CATALOGO
+ *
+ * Porque `CHARACTER_CLASSES` e lido pelo motor para abrir save, e um
+ * jogador que jogou de Lancer antes ainda tem que carregar. Apagar a classe
+ * dali quebraria esse save
+ *
+ * A lista fica entao aqui, no filtro — o mesmo tratamento do `ClassFilter`
+ * do rank
+ */
+const CLASSES_DO_MARKET = CHARACTER_CLASSES.filter(
+  (classe) => classe.id !== "lancer",
+);
+
+/**
  * OS CHIPS DE CLASSE.
  *
- * ## POR QUE SAO QUATRO E EM INGLES
+ * ## POR QUE SAO TRES E EM INGLES
  *
  * Porque `CHARACTER_CLASSES` tem quatro — `warrior`, `lancer`, `sorcerer`,
- * `arbalist` — e os nomes de exibição sao Warrior, Lancer, Sorcerer e
- * Arbalist. O briefing sugere Guerreiro, Assassino, Mago, Arqueiro e
- * Sacerdote, e ele mesmo diz para usar os nomes que o projeto define. Sao
- * cinco nomes para quatro classes: "Assassino" e "Sacerdote" nao existem aqui
+ * `arbalist` — e os nomes de exibição saem Warrior, Lancer, Sorcerer e
+ * Arbalist. O Lancer nao aparece aqui, pela razao do bloco acima
+ *
+ * O briefing sugere Guerreiro, Assassino, Mago, Arqueiro e Sacerdote, e ele
+ * mesmo diz para usar os nomes que o projeto define. Sao cinco nomes para
+ * quatro classes: "Assassino" e "Sacerdote" nao existem aqui
  *
  * ## POR QUE O RÓTULO "CLASSE" SAIU
  *
  * Porque o nome do filtro nao diz o que o filtro FAZ, e nesta tela ele nao
  * precisa: a lista e de classes com icone, e o primeiro chip e "Todas". O
- * jogador le "Todas · Warrior · Lancer" e sabe em um segundo que e classe. O
- * rotulo era 50px de larguraoccupied que empurravam a linha para a direita sem
+ * jogador le "Todas · Warrior · Sorcerer" e sabe em um segundo que e classe.
+ * O rotulo era 50px de largura que empurravam a linha para a direita sem
  * acrescentar nada
  *
  * ## POR QUE O BOTAO DE LIMPAR VIVE AQUI
@@ -48,7 +73,7 @@ export default function ClassFilterChips({
         Todas
       </button>
 
-      {CHARACTER_CLASSES.map((classe) => {
+      {CLASSES_DO_MARKET.map((classe) => {
         const ativaAqui = ativa === classe.id;
 
         return (

@@ -60,6 +60,7 @@ export function createPlayerSession(
     input,
     donoKey = null,
     farmOffline = null,
+    contaId = null,
   } = options;
 
   const player = createPlayer(
@@ -110,6 +111,30 @@ const returnObjeto = {
      * `null`, porque ninguem sai do jogo e nao ha a quem pagar depois
      */
     donoKey,
+
+    /**
+     * A CONTA dona deste personagem, ou `null` no single player.
+     *
+     * E o endereco da carteira, e nao o id normalizado `carteira_0x...`: e o
+     * que veio no token de entrada, e o `Contas` normaliza quando precisa
+     *
+     * ## POR QUE ESTE CAMPO EXISTE
+     *
+     * Porque a sessao e o unico lugar onde o servidor sabe de quem e este
+     * jogador enquanto ele esta online. O `donoKey` continua sendo o NOME —
+     * mercado, guilda e pagamento offline dependem dele e ja estavam
+     * funcionando — e o `contaId` e a amarra para o que e da conta e nao do
+     * personagem, que hoje e o saldo de diamante
+     *
+     * ## E O BUG QUE ESTE CAMPO EVITOU
+     *
+     * O `GameServer` ja passava `contaId` para ca nestas opcoes, e esta
+     * funcao nao lia. O campo saia `undefined` em toda sessao, sem erro e sem
+     * aviso: o token trazia a conta, a sessao perdia no caminho, e o saldo de
+     * diamante da conta nunca chegava no personagem — que abria o jogo com
+     * zero enquanto a tela de personagens mostrava o saldo cheio
+     */
+    contaId,
 
     // a entidade que anda, leva dano e aparece no snapshot
     player,

@@ -57,7 +57,10 @@ import {
   pocaoLiberada,
 } from "../../../src/data/potions/index.js";
 import { livrosDaClasse } from "../../../src/data/skills/books.js";
-import { portalLiberado } from "../../../src/data/quests/index.js";
+import {
+  portalLiberado,
+  entradaNaArena,
+} from "../../../src/data/quests/index.js";
 import {
   LOJA_PACOTES,
   MOEDAS_ESPECIAIS,
@@ -197,8 +200,12 @@ export class GameServer {
     config = SERVER_CONFIG,
     persistencia,
     mapId = DEFAULT_MAP_ID,
+    contas = null,
+    verificadorDeToken = null,
   } = {}) {
     this.config = config;
+    this.contas = contas;
+    this.verificadorDeToken = verificadorDeToken;
     this.clients = new Map();
 
     /**
@@ -1700,6 +1707,17 @@ this.engine.showMessage(
         return;
       }
 
+      /**
+       * O DEBITO SOBE PARA A CONTA AGORA, e nao no proximo save.
+       *
+       * O diamante e da conta, entao o saldo da conta tem que cair no mesmo
+       * instante em que o do personagem cai. Se dependesse do `guardar`, um
+       * jogador com dois personagens na mesma conta podia gastar duas vezes
+       * o mesmo saldo: um gastava, o outro entrava antes do save seguinte e
+       * ainda via o numero antigo na tela
+       */
+      this.guardarDiamantesNaConta(sessao);
+
     /**
      * O QUE ENTROU, para o aviso.
      *
@@ -1738,6 +1756,16 @@ this.engine.showMessage(
        */
       if (entregue.added < entrada.quantidade) {
         sessao.inventory.addDiamonds(produto.preco);
+
+        /**
+         * O ESTORNO SOBE PARA A CONTA TAMBEM.
+         *
+         * E o caminho do GANHO: o diamante devolvido aqui e da conta tanto
+         * quanto o debitado acima. Sem esta linha o personagem recuperava o
+         * valor e a conta nao sabia — e o proximo personagem a abrir o jogo
+         * veria o saldo sem essa devolucao
+         */
+        this.guardarDiamantesNaConta(sessao);
 
         if (entregue.added > 0) {
           sessao.inventory.take(entrada.itemId, entregue.added);
@@ -1913,10 +1941,50 @@ this.engine.showMessage(
    * bloqueou, mas o cliente nao e autoridade: um script malicioso
    * ignora o formulario
    */
-  entrar(client, { name, classId } = {}) {
+  entrar(client, { name, classId, token } = {}) {
     if (client.joined) return;
 
-    const checagem = validateName(name);
+    /**
+     * O TOKEN DE ENTRADA, QUANDO HAI CONTAS.
+     *
+     * Sem o front, o JOIN era `{ name, classId }` e o nome era a unica
+     * identidade. Isso abria a porta para entrar como qualquer um: bastava
+     * `JOIN { name: "Alguem", classId: "warrior" }` no console
+     *
+     * Com contas, o nome e a classe passam a vir do TOKEN, e nao do
+     * cliente. O token foi emitido pelo servidor para um personagem que a
+     * conta realmente tem, e e assinado com segredo que o navegador nao
+     * tem. O que o cliente mandar em `name`/`classId` e ignorado
+     *
+     * ## POR QUE O TOKEN E QUEIMADO AQUI E NAO NUM ROTA
+     *
+     * Porque ele precisa ser de uso unico. Se o `verificar` consumisse o
+     * token, uma aba que recarrega depois do JOIN perderia o token e
+     * entraria de novo como o mesmo personagem — que esta certo. Mas se a
+     * queima ficasse num endpoint, a aba que so ESPERANDO o socket ficaria
+     * com o token valido e qualquer um poderia abrir duas sessoes com o
+     * mesmo token
+     */
+    let entrada = { nome: name, classe: classId, contaId: null };
+
+    if (this.contas) {
+      const resultado = this.confereTokenDeEntrada(token);
+
+      if (!resultado.ok) {
+        client.enviar(SERVER_EVENTS.REJECTED, {
+          reason: resultado.motivo,
+        });
+        return;
+      }
+
+      entrada = {
+        nome: resultado.corpo.nome,
+        classe: resultado.corpo.classe,
+        contaId: resultado.corpo.contaId,
+      };
+    }
+
+    const checagem = validateName(entrada.nome);
 
     if (!checagem.ok) {
       client.enviar(SERVER_EVENTS.REJECTED, {
@@ -1948,7 +2016,7 @@ this.engine.showMessage(
     }
 
     const classe = CHARACTER_CLASSES.find(
-      (c) => c.id === classId,
+      (c) => c.id === entrada.classe,
     );
 
     if (!classe) {
@@ -2016,6 +2084,15 @@ this.engine.showMessage(
         // para saber de quem e o anuncio, mesmo depois de reconectar
         donoKey,
 
+        // A CONTA, quando o token trouxe uma.
+        //
+        // `donoKey` continua sendo o nome, e nao a conta: mercado,
+        // guilda e pagamento offline dependem dessa chave e ela ja estava
+        // funcionando. A `contaId` e a AMARRA — e o que permite, mais
+        // para a frente, trocar `donoKey` para a conta sem mexer nesses
+        // tres, e saber de quem e este personagem
+        contaId: entrada.contaId,
+
         // o spawn vem do mapa, igual no single player, para nao
         // nascer dentro de um mob
         ...this.entradaNoMapa(),
@@ -2059,13 +2136,13 @@ this.engine.showMessage(
     // progresso apareceria um segundo depois, como se fosse bug
     if (salvo && isReadableSave(salvo)) {
       this.restaurar(client.session, salvo);
-    } else {
+} else {
       /**
        * Personagem NOVO tambem precisa dos stats derivados.
        *
        * O `restaurar` acima ja faz isso, e sem uma chamada igual aqui
        * um jogador que acabou de criar o personagem entrava com os
-       * numeros crus da classe â€” sem o crescimento do nivel 1. O
+       * numeros crus da classe — sem o crescimento do nivel 1. O
        * efeito nao era so no combate: o painel de status mostra a
        * coluna `Bonus` como `total - base`, e um total MENOR que a
        * base produzia um bonus negativo na tela logo no primeiro
@@ -2075,6 +2152,21 @@ this.engine.showMessage(
         this.engine.applyEquipment();
       });
     }
+
+    /**
+     * O SALDO DE DIAMANTES VEM DA CONTA, E NAO DO SAVE.
+     *
+     * E a ultima coisa antes de o jogador ver o painel, porque o painel le
+     * `inventory.diamonds`. O `restaurar` acima acabou de trazer o valor
+     * antigo deste personagem, e esse valor e de antes da unificacao: um
+     * jogador que gaste diamante com um personagem deixa os outros dois da
+     * mesma conta com o numero velho na tela
+     *
+     * A conta e a fonte da verdade, entao o espelho e reescrito aqui — e
+     * reescrito tanto no caminho do save quanto no do personagem novo, porque
+     * `diamantes` vale zero nos dois
+     */
+    this.carregarDiamantesDaConta(client.session);
 
     client.joined = true;
 
@@ -2206,6 +2298,76 @@ this.engine.showMessage(
     });
 
     this.anunciar(id, true);
+  }
+
+  /**
+   * CONFERE O TOKEN DE ENTRADA E O QUEIMA.
+   *
+   * ## POR QUE O TOKEN MORRE AQUI
+   *
+   * Um token de uso unico que sobrevivesse a uma recusa abriria uma porta:
+   * o jogador entra, o servidor recusa por `NAME_TAKEN` porque a conta esta
+   * aberta em outra aba, e o token ainda valeria para a proxima
+   *
+   * Queimar ANTES das checagens de nome e classe e o que garante que um
+   * token = uma tentativa. Se validasse e so queimasse no sucesso, um
+   * jogador travado em `NAME_TAKEN` ficaria com o token na mao para tentar
+   * de novo quantas vezes quisesse — e o `NAME_TAKEN` e exatamente o caso
+   * em que o jogador vai querer tentar de novo
+   *
+   * ## POR QUE O TOKEN E REEMITIDO A CADA TENTATIVA
+   *
+   * Justamente por causa disso. O front pede um token novo sempre que o
+   * jogador clica em Jogar, entao recusar aqui devolve o jogador para a
+   * tela de personagem e ele tenta de novo com um token novo
+   */
+  confereTokenDeEntrada(token) {
+    if (!token) {
+      return { ok: false, motivo: REJECT.BAD_TOKEN };
+    }
+
+    const corpo = this.verificadorDeToken?.(token) ?? null;
+
+    if (!corpo) {
+      return { ok: false, motivo: REJECT.BAD_TOKEN };
+    }
+
+    /**
+     * O TOKEN PRECISA VIR DE UMA CONTA QUE TEM O PERSONAGEM.
+     *
+     * Sem esta conferenca, o token seria a unica autoridade: bastaria o
+     * servidor emitir um para "Ana" e ele valeria para sempre, mesmo que a
+     * conta de Ana apagasse o personagem no meio do caminho
+     *
+     * E o que amarra o token ao que existe: o front pode pedir um token
+     * para qualquer coisa, e so passa quem tem o personagem na conta
+     */
+    /**
+     * O TIPO PRECISA VIA JUNTO DO ID.
+     *
+     * `contas.personagens` chama `normalizarIdentidade`, que escolhe o
+     * prefixo do arquivo pelo `tipo`: carteira vira `carteira_0x...`, Google
+     * vira o `sub` cru. Passando so o `id`, a busca ia pro arquivo `0x...`,
+     * que nao existe, e TODO token seria recusado — o sintoma seria "o
+     * login funciona mas ninguem entra no jogo"
+     *
+     * O token guarda o `tipo` da conta justamente para esta linha
+     */
+    const personagens =
+      this.contas?.personagens({
+        tipo: corpo.tipoConta,
+        id: corpo.contaId,
+      }) ?? [];
+
+    const temOPersonagem = personagens.some(
+      (p) => nameKey(p.nome) === nameKey(corpo.nome) && p.classe === corpo.classe,
+    );
+
+    if (!temOPersonagem) {
+      return { ok: false, motivo: REJECT.BAD_TOKEN };
+    }
+
+    return { ok: true, corpo };
   }
 
   /**
@@ -3144,6 +3306,43 @@ const stack =
       sessao.arenaOrigem = null;
 
       return true;
+    }
+
+    /**
+     * A ENTRADA NA ARENA E A MISSAO DO CHEFE, E A CONFERIDA E AQUI.
+     *
+     * ## POR QUE ESTA GUARDA VIVE NO SERVIDOR E NAO SO NA BOX
+     *
+     * Porque o botao da box e um detalhe visual. Sem esta linha, um cliente
+     * velho — ou um editado de proposito — mandaria `IR_PARA_ARENA` e entraria
+     * numa luta de nivel 20 sem nunca ter chegado no degrau dela. O servidor
+     * e quem decide o mapa, entao e ele que recusa
+     *
+     * E a volta NAO e conferida: ela sai no `if (naArena)` acima, porque o
+     * jogador ja esta dentro e o botao de sair nunca pode ficar preso por
+     * causa de um degrau de missao
+     *
+     * ## POR QUE O `bad` E `true`
+     *
+     * Porque e uma recusa, e nao um aviso neutro: o jogador clicou num botao
+     * que parecia morto e precisa ler o motivo. `travessarPortal` faz a
+     * mesma coisa com `trava.motivo`, e os dois textos vem do mesmo modulo
+     * para nao haver duas traducoes do mesmo motivo
+     *
+     * ## POR QUE ANTES DE GRAVAR A ORIGEM
+     *
+     * Porque `arenaOrigem` e o destino da volta, e uma recusa nao e uma
+     * visita. Gravar antes deixaria o sessao apontando para o mapa em que o
+     * jogador nunca saiu — inofensivo hoje, porque o proximo clique valido
+     * sobrescreve, e um bug so no dia em que alguem ler esse campo sem
+     * passar pela entrada
+     */
+    const entrada = entradaNaArena(sessao.quests?.mainIndex ?? 0);
+
+    if (!entrada.ok) {
+      this.avisoDoDono(sessao, entrada.motivo, true);
+
+      return false;
     }
 
     /**
@@ -4125,8 +4324,14 @@ case PANEL_OPS.DASH:
            *
            * Leva o valor novo e nao um "inverter", porque dois cliques
            * rapidos chegam em qualquer ordem
+           *
+           * O `setPassPremium` debita diamante DENTRO do motor, que nao sabe
+           * que conta existe. O saldo do personagem ja esta certo — ele foi
+           * lido da conta na entrada —, entao a sincronizacao de volta aqui
+           * e o que faz o outro personagem da conta ver o novo saldo
            */
           this.engine.setPassPremium(pedido.ativo, pedido.passId ?? null);
+          this.guardarDiamantesNaConta(sessao);
           break;
 
         case PANEL_OPS.TRAVESSAR_PORTAL:
@@ -6056,6 +6261,8 @@ case PANEL_OPS.DASH:
      */
     this.savesEmCache = null;
 
+    this.guardarDiamantesNaConta(sessao);
+
     try {
       return this.saves.salvar(
         sessao.name,
@@ -6064,6 +6271,74 @@ case PANEL_OPS.DASH:
     } catch {
       return false;
     }
+  }
+
+  /**
+   * O SALDO DE DIAMANTES SOBE PARA A CONTA.
+   *
+   * ## O INVENTARIO E UM ESPELHO, E A CONTA E O DONO
+   *
+   * O diamante e um saldo so, da conta. O `inventory.diamonds` do personagem
+   * existe porque a HUD e o mercado leem dele, entao ele precisa mostrar o
+   * numero certo — mas quem GUARDA o numero e a conta
+   *
+   * Esta e a hora de copiar de volta: o jogador pode ter gasto diamante no
+   * passe (`GameEngine`) ou recebido de uma venda no mercado, e as duas
+   * mexeram no inventario. Sem esta linha o saldo da conta ficaria parado
+   * enquanto o personagem gastava, e a proxima entrada dele recarregaria um
+   * valor velho
+   *
+   * ## POR QUE AQUI, E NO PONTO DE CADA GASTO
+   *
+   * Porque `guardar` e o gargao unico do personagem. Gastos acontecem em
+   * varios lugares — o motor, o mercado, uma futura recompensa de missao — e
+   * cada um deles ia precisar lembrar de chamar isto. Aqui nao tem como
+   * esquecer: quem grava o personagem grava a conta junto
+   *
+   * ## E QUANDO A CONTA NAO EXISTE
+   *
+   * No single player nao ha `contas`, e o saldo volta a ser o do personagem.
+   * E o que mantem o jogo funcionando sem servidor de conta
+   *
+   * ## E O QUE ACONTECE COM DOIS PERSONAGENS DA MESMA CONTA ONLINE
+   *
+   * Cada sessao tem o seu `inventory.diamonds`, entao quem grava por ultimo
+   * define o saldo. Com uma sessao por conta — o caso normal — nao ha
+   * conflito. E um limite conhecido, e nao um bug escondido: sincronizar os
+   * dois ao vivo seria levar o saldo para o outro jogador na hora, e isso e
+   * outro trabalho
+   */
+  guardarDiamantesNaConta(sessao) {
+    if (!this.contas || !sessao?.contaId || !sessao.inventory) return false;
+
+    const saldo = sessao.inventory.diamonds ?? 0;
+
+    const atual = this.contas.diamantes(sessao.contaId);
+
+    if (atual === saldo) return false;
+
+    this.contas.movimentarDiamantes(sessao.contaId, saldo - atual);
+
+    return true;
+  }
+
+  /**
+   * PUXA O SALDO DA CONTA PARA O INVENTARIO DO PERSONAGEM.
+   *
+   * O caminho inverso do `guardarDiamantesNaConta`, e roda uma vez, na
+   * entrada. E o que faz os tres personagens da conta abrirem o jogo vendo o
+   * MESMO numero: o save do personagem ainda traz o `diamonds` que ele tinha
+   * da ultima vez, e esse valor e sobrescrito aqui
+   *
+   * Sem esta linha o personagem mostraria o saldo antigo dele, e ele
+   * poderia gastar um diamante que ja foi gasto por outro da conta
+   */
+  carregarDiamantesDaConta(sessao) {
+    if (!this.contas || !sessao?.contaId || !sessao.inventory) return false;
+
+    sessao.inventory.diamonds = this.contas.diamantes(sessao.contaId);
+
+    return true;
   }
 
   /** Grava todo mundo que esta online agora. */

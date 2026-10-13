@@ -1,6 +1,30 @@
 ﻿import { CHARACTER_CLASSES } from "../../data/characters/index.js";
 
 /**
+ * AS CLASSES QUE O FILTRO DO RANK MOSTRA.
+ *
+ * ## POR QUE ISTO NAO E SO `CHARACTER_CLASSES`
+ *
+ * Porque o Lancer ja nao esta na selecao de classe, e um chip de filtro
+ * para uma classe que ninguem pode escolher e um botao que leva a uma
+ * lista vazia: o jogador clica, ve "nenhum jogador com essa classe" e nao
+ * descobre o motivo
+ *
+ * E por isso que a lista esta AQUI, e nao no catalogo: `CHARACTER_CLASSES`
+ * continua com o Lancer porque o motor precisa dele para ler o save de quem
+ * jogou antes, e o `icon`, os atributos e a folha de sprite continuam valendo
+ * para o rank mostrar a classe antiga de quem esta na tabela
+ *
+ * ## E POR QUE A LISTA VAI CRESCER DE NOVO
+ *
+ * Se uma classe voltar a ser jogavel, e so remover a linha daqui. O filtro
+ * continua sendo o `CHARACTER_CLASSES` menos este bloco
+ */
+const CLASSES_DO_RANK = CHARACTER_CLASSES.filter(
+  (classe) => classe.id !== "lancer",
+);
+
+/**
  * O FILTRO DE CLASSE do ranking.
  *
  * ## POR QUE "GERAL" VEM PRIMEIRO E SEM ÍCONE
@@ -44,7 +68,7 @@ export default function ClassFilter({ ativa, onTrocar }) {
         Geral
       </button>
 
-      {CHARACTER_CLASSES.map((classe) => (
+      {CLASSES_DO_RANK.map((classe) => (
         <button
           key={classe.id}
           type="button"

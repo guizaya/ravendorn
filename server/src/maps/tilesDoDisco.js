@@ -50,6 +50,71 @@ const CAMADAS = [
     tmj: "src/assets/tilesets/map_1/dungeon.tmj",
     tilesets: { "dungeon.tsx": null },
   },
+  {
+    mapId: "base",
+    tmj: "src/assets/tilesets/base/base.tmj",
+    tilesets: {
+      "64x64_seamless_top-down_2D_MMORPG_terrain_tile_sho (1).tsx": null,
+    },
+  },
+  {
+    /**
+     * A ARENA DO HULK.
+     *
+     * A entrada existe pela MESMA razao das outras duas: o movimento online e
+     * autoritativo e o servidor precisa ler o mesmo `.tmj` que o navegador
+     * desenha.
+     *
+     * ## AGORA QUE A BARREIRA SAIU DE CODIGO, ESTA LINHA E OBRIGATORIA
+     *
+     * A arena nao tem mais `boundsCircle`: quem fecha a sala e a camada de
+     * objeto `PAREDES` que voce desenha no `boss_1.tmj`. Sem esta entrada o
+     * servidor nao leria essas paredes, e o movimento online passaria por
+     * elas — o jogador bateria na parede no cliente e atravessaria no
+     * servidor, que e o pior defeito que existe nesta parte do jogo
+     *
+     * Vale a pena deixar claro que o navegador e o servidor leem o MESMO
+     * arquivo: desenhar a parede e salvar no Tiled ja vale nos dois lugares,
+     * sem nenhuma mudanca de codigo
+     *
+     * ## E O `boss_1.tmj` QUE ESTAVA AQUI, E POR QUE MUDOU
+     *
+     * A arena foi salva no Tiled como `boss.tmj`, e nao como `boss_1.tmj` — o
+     * mesmo descasamento de nome que o `camadaDoBoss1.js` do navegador ja
+     * documenta. Com o caminho errado aqui o `existsSync` falhava, o mapa
+     * seguia sem colisao e a arena barrava so no cliente: o jogador batia na
+     * parede na tela e passava por ela no servidor
+     */
+    mapId: "boss_1",
+    tmj: "src/assets/tilesets/boss_1/boss.tmj",
+    tilesets: { "dungeon.tsx": null },
+  },
+  {
+    /**
+     * O VALE 1.
+     *
+     * A mesma razao das outras: o movimento online e autoritativo, e o
+     * servidor precisa ler o MESMO `vale.tmj` que o navegador desenha.
+     *
+     * ## E O QUE A CAMADA `PAREDES` FAZ AQUI
+     *
+     * O vale nao tem mais `limiteVisivel` e nao tem sebe: o que fecha o mundo
+     * agora e o anel de retangulos da camada de objeto `PAREDES`, desenhado no
+     * Tiled. Sem esta entrada o servidor nao leria esse anel, e o jogador
+     * bateria nele no cliente e passaria por ele no servidor — que e o pior
+     * defeito que existe nesta parte do jogo
+     *
+     * ## POR QUE OS SOLIDS DO MAPA 1 NAO SERVEM AQUI
+     *
+     * Porque os dois campos sao caminhos diferentes: `solids` vem do codigo
+     * (os 40 cristais, por `buildPropSolids`) e a camada de objeto vem do
+     * arquivo. Registrar o `.tmj` NAO substitui os cristais: eles somem do
+     * servidor se esta linha faltar, e as paredes somem se ela sobrar
+     */
+    mapId: "mapa_teste",
+    tmj: "src/assets/tilesets/vale_1/vale.tmj",
+    tilesets: { "vale.tsx": null },
+  },
 ];
 
 /**

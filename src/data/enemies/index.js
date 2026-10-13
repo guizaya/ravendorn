@@ -828,10 +828,11 @@ name: "Goblin",
     /**
      * O LEASH E DA ARENA INTEIRA.
      *
-     * O limite do `clampToBounds` circular e mais apertado que os 1000 do
-     * ogre, e um `leash` de 1200 deixa o chefe percorrer a arena sem
-     * tentar sair dela — o que faria o `EnemyAI` puxa-lo de volta pelo
-     * mapa inteiro, atravessando o limite enquanto volta
+     * O limite da arena e o `bounds` de 1680x1176 — a sala desenhada no
+     * Tiled fica dentro dele — e e mais apertado que os 1000 do ogre. Um
+     * `leash` de 1200 deixa o chefe percorrer a arena sem tentar sair dela
+     * — o que faria o `EnemyAI` puxa-lo de volta pelo mapa inteiro,
+     * atravessando o limite enquanto volta
      */
     leash: 1200,
 
@@ -1069,7 +1070,9 @@ CREATURE_TYPES.hulk_val = {
   defense: 70,
 
 /**
-   * O RAIO E 96, E NAO OS 62.
+   * O RAIO E 96, ESCOLHIDO QUANDO A ARTE ERA A DO `hulk`.
+   *
+   * ## POR QUE O NUMERO CONTINUA 96
    *
    * ## A CONTA, E POR QUE 96 E NAO 102
    *
@@ -1092,6 +1095,15 @@ CREATURE_TYPES.hulk_val = {
    * de 136px (68 x 2) e raio de 46, ou seja, um terco da arte. Aqui 96 e
    * pouco menos da metade de 204 — a proporcao cresceu porque o desenho
    * cresceu
+   *
+   * ## E AGORA QUE A ARTE MUDOU
+   *
+   * O desenho de verdade passou a ser 168 x 2 = 336px, e o `96` e menos de
+   * um terco do corpo. O numero ficou para nao mexer em raio e alcance
+   * juntos — mas a leitura de "o chefe e grande" agora depende do `scale`, e
+   * nao do colisor. Se o desenho grande demais na tela, o ajuste e AQUI e no
+   * `attackRange`: mexer num sem o outro troca o chefe de grande por um
+   * alvo facil de acertar de longe
    */
   radius: 96,
 
@@ -1143,10 +1155,10 @@ CREATURE_TYPES.hulk_val = {
    *
  * O `leash` e o raio de FUGA em volta do ponto de nascimento, e o que o
    * `EnemyAI` usa para puxar o chefe de volta. Na arena 1200 e o tamanho
-   * certo porque a arena tem 588 de raio. No vale, com 1200 o chefe ficaria
-   * preso num circulo de 2400 de diametro no meio de um mapa de 5920 — o
-   * jogador fugia para a borda e o chefe parava, deixando de ser um chefe
-   * de mundo e virando um chefe de bolsinha
+   * certo porque a arena e pequena e o chefe nao se afasta do centro. No
+   * vale, com 1200 o chefe ficaria preso num circulo de 2400 de diametro no
+   * meio de um mapa de 5920 — o jogador fugia para a borda e o chefe parava,
+   * deixando de ser um chefe de mundo e virando um chefe de bolsinha
    *
  * O 2600 da para ele passar da zona livre das pedras (que tem 2200 de
  * largura) e ainda assim nao atravessar o mapa inteiro
@@ -1170,8 +1182,21 @@ CREATURE_TYPES.hulk_val = {
    *
    * Ele existe para o bestiario e para o registro, e porque o comentario do
    * `hulk` diz que este e o numero DECLARADO do tamanho. O desenho de
-   * verdade vem do `HULK_VAL_SCALE` do `enemyLayout`, que e 3 — porque o
-   * renderizador so le o `scale` do layout
+   * verdade vem do `scale` do `enemyLayout`, porque o renderizador so le o
+   * `scale` do layout
+   *
+   * ## E O `3` AQUI NAO E MAIS O DO DESENHO
+   *
+   * Antes o desenho de verdade era `68 x 3 = 204px` e este numero era o
+   * mesmo multiplicador, o que fazia os dois concordarem por construcao. Com
+   * a arte de `boss_vale/` a celula passou a 168 e o `scale` do layout e 2,
+   * entao o desenho e 336px e este `3` NAO o descreve mais
+   *
+   * Ele continua 3 porque e o numero do bestiario — e o que o painel mostra
+   * quando o jogador olha o chefe. A pergunta "ele devia mudar junto?" tem
+   * resposta sim, e a conta e `2 * 168 / 68 = 4.9`, mas mexer aqui muda o
+   * registro do bestiario de um chefe que ja foi visto. Se voce quiser o
+   * numero certo no painel, e este campo que se ajusta
    */
   spriteScale: 3,
 

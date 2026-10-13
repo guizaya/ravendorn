@@ -256,6 +256,31 @@ export default function BauPanel({
   inventory = null,
   bau = null,
   onMover = null,
+
+  /**
+   * COMO MONTAR O PEDIDO, E POR QUE AQUI ELE E `null`.
+   *
+   * ## POR QUE ESTE PROP PRECISAVA EXISTIR
+   *
+   * Porque o `Transferencia` passa `montarItem` para o `enviar`, e o
+   * `BauPanel` repassava a referencia SEM nunca declara-la. O `montarItem`
+   * saia do componente como `ReferenceError: montarItem is not defined` —
+   * e nao no clique, e na hora de ABRIR o painel, porque o JSX e avaliado
+   * no render. Um painel de bau inteiro fora da tela por causa de uma
+   * variavel de um caractere
+   *
+   * ## E POR QUE O PADRAO E `null`, E NAO UMA FUNCAO
+   *
+   * Porque o bau da base pede `uid`, e o `Transferencia` ja cai em
+   * `{ uid, quantidade }` quando o prop vem ausente. Declarar o prop resolve
+   * o erro sem inventar comportamento: nenhum chamador precisa passar nada
+   *
+   * O `null` como padrao, e nao uma funcao que monta `{ uid }`, e para o
+   * `Transferencia` continuar sendo quem decide o formato — e porque quem
+   * precisa do outro nome (`item`, no cofre da guilda) passa a funcao dele
+   * por conta propria
+   */
+  montarItem = null,
   onClose,
 }) {
   const [lado, setLado] = useState("depositar");

@@ -1,4 +1,4 @@
-/**
+﻿/**
  * O SISTEMA DE TELEGRAPH: a fase de preparacao, o instante do impacto e o dano.
  *
  * ## A REGRA QUE DOMINA ESTE ARQUIVO
@@ -82,9 +82,8 @@ export class TelegraphSystem {
    * ## POR QUE O IMPACTO E TRATADO AQUI, E NAO NUM `setTimeout`
    *
    * Porque um `setTimeout` nao pausa quando o jogo pausa, nao acompanha o
-   * relogio do servidor, e nao sobrevive a um relogio de mapa. Aqui o
-   * tempo e o do motor, entao o golpe sai exatamente quando o motor diz que
-   * saiu
+   * relogio do servidor, e nao sobrevive a um relogio de mapa. Aqui o tempo
+   * e o do motor, entao o golpe sai exatamente quando o motor diz que saiu
    *
    * ## E POR QUE O `impactoEm` E ABSOLUTO
    *
@@ -143,7 +142,6 @@ export class TelegraphSystem {
          * `undefined` e o `liberarChefe` sai no primeiro `if`
          */
         if (!execucao.isRemote) this.liberarChefe(execucao);
-
         execucoes.splice(i, 1);
         continue;
       }

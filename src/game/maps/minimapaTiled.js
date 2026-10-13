@@ -60,16 +60,6 @@ const PASSO_DA_AMOSTRA = 8;
 const prontos = new Map();
 
 /**
- * O MAPA ESTA PRONTO PARA O MINIMAPA?
- *
- * E o que o `drawMinimap` pergunta antes de copiar, e o que evita o
- * `getContext` de um canvas que nao existe
- */
-export function minimapaPronto(mapId) {
-  return prontos.has(mapId);
-}
-
-/**
  * DESENHA O MAPA NUM CANVAS E GUARDA.
  *
  * Idempotente por `mapId`: chamar de novo com o mesmo mapa nao redesenha.
@@ -85,16 +75,34 @@ export function minimapaPronto(mapId) {
 export function prepararMinimapa(
   mapId,
   mapa,
-  tileset,
-  imagem,
+  folhas,
   larguraMinimap,
   alturaMinimap = larguraMinimap,
 ) {
-  if (!mapId || !mapa?.layers?.length || !tileset || !imagem) return false;
+  /**
+   * AS FOLHAS DO MAPA, JA COM A IMAGEM CARREGADA.
+   *
+   * ## POR QUE UMA LISTA E NAO UM `tileset` SOLTO
+   *
+   * Porque um `.tmj` pode declarar varias folhas, e cada `gid` pertence a
+   * uma delas pela sua faixa de `firstgid`. A arena do chefe e o caso real: o
+   * mapa pinta os `gid` de 17 a 32, que sao da folha `dungeon`, enquanto a
+   * folha `boss` cobre de 1 a 16
+   *
+   * Com uma folha so, a tabela de cores so tinha 16 entradas e o `local` do
+   * tile — `gid - firstgid`, de 16 a 31 — caia fora dela. O `cores[local]`
+   * dava `undefined` e o minimapa ficava VAZIO, sem nenhum erro: o motor
+   * achava que estava pronto, desenhava um canvas em branco, e o jogador via
+   * o minimapa limpo na arena
+   *
+   * Cada item e `{ tileset, imagem }`: o `tileset` traz a geometria da folha
+   * e a imagem e a que ja carregou no `TileMapRenderer`
+   */
+  const lista = Array.isArray(folhas) ? folhas : [];
+
+  if (!mapId || !mapa?.layers?.length || !lista.length) return false;
 
   if (prontos.has(mapId)) return true;
-
-  if (!imagem.complete || !imagem.naturalWidth) return false;
 
   const cols = mapa.layers[0]?.cols ?? 0;
   const rows = mapa.layers[0]?.rows ?? 0;
@@ -155,27 +163,36 @@ export function prepararMinimapa(
   context.fillStyle = "#0b1118";
   context.fillRect(0, 0, largura, altura);
 
-  /**
-   * AS CORES SAO LIDAS DA FOLHA AQUI, UMA VEZ.
+/**
+   * AS CORES SAO LIDAS DE CADA FOLHA AQUI, UMA VEZ POR MAPA.
    *
- * E o `getImageData` que so este arquivo faz. A folha ja esta carregada,
- * e a mesma promessa de `onload` que o `TileMapRenderer` cumpre, entao
-   * nenhuma leitura de rede acontece aqui
+   * E o `getImageData` que so este arquivo faz. As folhas ja estao
+   * carregadas, e a mesma promessa de `onload` que o `TileMapRenderer`
+   * cumpre, entao nenhuma leitura de rede acontece aqui
    *
    * O `getImageData` pode lancar em canvas com a imagem de outra origem, e
    * o erro nao pode derrubar o minimapa: um mapa sem imagem no minimapa ainda
-   * mostra jogador, inimigos e a faixa de visao
+   * mostra jogador, inimigos e a faixa de visao. Por isso cada folha e lida
+   * no seu proprio `try` — uma folha que falha nao leva as outras junto
+   *
+   * O resultado e um indice por FOLHA, e nao por tile: `cores[0]` sao as cores
+   * da primeira folha, `cores[1]` as da segunda. E o que casa com o
+   * `camada.folhaDe`, que guarda o indice da folha de cada celula
    */
-  let cores = null;
+  const cores = [];
 
-  try {
-    cores = coresDosTiles(context, imagem, tileset);
-  } catch {
-    cores = null;
+  for (const folha of lista) {
+    if (!folha?.tileset || !folha.imagem) continue;
+
+    try {
+      cores.push(coresDosTiles(context, folha.imagem, folha.tileset));
+    } catch {
+      cores.push(null);
+    }
   }
 
-  if (cores) {
-    desenharCamada(context, cores, tileset, mapa.layers[0], escala);
+  if (cores.length) {
+    desenharCamada(context, cores, lista, mapa.layers[0], escala);
   }
 
   prontos.set(mapId, { canvas, largura, altura });
@@ -239,6 +256,12 @@ export function destinoDe(tileWidth, escala) {
  * nao precisa de precisao que essa escala nao mostra. De 8 em 8 pixels sao
  * 64 por tile, e a media continua sendo a mesma cor a uma fracao de cor de
  * distancia, invisivel num tile de 2.5px
+ *
+ * ## E O `tilecount` DO TILESET, E NAO O TAMANHO DA IMAGEM
+ *
+ * Porque uma folha pode ter area sobrando no fim da ultima linha, e o tile
+ * que existe nela e o que o Tiled conta. Usar a conta errada seria ler pixels
+ * de nada e guardar uma cor media errada num indice que existe
  */
 function coresDosTiles(context, imagem, tileset) {
   const tw = tileset.tileWidth;
@@ -317,8 +340,27 @@ function coresDosTiles(context, imagem, tileset) {
   return cores;
 }
 
-function desenharCamada(context, cores, tileset, camada, escala) {
-  const tw = tileset.tileWidth;
+/**
+ * UMA CAMADA, TILE A TILE, JA NA ESCALA DO MINIMAPA.
+ *
+ * ## A FOLHA DE CADA TILE VEM DO `folhaDe`
+ *
+ * Porque `gid - firstgid` so funciona com uma folha. Com varias, o indice do
+ * tile depende de QUAL folha o `gid` pertence, e essa resposta ja foi feita
+ * uma vez na carga do mapa — e o `camada.folhaDe`
+ *
+ * Reaproveitar esse indice e o que mantem o minimapa e o mapa grande com a
+ * MESMA regra: nenhum dos dois procura a folha na hora de desenhar
+ */
+function desenharCamada(context, cores, folhas, camada, escala) {
+  /**
+   * O LADO DA CELULA DA GRADE, E NAO O TILE DA FOLHA.
+   *
+   * Porque o minimapa desenha a GRADE, que e do mapa: 64x64 na base e na
+   * arena. O tamanho do tile da folha e uma propriedade da arte, e uma folha
+   * com tile de 344px (como a do NPC) mudaria o desenho do minimapa inteiro
+   */
+  const tw = camada.cellWidth ?? 64;
 
   const destino = destinoDe(tw, escala);
 
@@ -329,11 +371,17 @@ function desenharCamada(context, cores, tileset, camada, escala) {
 
       if (gid < 0) continue;
 
-      const local = gid - tileset.firstgid;
+      const indiceFolha = camada.folhaDe?.[indice] ?? 0;
 
-      if (local < 0 || local >= tileset.tilecount) continue;
+      const folha = folhas[indiceFolha]?.tileset;
 
-      const cor = cores[local];
+      if (!folha) continue;
+
+      const local = gid - folha.firstgid;
+
+      if (local < 0 || local >= folha.tilecount) continue;
+
+      const cor = cores[indiceFolha]?.[local];
 
       if (!cor) continue;
 

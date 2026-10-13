@@ -1,0 +1,17 @@
+{
+  "id": "carteira_0x25941a068252bc533c549e1fdfb50183d1c5cb21",
+  "tipo": "carteira",
+  "email": null,
+  "carteira": "carteira_0x25941a068252bc533c549e1fdfb50183d1c5cb21",
+  "diamantes": 110,
+  "unlockedSlots": 1,
+  "personagens": [
+    {
+      "id": "49236b5b-b194-4844-84ab-d7027f316673",
+      "nome": "teste",
+      "classe": "arbalist",
+      "criadoEm": 1791874159532
+    }
+  ],
+  "criadoEm": 1791874154926
+}

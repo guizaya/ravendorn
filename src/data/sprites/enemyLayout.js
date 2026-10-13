@@ -1268,33 +1268,105 @@ export const HULK_SPRITE = {
 };
 
 /**
- * O HULK DO VALE, e o mesmo desenho com o `scale` em 3.
+ * O CHEFE DO VALE, COM A ARTE DE `boss_vale/`.
  *
  * ## POR QUE UM REGISTRO NOVO, E NAO O `hulk` APONTANDO PARA O MESMO
  *
  * Porque `getEnemySprite` resolve pelo `typeId`, e o chefe do vale tem o
  * `typeId` `hulk_val`. Se os dois apontassem para o mesmo objeto, o `scale`
  * seria o mesmo e o chefe do vale sairia do mesmo tamanho do da arena — que
- * e o oposto do que ele ser maior significa
+ * e o oposto de "outra criatura"
  *
- * ## POR QUE 3, E A ARTE E A MESMA
+ * ## OS NUMEROS SAO A SAIDA DA FERRAMENTA, NAO MEDIDOS A MAO
  *
- * O desenho e a mesma folha, a mesma celula de 68, o mesmo idle e o mesmo
- * golpe. O que muda e so o multiplicador: 68 x 3 = 204px, contra os 136px
- * do jogador e os 136px do `hulk` da arena. O chefe do vale e o dobro do
- * goblin em qualquer um dos dois, e o maior desenho do jogo
+ * `tools/gif-to-sheet.mjs boss_vale` imprime estes numeros e valida a folha
+ * gerada: 200 celulas, 0 divergencia com o PNG, 0 celula encostando na borda e
+ * 0 vazia. Copiar daqui e nao da folha e o que mantem os dois lados de acordo
+ * na proxima regeracao da arte
  *
- * O comentario do `HULK_SCALE` acima diz que ir alem de 2 seria "escolha de
- * design, nao correcao" — e e escolha de design, feita agora a pedido. O
- * `3` e o unico numero que faz o chefe do centro dominar a tela
+ * ## A ESCALA E 2, E A CELULA E 168
+ *
+ * A celula nova e 168 e a antiga era 68, entao o desenho na tela vai de
+ * 68 x 2 = 136px para 168 x 2 = 336px. O chefe do vale e o maior desenho do
+ * jogo por uma margem larga — e o `radius: 96` do catalogo agora e poco mais
+ * de um quarto do corpo, entao o colisor merece revisao se o desenho ficar
+ * grande demais na tela
+ *
+ * O IDLE E POR DIRECAO, entao usa `rowOffset` e nunca `row`: com `row`, o
+ * `resolveFrameRect` leria sempre a linha 0 e o chefe parado viraria de lado
  */
-const HULK_VAL_SCALE = 3;
+const BOSS_VALE_CELL = 168;
+const BOSS_VALE_WALK_FRAMES = 8;
+const BOSS_VALE_IDLE_FRAMES = 8;
+const BOSS_VALE_IDLE_ROW_OFFSET = 8;
+const BOSS_VALE_ATTACK_FRAMES = 9;
+const BOSS_VALE_ATTACK_ROW_OFFSET = 16;
+const BOSS_VALE_SCALE = 2;
 
-export const HULK_VAL_SPRITE = {
-  ...HULK_SPRITE,
-  scale: HULK_VAL_SCALE,
+export const BOSS_VALE_SPRITE = {
+  ...createDirectionalSpriteDefinition("boss_vale", SEM_IMAGEM, {
+    directions: ARBALIST_DIRECTIONS,
+
+    /**
+     * O mesmo balanco de 2px do `hulk`, e pelo mesmo motivo: o chefe e grande
+     * e anda devagar, e amplitude maior com `scale` grande empurra o desenho
+     * para fora da propria celula a cada passo
+     */
+    walkBob: { amplitude: 2, frequency: 0.8 },
+
+    scale: BOSS_VALE_SCALE,
+
+    animations: {
+      idle: {
+        rowOffset: BOSS_VALE_IDLE_ROW_OFFSET,
+        start: 0,
+        length: BOSS_VALE_IDLE_FRAMES,
+        fps: HULK_IDLE_FPS,
+      },
+
+      walk: {
+        start: 0,
+        length: BOSS_VALE_WALK_FRAMES,
+        fps: HULK_WALK_FPS,
+      },
+
+      /**
+       * O GOLPE, sem `needsTarget`.
+       *
+       * Corpo a corpo: o golpe e um `./target` na frente dele. Com a exigencia
+       * ele levantaria o braco para o ar toda vez que entrasse na janela sem
+       * alvo mirado — e no chefe a janela e quase sempre
+       */
+      attack: {
+        rowOffset: BOSS_VALE_ATTACK_ROW_OFFSET,
+        start: 0,
+        length: BOSS_VALE_ATTACK_FRAMES,
+        fps: HULK_ATTACK_FPS,
+      },
+    },
+  }),
+
+  frameWidth: BOSS_VALE_CELL,
+  frameHeight: BOSS_VALE_CELL,
+
+  /**
+   * A ANCORA E A DA FERRAMENTA: 83.5 de X e 142 de Y numa celula de 168.
+   *
+   * O `Y` de 142 e a linha do PE — a arte desenhada termina ali, e o resto da
+   * celula embaixo e transparente. E o que faz o chefe ficar com o pe no
+   * chao em vez de afundar nele
+   */
+  anchorX: 83.5,
+  anchorY: 142,
 };
 
+/**
+ * O HULK DO VALE AGORA USA A ARTE PROPRIA.
+ *
+ * O registro antigo — `...HULK_SPRITE` com `scale: 3` — foi removido: a folha
+ * e a celula mudaram, e reaproveitar a folha do `hulk` da arena deixaria dois
+ * chefes com a mesma cara
+ */
 export const ENEMY_SPRITES = {
   ...Object.fromEntries(
     Object.entries(ESCALA).map(([id, scale]) => [
@@ -1370,12 +1442,14 @@ export const ENEMY_SPRITES = {
   /**
    * O HULK DO VALE, o `typeId` novo que o chefe do centro usa.
    *
-   * Aponta para o `HULK_VAL_SPRITE` de escala 3 — o mesmo desenho do
-   * `hulk` acima, um multiplicador maior. Sem esta linha o
-   * `getEnemySprite("hulk_val")` devolveria `null` e o chefe apareceria
-   * sem arte nenhuma
+   * Aponta para o `BOSS_VALE_SPRITE`: a arte de `boss_vale/`, celula de 168 e
+   * escala 2. Antes apontava para o `HULK_SPRITE` com escala 3 — a mesma
+   * folha da arena, o que deixava os dois chefes com a mesma cara
+   *
+   * Sem esta linha o `getEnemySprite("hulk_val")` devolveria `null` e o chefe
+   * apareceria sem arte nenhuma
    */
-  hulk_val: HULK_VAL_SPRITE,
+  hulk_val: BOSS_VALE_SPRITE,
 };
 
 export function getEnemySprite(creatureId) {

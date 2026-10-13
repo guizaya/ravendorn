@@ -14,7 +14,17 @@ import { mostrarDano } from "../../game/combat/DanoVisual.js";
 export default function TestMapScene({
   classDefinition,
   characterName,
+  tokenDeEntrada,
   onBack,
+
+  /**
+   * O MUNDO JA DESENHOU, e o front precisa saber.
+   *
+   * E um repasse puro: quem descobre do chao pronto e o `GameCanvas`, e quem
+   * fala com o pai do iframe e o `App`. Esta tela fica no meio das duas e nao
+   * tem opiniao sobre quando o mapa esta pronto
+   */
+  onMundoPronto = null,
 }) {
   const engineRef = useRef(null);
   const [estado, setEstado] = useState(null);
@@ -47,6 +57,7 @@ export default function TestMapScene({
   const rede = useGameClient({
     classDefinition,
     characterName,
+    tokenDeEntrada,
     onState: handleState,
     onDano: handleDano,
   });
@@ -59,6 +70,7 @@ export default function TestMapScene({
         engineRef={engineRef}
         estado={estado}
         onIntent={rede}
+        onMundoPronto={onMundoPronto}
       />
 
       <p className="game-connection" role="status">

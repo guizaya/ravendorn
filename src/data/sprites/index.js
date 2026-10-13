@@ -139,11 +139,11 @@ const LANCER_SHEET = new URL(
  * linhas de animacao, e aqui so entra o que o cliente tem a mais — a
  * URL e a caixa do desenho.
  *
- * O guerreiro nao repete nenhum numero. Copiar a celula de 68, a
- * ancora de 55 e as linhas 8 e 9 aqui seria três chances de este
- * arquivo ficar para tras, e a falha seria silenciosa: cada
- * `drawImage` recortaria a folha no lugar errado e o boneco
- * apareceria deslocado, sem nada no console
+ * O guerreiro nao repete nenhum numero. Copiar a celula, a
+ * ancora e as linhas de animacao aqui seria tantas chances de este
+ * arquivo ficar para tras quantas forem as medidas, e a falha seria
+ * silenciosa: cada `drawImage` recortaria a folha no lugar errado e
+ * o boneco apareceria deslocado, sem nada no console
  *
  * O arquiro ainda repete, e nao porchoice: ele foi o primeiro e a
  * duplicacao dele vem de antes desta conversa. Quem trocar o
@@ -154,19 +154,30 @@ export const WARRIOR_SPRITE = {
   src: WARRIOR_SHEET,
 
   /**
-   * A caixa do DESENHO dentro da celula de 68x68, medida do PNG.
+   * A caixa do DESENHO dentro da celula de 96x96, medida do PNG.
    *
-   * O guerreiro ocupa 50x45: 9px de margem transparente de cada
-   * lado, 11 em cima e 13 embaixo. E o `contentBox` que deixa o
-   * retrato da tela de selecao com a arte preenchendo o quadrado e
-   * centrada no PERSONAGEM, e nao na margem
+   * ## POR QUE SUBIU DE 50x45 PARA 49x63
    *
-   * A caixa cobre o idle INTEIRO, os oito quadros. A arte muda de
-   * largura de quadro para quadro (o peso da espada entra e sai) e a
-   * caixa e a maior de todos: um quadro mais estreito sai com mais
-   * transparente de cada lado, o que nao aparece
+   * E a UNIAO DO IDLE INTEIRO, as oito direcoes e os oito quadros de cada
+   * uma — a mesma regra que o lancer e o sorcerer seguem, e a mesma do
+   * `idleUnion()` dos testes deles
+   *
+   * A largura ficou parecida e a altura quase dobrou, porque a celula subiu
+   * de 68 para 96: a arte antiga ocupava 50x45 com 11px de margem em cima e
+   * 13 embaixo, e a nova ocupa dos pixels 14 aos 76 — o desenho vai ate bem
+   * mais perto do pe da celula
+   *
+   * E o `contentBox` que faz o retrato da tela de selecao pegar o DESENHO e
+   * nao a margem transparente: sem ele o boneco sairia pequeno, com vao de
+   * cada lado
+   *
+   * ## E NAO A MAIOR DE TODAS AS LANES
+   *
+   * O `attack/south` e largo (9..90) porque a espada sai do corpo. Pegar a
+   * union dele aqui espremeria o idle, que e o retrato, e a arte apareceria
+   * pequena. E o que os outros dois fazem
    */
-  contentBox: { x: 9, y: 11, width: 50, height: 45 },
+  contentBox: { x: 25, y: 14, width: 49, height: 63 },
 };
 
 /**
@@ -181,25 +192,30 @@ export const SORCERER_SPRITE = {
   src: SORCERER_SHEET,
 
   /**
-   * A caixa do DESENHO dentro da celula de 132x132, medida do PNG.
+   * A caixa do DESENHO dentro da celula de 96x96, medida do PNG.
    *
-   * ## POR QUE MUDOU COM A ARTE NOVA
+   * ## POR QUE MUDOU DE NOVO COM A ARTE NOVA
    *
-   * A caixa antiga era de uma celula de 68 com arte de 41x47. A arte nova
-   * ocupa 112x102 numa celula de 132, e a caixa antiga deixaria de envolver o
-   * personagem: o retrato da tela de selecao mostraria o boneco cortado
+   * A caixa anterior (7, 13, 112x102) era de uma celula de 132 com arte de
+   * 128: na celula de 96 ela passaria da borda e o retrato mostraria o boneco
+   * cortado
    *
    * E e a UNICA coisa que esta caixa faz: e ela que enche o quadrado do
    * retrato com o PERSONAGEM, e nao com a margem transparente. Sem ela, o
    * sorcerer sairia pequeno e levemente alto no retrato
    *
-   * ## E POR QUE A MAIOR DE TODOS OS QUADROS
+   * ## E A MAIOR DE TODOS OS QUADROS, INCLUINDO A MINERACAO
    *
-   * Porque o cajado entra e sai de lado a lado, e o golpe e o ciclo que mais
-   * alarga. Medir num quadro de caminhada daria uma caixa estreita, e o
-   * cajado do golpe sairia cortado pela metade
+   * Medida nos 32 grupos de 8 direcoes da folha: `walk` vai de x=23 a 71,
+   * `idle` de 19 a 75, `attack` de 12 a 83 e `mining` de 7 a 79. A uniao e
+   * 7..83 em X e 10..84 em Y
+   *
+   * A `mining` e a que manda nos dois extremos: o cajado entra de lado a
+   * lado e o movimento de baixo levanta o boneco. Medir num quadro de
+   * caminhada daria uma caixa estreita, e o cajado da picareta sairia
+   * cortado pela metade
    */
-  contentBox: { x: 7, y: 13, width: 112, height: 102 },
+  contentBox: { x: 7, y: 10, width: 77, height: 75 },
 };
 
 /**

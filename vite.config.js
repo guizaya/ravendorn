@@ -1,4 +1,5 @@
 import { readFile } from "node:fs/promises";
+import { resolve } from "node:path";
 import { defineConfig } from "vite";
 import react from "@vitejs/plugin-react";
 
@@ -35,8 +36,19 @@ function tiledTmj() {
   };
 }
 
-export default defineConfig({
-  plugins: [react(), tiledTmj()],
+export default defineConfig(({ mode }) => {
+  /**
+   * PRODUCAO OU DESENVOLVIMENTO.
+   *
+   * O `mode` e o que o `vite build --mode production` passa, e e o que
+   * diferencia o build que vai para o servidor do build local. Ler o
+   * `NODE_ENV` do ambiente nao funciona: ele nem sempre esta setado, e o Vite
+   * nao garante que chegue na hora da config
+   */
+  const producao = mode === "production";
+
+  return {
+    plugins: [react(), tiledTmj()],
 
   test: {
     // o painel de craft e a tela de selecao tem estado proprio:
@@ -80,6 +92,90 @@ export default defineConfig({
 
   build: {
     outDir: "dist",
-    sourcemap: true,
+
+    /**
+     * SOURCEMAP SO EM DESENVOLVIMENTO.
+     *
+     * ## POR QUE ISTO E O QUE MAIS IMPORTA
+     *
+     * O `.map` publica o codigo ORIGINAL ao lado do bundle: os nomes das
+     * funcoes, as variaveis, os comentarios, a estrutura de pastas. E o
+     * `sourcemap: true` de antes colocava um `jogo.html.map` de 4MB no
+     * `dist/`, servido junto com o jogo
+     *
+     * Quem quise ler o codigo pegava esse arquivo e tinha o fonte inteiro,
+     * identico ao que esta no disco — a ofuscacao do bundle nao serviria
+     * para nada, porque o original continuava publicado do lado
+     *
+     * ## E POR QUE ISSO E MAIS VALIOSO QUE OFUSCACAO
+     *
+     * A ofuscacao atrapalha a leitura por minutos. Tirar o sourcemap
+     * elimina a forma mais facil de ler — que e clicar no arquivo. Por isso
+     * a ordem correta e esta primeiro
+     *
+     * ## E O QUE SE PERDE
+     *
+     * O rastreamento de pilha em producao passa a mostrar a posicao no
+     * bundle, e nao no arquivo original. E o preco justo: nenhum stack trace
+     * de jogador vale publicar o codigo
+     *
+     * Para developing, o `vite dev` nao usa nada disso — o sourcemap de la vem
+     * do Vite e cobre o fonte em tempo real
+     */
+    sourcemap: !producao,
+
+    /**
+     * MINIFICACAO MAIS AGRESSIVA EM PRODUCAO.
+     *
+     * O padrao do esbuild ja remove espacos e nomes locais. Subir para
+     * `minifyIdentifiers` e `minifySyntax` derruba mais: nomes de variaveis
+     * locais viram uma letra, e expressoes que so servem para depurar saem
+     *
+     * `minifyWhitespace` fica desligado porque o esbuild ja faz isso, e pedir
+     * duas vezes so deixa o build mais lento
+     */
+    minify: producao ? "esbuild" : false,
+
+    esbuild: {
+      /**
+       * O QUE O ESBUILD CONSERVA DEPOIS DE MINIFICAR.
+       *
+       * `keepNames` e `false` porque e ele que mantem o nome original das
+       * classes e funcoes no bundle. Desligado, `PlayerSession` vira `a` e
+       * `criarPersonagem` vira `n` — e o DevTools perde a leitura, que e o
+       * objetivo
+       */
+      keepNames: false,
+
+      legalComments: "none",
+    },
+
+    /**
+     * OS DOIS ENTRY POINTS.
+     *
+     * - `index.html` e a página do jogo, aberta de um navegador
+     * - `jogo.html` e a MESMA página, mas dentro do iframe do site
+     *
+     * Os dois montam o mesmo `main.jsx` e produzem o mesmo bundle. A
+     * diferenca esta no `main.jsx`: ele detecta que esta dentro de um iframe
+     * (via `window.parent !== window`) e passa a falar com o site por
+     * `postMessage` — avisando que montou, e recebendo o token de entrada
+     *
+     * ## POR QUE NAO SÓ UM
+     *
+     * Porque um unico `index.html` aberto direto no navegador precisa
+     * funcionar: e assim que se develope o jogo sem passar pelo site. E o
+     * `jogo.html` separado deixa o iframe obivio, sem condicional de URL
+     *
+     * E o `index.html` que o site NAO usa — o iframe aponta para
+     * `jogo.html`
+     */
+    rollupOptions: {
+      input: {
+        index: resolve(process.cwd(), "index.html"),
+        jogo: resolve(process.cwd(), "jogo.html"),
+      },
+    },
   },
+  };
 });

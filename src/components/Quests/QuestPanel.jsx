@@ -1,32 +1,7 @@
 import { useEffect, useState } from "react";
 
-/**
- * O NOME LEGIVEL DE CADA PAINEL, para o botao do tutorial.
- *
- * E um mapa e nao um rotulo generico ("ABRIR") porque o botao que abre o
- * CRAFT e o que abre a COLECAO precisam dizer onde vao. Um "ABRIR" em sete
- * botoes identicos obriga o jogador a lembrar o nome de cada aba, que e
- * exatamente o que o tutorial deveria ensinar
- *
- * A chave e o `PAINEL` do `HUD`, e o valor e o que o `data/quests`
- * declara como `painel` no passo
- */
-const ROTULO_DO_PAINEL = {
-  craft: "ABRIR CRAFT",
-  enchant: "ENCANTAR",
-  collection: "COLEÇÃO",
-  loja: "LOJA",
-};
+import { ROTULO_DO_PAINEL } from "./rotuloDoPainel.js";
 
-/**
- * O MESMO MAPA, EXPORTADO.
- *
- * E a MISMA fonte para o botao do tutorial no painel e o da box da HUD.
- * Sao dois botoes para a mesma acao: se um disser "ABRIR CRAFT" e o outro
- * "ABRIR", o jogador leria como dois botoes diferentes para coisas
- * diferentes
- */
-export { ROTULO_DO_PAINEL };
 /**
  * A WALKTHROUGH INTERATIVA DO TUTORIAL.
  *

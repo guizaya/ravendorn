@@ -13,26 +13,36 @@ import { NPC_SHEETS } from "../npc/sheets.js";
  *
  * As tres diferencas, e cada uma por um motivo:
  *
- *   1. **Sem portal.** A arena e um destino, nao uma parada: um portal
+*   1. **Sem portal.** A arena e um destino, nao uma parada: um portal
  *      aqui ofereceria uma viagem para fora de um lugar que nao tem para
  *      onde ir. Quem traz o jogador para dentro e um portal de outro mapa
  *   2. **Sem mercador.** Um mercado de pocao dentro da arena e uma
  *      compra no meio da briga, e o preco da pocao que salva a vida
  *      decide a luta
- *   3. **O limite e um CIRCULO.** E a diferenca que da o nome ao mapa: a
- *      arena e uma arena, e o limite reto de um retangulo denunciaria o
- *      retangulo
  *
- * ## O PORQUE DO CIRCULO ESTAR EM `boundsCircle`, E NAO EM `bounds`
+ * ## ONDE A BARREIRA VIVE AGORA
  *
- * `bounds` e um retangngulo, e tem leitores em tres lugares — o colisor, a
- * grade de navegacao e o teste. Trocar o formato dele obrigaria os tres a
- * mudarem junto, e o `bounds` de todos os outros mapas pararia de
- * funcionar
+ * A arena **nao tem** barreira em codigo. Ela saiu do `boundsCircle`, e a
+ * parede que fecha o combate e desenhada no `boss_1.tmj`, numa camada de
+ * objeto chamada `PAREDES` — que o `colisaoTiled` le e o colisor consome
  *
- * `boundsCircle` e um campo A MAIS, que o colisor usa quando existe. Um
- * mapa sem ele continua exatamente como era — e a arena e o primeiro
- * mapa a declarar
+ * ## POR QUE A BARREIRA SAIU DE CODIGO
+ *
+ * Porque o circulo nao fechava a arena, e o jogador via o motivo. O raio
+ * era a METADE DA ALTURA (588) para caber inteiro no mapa, e o mapa e
+ * 1680 de largura: sobrava uma faixa de 252px de cada lado onde o jogador
+ * via o piso e nao podia chegar. O circulo nao era a arena — era um
+ * circulo desenhado DENTRO de um retangulo, e o retangulo aparecia
+ *
+ * ## POR QUE AS PAREDES VAO NO TILED E NAO EM UM `solids` FIXO
+ *
+ * Porque `bounds` ja segura o jogador dentro do mundo, e o que faltava era
+ * a forma da sala. No Tiled essa forma e desenhada junto com o chao: o que
+ * se ve e o que barra saem do mesmo arquivo, entao nao existe parede invisivel
+ * nem buraco no chao onde o jogador atravessa
+ *
+ * E o `boss_1.tmj` e aberto no Tiled de proposito — e para voce montar a sala
+ * la, tile por tile
  */
 /**
  * O ID DESTA ARENA.
@@ -46,19 +56,47 @@ import { NPC_SHEETS } from "../npc/sheets.js";
  */
 export const BOSS_1_ID = "boss_1";
 
-export const BOSS_1_WIDTH = 1680;
-export const BOSS_1_HEIGHT = 1176;
+/**
+ * O TAMANHO DA ARENA, E ELE VEM DO `.tmj`.
+ *
+ * ## POR QUE SAO 26 E 18, E NAO OS 27 E 19 DO COMECO
+ *
+ * Porque a arena foi desenhada no Tiled com 26 colunas e 18 linhas de tile
+ * de 64 — 1664x1152 — e o `bounds` precisa ser EXATAMENTE o que o tile
+ * desenha. Antes ele era 1680x1176, e sobravam 16px a direita e 24px embaixo
+ * onde o jogador via o fundo e ainda andava
+ *
+ * ## POR QUE MULTIPLICAR E NAO ESCREVER O NUMERO
+ *
+ * Porque o `.tmj` e quem manda, e o `tilewidth` dele e quem diz o tamanho
+ * do tile. Se voce resizear a arena no Tiled, aqui e um lugar so a mudar
+ *
+ * ## E POR QUE O `bounds` PRECISA BATER EXATO
+ *
+ * Porque ele e o que segura o jogador dentro do mundo. Um `bounds` maior
+ * que o piso deixa o boneco andar no vazio; um menor deixa uma faixa de
+ * tile morta, que ele ve e nao alcança — que era a metade do defeito do
+ * circulo
+ */
+export const BOSS_1_WIDTH = 26 * 64;
+export const BOSS_1_HEIGHT = 18 * 64;
 
 /**
- * O RETANGULO que envolve o circulo.
+ * O RETANGULO DO MUNDO.
  *
- * Ele existe porque `bounds` nao pode faltar: a grade de navegacao le
- * `map.width ?? map.bounds.width` para saber o tamanho do mundo, e um
- * `bounds` ausente daria `undefined` la dentro
+ * ## ELE NAO E A BARREIRA DA ARENA
  *
- * O retangulo e o circumscrevente do circulo: os mesmos 1680x1176 do
- * hub, sem a margem de 40. O circulo e que manda na barreira — este
- * retangulo so existe para os calculos que ainda sao retangulares
+ * Antes este retangulo era o circumscrevente de um circulo, e a confusao
+ * entre os dois era o defeito. Agora ele e so a BORDA DO MAPA: impede que o
+ * jogador saia andando para fora do `.tmj` e caia no vazio, e nada mais
+ *
+ * ## POR QUE ELE NAO PODE FALTAR
+ *
+ * Porque a grade de navegacao le `map.width ?? map.bounds.width` para saber
+ * o tamanho do mundo, e um `bounds` ausente daria `undefined` la dentro
+ *
+ * A sala em si e desenhada no Tiled. Este retangulo e a unica coisa
+ * segurando o jogador no mundo, e ele e o mesmo nos dois modos
  */
 export const BOSS_1_BOUNDS = {
   x: 0,
@@ -70,42 +108,13 @@ export const BOSS_1_BOUNDS = {
 /**
  * O CENTRO da arena.
  *
- * E o meio do mapa, que e o meio do retangulo circumscrevente. Um
- * circulo fora do centro deixaria a borda mais perto de um lado que do
- * outro, e o jogador sentiria a arena "torta" sem saber porque
+ * E o meio do mapa. Sem o circulo, ele deixou de ser o circuncentro de uma
+ * curva e virou o ponto onde o chefe nasce e de onde o jogador encara a
+ * luta — que e a unica coisa que um centro precisa ser aqui
  */
 export const BOSS_1_CENTER = {
   x: Math.round(BOSS_1_WIDTH / 2),
   y: Math.round(BOSS_1_HEIGHT / 2),
-};
-
-/**
- * O RAIO DA ARENA.
- *
- * E a METADE DA ALTURA, e nao metade da largura: o circulo tem que
- * CABER inteiro na altura do mapa, entao o diametro nao pode passar de
- * 1176. Usar metade da largura daria um circulo de 1680 de diametro, com
- * 252px de cada lado cortados pelo limite retangular do `bounds`
- *
- * Sao 588 de raio num mapa de 1680x1176: sobra uma faixa de calcamento
- * fora do circulo em cima, embaixo e dos lados. E essa faixa que fica
- * morta — o jogador ve o chao alem da barreira e nao consegue chegar
- * ate ele, e e o que faz o limite parecer uma borda e nao um corte seco
- */
-export const BOSS_1_RADIUS = Math.round(BOSS_1_HEIGHT / 2);
-
-/**
- * O LIMITE CIRCULAR.
- *
- * `x` e `y` sao o CENTRO, e nao o canto superior esquerdo como no
- * `bounds`. A nomeacao e proposital: um `x` que significa "canto" num
- * objeto e "centro" no outro, no mesmo mapa, seria o tipo de coisa que
- * alguem leria errado daqui a um mes
- */
-export const BOSS_1_BOUNDS_CIRCLE = {
-  x: BOSS_1_CENTER.x,
-  y: BOSS_1_CENTER.y,
-  radius: BOSS_1_RADIUS,
 };
 
 /**
@@ -127,8 +136,8 @@ export const BOSS_1_BOUNDS_CIRCLE = {
  * arena nao tem escolha nenhuma, e uma luta que comeca sem o jogador
  * escolher e so um espirito deAccept
  *
- * E o valor cabe folgado dentro do circulo: o nascimento fica a 268px do
- * limite, e o boneco inteiro cabe com folga
+ * E o valor cabe folgado dentro da arena: o nascimento fica bem longe da
+ * parede que voce desenhar no Tiled, e o boneco inteiro cabe com folga
  */
 export const BOSS_1_DISTANCIA_DO_SPAWN = 320;
 
@@ -161,12 +170,16 @@ export const BOSS_1_MAP = {
   bounds: BOSS_1_BOUNDS,
 
   /**
-   * A TRAVA CIRCULAR, que e o que o colisor usa no lugar do retangulo.
+   * SEM `boundsCircle`: A SALA E DESENHADA NO TILED.
    *
-   * Esta linha e a razao do mapa existir: sem ela a arena seria o hub
-   * com outro chao
+   * Este campo era o que desenhava a arena, e ele nao fechava: o circulo de
+   * raio 588 deixava 252px de cada lado onde o jogador via o piso e nao
+   * podia chegar. A parede que fecha o combate agora e um retangulo seu na
+   * camada de objeto `PAREDES` do `boss_1.tmj` — e o `colisaoTiled` le ela
+   *
+   * Sem este campo, o `CollisionSystem` cai no `bounds`: uma conta por
+   * eixo, que e exatamente o que uma sala quadrada precisa
    */
-  boundsCircle: BOSS_1_BOUNDS_CIRCLE,
 
   /**
    * O FUNDO, so se a folha do chao falhar ao carregar.
@@ -199,26 +212,27 @@ export const BOSS_1_MAP = {
    */
   cameraZoom: 1 / 0.7,
 
-  /**
-   * O SORCERER DESTA ARENA, COM O MESMO TAMANHO DO MAPA 1.
+/**
+   * A ESCALA DESTE MAPA, COM A ARTE NOVA DO SORCERER.
    *
-   * ## A CONTA, E POR QUE O NUMERO NAO E O DO MAPA 1
+   * ## A CONTA
    *
-   * O alvo e o mesmo 67.7px do vale, mas este mapa tem `cameraZoom` de 1.43,
-   * e o zoom multiplica o personagem junto com o resto da arena. O fator e o
-   * que sobra depois que o zoom ja agiu:
+   * O alvo e o mesmo 67.7px do vale, e a camera da arena tem zoom de 1.43.
+   * Com a arte nova o sorcerer sai de `62 * 1.1 = 68.2px`, entao o fator e
    *
-   *     67.7 / (62.7 x 1.43) = 0.755
+   *     67.7 / 68.2 = 0.993
    *
-   * E por isso que aqui o fator e MENOR que 1 enquanto no mapa 1 ele e maior:
-   * o mesmo destino, alcancado por caminhos opostos
+   * E o MESMO numero do vale, e e por isso que os dois foram atualizados
+   * juntos: as duas contas comecam no mesmo tamanho alvo, com o mesmo zoom
+   * efetivo por causa do `cameraZoom` identico
    *
    * ## E NAO A ESCALA DA CLASSE
    *
-   * Porque a base depende do proprio `escalaSprites` para o sorcerer sair do
-   * tamanho do arqueiro, e mexer na `SORCERER_SCALE` arrastaria a base junto
+   * Porque a base tem a exigencia propria de deixar o sorcerer do mesmo
+   * tamanho do arqueiro no hub, e mexer na escala da CLASSE arrastaria a base
+   * junto
    */
-  escalaSprites: { sorcerer: 0.755 },
+  escalaSprites: { sorcerer: 0.993 },
 
   /**
    * A SEMENTE do sorteio.
@@ -245,10 +259,9 @@ export const BOSS_1_MAP = {
    *
    * ## UM SO, E NO MEIO
    *
-   * A arena e circular e o jogador entra pelo meio. O chefe no centro
-   * faz a luta comecar no instante em que o jogador aparece na arena, e
-   * nao depois de ele andar ate o fundo para descobrir que ha alguem
-   * la
+   * O jogador entra pelo meio. O chefe no centro faz a luta comecar no
+   * instante em que o jogador aparece na arena, e nao depois de ele andar
+   * ate o fundo para descobrir que ha alguem la
    *
    * ## O `bosses` E SEPARADO DAS ZONAS
    *

@@ -58,12 +58,48 @@ export default function PortalBox({
   */
   const chefe = bloqueado ? (portal.chefe ?? null) : null;
 
+  /**
+   * O JOGADOR PODE ENTRAR NA ARENA?
+   *
+   * `true` e o estado normal deste botao: o jogador esta no degrau do chefe
+   * e o clique vai lutar. `false` e o caso que faltava ser tratado — o
+   * portal esta selado e o botao seguia levando para a arena assim mesmo,
+   * porque o `onClick` nao conferia nada
+   *
+   * ## POR QUE `false` NAO E `disabled`
+   *
+   * Porque um botao `disabled` NAO dispara clique: o aviso vermelho nunca
+   * apareceria, e o jogador ficaria apertando algo morto sem nunca saber o
+   * porque. O botao continua clicavel e e o clique que vira aviso — com o
+   * servidor recusando e mandando a frase, que e o mesmo caminho de qualquer
+   * outra recusa de viagem
+   *
+   * `aria-disabled` e o que diz a um leitor de tela que o botao nao leva
+   * a lugar nenhum, sem tirar o clique
+   */
+  const arenaLiberada = portal.entradaArena?.ok === true;
+
   return (
     <div
       className={[
         "prt-box",
         bloqueado ? "is-locked" : "",
-        chefe ? "is-chefe" : "",
+
+        /*
+          A CLASSE DO CHEFE E `prt-box--chefe`, e nao `is-chefe`.
+
+          A primeira versao deste componente escrevia `is-chefe`, e o CSS
+          procura `.prt-box--chefe`: a regra nunca casou. O botao do chefe
+          ficava sem cor de chefe e caia no cinza do `is-locked`, com
+          `cursor: not-allowed` — parecendo morto — e mesmo assim levava
+          para a arena. A aparencia e o comportamento sao o mesmo objeto, e
+          so um dos dois estava ligado
+
+          E ela so entra quando o botao REALMENTE luta. Com a missao do
+          chefe ainda nao chegada, quem entra e a de baixo
+        */
+        chefe && arenaLiberada ? "prt-box--chefe" : "",
+        chefe && !arenaLiberada ? "is-chefe-bloqueado" : "",
       ]
         .filter(Boolean)
         .join(" ")}
@@ -75,45 +111,65 @@ export default function PortalBox({
         {chefe ? "Portal do chefe" : bloqueado ? "Portal selado" : "Portal"}
       </p>
 
-      <p className="prt-box__name">{portal.nome}</p>
+      <p className="prt-box__name prt-box__name--linha">
+        <span>{portal.nome}</span>
+
+        {/*
+          O BOTAO, NA MESMA LINHA DO NOME DO MAPA.
+
+          ## POR QUE ELE SAIU PARA DEBAIXO
+
+          Porque ele ocupava uma linha inteira da box, colado na borda
+          inferior e longe do rotulo que ele executa. O jogador lia "Portal",
+          lia o mapa, e so depois achava o botao: tres blocos para uma acao
+          que cabe ao lado do destino
+
+          ## POR QUE SO "IR"
+
+          Porque o botao nao precisa repetir o que ele faz. O rotulo acima ja
+          diz "Portal" e o `data-tip` continua explicando. "IR" e o verbo que
+          falta, e e o que cabe na largura que sobra ao lado do mapa
+
+          ## E QUANDO ESTA SELADO
+
+          O botao continua desligado e sem "IR": ali o texto e a informacao,
+          porque nao ha clique possivel
+        */}
+        {chefe ? (
+          <button
+            type="button"
+            className="prt-box__go prt-box__go--chefe"
+            onClick={() => onChefe?.()}
+            aria-disabled={!arenaLiberada}
+            data-tip={
+              arenaLiberada
+                ? `Enfrentar ${chefe.nome ?? "o chefe"}`
+                : (portal.entradaArena?.motivo ??
+                  "Termine a missao do chefe para entrar na arena.")
+            }
+          >
+            IR
+          </button>
+        ) : (
+          <button
+            type="button"
+            className="prt-box__go"
+            onClick={() => onTravel?.(portal.id)}
+            disabled={bloqueado}
+            data-tip={bloqueado ? (portal.motivo ?? "Bloqueado") : "Atravessar"}
+          >
+            {bloqueado ? "Selado" : "IR"}
+          </button>
+        )}
+      </p>
 
       {bloqueado && (
         <p className="prt-box__lock" role="status">
-          {portal.motivo ?? "Este portal ainda nao se abriu."}
+          {chefe && !arenaLiberada
+            ? (portal.entradaArena?.motivo ??
+              "Voce precisa estar na missao do chefe para entrar na arena.")
+            : (portal.motivo ?? "Este portal ainda nao se abriu.")}
         </p>
-      )}
-
-      {/*
-        O BOTAO DO CHEFE SUBSTITUI O "SELADO".
-
-        E o mesmo lugar do botao de atravessar, e pelo mesmo motivo: a box
-        tem um lugar so para a acao, e a acao deste portal NAO e atravessar.
-        Um botao de atravessar cinza ao lado de um botao de enfrentar seria
-        dois botoes para a mesma duvida
-
-        E ele nao substitui o portal: o jogador volta da arena e ainda esta
-        aqui, com a missao feita e o "Atravessar" no lugar de onde o "Enfrentar"
-        estava
-      */}
-      {chefe ? (
-        <button
-          type="button"
-          className="prt-box__go prt-box__go--chefe"
-          onClick={() => onChefe?.()}
-          data-tip={`Enfrentar ${chefe.nome ?? "o chefe"}`}
-        >
-          Enfrentar o chefe
-        </button>
-      ) : (
-        <button
-          type="button"
-          className="prt-box__go"
-          onClick={() => onTravel?.(portal.id)}
-          disabled={bloqueado}
-          data-tip={bloqueado ? (portal.motivo ?? "Bloqueado") : "Atravessar"}
-        >
-          {bloqueado ? "Selado" : "Atravessar"}
-        </button>
       )}
     </div>
   );

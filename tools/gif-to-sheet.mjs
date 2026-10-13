@@ -267,8 +267,36 @@ export const SHEETS = {
   warrior: {
     sourceDir: "src/assets/sprites/warrior",
     output: "src/assets/sprites/warrior-sheet.png",
-    frameSize: 68,
+    /**
+     * A CELULA DE 96 PARA UMA ARTE DE 92.
+     *
+     * A arte nova mede ate 92x92 — o `attack/north` e o `mining` saem com 92, e
+     * o `idle` e o `walk` com 88, e duas diagonais do idle com 84. Uma celula
+     * de 92 faria a arte ENCOSTAR na propria borda, e a ferramenta recusa a
+     * folha: sem 2px de folga o desenho pode vazar para a celula vizinha
+     *
+     * E 96 pelo mesmo motivo do arquiro, que tem a mesma arte de 92 numa
+     * celula de 96. Os quatro pixels que sobram entram preenchidos de
+     * transparente: a arte nao e redimensionada nem cortada
+     */
+    frameSize: 96,
     prefix: "WARRIOR",
+
+    /**
+     * A ARTE NOVA, COM AS QUATRO PASTAS.
+     *
+     * Antes o idle era um gif unico na raiz, chamado `indle.gif`, e o
+     * `idleFile` declarava esse nome. Agora sao oito gifs em `idle/`, um por
+     * angulo — a mesma forma que o arquiro e o sorcerer usam — entao o que
+     * vale e o `idleDir`, e o `idleFile` sai
+     *
+     * E entra `mining: true`: o guerreiro ganhou a picareta, e sem a flag a
+     * ferramenta nem procuraria a pasta e a folha sairia sem a linha do
+     * ciclo
+     */
+    walkDir: "walk",
+    idleDir: "idle",
+    mining: true,
 
     /**
      * O golpe do guerreiro esta em `attack/`, e nao em `shoot/`.
@@ -280,48 +308,45 @@ export const SHEETS = {
      * folha contem
      */
     shootDir: "attack",
-
-    /**
-     * O idle do guerreiro se chama `indle.gif`, com o `d` trocado
-     * pelo `i`.
-     *
-     * Declarar o nome real aqui em vez de renomear o arquivo: a arte
-     * de origem e do usuario, e um nome equivalente nao muda o que a
-     * folha le. O padrao `idle` continua valendo para as outras
-     * folhas
-     */
-    idleFile: "indle",
   },
 
-  sorcerer: {
-    sourceDir: "src/assets/sprites/sorcerer",
-    output: "src/assets/sprites/sorcerer-sheet.png",
+sorcerer: {
+      sourceDir: "src/assets/sprites/sorcerer",
+      output: "src/assets/sprites/sorcerer-sheet.png",
 
-    /**
-     * A CELULA DE 68 PASSOU A SER DE 132, E A FOLHA MUDOU DE 9 PARA 24 LINHAS.
-     *
-     * ## POR QUE 132 E NAO 68, NEM OS 96 DO ARQUEIRO
-     *
-     * A arte nova e grande: os gifs saem em 128x128 e 132x132. A ferramenta
-     * compara o GIF INTEIRO com a celula e recusa o que for maior, porque
-     * encolher seria cortar pixel de arte. Nos 68 antigos a geracao parava na
-     * primeira lane, e nos 96 do arqueiro pararia tambem — por 36 pixels
-     *
-     * ## E POR QUE ISSO NAO DEIXA O SORCERER GIGANTE NA TELA
-     *
-     * Porque o tamanho na tela nao e a celula: e a celula vezes a `scale` do
-     * layout. Com 132 de celula, a `scale` do sorcerer tem de compensar, e o
-     * `SORCERER_SCALE` em `src/data/sprites/layout.js` faz exatamente isso
-     *
-     * ## E POR QUE NAO O 96 DO ARQUEIRO
-     *
-     * Porque o 96 e o menor tamanho que cabe na arte do ARQUEIRO, que mede
-     * 92. Copiar o numero por simetria faria a ferramenta recusar esta folha
-     * — e um `frameSize` errado e um erro de CONFIGURACAO, que a ferramenta
-     * acusa na hora, e nao um detalhe que se ajusta depois
-     */
-    frameSize: 132,
-    prefix: "SORCERER",
+      /**
+       * A CELULA PASSOU DE 132 PARA 96.
+       *
+       * ## POR QUE BAIXOU
+       *
+       * A celula de 132 era a arte ANTERIOR do sorcerer, que saia em
+       * 128x128 e 132x132. A arte nova e bem menor: `walk`, `idle` e
+       * `attack` medem 88x88, e so o `mining` chega a 92x92
+       *
+       * Uma celula de 132 para uma arte de 88 nao quebra a geracao — a
+       * ferramenta so recusa arte MAIOR que a celula — mas desperdiça 40%
+       * da folha em transparente, e o `scale` do layout teria de compensar
+       * uma margem que nao existe
+       *
+       * ## E POR QUE 96, E NAO 92
+       *
+       * Porque a ferramenta recusa arte que ENCOSTA na borda: sem folga, o
+       * desenho pode vazar para a celula vizinha. O `mining` mede 92 exatos
+       * nas sete direcoes, e uma celula de 92 o deixaria colado na parede
+       *
+       * E 96 pelo mesmo motivo do guerreiro e do arqueiro, que tem a mesma
+       * arte de 92 numa celula de 96. Os 4px que sobram entram preenchidos
+       * de transparente: a arte nao e redimensionada nem cortada
+       *
+       * ## E O QUE ISSO FAZ COM O TAMANHO NA TELA
+       *
+       * O tamanho na tela nao e a celula: e a celula vezes o `scale` do
+       * layout. Como a celula caiu de 132 para 96, o `SORCERER_SCALE` em
+       * `src/data/sprites/layout.js` foi reajustado na mesma medida — sem
+       * isso o sorcerer apareceria com 1,37x do tamanho na tela
+       */
+      frameSize: 96,
+      prefix: "SORCERER",
 
     /**
      * A CAMINHADA E O IDLE AGORA ESTAO EM PASTA, um gif por angulo.
@@ -357,17 +382,21 @@ export const SHEETS = {
      * goblin —, e o nome do ciclo nao interfere em nada: o layout e o cliente
      * chamam isso de `attack`
      */
-    shootDir: "attack",
-    shoot: true,
+shootDir: "attack",
+      shoot: true,
 
-    /**
-     * SEM MINERACAO E SEM MORTE.
-     *
-     * A pasta nao tem `mining/` nem `death/`, e as duas linhas ficariam como
-     * buraco na folha se fossem declaradas. O arqueiro e o unico com mineracao
-     * — a picareta e dele, e nenhuma outra classe tem essa arte
-     */
-  },
+      /**
+       * A MINERACAO ENTROU, E A FOLHA VAI DE 24 PARA 32 LINHAS.
+       *
+       * A pasta ganhou `mining/` com os oito angulos. Sem o `mining: true` a
+       * ferramenta nem procuraria a pasta, e as oito linhas ficariam como
+       * buraco no layout — o sorcerer apareceria parado ao minerar
+       *
+       * E o `mining`, e nao o `shoot`, porque o padrao da ferramenta e
+       * `shoot` e ele ja foi declarado acima
+       */
+      mining: true,
+    },
 
   lancer: {
     sourceDir: "src/assets/sprites/lancer",
@@ -722,6 +751,70 @@ export const SHEETS = {
      * E o mesmo nome que o guerreiro usa, e pela mesma razao: e corpo a
      * corpo e o nome da pasta e o da arte de origem, nao uma
      * descricao do que o golpe faz
+     */
+    shootDir: "attack",
+    shoot: true,
+  },
+
+  /**
+   * O CHEFE DO VALE, com arte propria em `boss_vale/`.
+   *
+   * ## POR QUE NAO E O `hulk` DE NOVO
+   *
+   * Porque `hulk_val` nao e o `hulk` da arena: e uma criatura com `typeId`
+   * proprio, 15.000 de HP e raio de 96. Compartilhar a folha faria o chefe do
+   * centro do vale sair com a arte do chefe da arena — que e o oposto de
+   * "outra criatura"
+   *
+   * ## A CELULA E 168, E AS DUAS ARTES CHEGARAM DIFERENTES
+   *
+   * Sete direcoes medem 168x168 e `south` mede 164x164. A ferramenta CENTRALIZA
+   * a arte menor na celula maior em vez de cortar pixel, entao o `south` fica
+   * com 2px de margem de cada lado — o mesmo tratamento que o arquiro e o
+   * guerreiro ja recebem. Nenhum pixel do desenho e perdido
+   *
+   * ## E O MESMO MOLDE DO `hulk`
+   *
+   * Mesma pasta `attack/`, mesma morte desligada. A diferenca de verdade e a
+   * celula: 168 contra 68, que e o que faz este chefe ser grande sem que o
+   * `scale` precise de numero grande
+   */
+  boss_vale: {
+    sourceDir: "src/assets/sprites/boss_vale",
+    output: "src/assets/sprites/boss_vale-sheet.png",
+    frameSize: 168,
+    prefix: "BOSS_VALE",
+
+    idle: true,
+
+    /**
+     * O IDLE E POR DIRECAO, E VEM DA PASTA `idle/`.
+     *
+     * Sem `idleDir` a ferramenta procuraria `idle.gif` na RAIZ da pasta de
+     * arte, e nao acha: aqui as tres lanes sao pastas, uma por ciclo
+     */
+    idleDir: "idle",
+
+    /**
+     * O MESMO PARA A CAMINHADA, que esta em `walk/`.
+     *
+     * O `hulk` nao precisa disto porque os GIFs dele estao na raiz. Aqui a
+     * pasta `boss_vale/` tem so as tres subpastas, e a raiz esta vazia
+     */
+    walkDir: "walk",
+
+    /**
+     * A MORTE FICA FORA, pelo mesmo motivo do `hulk`: a pasta nao tem
+     * `death/`, e sem esta linha o `buildSheet` pararia com "falta
+     * death/south.gif"
+     */
+    death: false,
+
+    /**
+     * O golpe esta em `attack/`, e nao em `shoot/`.
+     *
+     * Mesmo nome e mesma razao do `hulk`: e corpo a corpo, e o nome vem da
+     * arte de origem
      */
     shootDir: "attack",
     shoot: true,

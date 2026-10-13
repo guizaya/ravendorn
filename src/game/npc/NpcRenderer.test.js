@@ -71,13 +71,13 @@ describe("o catalogo de NPCs", () => {
 });
 
 describe("o mercador do hub", () => {
-  it("esta em (710, 377)", () => {
-    expect(BASE_NPCS).toHaveLength(1);
-
+  it("esta no tile 11, 6", () => {
     const [mercador] = BASE_NPCS;
 
-    expect(mercador.x).toBe(710);
-    expect(mercador.y).toBe(377);
+    // o tile e a celula de 64px: coluna 11 -> 704, linha 6 -> 384.
+    // o `y` e o PE do desenho, nao o canto da celula
+    expect(mercador.x).toBe(11 * 64);
+    expect(mercador.y).toBe(6 * 64);
     expect(mercador.typeId).toBe("mercador");
   });
 

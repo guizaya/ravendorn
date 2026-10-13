@@ -1,0 +1,33 @@
+<!doctype html>
+<html lang="pt-BR">
+  <head>
+    <meta charset="UTF-8" />
+    <meta
+      name="viewport"
+      content="width=device-width, initial-scale=1.0, maximum-scale=1, user-scalable=no"
+    />
+    <meta name="theme-color" content="#090d12" />
+
+    <!--
+      O MAPA DENTRO DE UM IFRAME DO SITE.
+
+      Este documento e o `index.html` do jogo, com uma diferenca que importa:
+      o `main.jsx` detecta que esta dentro de um iframe (via
+      `window.parent !== window`) e passa a falar com o site por `postMessage`:
+      avisa que esta pronto e recebe o token de entrada.
+
+      Sem o wrapper, o site abriria a selecao de classe aqui dentro e o
+      jogador teria que escolher nome e classe de novo, ignorando o
+      personagem que a conta dele ja tem.
+
+      O `X-Frame-Options` e o `Content-Security-Policy` do servidor NAO
+      bloqueiam isto: sao mesma origem.
+    -->
+    <title>Eldoria</title>
+  </head>
+
+  <body>
+    <div id="root"></div>
+    <script type="module" src="/src/main.jsx"></script>
+  </body>
+</html>

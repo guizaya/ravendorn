@@ -30,16 +30,121 @@
  */
 export const NPC_SPRITE_SIZES = Object.freeze({
   mercador: Object.freeze({
-    width: 520,
-    height: 597,
+    width: 1548,
+    height: 172,
   }),
   habilidades: Object.freeze({
-    width: 1205,
-    height: 1306,
+    width: 1548,
+    height: 172,
   }),
   bau: Object.freeze({
-    width: 1254,
-    height: 1254,
+    width: 1512,
+    height: 168,
+  }),
+});
+
+/**
+ * O TAMANHO DE UMA CELULA DE NPC, E O QUE A FOLHA TEM DENTRO.
+ *
+ * A arte do mercador mudou de desenho unico para faixa de idle, e a folha
+ * deixou de ser uma imagem: sao 9 celulas de 172x172 em linha. O tamanho da
+ * folha (`NPC_SPRITE_SIZES`) e a medida do ARQUIVO, e a celula e o que o
+ * `NpcRenderer` recorta de cada quadro
+ *
+ * E por isso que o `width` do mercador e 1548 e nao 172: 9 * 172. O desenho
+ * de um NPC so e um quadrado, e quem ler `NPC_SPRITE_SIZES` sem este comentario
+ * vai tentar pintar 1548px de quadro na tela
+ */
+export const NPC_SPRITE_CELULAS = Object.freeze({
+  mercador: Object.freeze({
+    width: 172,
+    height: 172,
+    quadros: 9,
+
+    /**
+     * OS 26px TRANSPARENTES DA BASE DA CELULA.
+     *
+     * ## POR QUE ISTO PRECISA EXISTIR
+     *
+     * Porque o `y` do NPC e o PE, e o `NpcRenderer` ancora a arte pelo PE
+     * da CELULA. Mas o desenho dentro do `idle_npc_potions.gif` termina na
+     * linha 145 de 172: os 26 ultimos pixels sao vazios nos nove quadros
+     *
+     * Sem descontar isso, o merchant fica 26 * 0.58 = 15px ACIMA do chao,
+     * flutuando. E o tipo de defeito que ninguem acha olhando o catalogo,
+     * porque a posicao esta certa e a arte que esta errada
+     *
+     * ## E POR QUE MEDIDO, E NAO CHUTADO
+     *
+     * A margem foi lida do alfa de cada um dos nove quadros, e vale 26 nos
+     * nove. O que varia no idle e o TOPO (23 a 27) e a largura (50 a 54 a
+     * esquerda), que e o balanco do corpo — e o balanco nao descola o pe do
+     * chao
+     */
+    margemBaixo: 26,
+
+    /**
+     * A LARGURA DO QUE ESTE DESENHADO DE VERDADE.
+     *
+     * ## POR QUE A CELULA DE 172 NAO SERVE PARA A SOMBRA
+     *
+     * Porque a sombra e uma elipse medida na largura da arte, e a arte e o
+     * boneco — nao a moldura. A celula tem 172 de largura e o desenho ocupa
+     * dela uns 76: 50 de margem transparente a esquerda e 46 a direita
+     *
+     * Medindo pela celula, a sombra sairia com 68px de diametro para um
+     * boneco de 76 de largura: a sombra nearly do tamanho do boneco, e o
+     * piso embaixo dele viraria um disco em vez de uma sombra de pe
+     *
+     * ## E POR QUE 76 E NAO 70
+     *
+     * Porque e a LARGURA MAXIMA dos nove quadros. O idle balanca o corpo e a
+     * arte vai de 67 a 76 de largura; usar a maior mantem a sombra estavel
+     * nos dois extremos em vez de pulsar junto com a respiracao
+     */
+    larguraDesenhada: 76,
+  }),
+  habilidades: Object.freeze({
+    width: 172,
+    height: 172,
+    quadros: 9,
+
+    /**
+     * OS 25px TRANSPARENTES DA BASE, MEDIDOS NOS NOVE QUADROS.
+     *
+     * A mesma correcao do mercador: o `y` do NPC e o PE, e a celula tem
+     * 25px vazios embaixo. Sem descontar, o mestre flutuaria 25 * 0.58
+     */
+    margemBaixo: 25,
+
+    /**
+     * A MAIOR LARGURA DESENHADA NOS NOVE QUADROS.
+     *
+     * O idle balanca o corpo e a arte vai de 65 a 71 de largura. A maior
+     * mantem a sombra estavel nos dois extremos em vez de pulsar junto com a
+     * respiracao
+     */
+    larguraDesenhada: 71,
+  }),
+  bau: Object.freeze({
+    width: 168,
+    height: 168,
+    quadros: 9,
+
+    /**
+     * OS 25px TRANSPARENTES DA BASE, MEDIDOS NOS NOVE QUADROS.
+     *
+     * A mesma correcao dos outros dois NPCs: o `y` e o PE, e a celula tem
+     * 25px vazios embaixo. Sem descontar, o bau flutuaria
+     */
+    margemBaixo: 25,
+
+    /**
+     * A MAIOR LARGURA DESENHADA NOS NOVE QUADROS.
+     *
+     * O idle balanca a tampa do bau e a arte vai de 62 a 66 de largura
+     */
+    larguraDesenhada: 66,
   }),
 });
 
@@ -49,30 +154,44 @@ export const NPC_SPRITE_SIZES = Object.freeze({
  * Um `new URL` literal por entrada, e e o que o Vite reconhece
  */
 export const NPC_SHEETS = Object.freeze({
+  /**
+   * O MERCADOR: `potions_base.png`, a faixa de idle.
+   *
+   * Sao 9 quadros de 172x172 em linha, gerados de
+   * `src/assets/sprites/npcs/idle_npc_potions.gif`. O GIF de origem e
+   * animado e nao cabe em `new URL` — o `Image` do canvas le o primeiro
+   * quadro e para, sem animacao
+   */
   mercador: new URL(
-    "../../assets/npc/market_base.png",
+    "../../assets/npc/potions_base.png",
     import.meta.url,
   ).href,
+  /**
+   * O MESTRE: `habilidades_base.png`, a faixa de idle.
+   *
+   * Mesma receita do mercador: 9 quadros de 172x172 em linha, gerados de
+   * `idle_npc_habilidades.gif`. A arte antiga era um desenho unico de
+   * 1205x1306
+   */
   habilidades: new URL(
     "../../assets/npc/habilidades_base.png",
     import.meta.url,
   ).href,
 
-  /**
-   * O BAU: `storage_2.png`, e nao o `storage.png` antigo.
+/**
+   * O BAU: `bau_base.png`, a faixa de idle.
    *
-   * O caminho e um literal inteiro de propósito — o Vite so empacota
-   * `new URL` escrito na mão, e montar o nome por variável faz a arte
-   * sumir no build (ver o comentario do topo deste arquivo)
+   * Mesma receita dos outros dois: 9 quadros de 168x168 em linha, gerados de
+   * `idle_npc_bau.gif`. A arte antiga era `storage_2.png`, um quadrado de
+   * 1254x1254
    *
-   * O `storage.png` antigo continua em `src/assets/npc/` e nenhum codigo
-   * aponta para ele. Ele ficou no disco de proposito: apagar um arquivo de
-   * arte que o jogador pode querer de volta nao faz parte de trocar a
-   * referencia, e o Vite ja o deixa de fora do build por nao ser
-   * importado por nada
+   * Os dois arquivos antigos continuam em `src/assets/npc/` e nenhum codigo
+   * aponta para eles. Eles ficaram no disco de proposito: apagar arte que o
+   * jogador pode querer de volta nao faz parte de trocar a referencia, e o
+   * Vite ja deixa de fora do build o que ninguem importa
    */
   bau: new URL(
-    "../../assets/npc/storage_2.png",
+    "../../assets/npc/bau_base.png",
     import.meta.url,
   ).href,
 });

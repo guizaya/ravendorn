@@ -238,11 +238,6 @@ export const MATERIAIS = [
 /** as bases: os doze materiais, cada um com a sua cadeia */
 export const BASES = MATERIAIS;
 
-/** o material pelo id, ou `null` */
-export function getMaterial(id) {
-  return MATERIAIS.find((material) => material.id === id) ?? null;
-}
-
 /**
  * O `id` de um grau. Sem `grau`, e o proprio material base.
  *

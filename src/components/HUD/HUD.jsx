@@ -21,7 +21,7 @@ import ConfigPanel from "../Settings/ConfigPanel.jsx";
 import KeyBindsPanel from "../UI/KeyBindsPanel.jsx";
 import IndicativoTecla, { useTeclaDaAcao } from "../UI/IndicativoTecla.jsx";
 import ItemIcon from "../UI/ItemIcon.jsx";
-import { ROTULO_DO_PAINEL as ROTULO_DO_PAINEL_DA_BOX } from "../Quests/QuestPanel.jsx";
+import { ROTULO_DO_PAINEL as ROTULO_DO_PAINEL_DA_BOX } from "../Quests/rotuloDoPainel.js";
 import {
   ICONE_SLOT_DIREITA,
 } from "../../data/cursor/index.js";
@@ -3505,7 +3505,16 @@ const handleDeliverCollection = useCallback(
             <HudIcon iconId={naTeste ? "sair" : "teste"} />
           </button>
 
-        {/* O ENCANTAMENTO, SEGUNDO DEGRAU DA PRIMEIRA COLUNA. */}
+        {/*
+          O ENCANTAMENTO, SEGUNDO DEGRAU DA PRIMEIRA COLUNA.
+
+          ## POR QUE AGORA E `HudIcon` E ANTES ERA O `✧` ESCRITO A MAO
+
+          Porque o `✧` era o glifo de reserva, e a arte nao existia. Com o
+          `encantar.png` no catalogo, o botao usa a imagem, e ganha de graca
+          a mesma centralizacao dos outros: o desenho fica no meio da caixa
+          em vez de deslocado pela margem da arte
+        */}
         <button
           type="button"
           className={[
@@ -3519,7 +3528,7 @@ const handleDeliverCollection = useCallback(
           data-tip="Encantar (X)"
           aria-label="Abrir o painel de encantamento"
         >
-          ✧
+          <HudIcon iconId="encantar" />
         </button>
 
         <BuffStrip effects={player.statusEffects} />

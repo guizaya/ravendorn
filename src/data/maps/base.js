@@ -26,8 +26,42 @@ import { NPC_SHEETS } from "../npc/sheets.js";
  *     proxima etapa
  */
 
-export const BASE_WIDTH = 1680;
-export const BASE_HEIGHT = 1176;
+/**
+ * O LADO DO TILE deste mapa, em pixel de mundo.
+ *
+ * ## POR QUE 64, E O MESMO DO MAPA 1
+ *
+ * Porque e o ladrilho que o `TerrainRenderer` ja desenha para `grama`, e e o
+ * `tilewidth` que o `dungeon.tmj` do vale e o `base.tmj` declaram. Um tile de
+ * outro lado aqui faria a grade nao fechar com o chao que o mapa desenha
+ *
+ * Este numero vem PRIMEIRO porque as medidas do mapa sao multiplos dele: um
+ * `const` nao sobe, e usar `BASE_TILE` antes da declaracao derrubaria o
+ * modulo na carga
+ */
+export const BASE_TILE = 64;
+
+/**
+ * O TAMANHO DO MAPA BASE, e um multiplo exato do tile.
+ *
+ * ## POR QUE 1664 x 1152 E NAO 1680 x 1176
+ *
+ * Porque 1680 / 64 = 26,25 e 1176 / 64 = 18,375. Grade de tile nao fecha em
+ * numero quebrado, e o `base.tmj` exportado declara 26 x 18 tiles — que sao
+ * exatamente 1664 x 1152 px
+ *
+ * Este e o mesmo motivo que fez o vale passar de 6000 x 4200 para
+ * 6016 x 4224 (`MAP_1_WIDTH` e `MAP_1_HEIGHT`, que fazem `ceil`). Aqui nao
+ * houve `ceil`: o mapa foi encolhido 16px na horizontal e 24px na vertical
+ *
+ * ## E POR QUE ENCOLHER, E NAO CRESCER
+ *
+ * Porque a base nao tem nada perto da borda: `zones: []`, sem prop, sem
+ * portal, e o spawn no meio. O vale cresceu porque as tres zonas da coluna
+ * direita terminavam a 5880/5900/5900 — encolher teria cortado conteudo
+ */
+export const BASE_WIDTH = 26 * BASE_TILE;
+export const BASE_HEIGHT = 18 * BASE_TILE;
 
 /**
  * Os limites do mapa base.
@@ -66,6 +100,16 @@ export const BASE_MAP = {
 
   width: BASE_WIDTH,
   height: BASE_HEIGHT,
+
+  /**
+   * O LADO DO TILE, declarado no mapa.
+   *
+   * E o `tileSize` que o `registroDeTiles` e o `colisaoTiled` leem para
+   * fechar a conta de pixel para tile. Hoje o `.tmj` da base ainda nao
+   * existe, entao este campo e o que vai ser conferido contra ele quando
+   * entrar — e o `dungeon.tmj` do vale declara 64, o mesmo numero
+   */
+  tileSize: BASE_TILE,
 
   bounds: BASE_BOUNDS,
 
@@ -138,22 +182,29 @@ export const BASE_MAP = {
   cameraZoom: 1 / 0.62,
 
   /**
-   * AS DUAS CLASSES GRANDES DESTA MAPA, 30% MENORES.
+   * AS DUAS CLASSES GRANDES DESTA MAPA, REDUZIDAS.
    *
    * ## POR QUE SO ESTAS DUAS E SO AQUI
    *
    * Porque a base tem `cameraZoom` de `1 / 0.62`, que e 1.61: o boneco e o
    * resto do hub sao desenhados 61% MAIORES que no vale. O arqueiro e o
-   * sorcerer medem os dois 62.7px em unidades de mundo — a arte deles e
-   * maior, mas a escala compensa — entao sem um fator aqui os dois
-   * ocupariam uma fatia grande demais da tela do hub
+   * sorcerer tem arte grande — 62.7px e 68.2px em unidades de mundo — entao
+   * sem um fator aqui os dois ocupariam uma fatia grande demais da tela do hub
    *
-   * ## E POR QUE O MESMO 0.7 NOS DOIS
+   * ## E POR QUE OS DOIS FATORES SAO DIFERENTES
    *
-   * Porque nao e um numero escolhido para o arqueiro: e o que igualiza uma
-   * classe de 62.7px contra as de ~37px que o hub tem por padrao. Como o
-   * sorcerer mede exatamente os mesmos 62.7px do arqueiro, o mesmo fator o
-   * deixa do mesmo tamanho — e os dois saem em 70.7px na base
+   * Porque as DUAS ARTES mudaram e nao pelo mesmo tamanho. O arqueiro
+   * continua com a arte de antes (57px de boneco x 1.1 = 62.7px), e o
+   * sorcerer recebeu a arte nova, que e 62px de boneco na caminhada x 1.1 =
+   * 68.2px
+   *
+   * Antes os dois mediam 62.7px e um fator unico os igualava. Agora o
+   * sorcerer e 9% maior, e manter o mesmo 0.7 o deixaria visivelmente maior
+   * que o arqueiro dentro do mesmo hub — que e o oposto do que o fator
+   * existe para fazer
+   *
+   * A conta do sorcerer: o alvo e o mesmo 43.9px do arqueiro na base
+   * (62.7 x 0.7), entao 43.9 / 68.2 = 0.644
    *
    * ## E POR QUE UM FATOR E NAO UM `scale` NOVO
    *
@@ -169,7 +220,7 @@ export const BASE_MAP = {
    *
    * Todo mapa que nao declarar isto usa 1
    */
-  escalaSprites: { arbalist: 0.7, sorcerer: 0.7 },
+  escalaSprites: { arbalist: 0.7, sorcerer: 0.644 },
 
 
 /**

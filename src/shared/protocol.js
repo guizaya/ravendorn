@@ -639,6 +639,18 @@ export const REJECT = Object.freeze({
   // tenta entrar
   CHARACTER_CLASS_MISMATCH:
     "Este nickname ja tem um personagem de outra classe. Entre com a classe original.",
+
+  // O TOKEN DE ENTRADA FALTANDO, PASSOU OU JA FOI USADO.
+  //
+  // Estas tres recusas sao o mesmo problema visto de tres lados: o JOIN
+  // chegou sem prova de que a conta realmente tem aquele personagem. Sem
+  // token, o nome e a classe passam a vir do proprio cliente, e qualquer
+  // um entra como qualquer um pelo console
+  //
+  // O texto diz "passe pela tela de personagem" e nao "token invalido"
+  // porque o jogador nao tem token na mao: ele tem uma tela. Quem envia o
+  // token e o front, e o caminho que ele tem de seguir e voltar para ela
+  BAD_TOKEN: "Passe pela tela de personagem para entrar.",
 });
 
 /** monta um comando do cliente */
@@ -807,16 +819,30 @@ export function parseCommand(raw) {
 }
 
 function parseJoin(payload) {
-  const { name, classId } = payload;
+  const { name, classId, token } = payload;
 
   if (!isShortString(name, 32) || !isShortString(classId, 32)) {
+    return { ok: false, reason: REJECT.BAD_MESSAGE };
+  }
+
+  /**
+   * O TOKEN, QUANDO VEM.
+   *
+   * Ele e opcional no formato porque o servidor sem contas nao exige
+   * nenhum: e o `GameServer` que decide, olhando se ha `contas`. Se fosse
+   * obrigatorio aqui, o jogo local quebraria junto
+   *
+   * O limite e de 512 porque o token carrega `contaId`, `nome`, `classe` e
+   * duas datas em base64 — sobra bastante
+   */
+  if (token !== undefined && !isShortString(token, 512)) {
     return { ok: false, reason: REJECT.BAD_MESSAGE };
   }
 
   return {
     ok: true,
     type: CLIENT_COMMANDS.JOIN,
-    payload: { name, classId },
+    payload: { name, classId, token },
   };
 }
 

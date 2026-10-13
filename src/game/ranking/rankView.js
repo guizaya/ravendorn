@@ -74,11 +74,6 @@ export function metricaDe(jogador, criterio) {
   return `Nv ${valor}`;
 }
 
-/** O número sozinho, para a barra da posição do jogador. */
-export function numeroDa(jogador, criterio) {
-  return formatarNumero(valorDa(jogador, criterio));
-}
-
 /**
  * MILHAR pt-BR.
  *

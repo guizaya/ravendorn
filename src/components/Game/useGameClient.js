@@ -40,6 +40,7 @@ const MENSAGEM = {
 export default function useGameClient({
   classDefinition,
   characterName,
+  tokenDeEntrada,
   onState = () => {},
   onDano = () => {},
 }) {
@@ -112,6 +113,7 @@ export default function useGameClient({
     cliente.entrar({
       name: characterName,
       classId: classDefinition.id,
+      token: tokenDeEntrada,
     });
 
     // o `destroy` e obrigatorio: sem ele, sair da tela deixaria o
@@ -121,7 +123,7 @@ export default function useGameClient({
       cliente.desconectar();
       clienteRef.current = null;
     };
-  }, [classDefinition, characterName]);
+  }, [classDefinition, characterName, tokenDeEntrada]);
 
   /**
    * Atalho para o `GameClient` real.
@@ -153,6 +155,23 @@ export default function useGameClient({
   const ponteiro = useCallback(
     (x, y, dentro = true) =>
       comCliente((c) => c.moverPonteiro(x, y, dentro)),
+    [comCliente],
+  );
+
+  /**
+   * Entrega ao cliente quem sabe onde o jogador esta na tela.
+   *
+   * O `GameClient` guarda pacote e nao tem canvas, viewport nem zoom, entao
+   * ele nao tem como saber. Quem tem e o `GameCanvas`, dono do motor
+   */
+  const definirLeitorDeJogadorNaTela = useCallback(
+    (ler) => comCliente((c) => c.definirLeitorDeJogadorNaTela(ler)),
+    [comCliente],
+  );
+
+  /** O mesmo para o ponto de mira, que a mira magnetica pode mover */
+  const definirLeitorDePonteiroDeMira = useCallback(
+    (ler) => comCliente((c) => c.definirLeitorDePonteiroDeMira(ler)),
     [comCliente],
   );
 
@@ -804,6 +823,8 @@ const mexerNoBau = useCallback(
     estado: estadoRef,
     tecla,
     ponteiro,
+    definirLeitorDeJogadorNaTela,
+    definirLeitorDePonteiroDeMira,
     sincronizar,
     atacar,
     mirar,

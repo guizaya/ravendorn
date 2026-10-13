@@ -12,7 +12,8 @@ import {
   GOBLIN_SPRITE,
   KAELEN_SPRITE,
   NYLARA_SPRITE,
-  HULK_SPRITE,
+HULK_SPRITE,
+  BOSS_VALE_SPRITE,
   OGRE_PREDEIRA_SPRITE,
   RATO_DA_TOCA_SPRITE,
   
@@ -277,6 +278,26 @@ export const ENEMY_SPRITES = {
      */
     src: new URL(
       "../../assets/sprites/hulk-sheet.png",
+      import.meta.url,
+    ).href,
+  },
+
+  /**
+   * O CHEFE DO VALE, com a arte de `boss_vale/`.
+   *
+   * ## POR QUE PRECISA DO PROPRIO `src`
+   *
+   * Porque `enemyLayout.js` guarda o LAYOUT sem imagem — ele e importado pelo
+   * servidor, em Node puro, onde um `import x from ".png"` derrubaria o
+   * processo. A imagem entra aqui, que so o cliente importa
+   *
+   * E o caminho tem os DOIS niveis para cima pelo mesmo motivo do `hulk`
+   * acima: deste arquivo, um `../assets` cairia em `src/data/assets`
+   */
+  hulk_val: {
+    ...BOSS_VALE_SPRITE,
+    src: new URL(
+      "../../assets/sprites/boss_vale-sheet.png",
       import.meta.url,
     ).href,
   },

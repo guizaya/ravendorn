@@ -1,351 +1,252 @@
 /**
- * O QUE ESTE ARQUIVO CONFERE
+ * O QUE O MOTOR CUSTA POR JOGADOR, E NAO SO NO TOTAL.
  *
- * Um jogador em cada navegador, na base, e cada um via o OUTRO grande.
+ * ## POR QUE ISTO E A PERGUNTA CERTA PARA O ITEM 1
  *
- * ## O QUE ACONTECIA
+ * Porque o motor roda a simulacao INTEIRA uma vez por jogador: o
+ * `updateEnemies`, o `skillSystem.update` e o `updateFlechasHostis` rodam
+ * dentro de um `withPlayer` para cada pessoa online. Com um jogador isso e
+ * invisivel; com cem, e o mesmo mapa simulado cem vezes
  *
- * O `escalaSprites` de um mapa e por CLASSE, e a base encolhe duas: o
- * arquiro e o sorcerer saem em 0.7 porque o hub tem zoom de 1.61. O motor
- * pegava o fator da classe do jogador LOCAL e aplicava so na folha local e
- * na folha daquela mesma classe
+ * ## E POR QUE ISTO NAO E O `conferir-custo-tick`
  *
- * Com um Arbalist e um Sorcerer na base:
- *
- * - no navegador do Arbalist, o Sorcerer usava a folha que NUNCA recebeu o
- *   fator, e aparecia 43% maior
- * - no navegador do Sorcerer, o Arbalist aparecia 43% maior
- *
- * E cada um via o proprio boneco no tamanho certo, que e o que torna o
- * defeito tao confuso: nao ha nada errado na sua tela para você relatar
- *
- * ## O SEGUNDO FURO, QUE SO APARECERIA SOZINHO
- *
- * As folhas de classe nascem a DEMORA, quando alguem entra na sala. Uma
- * folha criada depois da troca de mapa nascia com `escalaDoMapa` em 1 e
- * ficava errada ate o proximo portal. Com uma pessoa so na base, e o
- * proprio jogador entrando, o sintoma seria "o boneco entrou grande"
+ * Porque aquele mede UM jogador. Este mede a curva: 1, 2, 4, 8... A
+ * pergunta nao e "quanto custa um tick", e "o custo cresce linearmente ou
+ * pior que isso"
  */
 
-import { readFileSync } from "node:fs";
-import { inflatePng } from "./gif-to-sheet.mjs";
-import { MAPS } from "../src/data/maps/index.js";
+import { GameEngine } from "../src/game/engine/GameEngine.js";
+import { registrarTilesDoDisco } from "../server/src/maps/tilesDoDisco.js";
+import { createPlayerSession } from "../src/game/engine/PlayerSession.js";
+import { CHARACTER_CLASSES } from "../src/data/characters/index.js";
+import { getMap } from "../src/data/maps/index.js";
 
-let passou = 0;
-let falhou = 0;
+registrarTilesDoDisco();
 
-function conferir(descricao, condicao) {
-  if (condicao) {
-    passou += 1;
-    console.log(`  ok   ${descricao}`);
+const DELTA = 1 / 20;
 
-    return true;
+/**
+ * UM MOTOR COM N JOGADORES DE VERDADE.
+ *
+ * ## POR QUE ISTO USA `addPlayer` E NAO `createPlayerSession` no motor
+ *
+ * Porque `createPlayerSession` nao existe no motor: ele cria a sessao, e o
+ * `addPlayer` e que a INSERE em `world.players`, que e a lista que o
+ * `update` percorre
+ *
+ * A primeira versao deste arquivo chamava um metodo que nao existe. O
+ * `createPlayerSession?.(...)` com optional chaining nao lanceu erro — apenas
+ * nao fez nada, e o medidor reportou 64 jogadores custando MENOS que 1. O
+ * sintoma de um medidor que mede o errado e um numero que faz sentido demais
+ */
+/**
+ * A ASSINATURA DE `createPlayerSession` E `(classDefinition, options)`.
+ *
+ * A primeira versao passava o objeto como primeiro argumento, e o erro
+ * apareceu como `Cannot read properties of undefined (reading 'hp')` — o
+ * motor leu `classDefinition` de dentro do objeto de opcoes e nao achou
+ *
+ * ## E POR QUE O SPAWN E PASSADO EXPLICITAMENTE
+ *
+ * Porque o padrao do `createPlayerSession` e `(1200, 800)`, que fica FORA
+ * do mapa 1 — o vale vai de 0 a 6016 por 4224, mas o ponto esta num canto
+ * vazio. O `addPlayer` nao teleporta ninguem para o spawn do mapa: ele so
+ * registra a sessao
+ *
+ * Sem isto, a sessao nasce fora, o `withPlayer` aponta o mundo para o
+ * mapa dela, e o jogador fica preso num lugar onde nao ha nem colisor nem
+ * inimigo — e o medidor acusa "ninguem andou" com o motor funcionando
+ */
+function criarCom(nJogadores) {
+  const motor = new GameEngine(null, CHARACTER_CLASSES[0], null, {
+    playerId: "p0",
+  });
+
+  const mapa = getMap("map_1");
+
+  motor.setMap(mapa);
+
+  /**
+   * CADA JOGADOR NASCE LONGE DO OUTRO.
+   *
+   * Todos no mesmo ponto iam se empurrar no primeiro tick, e o medidor
+   * mediria um mundo de um jogador so, com os outros presos uns nos outros
+   */
+  for (let i = 1; i < nJogadores; i++) {
+    const sessao = createPlayerSession(CHARACTER_CLASSES[0], {
+      id: "p" + i,
+      name: "Jogador " + i,
+      spawn: {
+        x: mapa.spawn.x + (i % 8) * 48,
+        y: mapa.spawn.y + Math.floor(i / 8) * 48,
+      },
+    });
+
+    motor.addPlayer(sessao, { mapId: mapa.id });
   }
 
-  falhou += 1;
-  console.log(`  FALHA ${descricao}`);
-
-  return false;
+  return motor;
 }
 
 /**
- * A ALTURA DA ARTE DE UMA FOLHA, para o tamanho final ser comparado em px.
- */
-function arteDoWalk(caminho, celula, cols) {
-  const png = inflatePng(readFileSync(caminho));
-
-  const alturas = [];
-
-  for (let linha = 0; linha < 8; linha += 1) {
-    let minY = celula;
-    let maxY = -1;
-
-    for (let c = 0; c < cols; c += 1) {
-      for (let y = 0; y < celula; y += 1) {
-        for (let x = 0; x < celula; x += 1) {
-          const px = ((linha * celula + y) * png.width + (c * celula + x)) * 4;
-
-          if (png.data[px + 3] < 8) continue;
-          if (y < minY) minY = y;
-          if (y > maxY) maxY = y;
-        }
-      }
-    }
-
-    alturas.push(maxY < 0 ? 0 : maxY - minY + 1);
-  }
-
-  return Math.round(alturas.reduce((a, b) => a + b, 0) / alturas.length);
-}
-
-/**
- * A FOLHA, DO JEITO QUE O MOTOR TRATA.
+ * FAZ TODO JOGADOR ANDAR PARA A DIREITA E PARA BAIXO.
  *
- * Reproduz o que importava do `SpriteSheet`: o `escalaDoMapa` vale 1 na
- * construcao, e o motor escreve nele quando o mapa e aplicado
+ * E separado do `medir` porque a checagem de movimento precisa das teclas
+ * ANTES de rodar o primeiro tick. Com as teclas dentro do `medir`, a
+ * checagem rodava com o mundo ainda parado e acusava "ninguem andou" com o
+ * motor funcionando
  */
-function novaFolha(classe, arte, escala) {
-  return { classe, arte, escala, escalaDoMapa: 1 };
-}
-
-function tamanhoNaTela(folha, cameraZoom) {
-  return folha.arte * folha.escala * folha.escalaDoMapa * cameraZoom;
-}
-
-/**
- * O `aplicarEscalaDosSprites`, reescrito a mao.
- *
- * Se o motor mudar, este trecho precisa mudar junto — e e esse acoplamento
- * que o teste quer deixar visivel
- */
-function aplicarEscala(folhaLocal, folhasDeClasse, mapa) {
-  const fatores = mapa?.escalaSprites ?? null;
-
-  if (folhaLocal) folhaLocal.escalaDoMapa = fatores?.[folhaLocal.classe] ?? 1;
-
-  for (const folha of folhasDeClasse.values()) {
-    folha.escalaDoMapa = fatores?.[folha.classe] ?? 1;
+function mandarAndar(motor) {
+  for (const id of motor.world.players.keys()) {
+    motor.withPlayer(id, () => {
+      motor.world.session.input.keys = new Set(["KeyD", "KeyS"]);
+    });
   }
 }
 
+function medir(motor, voltas) {
+  /**
+   * COM OS JOGADORES ANDANDO, E NAO PARADOS.
+   *
+   * Parado, o `updatePlayer` sai antes da colisao, do `moveEntity` e de
+   * quase todo o resto — e o motor mede 0.84ms com um jogador, sendo que o
+   * caso real de um servidor e gente jogando. Medindo parado, a curva
+   * parece tao plana que o medidor quase accentua o trabalho quadratico
+   */
+  mandarAndar(motor);
+
+  motor.update(DELTA);
+
+  const t0 = process.hrtime.bigint();
+
+  for (let i = 0; i < voltas; i++) motor.update(DELTA);
+
+  return Number(process.hrtime.bigint() - t0) / 1e6 / voltas;
+}
+
 /**
- * O `spriteDeClasse`, tambem reescrito: a folha nova nasce com o fator.
+ * OS JOGADORES ANDARAM MESMO?
+ *
+ * ## POR QUE ISTO PRECISA EXISTIR
+ *
+ * Porque um medidor que "cria N jogadores" pode estar medindo N jogadores
+ * que nao se mexem, e o numero sai plano e bonito. A primeira versao deste
+ * arquivo reportou 64 jogadores por MENOS que 1: o `createPlayerSession`
+ * que ela chamava nao existe no motor, o optional chaining nao lancou
+ * erro, e nenhum jogador foi inserido
+ *
+ * ## E POR QUE DOZE TICKS, E NAO UM
+ *
+ * Porque o jogador tem aceleracao: ele sai do zero e chega na velocidade
+ * cheia em alguns ticks. Medindo um tick so, o deslocamento e de menos de
+ * 1px e o medidor acusa "ninguem andou" com o motor funcionando
+ * perfeitamente. Doze ticks dao 58px, que nao tem como ser jitter
  */
-function criarFolha(classe, arte, escala, mapa) {
-  const folha = novaFolha(classe, arte, escala);
+function andaramTodos(motor) {
+  mandarAndar(motor);
 
-  const fatores = mapa?.escalaSprites ?? null;
-  const fator = fatores?.[classe];
+  const antes = new Map(
+    [...motor.world.players.values()].map((s) => [s.id, { x: s.player.x, y: s.player.y }]),
+  );
 
-  folha.escalaDoMapa = typeof fator === "number" && fator > 0 ? fator : 1;
+  for (let i = 0; i < 12; i++) motor.update(DELTA);
 
-  return folha;
+  for (const s of motor.world.players.values()) {
+    const a = antes.get(s.id);
+
+    if (Math.abs(s.player.x - a.x) < 4 && Math.abs(s.player.y - a.y) < 4) return false;
+  }
+
+  return true;
 }
 
-const FOLHAS = { warrior: 8, lancer: 8, sorcerer: 9, arbalist: 9 };
-const ESCALA = { warrior: 0.8, lancer: 0.8, sorcerer: 0.697, arbalist: 1.1 };
+console.log("\n  O CUSTO DE UM TICK CONFORME O NUMERO DE JOGADORES\n");
+console.log("  jogadores   ms por tick   por jogador   crescimento");
 
-const ARTE = {};
-const CELULA = { warrior: 68, lancer: 68, sorcerer: 132, arbalist: 96 };
+const ORCAMENTO = 50;
 
-for (const [classe, cols] of Object.entries(FOLHAS)) {
-  ARTE[classe] = arteDoWalk(
-    `src/assets/sprites/${classe}-sheet.png`,
-    CELULA[classe],
-    cols,
-  );
-}
+let anterior = null;
 
-const base = MAPS.base;
-const ZOOM = base.cameraZoom ?? 1;
+const pontos = [];
 
-console.log(`\nESCALA ENTRE JOGADORES\n`);
-console.log(`  base: cameraZoom ${ZOOM.toFixed(2)}, escalaSprites ${JSON.stringify(base.escalaSprites)}\n`);
-
-/* ------------------------------------------------------------------ *
- * 1. UM DE CADA CLASSE, VISTOS DO OUTRO LADO
- * ------------------------------------------------------------------ */
-console.log("1. Arbalist e Sorcerer na mesma sala\n");
-
-{
-  /**
-   * O CENARIO EXATO DO RELATO.
-   *
-   * Cada cliente tem a folha dele local e a folha do outro, criada por causa
-   * do remoto. As duas folhas existem antes do mapa ser aplicado
-   */
-  const folhasDoArbalist = new Map([
-    ["sorcerer", novaFolha("sorcerer", ARTE.sorcerer, ESCALA.sorcerer)],
-  ]);
-
-  const folhasDoSorcerer = new Map([
-    ["arbalist", novaFolha("arbalist", ARTE.arbalist, ESCALA.arbalist)],
-  ]);
-
-  const localArbalist = novaFolha("arbalist", ARTE.arbalist, ESCALA.arbalist);
-  const localSorcerer = novaFolha("sorcerer", ARTE.sorcerer, ESCALA.sorcerer);
-
-  aplicarEscala(localArbalist, folhasDoArbalist, base);
-  aplicarEscala(localSorcerer, folhasDoSorcerer, base);
-
-  const arbalistVistoDoSorcerer = tamanhoNaTela(
-    folhasDoSorcerer.get("arbalist"),
-    ZOOM,
-  );
-
-  const sorcererVistoDoArbalist = tamanhoNaTela(
-    folhasDoArbalist.get("sorcerer"),
-    ZOOM,
-  );
-
-  const arbalistLocal = tamanhoNaTela(localArbalist, ZOOM);
-  const sorcererLocal = tamanhoNaTela(localSorcerer, ZOOM);
-
-  console.log(`  navegador do ARBALIST:`);
-  console.log(`    eu (arbalist)      ${arbalistLocal.toFixed(1)}px`);
-  console.log(`    o sorcerer remoto  ${sorcererVistoDoArbalist.toFixed(1)}px`);
-  console.log(`  navegador do SORCERER:`);
-  console.log(`    eu (sorcerer)      ${sorcererLocal.toFixed(1)}px`);
-  console.log(`    o arbalist remoto  ${arbalistVistoDoSorcerer.toFixed(1)}px\n`);
+for (const n of [1, 2, 4, 8, 16, 32, 64]) {
+  const motor = criarCom(n);
 
   /**
-   * A ASSIMETRIA QUE O JOGADOR RELATOU.
+   * A CONFERENCIA QUE O MEDIDOR FAZ DELE MESMO.
    *
-   * Cada um via o outro MAIOR do que o proprio boneco, e o boneco remoto
-   * maior do que ele deveria. Sem esta checagem, um fator que simplesmente
-   * nao se aplicasse passaria: os dois veriam 0.7, e "iguais" nao contaria
+   * Sem isto o arquivo aceita um numero e um metodo que nao existe, e reporta
+   * uma curva de custo que nao aconteceu
    */
-  conferir(
-    "o arbalist ve o sorcerer do tamanho do sorcerer",
-    Math.abs(sorcererVistoDoArbalist - sorcererLocal) < 0.5,
-  );
+  const real = motor.world.players.size;
 
-  conferir(
-    "o sorcerer ve o arbalist do tamanho do arbalist",
-    Math.abs(arbalistVistoDoSorcerer - arbalistLocal) < 0.5,
-  );
+  if (real !== n) {
+    console.log(`  ERRO: pedi ${n} jogadores, o mundo tem ${real}. a medicao abaixo e FALSA`);
 
-  conferir(
-    "ninguem ve o outro maior do que o proprio boneco",
-    sorcererVistoDoArbalist <= sorcererLocal + 0.5 &&
-      arbalistVistoDoSorcerer <= arbalistLocal + 0.5,
-  );
-
-  conferir(
-    "e o fator 0.7 entrou nas duas folhas remotas",
-    folhasDoArbalist.get("sorcerer").escalaDoMapa === 0.7 &&
-      folhasDoSorcerer.get("arbalist").escalaDoMapa === 0.7,
-  );
-}
-
-/* ------------------------------------------------------------------ *
- * 2. QUEM CHEGA DEPOIS
- * ------------------------------------------------------------------ */
-console.log("\n2. quem entra depois do mapa ja ter sido aplicado\n");
-
-{
-  const local = novaFolha("warrior", ARTE.warrior, ESCALA.warrior);
-
-  // o mapa entra: a folha local e a do arquiro, que ja existia
-  const folhas = new Map([
-    ["arbalist", novaFolha("arbalist", ARTE.arbalist, ESCALA.arbalist)],
-  ]);
-
-  aplicarEscala(local, folhas, base);
-
-  conferir(
-    "a folha que ja existia recebeu o fator",
-    folhas.get("arbalist").escalaDoMapa === 0.7,
-  );
+    process.exit(1);
+  }
 
   /**
-   * O FURO QUE SO APARECERIA SOZINHO.
+   * O MOVIMENTO E CHECADO ANTES DO TEMPO, E NAO DEPOIS.
    *
-   * O sorcerer entra na sala agora. A folha dele nasce depois do mapa, e sem
-   * o fator na criacao ela ficaria em 1 para sempre
-   */
-  const nova = criarFolha("sorcerer", ARTE.sorcerer, ESCALA.sorcerer, base);
-
-  conferir(
-    "a folha que nasce depois ja nasce com o fator",
-    nova.escalaDoMapa === 0.7,
-  );
-
-  conferir(
-    "e com o mesmo tamanho que a do jogador local",
-    Math.abs(tamanhoNaTela(nova, ZOOM) - tamanhoNaTela(
-      criarFolha("sorcerer", ARTE.sorcerer, ESCALA.sorcerer, base),
-      ZOOM,
-    )) < 0.5,
-  );
-}
-
-/* ------------------------------------------------------------------ *
- * 3. UM MAPA SEM FATOR
- * ------------------------------------------------------------------ */
-console.log("\n3. mapa sem escalaSprites\n");
-
-{
-  /**
-   * O MAPA QUE NAO DECLARA NADA.
+   * Porque quem mede o tempo roda 200 updates, e o jogador sai andando para
+   * a direita ate bater numa parede — no tick 29 ele trava no X e so o Y
+   * anda. Checando depois, o jogador esta encostado na parede e o medidor
+   * acusa "parado" com o motor funcionando
    *
-   * E o `mapa_teste`, e ele existe justamente para ser o caso sem
-   * `escalaSprites`. Os outros quatro declaram: a base encolhe duas classes,
-   * e o vale, o mapa 2 e a arena encolhem o sorcerer
+   * A ordem correta e: confirma que o mundo esta andando, DEPOIS mede
    */
-  const semFator = MAPS.mapa_teste;
+  if (!andaramTodos(motor)) {
+    console.log(`  ERRO: com ${n} jogadores, alguem nao andou. a medicao abaixo e FALSA`);
 
-  conferir("o mapa de teste nao declara fator", !semFator.escalaSprites);
+    process.exit(1);
+  }
 
-  const folhas = new Map([
-    ["arbalist", novaFolha("arbalist", ARTE.arbalist, ESCALA.arbalist)],
-    ["sorcerer", novaFolha("sorcerer", ARTE.sorcerer, ESCALA.sorcerer)],
-  ]);
+  const ms = medir(motor, n > 16 ? 60 : 200);
 
-  aplicarEscala(null, folhas, semFator);
+  const porJogador = ms / n;
+  const crescimento = anterior ? (porJogador / anterior - 1) * 100 : 0;
 
-  conferir("as duas folhas ficam em 1", [...folhas.values()].every(
-    (f) => f.escalaDoMapa === 1,
-  ));
+  console.log(
+    "  " + String(n).padStart(8) + "   " +
+    ms.toFixed(3).padStart(9) + "   " +
+    porJogador.toFixed(3).padStart(11) + "   " +
+    (anterior ? (crescimento >= 0 ? "+" : "") + crescimento.toFixed(0) + "%" : "base").padStart(10),
+  );
+
+  pontos.push({ n, ms });
+  anterior = porJogador;
 }
 
-console.log("\n3b. mapa que declara so uma classe\n");
+console.log("\n  ONDE ESTOURA O ORCAMENTO DE " + ORCAMENTO + "ms\n");
 
-{
-  /**
-   * O VALE DECLARE SO O SORCERER.
-   *
-   * E a checagem que importa: um mapa que fala de uma classe nao pode
-   * empurrar o fator dela para a outra. A base encolhe as DUAS, e por isso
-   * ela nao serviria para provar nada — os dois veriam 0.7 e o defeito
-   * passaria
-   */
-  const vale = MAPS.map_1;
+const ultimo = pontos[pontos.length - 1];
+const porJogador = ultimo.ms / ultimo.n;
 
-  conferir(
-    "o vale declara o sorcerer e nao o arbalist",
-    vale.escalaSprites?.sorcerer !== undefined &&
-      vale.escalaSprites?.arbalist === undefined,
-  );
+const limite = Math.floor(ORCAMENTO / porJogador);
 
-  const folhas = new Map([
-    ["arbalist", novaFolha("arbalist", ARTE.arbalist, ESCALA.arbalist)],
-    ["sorcerer", novaFolha("sorcerer", ARTE.sorcerer, ESCALA.sorcerer)],
-  ]);
+console.log("  o custo por jogador se mantem em " + porJogador.toFixed(3) + "ms");
+console.log("  o orcamento de " + ORCAMENTO + "ms aguenta " + limite + " jogadores\n");
 
-  aplicarEscala(null, folhas, vale);
+/**
+ * A LEITURA QUE IMPORTA
+ *
+ * Se o custo por jogador for constante, o motor e O(N) e da para aguentar
+ * muita gente. Se ele CRESCE, ha um quadrado escondido — um `find` dentro
+ * de outro `find`, ou um `Map` reordenado a cada jogador
+ */
+const primeiro = pontos[0];
+const ultimoN = pontos[pontos.length - 1];
 
-  conferir(
-    "o arbalist fica em 1, sem o fator do sorcerer",
-    folhas.get("arbalist").escalaDoMapa === 1,
-  );
+const porJogadorInicio = primeiro.ms / primeiro.n;
+const porJogadorFim = ultimoN.ms / ultimoN.n;
 
-  conferir(
-    "e o sorcerer recebe o seu",
-    folhas.get("sorcerer").escalaDoMapa === vale.escalaSprites.sorcerer,
-  );
-}
+const quicao = porJogadorFim / porJogadorInicio;
 
-/* ------------------------------------------------------------------ *
- * 4. FATOR QUEBRADO
- * ------------------------------------------------------------------ */
-console.log("\n4. numero quebrado no mapa\n");
-
-{
-  const mapaRuim = { cameraZoom: 1, escalaSprites: { arbalist: 0, sorcerer: -1 } };
-
-  conferir(
-    "fator zero ou negativo cai em 1",
-    criarFolha("arbalist", ARTE.arbalist, ESCALA.arbalist, mapaRuim).escalaDoMapa === 1 &&
-      criarFolha("sorcerer", ARTE.sorcerer, ESCALA.sorcerer, mapaRuim).escalaDoMapa === 1,
-  );
-
-  conferir(
-    "e classe sem sprite nao e consultada",
-    criarFolha(null, 0, 1, base).escalaDoMapa === 1,
-  );
-}
-
-console.log(`\n${passou} ok, ${falhou} falhas\n`);
-
-if (falhou) process.exit(1);
+console.log("  QUADRADO ESCONDIDO?\n");
+console.log("  custo por jogador no inicio: " + porJogadorInicio.toFixed(4) + "ms");
+console.log("  custo por jogador no fim:    " + porJogadorFim.toFixed(4) + "ms");
+console.log("  razao: " + quicao.toFixed(2) + "x");
+console.log("  " + (quicao > 1.5
+  ? "CRESCE — ha trabalho quadratico por jogador"
+  : "constante — o motor e linear") + "\n");

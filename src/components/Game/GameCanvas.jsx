@@ -30,9 +30,41 @@ export default function GameCanvas({
   engineRef,
   estado = null,
   onIntent = null,
+
+  /**
+   * O MUNDO JA DESENHOU, E O FRONT PODE TIRAR A TELA DE ESPERA.
+   *
+   * ## POR QUE ISTO EXISTE E O `window.load` NAO SERVE
+   *
+   * Porque o `window.load` so espera os recursos do DOCUMENTO — HTML, CSS,
+   * `<img>` do DOM. As folhas de tile do mapa nao estao no DOM: sao criadas
+   * por `new Image()` no `drawMap`, depois que o motor existe
+   *
+   * A tela de espera sumia nesse `load`, e o mapa so aparecia um instante
+   * depois, quando a folha terminava de baixar. O jogador via a tela passar e
+   * o mapa chegar DEPOIS
+   *
+   * ## E POR QUE UM CALLBACK E NAO UM ESTADO
+   *
+   * Porque e um AVISO, e nao um dado: o front so precisa saber o instante,
+   * uma vez. Se fosse estado, entraria no efeito de rede e o motor seria
+   * recriado no quadro em que o mundo ficasse pronto — a tela inteira
+   * piscaria bem na hora em que devia ficar suave
+   */
+  onMundoPronto = null,
 }) {
   const canvasRef = useRef(null);
   const mundoRef = useRef(null);
+
+  /**
+   * O `onMundoPronto` atual, sem depender dele.
+   *
+   * E o mesmo truque que o `estadoRef`: a funcao chega como prop e muda de
+   * identidade a cada render, e um efeito que dependesse dela recriaria o
+   * motor inteiro
+   */
+  const avisarRef = useRef(onMundoPronto);
+  avisarRef.current = onMundoPronto;
 
   // a funcao muda a cada render do pai. o efeito nao pode
   // depender dela ou o motor seria recriado a cada quadro
@@ -73,6 +105,54 @@ export default function GameCanvas({
     // characterName entra: trocar de nome e uma criacao nova de
     // personagem, nao um renomear do mesmo
   }, [classDefinition, characterName, engineRef, onSnapshot]);
+
+  /**
+   * O AVISO DE "O MUNDO JA DESENHOU".
+   *
+   * ## POR QUE UM LACO DE `requestAnimationFrame`, E NAO UM `onload`
+   *
+   * Porque nao existe um `onload` para isto. As folhas de tile sao criadas
+   * por `new Image()` dentro do `drawMap`, e cada `Image` tem o seu proprio
+   * `onload`, espalhado por tres sistemas diferentes (terreno, tiles, sprites)
+   *
+   * E porque o motor so descobre que precisa delas DEPOIS de existir: o
+   * `engine.setMap()` acontece no efeito acima. Nenhuma promessa de imagem
+   * pode ser feita antes disso
+   *
+   * ## POR QUE O LACO PARA SOZINHO
+   *
+   * Porque o aviso vale UMA vez por vida da tela. Depois que o front tirou a
+   * tela de espera, continuar perguntando sessenta vezes por segundo seria
+   * trabalho jogado fora — e `cancelAnimationFrame` no cleanup garante que
+   * o laco morra junto com o motor
+   *
+   * ## E POR QUE O `ref`
+   *
+   * Porque `onMundoPronto` muda de identidade a cada render do pai, e um
+   * efeito que dependesse dele remontaria o motor — que e o pior defeito
+   * possivel aqui. O `ref` le a versao atual sem entrar no array
+   */
+  useEffect(() => {
+    const motor = engineRef.current;
+
+    if (!motor) return;
+
+    let quadro = 0;
+
+    const avisar = () => {
+      if (!motor.mundoDesenhavel()) {
+        quadro = requestAnimationFrame(avisar);
+
+        return;
+      }
+
+      avisarRef.current?.();
+    };
+
+    quadro = requestAnimationFrame(avisar);
+
+    return () => cancelAnimationFrame(quadro);
+  }, [engineRef]);
 
   // Liga e desliga o modo rede conforme o estado chega. Fica num
   // efeito separado para nao recriar o motor a cada snapshot, que
@@ -300,13 +380,22 @@ export default function GameCanvas({
     };
   }, [engineRef]);
 
-  /**
-   * A mira vai para o servidor em DIRECAO, medida a partir do
-   * centro da tela, que e onde o jogador e desenhado.
+/**
+   * A mira vai para o servidor em DIRECAO, medida a partir de onde o
+   * jogador esta DESENHADO.
    *
    * So importa sem alvo marcado: com alvo, o servidor mira nele.
    * O `aimFromPointer` do cliente normaliza, entao chega um vetor
    * unitario, e nao pixels.
+   *
+   * ## POR QUE O PONTEIRO SOZINHO NAO BASTA
+   *
+   * O ponteiro sai medido do CENTRO DA TELA. Isso so vale porque o
+   * jogador e desenhado no centro — e ele so e desenhado no centro
+   * enquanto a camera o segue. Perto da borda do mapa a camera trava, o
+   * jogador anda na tela, e medir pelo centro passa a apontar para o
+   * lado errado. A correcao e o leitor que o `useEffect` de cima registra
+   * no cliente, que diz onde o boneco esta a cada pacote
    */
   useEffect(() => {
     const canvas = canvasRef.current;
@@ -315,8 +404,8 @@ export default function GameCanvas({
 
     // o `onIntent` e lido DENTRO do evento, e nao capturado aqui.
     // capturando, o efeito perderia a funcao para sempre quando a
-    // tela montasse antes do socket - e e exatamente a ordem em que
-    // a tela real monta
+    // tela montasse antes do socket - e e exatamente a ordem em que a
+    // tela real monta
     const aoMover = (evento) => {
       const caixa = canvas.getBoundingClientRect();
 
@@ -332,6 +421,76 @@ export default function GameCanvas({
       canvas.removeEventListener("pointermove", aoMover);
     };
   }, []);
+
+  /**
+   * ONDE O JOGADOR ESTA DESENHADO, EM PIXELS DE TELA DO CENTRO.
+   *
+   * E o `(jogador - centro) * zoom`, que e o inverso do `translate` que
+   * o `render` faz. Precisa do `zoom` porque o `GameClient` recebe o
+   * ponteiro em pixels de tela, e as duas coisas tem de estar no mesmo
+   * espaco para a diferenca virar angulo
+   *
+   * ## POR QUE UM LEITOR E NAO UM VALOR
+   *
+   * Se isto devolvesse uma posicao CAPTURADA no efeito, ela viraria velha
+   * assim que o jogador andasse: a camera prende na borda e o boneco sai
+   * do centro. Lendo direto do motor a cada chamada, o valor e sempre o
+   * do instante em que o pacote esta sendo montado
+   *
+   * ## POR QUE A DEPENDENCIA E O `onIntent` INTEIRO
+   *
+   * O leitor so pode ser registrado depois que o socket existe, e o
+   * `comCliente` do hook e um no-op ate la. O `onIntent` e memoizado e so
+   * muda de identidade quando o status muda — ou seja, exatamente quando
+   * o cliente passa a existir. Com `[]` o leitor ficaria perdido para
+   * sempre e a mira voltaria a medir pelo centro
+   */
+  useEffect(() => {
+    const registrarJogador =
+      onIntentRef.current?.definirLeitorDeJogadorNaTela;
+
+    const registrarMira = onIntentRef.current?.definirLeitorDePonteiroDeMira;
+
+    if (!registrarJogador && !registrarMira) return;
+
+    registrarJogador?.(() => {
+      const motor = engineRef.current;
+
+      // o motor pode ja ter sido destruido entre o registro e a chamada
+      if (!motor) return null;
+
+      const z = motor.cameraZoom;
+      const centro = motor.centroDaCameraLimitado();
+      const eu = motor.world?.player;
+
+      if (!eu || !Number.isFinite(eu.x) || !Number.isFinite(eu.y)) {
+        return null;
+      }
+
+      return { x: (eu.x - centro.x) * z, y: (eu.y - centro.y) * z };
+    });
+
+    /**
+     * O PONTO DE MIRA, E NAO O PONTEIRO.
+     *
+     * O motor e quem sabe se a mira magnetica colou num inimigo, e onde ele
+     * esta AGORA — que muda a cada quadro, porque o bicho anda. Ler o ponto
+     * na hora de montar o pacote e o que impede o reticulo de mirar num
+     * lugar e o golpe de sair em outro
+     */
+    registrarMira?.(() => {
+      const motor = engineRef.current;
+
+      if (!motor) return null;
+
+      return motor.ponteiroDaMiraNaTela();
+    });
+
+    return () => {
+      registrarJogador?.(null);
+      registrarMira?.(null);
+    };
+  }, [onIntent, engineRef]);
 
   /**
    * O ponteiro muda conforme o que ha embaixo dele: mao de armadura na

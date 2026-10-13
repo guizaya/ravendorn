@@ -15,9 +15,9 @@ function basicAttack({
 }) {
   return createAction("Basic Attack", type, {
     id: `${classId}_basic_attack`,
-    name: "Ataque Básico",
+    name: "Ataque BÃ¡sico",
     icon: "ATK",
-    description: "Ataque básico da classe.",
+    description: "Ataque bÃ¡sico da classe.",
     damage,
     damageType,
     cooldown,
@@ -28,7 +28,39 @@ function basicAttack({
     projectileSpeed,
     projectileStyle,
     lifesteal,
-    effects,
+
+    /**
+     * O EMPURRAO DO BASICO.
+     *
+     * ## POR QUE O BASICO NAO TINHA NENHUM
+     *
+     * Porque as skills que empurram tracem o `effects` uma a uma, e o
+     * basico vinha com a lista vazia. O resultado era uma briga corpo a
+     * corpo em que nada nunca deslocava ninguem: o alvo recebia o dano,
+     * piscava, e ficava exatamente onde estava. Numa copia de melee o golpe
+     * nao se sente no mundo â€” so no numero
+     *
+     * ## POR QUE `value: 55`, E NAO OS 70-320 DAS SKILLS
+     *
+     * Porque o basico e o golpe que sai varias vezes por segundo, e o
+     * empurrao e proporcional ao dano (`enemiesPush` soma no
+     * `pushVelocity`). Um valor de skill aqui empurraria o mob para fora do
+     * alcance a cada golpe, e o Guerreiro passaria a lutar em outro lugar
+     *
+     * 55 com o decaimento de `exp(-8 * dt)` da o equivalente a uns 7px de
+     * deslocamento: o bastante para o golpe ter peso, pouco o bastante para
+     * nao virar controle
+     *
+     * E o `effects` que vem por parametro continua entrando DEPOIS deste,
+     * em `...effects`: assim uma classe que passe `effects` propio soma o
+     * dela em vez de trocar a nossa
+     */
+    effects: [
+      ...(type === "projectile"
+        ? []
+        : [{ type: "knockback", value: 55 }]),
+      ...effects,
+    ],
     impactRadius: type === "projectile" ? 60 : 0,
     color: "#ffffff",
   });
@@ -37,34 +69,34 @@ function basicAttack({
 const warrior = {
   id: "warrior",
   name: "Warrior",
-  icon: "⚔️",
+  icon: "\u{1F5E1}\u{FE0F}",
   accent: "#ef5350",
-  tagline: "Linha de frente, controle e resistência",
+  tagline: "Linha de frente, controle e resistÃªncia",
   description:
-    "Combatente pesado que permanece na linha de frente, protege aliados e usa força física para controlar grupos.",
+    "Combatente pesado que permanece na linha de frente, protege aliados e usa forÃ§a fÃ­sica para controlar grupos.",
   role: "Tank / Frontline / Controle",
-  combatType: "Corpo a corpo e controle de área",
+  combatType: "Corpo a corpo e controle de Ã¡rea",
   rangeLabel: "Curto",
-  damageType: "Físico",
+  damageType: "FÃ­sico",
   playstyle:
-    "Avançar primeiro, encaixar habilidades de área, manter postura defensiva e contra-atacar.",
+    "AvanÃ§ar primeiro, encaixar habilidades de Ã¡rea, manter postura defensiva e contra-atacar.",
   mechanic: {
     name: "Postura de ferro",
     description:
-      "Combina resistência, escudos, controle de posicionamento e contra-ataques.",
+      "Combina resistÃªncia, escudos, controle de posicionamento e contra-ataques.",
   },
   characteristics: [
     "Vida e defesa elevadas",
-    "Alta resistência a controle",
-    "Dano físico médio",
+    "Alta resistÃªncia a controle",
+    "Dano fÃ­sico mÃ©dio",
     "Baixa mobilidade",
     "Forte controle de grupo",
   ],
   strengths: [
-    "Sobrevive à frente",
+    "Sobrevive Ã  frente",
     "Excelente AoE",
     "Stun, pull e knockback",
-    "Boa proteção contra grupos",
+    "Boa proteÃ§Ã£o contra grupos",
   ],
   weaknesses: [
     "Pouca velocidade",
@@ -89,12 +121,12 @@ const warrior = {
    *
    * O Guerreiro e o tanque: VIT e STR sao os dois maiores e sao os que
    * mais sobem. E o que faz a folha dele nao ser a do Lancer com
-   * numeros trocados — os dois comecam perto, mas aos 30 o Guerreiro
+   * numeros trocados â€” os dois comecam perto, mas aos 30 o Guerreiro
    * aguenta o triplo e o Lancer nao
    *
    * E o que a folha de stats le: `game/stats/StatSheet.js`. O
    * atributo nao entra direto em combate ainda, ele move MATK, MDEF,
-   * PEN, ACC, EVA e as taxas — e por isso que ele aparece na tela
+   * PEN, ACC, EVA e as taxas â€” e por isso que ele aparece na tela
    */
   attributes: {
     str: 18,
@@ -124,39 +156,39 @@ const warrior = {
 const lancer = {
   id: "lancer",
   name: "Lancer",
-  icon: "🔱",
+  icon: "\u{2694}\u{FE0F}",
   accent: "#52c7ff",
   tagline: "Entrar, controlar e reposicionar",
   description:
-    "Bruiser móvel que combina estocadas longas, investidas e ataques de área para entrar e sair do combate.",
+    "Bruiser mÃ³vel que combina estocadas longas, investidas e ataques de Ã¡rea para entrar e sair do combate.",
   role: "Bruiser / DPS / Controle / Mobilidade",
   combatType: "Corpo a corpo alongado e investidas",
-  rangeLabel: "Curto a médio",
-  damageType: "Físico",
+  rangeLabel: "Curto a mÃ©dio",
+  damageType: "FÃ­sico",
   playstyle:
     "Usar alcance para golpear, dash para entrar, controlar o alvo e reposicionar antes do contra-ataque.",
   mechanic: {
     name: "Fluxo de combate",
     description:
-      "A) Atacar com média distância  B) Controlar  C) Recuperar espaço com dash.",
+      "A) Atacar com mÃ©dia distÃ¢ncia  B) Controlar  C) Recuperar espaÃ§o com dash.",
   },
   characteristics: [
     "Alcance maior que Warrior",
     "Boa velocidade",
-    "Dano físico consistente",
-    "Defesa média",
+    "Dano fÃ­sico consistente",
+    "Defesa mÃ©dia",
     "Dash perfurante",
   ],
   strengths: [
     "Mobilidade",
-    "Alcance médio",
-    "Combo de três golpes",
+    "Alcance mÃ©dio",
+    "Combo de trÃªs golpes",
     "Roubo de vida",
   ],
   weaknesses: [
     "Menos resistente que Warrior",
     "Depende de acertar investidas",
-    "Sem proteção extrema",
+    "Sem proteÃ§Ã£o extrema",
   ],
   stats: {
     hp: 1050,
@@ -201,39 +233,39 @@ const lancer = {
 const sorcerer = {
   id: "sorcerer",
   name: "Sorcerer",
-  icon: "🔮",
+  icon: "\u{1F52E}",
   accent: "#ad70ff",
-  tagline: "Dano elemental à distância",
+  tagline: "Dano elemental Ã  distÃ¢ncia",
   description:
-    "Mage de alto dano mágico, áreas elementais e controle, especialmente perigosa quando mantém distância.",
+    "Mage de alto dano mÃ¡gico, Ã¡reas elementais e controle, especialmente perigosa quando mantÃ©m distÃ¢ncia.",
   role: "Mage / Ranged DPS / AoE / Controle",
-  combatType: "Projéteis elementais e tempestades",
+  combatType: "ProjÃ©teis elementais e tempestades",
   rangeLabel: "Longo",
-  damageType: "Mágico elemental",
+  damageType: "MÃ¡gico elemental",
   playstyle:
-    "Manter distância, aplicar elementos em sequência e usar campos de área antes de ser cercada.",
+    "Manter distÃ¢ncia, aplicar elementos em sequÃªncia e usar campos de Ã¡rea antes de ser cercada.",
   mechanic: {
-    name: "Reação elemental",
+    name: "ReaÃ§Ã£o elemental",
     description:
       "Fogo, gelo, tempestade, trevas e veneno podem receber sinergias futuras.",
   },
   characteristics: [
-    "Maior dano mágico",
+    "Maior dano mÃ¡gico",
     "Longo alcance",
     "Excelente AoE",
     "Baixa defesa",
     "Mana como recurso",
   ],
   strengths: [
-    "Dano à distância",
-    "Controle em área",
+    "Dano Ã  distÃ¢ncia",
+    "Controle em Ã¡rea",
     "Slow e pull",
-    "Esquiva de projéteis",
+    "Esquiva de projÃ©teis",
   ],
   weaknesses: [
-    "Frágil em corpo a corpo",
+    "FrÃ¡gil em corpo a corpo",
     "Consumo elevado de Mana",
-    "Precisa manter distância",
+    "Precisa manter distÃ¢ncia",
   ],
   stats: {
     hp: 680,
@@ -280,39 +312,39 @@ const sorcerer = {
 const arbalist = {
   id: "arbalist",
   name: "Arbalist",
-  icon: "🏹",
+  icon: "\u{1F3F9}",
   accent: "#8ed081",
-  tagline: "Dano físico, crítico e mobilidade",
+  tagline: "Dano fÃ­sico, crÃ­tico e mobilidade",
   description:
-    "Especialista em manter distância, disparos rápidos, crítico, veneno e reposicionamento ofensivo.",
+    "Especialista em manter distÃ¢ncia, disparos rÃ¡pidos, crÃ­tico, veneno e reposicionamento ofensivo.",
   role: "Ranged DPS / Crit / Mobilidade",
-  combatType: "Disparos de longa distância",
+  combatType: "Disparos de longa distÃ¢ncia",
   rangeLabel: "Muito longo",
-  damageType: "Físico",
+  damageType: "FÃ­sico",
   playstyle:
-    "Atacar, reposicionar, dashar para longe ou entrar para burst e voltar à distância.",
+    "Atacar, reposicionar, dashar para longe ou entrar para burst e voltar Ã  distÃ¢ncia.",
   mechanic: {
-    name: "Cycle de distância",
+    name: "Cycle de distÃ¢ncia",
     description:
       "A) Atacar  B) Reposicionar  C) Dash  D) Atacar novamente.",
   },
   characteristics: [
-    "Alto dano físico",
-    "Crítico elevado",
-    "Disparo rápido",
+    "Alto dano fÃ­sico",
+    "CrÃ­tico elevado",
+    "Disparo rÃ¡pido",
     "Longo alcance",
-    "Baixa resistência",
+    "Baixa resistÃªncia",
   ],
   strengths: [
-    "Crítico",
+    "CrÃ­tico",
     "Alcance",
     "Cloaking",
     "Veneno",
     "Dash ofensivo",
   ],
   weaknesses: [
-    "Pouca resistência",
-    "Vulnerável se cercada",
+    "Pouca resistÃªncia",
+    "VulnerÃ¡vel se cercada",
     "Depende de reposicionar",
   ],
   stats: {
@@ -365,7 +397,7 @@ const arbalist = {
  * As quatro classes do jogo.
  *
  * Sao estas, e nao mais: `taoist`, `darkist`, `lionheart` e
- * `summoner` saíram, e sairam junto com o skill pack, o sprite e a
+ * `summoner` saÃ­ram, e sairam junto com o skill pack, o sprite e a
  * arte de cada uma. A ordem e a de aparicao na tela de selecao.
  *
  * ## ESTA LISTA NAO E "AS CLASSES QUE EXISTEM"
@@ -395,7 +427,7 @@ export const CHARACTER_CLASSES = Object.freeze([
  *
  * E o servidor continua aceitando `lancer` no JOIN, porque e o
  * `CHARACTER_CLASSES` que ele le. Um jogador com lancer no save volta
- * digitando o nome dele e escolhendo Lancer na tela — e a tela mostra o
+ * digitando o nome dele e escolhendo Lancer na tela â€” e a tela mostra o
  * card dele mesmo com ele escondido da grade, que e o que o bloco de
  * recuperacao abaixo faz
  *

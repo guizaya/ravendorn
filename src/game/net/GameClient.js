@@ -108,6 +108,30 @@ export class GameClient {
     this.keys = new Set();
     this.ponteiro = { x: 0, y: 0, inside: false };
 
+    /**
+     * ONDE O JOGADOR ESTA DESENHADO NA TELA.
+     *
+     * Nao e um numero guardado: e um LEITOR. O `GameCanvas` registra
+     * aqui uma funcao que le a posicao direto do motor, e ela e chamada
+     * na hora de cada pacote. Guardar o valor aqui nao daria: entre um
+     * pacote e outro o jogador anda, a camera trava na borda do mapa e o
+     * boneco sai do centro da tela — e um valor velho produz a mesma mira
+     * errada que o bug antigo
+     */
+    this.leitorDeJogadorNaTela = null;
+
+    /**
+     * ONDE A MIRA APONTA, EM PIXEL DE TELA DO CENTRO.
+     *
+     * E um LEITOR pelo mesmo motivo do de cima: o ponto de mira e decidido
+     * pelo motor, que e quem conhece a mira magnetica e o inimigo preso. Um
+     * valor guardado aqui envelheceria assim que o bicho andasse
+     *
+     * Sem leitor, vale o `this.ponteiro` — que e o ponteiro cru, e o
+     * comportamento de sempre
+     */
+    this.leitorDePonteiroDeMira = null;
+
     this.seq = 0;
     this.intencaoEnviada = null;
 
@@ -172,12 +196,25 @@ export class GameClient {
     };
   }
 
-  /** Entra no mundo com o nome e a classe escolhidos. */
-  entrar({ name, classId }) {
-    this.envia(
-      CLIENT_COMMANDS.JOIN,
-      { name, classId },
-    );
+  /**
+   * Entra no mundo com o nome e a classe escolhidos.
+   *
+   * ## O TOKEN, QUANDO VEM
+   *
+   * O `token` e a prova de que a conta realmente tem aquele personagem. Quem
+   * chegou pelo front traz ele na URL; quem abriu o jogo direto nao traz, e
+   * o servidor aceita o JOIN pelo nome como sempre fez
+   *
+   * A chave so entra no payload quando existe: mandar `token: undefined`
+   * pelo JSON vira a string `"undefined"`, que o servidor leria como um token
+   * invalido em vez de ausencia
+   */
+  entrar({ name, classId, token }) {
+    const payload = { name, classId };
+
+    if (token) payload.token = token;
+
+    this.envia(CLIENT_COMMANDS.JOIN, payload);
   }
 
   /**
@@ -193,10 +230,12 @@ export class GameClient {
 
     const move = moveFromKeys(this.keys);
 
-    // a mira sai do ponteiro em relacao ao centro da tela, onde o
-    // jogador e desenhado. o jogador e desenhado no centro porque
-    // a camera segue ele
-    const aim = aimFromPointer(this.ponteiro, { x: 0, y: 0 });
+    // a mira sai do ponto de mira em relacao ao JOGADOR NA TELA, e nao em
+    // relacao ao centro da tela. As duas coisas so coincidem enquanto a
+    // camera segue o jogador: perto da borda do mapa a camera trava, o
+    // jogador anda na tela, e medir pelo centro manda a mira para o lado
+    // errado
+    const aim = aimFromPointer(this.ponteiroDeMira(), this.jogadorNaTela());
 
     // repare o que NAO esta aqui: a posicao. o pacote e "quero ir
     // para a direita", e o servidor decide o quanto. e o que
@@ -214,7 +253,7 @@ export class GameClient {
   agir(action, { targetId = null, slot = 0 } = {}) {
     if (!this.jogando()) return;
 
-    const aim = aimFromPointer(this.ponteiro, { x: 0, y: 0 });
+    const aim = aimFromPointer(this.ponteiroDeMira(), this.jogadorNaTela());
 
     this.envia(CLIENT_COMMANDS.ACTION, {
       action,
@@ -437,9 +476,9 @@ alternarAutoPlay() {
      * deslocamento, e o deslocamento nao se negocia — ou o servidor aceita
      * e decide a direcao, ou nao ha dash
      */
-    dash() {
-      return this.pedirPainel({ op: PANEL_OPS.DASH });
-    }
+dash() {
+    return this.pedirPainel({ op: PANEL_OPS.DASH });
+  }
 
   /**
    * A CONFIGURACAO DO USO AUTOMATICO DA POCAO.
@@ -1204,6 +1243,125 @@ irParaTeste() {
     this.ponteiro.x = x;
     this.ponteiro.y = y;
     this.ponteiro.inside = dentro;
+  }
+
+  /**
+   * REGISTRA QUEM SABE ONDE O JOGADOR ESTA NA TELA.
+   *
+   * Quem passa isso e o `GameCanvas`, que e dono do motor e por isso sabe
+   * a resposta. Este cliente so guarda pacote: ele nao tem canvas, nao tem
+   * viewport e nao tem zoom, entao nenhum calculo aqui chegaria perto da
+   * conta
+   *
+   * Passar `null` desregistra — e o que o `GameCanvas` faz ao desmontar,
+   * para nao deixar uma funcao morta presa no socket
+   */
+  definirLeitorDeJogadorNaTela(ler) {
+    this.leitorDeJogadorNaTela = typeof ler === "function" ? ler : null;
+  }
+
+  /**
+   * REGISTRA QUEM SABE ONDE A MIRA APONTA.
+   *
+   * E o mesmo par do leitor de jogador: quem tem a resposta e o motor, e ele
+   * registra os dois de uma vez pelo `GameCanvas`
+   */
+  definirLeitorDePonteiroDeMira(ler) {
+    this.leitorDePonteiroDeMira = typeof ler === "function" ? ler : null;
+  }
+
+  /**
+   * ONDE A MIRA APONTA AGORA, EM PIXEL DE TELA DO CENTRO.
+   *
+   * ## POR QUE ISTO E PREGUNTO AO MOTOR E NAO UM VALOR GUARDADO
+   *
+   * Porque a mira magnetica gruda num inimigo que ANDA. Se o cliente guardasse
+   * a posicao do ponteiro no momento do ultimo `pointermove`, o reticulo
+   * desenharia no bicho novo e o tiro sairia na posicao antiga — o jogador
+   * veria a mira acertando e o golpe errando
+   *
+   * ## E POR QUE O PONTEIRO CRU CONTINUA SENDO O PADRAO
+   *
+   * Porque e ele que o `pointermove` manda, e ele nao esta preso a nada. Na
+   * base, sem combate, sem inimigo por perto, os dois dao o mesmo numero e
+   * nada muda
+   */
+  ponteiroDeMira() {
+    if (!this.leitorDePonteiroDeMira) return this.ponteiro;
+
+    try {
+      const ponto = this.leitorDePonteiroDeMira();
+
+      if (!Number.isFinite(ponto?.x) || !Number.isFinite(ponto?.y)) {
+        return this.ponteiro;
+      }
+
+      /**
+       * O `inside` VIEM DO PONTEIRO CRU, E ISTO E O QUE FAZ O TIRO MIRAR.
+       *
+       * ## O QUE ACONTECIA SEM ESTA LINHA
+       *
+       * O leitor devolve `{ x, y }` e nada mais. O `aimFromPointer` comeca
+       * com `if (!ponteiro?.inside) return { x: 0, y: 0 }`, e `!undefined` e
+       * `true` — entao a mira saia ZERADA em TODOS os quadros, com o ponteiro
+       * exatamente onde o jogador mandou
+       *
+       * A mira zerada vira no servidor um `pointer` em cima do jogador, e o
+       * tiro sai com direcao `(0, 0)`. `Math.atan2(0, 0)` e `0`, que e leste:
+       * o golpe ia SEMPRE para a direita, qualquer que fosse o lado do clique
+       *
+       * ## POR QUE O `inside` DO CRU E O CERTO
+       *
+       * Porque o retculo pode estar grudado num inimigo, e ainda assim o
+       * ponteiro estar FORA do canvas. A mira so vale se o jogador esta
+       * mirando alguma coisa — e quem responde isso e o `pointerleave`, nao o
+       * motor
+       *
+       * ## E POR QUE COMBINAR, E NAO SOBRESCREVER
+       *
+       * Porque o ponto do motor tem a posicao CORRETA (o inimigo andou desde
+       * o ultimo `pointermove`) e o ponteiro cru tem o `inside` CORRETO. Cada
+       * um sabe de uma coisa que o outro nao sabe
+       */
+      return {
+        x: ponto.x,
+        y: ponto.y,
+        inside: this.ponteiro.inside,
+      };
+    } catch {
+      // o motor pode ja ter sido destruido: perder um pacote e melhor que
+      // derrubar o socket
+      return this.ponteiro;
+    }
+  }
+
+  /**
+   * ONDE O JOGADOR ESTA DESENHADO, EM PIXELS DE TELA, MEDIDO DO CENTRO.
+   *
+   * O mesmo espaco do `this.ponteiro`, porque e a diferenca entre os dois
+   * que vira direcao. O motor calcula como `(jogador - centro) * zoom`: o
+   * `zoom` entra porque o `GameCanvas` manda o ponteiro em pixels de tela,
+   * e o boneco e desenhado em pixels de tela tambem
+   *
+   * Sem leitor registrado, cai no centro. E o comportamento antigo, e e
+   * exatamente o que a mira deve fazer quando nao se sabe onde o jogador
+   * esta: e melhor mirar pelo meio do que por um ponto inventado
+   */
+  jogadorNaTela() {
+    if (!this.leitorDeJogadorNaTela) return { x: 0, y: 0 };
+
+    try {
+      const posicao = this.leitorDeJogadorNaTela();
+
+      return {
+        x: Number.isFinite(posicao?.x) ? posicao.x : 0,
+        y: Number.isFinite(posicao?.y) ? posicao.y : 0,
+      };
+    } catch {
+      // o motor pode ja estar destruido: a tela saiu entre o pacote e a
+      // mira. Perder um pacote e melhor que derrubar o socket
+      return { x: 0, y: 0 };
+    }
   }
 
   /** Ja tem sessao no mundo? Sem WELCOME, nada e aceito. */

@@ -185,17 +185,51 @@ const ARBALIST_SHOOT_FPS = 20;
  * diferenca que importa: enquanto o arquiro e 64, o guerreiro
  * desenha 4px maior em cada dimensao na tela
  */
-const WARRIOR_FRAME_SIZE = 68;
-const WARRIOR_ANCHOR_X = 34;
-const WARRIOR_ANCHOR_Y = 55;
+/**
+ * AS MEDIDAS DA ARTE NOVA, impressas pelo `gif-to-sheet`.
+ *
+ * ## A CELULA SUBIU DE 68 PARA 96
+ *
+ * Porque a arte nova e maior: `idle` e `walk` medem 88x88, `mining` e `attack`
+ * medem 92x92, e duas diagonais do idle medem 84x84. Numa celula de 68 a arte
+ * seria cortada
+ *
+ * E 96, e nao 92, pelo mesmo motivo do arquiro: `attack/north` tem um quadro
+ * que ENCOSTA na propria borda, e a ferramenta recusa a folha sem 2px de
+ * folga. Os 4 pixels que sobram entram preenchidos de transparente
+ *
+ * ## A ANCORA, REGERADA
+ *
+ * Antes `(34, 55)`. Agora `(48, 76)`, que e a saida do `gif-to-sheet`: o
+ * `alignAnchors` mede a MEDIANA do pe de cada lane, e o pe da arte nova esta
+ * 20px mais baixo numa celula 28px maior. Deixar em 55 punha o guerreiro 21px
+ * dentro do chao em todas as direcoes
+ *
+ * ## E A ESCALA, QUE AGORA E A DO ARQUIRO
+ *
+ * A arte nova e do mesmo tamanho em tela que a do arquiro, entao o
+ * guerreiro passou a usar a MESMA escala que o arquiro tem no `index.js`, a
+ * 1.1 — e nao o `ARBALIST_SCALE` de 0.952 deste arquivo, que e numero velho
+ * do arquiro: o `index.js` sobrescreve a escala ao montar o sprite final, e
+ * quem manda no tamanho na tela e o `index.js`, nao esta constante
+ *
+ * Com celula de 96 e escala de 1.1, os dois bonecos medem 105.6px na tela —
+ * iguais
+ */
+const WARRIOR_FRAME_SIZE = 96;
+const WARRIOR_ANCHOR_X = 48;
+const WARRIOR_ANCHOR_Y = 76;
 const WARRIOR_WALK_FRAMES = 8;
 const WARRIOR_IDLE_FRAMES = 8;
-const WARRIOR_IDLE_ROW = 8;
+const WARRIOR_IDLE_ROW_OFFSET = 8;
 const WARRIOR_ATTACK_FRAMES = 9;
-const WARRIOR_ATTACK_ROW = 9;
+const WARRIOR_ATTACK_ROW = 16;
+const WARRIOR_MINING_FRAMES = 9;
+const WARRIOR_MINING_ROW_OFFSET = 24;
 const WARRIOR_WALK_FPS = 12;
 const WARRIOR_IDLE_FPS = 5;
 const WARRIOR_ATTACK_FPS = 18;
+const WARRIOR_MINING_FPS = 10;
 
 /**
  * A geometria do guerreiro, para o `./index.js` montar a versao com
@@ -214,6 +248,16 @@ export const WARRIOR_GEOMETRY = {
   frameHeight: WARRIOR_FRAME_SIZE,
   anchorX: WARRIOR_ANCHOR_X,
   anchorY: WARRIOR_ANCHOR_Y,
+
+  /**
+   * A ESCALA FINAL, E NAO A 0.952 DO ARQUIRO.
+   *
+   * Este arquivo e a copia que o SERVIDOR usa, e ele nao desenha: o
+   * `index.js` monta o sprite final do cliente e sobrescreve a escala com a
+   * 1.1 do arquiro. Aqui a 0.952 ficaria a copia do servidor discordando da
+   * do cliente, que e o que o comentario do `index.js` avisa sobre o arquiro
+   */
+  scale: 1.1,
 };
 
 /**
@@ -415,13 +459,26 @@ export const ARBALIST_SPRITE = createDirectionalSpriteDefinition(
  * O guerreiro, a partir da arte de `assets/sprites/warrior/`.
  *
  * Os numeros sao a saida de `node tools/gif-to-sheet.mjs warrior`, e
- * a folha tem 17 linhas: 8 de caminhada, 1 de idle e 8 de golpe.
+ * a folha tem 32 linhas: 8 de caminhada, 8 de idle, 8 de golpe e 8 de
+ * picareta — quatro animacoes por direcao, todas com os oito angulos
  *
- * A celula dele tem 68px, e nao os 64 do arquiro: sao artes de
- * origem com dimensoes diferentes, e encolher uma para a outra
- * perderia pixel da arte nova. O `tools/gif-to-sheet.mjs` mede a
- * ancora de cada celula justamente para a arte nao precisar ser
- * encolhida para caber
+ * ## A MESMA CELULA E A MESMA ESCALA DO ARQUIRO
+ *
+ * Antes a celula dele era de 68 e a escala de `DIRECTIONAL_SCALE`, que dava
+ * 54px na tela — o arquiro, com celula de 96 e escala de 0.952, dava 91px, e
+ * o guerreiro saia 1.7x menor que o arquiro ao lado
+ *
+ * Agora os dois saem de 96 com 0.952 e medem os mesmos 91.4px. E a arte do
+ * guerreiro nao foi encolhida para isso: a celula subiu para caber nela, e
+ * o `gif-to-sheet` mede a ancora de cada celula justamente para a arte nao
+ * precisar ser encolhida nem cortada
+ *
+ * ## E O IDLE PASSOU A SER POR DIRECAO
+ *
+ * Era um gif unico na raiz, chamado `indle.gif`. Agora sao oito gifs em
+ * `idle/`, um por angulo — igual ao arquiro. Por isso o idle usa
+ * `rowOffset` e nao `row`: o retrato dele tambem precisa seguir o angulo em
+ * que o boneco esta virado
  *
  * O golpe dele NAO precisa de alvo: e um `./target`, nao um tiro, e
  * qualquer golpe basico de corpo a corpo tem animacao. O
@@ -440,7 +497,7 @@ export const WARRIOR_SPRITE = createDirectionalSpriteDefinition(
 
     animations: {
       idle: {
-        row: WARRIOR_IDLE_ROW,
+        rowOffset: WARRIOR_IDLE_ROW_OFFSET,
         start: 0,
         length: WARRIOR_IDLE_FRAMES,
         fps: WARRIOR_IDLE_FPS,
@@ -458,6 +515,28 @@ export const WARRIOR_SPRITE = createDirectionalSpriteDefinition(
         length: WARRIOR_ATTACK_FRAMES,
         fps: WARRIOR_ATTACK_FPS,
       },
+
+      /**
+       * A PICARETA, EM LOOP, E POR DIRECAO.
+       *
+       * ## POR QUE `rowOffset`, E NAO `row` FIXO
+       *
+       * Porque o ciclo segue o angulo em que o jogador chegou na pedra: quem
+       * esta de norte soca para o norte. Com `row` fixo, o guerreiro socaria
+       * para o sul estando virado para o norte
+       *
+       * ## E SEM `needsTarget`
+       *
+       * Porque mineracao nao tem alvo — tem uma pedra, que e um objeto do
+       * mapa e nao alguem que possa morrer. A `needsTarget` trava a arte de
+       * tiro, e o alvo do arquiro e um INIMIGO
+       */
+      mining: {
+        rowOffset: WARRIOR_MINING_ROW_OFFSET,
+        start: 0,
+        length: WARRIOR_MINING_FRAMES,
+        fps: WARRIOR_MINING_FPS,
+      },
     },
   },
 );
@@ -466,24 +545,46 @@ export const WARRIOR_SPRITE = createDirectionalSpriteDefinition(
  * As medidas do sorcerer, medidas na folha gerada por
  * `node tools/gif-to-sheet.mjs sorcerer`.
  *
- * A celula e a do guerreiro, 68px, e a ancora (33, 56) e a que a
- * propria folha mediu: o personagem da arte fica com o pe em y=56
- * depois do alinhamento, e e esse numero que o amarra ao ponto do
- * mundo. Um `anchorY` de 54, o do arquiro, colocaria o sorcerer 2px
- * fora do chao em relacao as outras classes
+ * ## A CELULA CAIU DE 132 PARA 96
+ *
+ * A arte do pacote novo e menor que a anterior: `walk`, `idle` e `attack`
+ * medem 88x88, e so o `mining` chega a 92x92. A celula de 132 era a arte
+ * velha, que saia em 128 e 132 — a de 96 e a menor que cabe no 92 do
+ * `mining` com a folga que a ferramenta exige
+ *
+ * ## A ANCORA VEIO DA FOLHA, NAO DE OUTRA CLASSE
+ *
+ * O `anchorY` e 76: e onde o pe do sorcerer fica na caminhada, que e o
+ * que amarra o desenho ao ponto do mundo. Copiar a ancora do arquiro (76
+ * tambem, por acaso) daria o numero certo pela razao errada — e a ancora
+ * da arena (75) e o valor que o resto da arte tambem confirma
+ *
+ * O `anchorX` e 48, a metade da celula: a arte e simetrica na horizontal em
+ * todas as oito direcoes, entao o meio do PNG e o meio do personagem
  */
-const SORCERER_FRAME_SIZE = 132;
-const SORCERER_ANCHOR_X = 65;
-const SORCERER_ANCHOR_Y = 108;
-const SORCERER_COLUMNS = 9;
+const SORCERER_FRAME_SIZE = 96;
+const SORCERER_ANCHOR_X = 48;
+const SORCERER_ANCHOR_Y = 76;
+
+/**
+ * ONZE COLUNAS, E NAO NOVE
+ *
+ * A folha tem 11 colunas porque e o MAIOR grupo de quadros da classe: o
+ * `mining` do norte tem 11 quadros. Com 9, o indice 9 e 10 cairiam na linha
+ * de baixo da celula e o sprite leria tile de outra animacao
+ */
+const SORCERER_COLUMNS = 11;
 const SORCERER_WALK_FRAMES = 8;
 const SORCERER_IDLE_FRAMES = 8;
 const SORCERER_IDLE_ROW_OFFSET = 8;
 const SORCERER_ATTACK_FRAMES = 9;
 const SORCERER_ATTACK_ROW = 16;
+const SORCERER_MINING_FRAMES = 9;
+const SORCERER_MINING_ROW = 24;
 const SORCERER_WALK_FPS = 12;
 const SORCERER_IDLE_FPS = 5;
 const SORCERER_ATTACK_FPS = 20;
+const SORCERER_MINING_FPS = 10;
 
 export const SORCERER_GEOMETRY = {
   frameWidth: SORCERER_FRAME_SIZE,
@@ -492,40 +593,26 @@ export const SORCERER_GEOMETRY = {
   anchorY: SORCERER_ANCHOR_Y,
 
   /**
-   * A ESCALA QUE DEIXA O SORCERER DO MESMO TAMANHO NA TELA QUE O ARQUEIRO.
-   *
-   * ## POR QUE A ESCALA E MENOR QUE A DO ARQUEIRO, SENDO QUE A ARTE E MAIOR
-   *
-   * A celula e o que o motor desenha, e a escala e o que encolhe essa celula.
-   * A celula do sorcerer tem 132 contra 96 do arqueiro, entao a escala tem de
-   * compensar para o PERSONAGEM sair do mesmo tamanho
-   *
-   * A conta, medindo as duas folhas do mesmo jeito:
-   *
-   * - arqueiro: 57px de arte x 1.1 = **62.7px** na tela
-   * - sorcerer: 90px de arte na caminhada
-   *
-   * 62.7 / 90 = 0.697. E o numero aqui
-   *
-   * ## E DE ONDE SAIU O 1.1, E NAO O 0.952
-   *
-   * Porque existem DOIS numeros do arqueiro no codigo, e o que vale e o do
-   * `src/data/sprites/index.js`, que monta o sprite final: la o `scale` do
-   * arqueiro e **1.1**, sobrescrevendo o `ARBALIST_SCALE = 0.952` do
-   * `layout.js`
-   *
-   * Calcular por cima do 0.952 dava 54.3px de personagem, e o sorcerer saia
-   * 13% menor que o arqueiro na tela — visivel, e foi o que aconteceu na
-   * primeira configuracao desta arte
-   *
-   * ## E POR QUE NAO IGUALAR A CELULA
-   *
-   * Porque a celula tem borda transparente, e o que o jogador ve e o boneco.
-   * Igualando a celula, o sorcerer sairia com 92px de celula contra 105.6 do
-   * arqueiro, e o personagem com 62.7px contra 62.7px: certo no que importa, e
-   * diferente so na margem invisivel
-   */
-  scale: 0.697,
+ * A ESCALA E A MESMA DO ARQUEIRO E DO GUERREIRO: 1.1.
+ *
+ * ## POR QUE ANTES ERA 0.697, E POR QUE NAO E MAIS
+ *
+ * A celula do sorcerer era 132 e a do arqueiro 96. A escala compensava essa
+ * diferenca para o PERSONAGEM sair do mesmo tamanho na tela, e o numero
+ * compensava tanto que 0.697 ficava minusculo ao lado de um 1.1
+ *
+ * Com a celula de 96, essa compensacao sumiu: as tres classes desenham na
+ * mesma grade. A escala virou a mesma das outras duas por um motivo real —
+ * a medida em que elas sao iguais — e nao porque o numero foi copiado
+ *
+ * ## E POR QUE O SORCERER SAI UM POUCO MAIOR QUE O ARQUEIRO
+ *
+ * Porque a arte dele e um pouco mais alta: 62px contra 56 na caminhada.
+ * O boneco carrega cajado e capa, e ele ocupa mais espaco vertical que um
+ * arqueiro de arco curto. Forcar os dois no mesmo numero de pixel seria
+ * encolher a arte do sorcerer ate ela deixar de caber na propria pose
+ */
+  scale: 1.1,
 };
 
 /**
@@ -583,18 +670,38 @@ const SORCERER_ATTACK_ANIMATION = {
 };
 
 /**
+ * A MINERACAO, que saiu do pacote novo.
+ *
+ * ## POR QUE O CONJURADOR GANHOU PICARRETA
+ *
+ * O comentario antigo dizia que a picareta era do arqueiro e que nenhuma
+ * outra classe tinha a arte. O pacote novo trouxe `mining/` com os oito
+ * angulos, entao o sprite sem esse bloco cairia no `idle` quando o jogador
+ * chega numa pedra — boneco parado mexendo o cajado, como se conjurasse
+ * para uma pedra
+ *
+ * ## E O MESMO RITMO DO GUERREIRO
+ *
+ * 10 quadros por segundo: os dois cavam com o mesmo movimento de tranco, e
+ * dois numeros diferentes fariam o sorcerer parecer lento ao lado do
+ * guerreiro quebrando a mesma pedra
+ */
+const SORCERER_MINING_ANIMATION = {
+  rowOffset: SORCERER_MINING_ROW,
+  start: 0,
+  length: SORCERER_MINING_FRAMES,
+  fps: SORCERER_MINING_FPS,
+};
+
+/**
  * O sorcerer, a partir da arte de `assets/sprites/sorcerer/`.
  *
- * ## A FOLHA MUDOU DE 9 PARA 24 LINHAS
+ * ## A FOLHA MUDOU DE 24 PARA 32 LINHAS
  *
- * Sao oito de caminhada, oito de idle e oito de golpe, nesta ordem. Antes
- * eram oito de caminhada e UMA de idle, lida por `row`
+ * Sao oito de caminhada, oito de idle, oito de golpe e oito de mineracao,
+ * nesta ordem. Antes eram oito de caminhada, UMA de idle e oito de golpe
  *
- * ## E SEM MINERACAO
- *
- * A picareta e do arqueiro, e nenhuma outra classe tem essa arte. Sem o
- * bloco `mining` aqui, o `resolveFrameRect` cai no `idle` quando o jogador
- * chega numa pedra — o que e o comportamento certo para um conjurador
+ * E a celula caiu de 132 para 96, que e a mesma do arquiro e do guerreiro
  */
 export const SORCERER_SPRITE = createDirectionalSpriteDefinition(
   "sorcerer",
@@ -616,6 +723,8 @@ export const SORCERER_SPRITE = createDirectionalSpriteDefinition(
       },
 
       attack: SORCERER_ATTACK_ANIMATION,
+
+      mining: SORCERER_MINING_ANIMATION,
     },
   },
 );

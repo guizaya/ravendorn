@@ -61,6 +61,22 @@ export function flagsDe(gidComFlags) {
 }
 
 /**
+ * "ESTE TILE NAO PERTENCE A NENHUMA FOLHA".
+ *
+ * ## POR QUE E UM NUMERO E NAO `-1`
+ *
+ * Porque `folhaDe` e um `Uint16Array`, e nele nao existe o `-1`. O Tiled
+ * reserva o `0` para o tile de indice zero — a primeira arte da folha, que na
+ * base e uma parede escura — entao o "nao ha folha" tem de ser algum numero
+ * que nenhum indice real atinge
+ *
+ * E por que e `0xFFFF` e nao `999`: um indice so e valido de 0 ate
+ * `folhas.length - 1`. Qualquer valor acima disso esta fora da lista por
+ * construcao, e continua fora mesmo se o autor declarar mil tilesets
+ */
+const SEM_FOLHA = 0xffff;
+
+/**
  * O MAPA DO TILED, PRONTO PARA O MOTOR.
  *
  * ## POR QUE AS CAMADAS DE TILE SAO AS UNICAS QUE INTERESSAM
@@ -84,14 +100,100 @@ export function lerMapaTiled(tmj, { imagens = {}, tilesets = {} } = {}) {
   const tileWidth = tmj.tilewidth ?? 16;
   const tileHeight = tmj.tileheight ?? 16;
 
-  const tileset = lerTileset(tmj.tilesets?.[0], imagens, tilesets);
+  /**
+   * TODOS OS TILESETS DO MAPA, e nao so o primeiro.
+   *
+   * ## POR QUE DEIXOU DE SER UM
+   *
+   * Porque um `.tmj` do Tiled aceita quantos tilesets voce quiser, cada um
+   * com a sua faixa de `gid`. A base tem dois: o `chao` comeca em 1 e tem 16
+   * tiles, e o `estatus1` comeca em 17 e tem 1
+   *
+   * Ler so o `[0]` e ler UM tileset e chamar de todos: o tile de `gid 17` era
+   * procurado como se fosse o 17 do chao, que tem 16 tiles — caia fora da
+   * folha e a celula era pulada em silencio. Era o sintoma de "adicionei a arte
+   * no Tiled e ela nao aparece"
+   *
+   * ## E A ORDEM IMPORTA
+   *
+   * O `firstgid` de cada um vira a FRONTEIRA da faixa dele: um `gid 17`
+   * pertence a quem comecou em 17, e nao a quem comecou em 1. Por isso a
+   * lista sai ordenada por `firstgid` — sem isso, o primeiro tileset da pasta
+   * engoliria a faixa dos outros
+   *
+   * ## E O MAPA QUE SO TEM UM VOLTA A SER EXATAMENTE O QUE ERA
+   *
+   * Com uma folha, o `folhas[0]` e o `tileset` singular, e o desenho usa o
+   * mesmo caminho de antes. Vale e a arena do hulk, e o vale
+   */
+  const declarados = (tmj.tilesets ?? [])
+    .filter(Boolean)
+    .sort((a, b) => (a.firstgid ?? 1) - (b.firstgid ?? 1));
+
+  const folhas = declarados.map((definicao) =>
+    lerTileset(definicao, imagens, tilesets),
+  );
+
+  /**
+   * A FOLHA DE CADA `gid`, resolvida UMA VEZ na carga.
+   *
+   * E aqui, e nao no desenho, porque o desenho pergunta sessenta vezes por
+   * segundo: uma busca binaria por tile num mapa de 468 celulas seriam 28080
+   * comparacoes por quadro, e o ganho seria zero. Um `Uint16Array` de indice
+   * por celula resolve na leitura e o desenho so le o numero
+   */
+  const indiceDaFolha = (gid) => {
+    let baixo = 0;
+    let alto = folhas.length - 1;
+
+    while (baixo <= alto) {
+      const meio = (baixo + alto) >> 1;
+      const folha = folhas[meio];
+
+      if (!folha) return SEM_FOLHA;
+
+      if (gid < folha.firstgid) {
+        alto = meio - 1;
+      } else if (meio === folhas.length - 1 || gid < folhas[meio + 1].firstgid) {
+        return meio;
+      } else {
+        baixo = meio + 1;
+      }
+    }
+
+    return SEM_FOLHA;
+  };
 
   const camadas = (tmj.layers ?? [])
     .filter((camada) => camada.type === "tilelayer" && Array.isArray(camada.data))
     .filter((camada) => camada.visible !== false)
     .map((camada) =>
-      lerCamada(camada, tileset),
+      lerCamada(camada, folhas, indiceDaFolha, tileWidth, tileHeight),
     );
+
+  /**
+   * AS FOLHAS SEM IMAGEM, uma vez por leitura.
+   *
+   * ## POR QUE ISTO E `info` E NAO `error`
+   *
+   * Porque nao impede o desenho: cada tile pula a celula quando a folha dele
+   * nao carregou, e as folhas com imagem continuam desenhando. Um tileset
+   * declarado sem imagem e um estado NORMAL — o autor pintou com ele no Tiled
+   * e a imagem ficou fora
+   *
+   * E por leitura, e nao por quadro: quem chama isto tem cache, e repetir a
+   * cada quadro enche o console em segundos
+   */
+  const semImagem = folhas
+    .filter((folha) => !folha?.url)
+    .map((folha) => folha.name);
+
+  if (semImagem.length) {
+    console.info(
+      `[tiled] ${folhas.length} tileset(s) declarados, ${semImagem.length} sem imagem: ` +
+        `${semImagem.join(", ")}. As celulas desses tiles ficam vazias.`,
+    );
+  }
 
   return {
     tileWidth,
@@ -107,7 +209,22 @@ export function lerMapaTiled(tmj, { imagens = {}, tilesets = {} } = {}) {
     width: (tmj.width ?? 0) * tileWidth,
     height: (tmj.height ?? 0) * tileHeight,
 
-    tileset,
+    /**
+     * A PRIMEIRA FOLHA, que e o tileset do mapa.
+     *
+     * ## POR QUE ESTE CAMPO CONTINUA AQUI
+     *
+     * Porque ele responde "o mapa tem arte de chao?", e a resposta precisa
+     * ser UMA para o mapa inteiro. O `minimapaTiled` e o `GameEngine` leem
+     * este campo, e nenhum dos dois sabe de que tileset vem o proximo tile
+     *
+     * ## E A LISTA COMPLETA AO LADO
+     *
+     * Quem precisa da folha certa por celula — o `TileMapRenderer` — le
+     * `folhas`, nao este campo. Este e o resumo, e nao a fonte
+     */
+    tileset: folhas[0] ?? null,
+    folhas,
     layers: camadas,
   };
 }
@@ -159,17 +276,52 @@ function lerTileset(definicao, imagens, tilesets = {}) {
     (definicao.name ? tilesets[definicao.name] : null) ??
     definicao;
 
-  const url = imagens[declarado.name] ?? null;
+  /**
+   * O NOME DA FOLHA, e a chave de `imagens`.
+   *
+   * ## POR QUE ELE NAO PODE VIR SO DO `declarado`
+   *
+   * Porque o `source` do `.tmj` traz o nome do ARQUIVO, com `.tsx`, e o
+   * `name` dentro dele traz o nome SEM a extensao. Nenhuma chave de
+   * `imagens` tem `.tsx`, entao o `source` nunca casa com uma delas
+   *
+   * E o `?? definicao` acima e o caso perigoso: quando a busca pelo `.tsx`
+   * falha — um tileset novo que o autor ainda nao registrou no codigo — o
+   * `declarado` vira o `{ firstgid, source }` cru do `.tmj`, que NAO tem
+   * `name`. A folha saia com `name: undefined`, nenhuma imagem casava, e o
+   * mapa INTEIRO ficava sem chao
+   *
+   * O plano B tira o caminho e o `.tsx` do `source`, e sobra o nome que o
+   * autor criou no Tiled — que e como a imagem foi registrada
+   */
+  const nome =
+    declarado.name ||
+    String(definicao.source ?? "")
+      .split(/[\\/]/)
+      .pop()
+      .replace(/\.tsx$/i, "");
 
-  if (!url) {
-    throw new Error(
-      `lerMapaTiled: o tileset "${declarado.name}" nao tem imagem registrada. ` +
-        "Passe { imagens: { [nome]: url } } com a url vinda de new URL(...)",
-    );
-  }
+  /**
+   * A URL, e `null` quando a imagem nao foi declarada.
+   *
+   * ## POR QUE ISTO DEIXOU DE LANÇAR
+   *
+   * Porque um tileset sem imagem e um estado NORMAL, e nao um erro de
+   * programacao: o autor pintou com ele no Tiled e a imagem ficou fora do
+   * repositorio
+   *
+   * Lancar aqui derrubava o mapa INTEIRO. Com um tileset so, o `catch` do
+   * `tiledDoMapa` segurava e o mapa caia no terreno — ainda desenho. Com
+   * varios, um unico tileset sem imagem derrubava a leitura toda, e o
+   * terreno nao era desenhado: o mapa virava preto
+   *
+   * O aviso sai uma vez, em `lerMapaTiled`, e cada tile pula a celula dele
+   * quando a folha nao carregou
+   */
+  const url = imagens[nome] ?? null;
 
   return {
-    name: declarado.name,
+    name: nome,
     url,
     columns: declarado.columns ?? 1,
     tileWidth: declarado.tilewidth ?? 16,
@@ -207,8 +359,15 @@ function lerTileset(definicao, imagens, tilesets = {}) {
  * mesma coisa sem depender de um numero que o Tiled reserva. Um `0` solto
  * passaria pela conta e viraria o tile de indice 0 da imagem — o primeiro
  * tile da folha, que e uma parede escura
+ *
+ * ## E O TILESET DE CADA TILE, JA RESOLVIDO
+ *
+ * E um `Uint16Array` de indice na lista de folhas, e nao o objeto inteiro: um
+ * indice ocupa 2 bytes e o objeto nao ocupa memoria nenhuma, e o desenho ja
+ * precisa do indice para escolher a imagem. Guardar o indice e o que mantem
+ * esta funcao sem conhecer a url de ninguem
  */
-function lerCamada(camada, tileset) {
+function lerCamada(camada, folhas, indiceDaFolha, cellWidth, cellHeight) {
   const cols = camada.width ?? 0;
   const rows = camada.height ?? 0;
   const total = cols * rows;
@@ -216,12 +375,23 @@ function lerCamada(camada, tileset) {
   const gids = new Int32Array(total);
   const flags = new Int32Array(total);
 
+  /**
+   * DE QUE FOLHA VEM CADA TILE.
+   *
+   * `0xFFFF` e "esta celula nao pertence a nenhuma folha": acontece quando
+   * o autor apaga um tileset e o mapa fica com a referencia. A celula e
+   * desenhada como VAZIA, e nunca com a arte do vizinho
+   */
+  const folhaDe = new Uint16Array(total);
+
   for (let indice = 0; indice < total; indice += 1) {
     const bruto = camada.data[indice] ?? 0;
     const gid = bruto === 0 ? -1 : gidDe(bruto);
 
     gids[indice] = gid;
     flags[indice] = bruto === 0 ? 0 : flagsDe(bruto);
+
+    folhaDe[indice] = gid < 0 ? SEM_FOLHA : indiceDaFolha(gid);
   }
 
   return {
@@ -231,6 +401,24 @@ function lerCamada(camada, tileset) {
     rows,
     gids,
     flags,
-    tileset,
+    folhaDe,
+
+    /**
+     * O LADO DA CELULA, EM PIXELS DE MUNDO.
+     *
+     * ## POR QUE FICA NA CAMADA E NAO SO NO MAPA
+     *
+     * Porque a grade e do MAPA — 64x64 na base — e o desenho precisa saber
+     * o tamanho da celula para distinguir duas coisas: o retangulo de
+     * origem, que e o tamanho do TILE da folha, e o retangulo de destino,
+     * que e onde a arte cai
+     *
+     * Sao numeros diferentes de proposito. Com um tileset so, os dois sao
+     * iguais e ninguem nota a diferenca. Com o `estatus1` de 344x192 numa
+     * grade de 64x64, a diferenca e a coisa que decide se a estatua aparece
+     * do tamanho dela ou achatada num quadrado
+     */
+    cellWidth,
+    cellHeight,
   };
 }

@@ -1002,17 +1002,17 @@ comecarHabilidade(enemy, habilidade, agora, jogador) {
     return false;
   }
 
-  /**
-   * O CHEFE VIRA PARA O ALVO no instante da preparacao.
-   *
-   * E aqui, e nao no `TelegraphSystem`, porque a orientacao e do corpo do
-   * chefe: um cone que sai para a esquerda enquanto o chefe olha para a
-   * direita e um telegraph mentindo
-   */
-  enemy.facing = normalize(
-    jogador.x - enemy.x,
-    jogador.y - enemy.y,
-  );
+/**
+     * O CHEFE VIRA PARA O ALVO no instante da preparacao.
+     *
+     * E aqui, e nao no `TelegraphSystem`, porque a orientacao e do corpo do
+     * chefe: um cone que sai para a esquerda enquanto o chefe olha para a
+     * direita e um telegraph mentindo
+     */
+    enemy.facing = normalize(
+      jogador.x - enemy.x,
+      jogador.y - enemy.y,
+    );
 
   // o chefe fica parado durante a preparacao: e a janela do jogador
   enemy.aiState = "attack";

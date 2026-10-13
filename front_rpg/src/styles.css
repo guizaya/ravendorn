@@ -1,0 +1,670 @@
+@import "tailwindcss" source(none);
+@source "../src";
+@import "tw-animate-css";
+@custom-variant dark (&:is(.dark *));
+@theme inline {
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+  --color-card: var(--card);
+  --color-card-foreground: var(--foreground);
+  --color-popover: var(--panel-strong);
+  --color-popover-foreground: var(--foreground);
+  --color-primary: var(--primary);
+  --color-primary-foreground: var(--primary-foreground);
+  --color-secondary: var(--secondary);
+  --color-secondary-foreground: var(--foreground);
+  --color-muted: var(--secondary);
+  --color-muted-foreground: var(--muted-foreground);
+  --color-accent: var(--accent);
+  --color-accent-foreground: var(--foreground);
+  --color-border: var(--border);
+  --color-input: var(--border);
+  --color-ring: var(--primary);
+  --color-destructive: var(--primary);
+  --color-gold: var(--gold);
+  --color-overlay: var(--overlay);
+  --color-discord: var(--discord);
+  --color-discord-foreground: var(--discord-foreground);
+  --font-sans: 'Manrope', sans-serif;
+  --font-display: 'Cinzel', serif;
+  --radius-lg: 6px;
+  --radius-md: 4px;
+  --radius-sm: 2px;
+}
+/*
+A PALETA DO PROJETO.
+
+Sao as cores da logo do RavenDorn, nao escolhas de tela: amostrando o
+`logo.png` a dominante e preta, a segunda e um cinza muito escuro, e o resto
+e uma familia de azuis quase pretos com um par de castanhos quentes
+(`#483018` e `#604830`) — o cobre da pena.
+
+O `--gold` e a versao ACENDIDA desse cobre. O `#604830` da arte e escuro demais
+para ser cor de texto sobre fundo preto, entao ele sobe de luminancia sem
+mudar o matiz: a marca continua sendo a mesma cor, so que legivel.
+
+O que muda em relacao a paleta anterior: fundo deixa de ser azul
+(`#090d12`) e vira quase preto, e o destaque deixa de ser dourado
+claro (`#e5bb68`) e vira cobre. O resto do site nao foi tocado — so os
+valores, e nenhum outro arquivo precisa saber nada disso
+*/
+:root {
+  color-scheme: dark;
+  --panel: rgba(18, 18, 21, .9);
+  --panel-strong: rgba(24, 24, 27, .97);
+  --background: #08080a;
+  --foreground: #f2f0ec;
+  --card: var(--panel);
+  --primary: var(--gold);
+  --primary-foreground: #0b0b0d;
+  --secondary: var(--panel-strong);
+  --muted-foreground: #9b948a;
+  --accent: #1b1a17;
+  --border: rgba(242, 240, 236, .1);
+  --gold: #d9a05b;
+  --discord: oklch(0.55 0.19 277);
+  --discord-foreground: #f2f0ec;
+  --overlay: rgba(8, 8, 10, .8);
+  --shadow-game: 0 6px 28px rgba(217, 160, 91, .22);
+  --shadow-discord: 0 6px 28px color-mix(in oklab, var(--discord) 28%, transparent);
+  --hero-shade: linear-gradient(90deg, rgba(8, 8, 10, .93), rgba(8, 8, 10, .65) 38%, rgba(8, 8, 10, .05) 76%);
+  --hero-bottom: linear-gradient(0deg, var(--background), transparent 75%);
+}
+@layer base {
+ * { border-color: var(--border); letter-spacing: 0; }
+ html { scroll-behavior: smooth; scroll-padding-top: 90px; }
+ body { margin: 0; background: var(--background); color: var(--foreground); font-family: var(--font-sans); -webkit-font-smoothing: antialiased; }
+ button, a { -webkit-tap-highlight-color: transparent; }
+ ::selection { background: var(--primary); color: var(--primary-foreground); }
+}
+.site-header { height: 88px; border-bottom: 1px solid var(--border); background: var(--background); position: relative; z-index: 20; }
+.page-width { max-width: 1320px; margin: 0 auto; padding: 0 64px; }
+.header-inner { height: 100%; display: flex; align-items: center; justify-content: space-between; gap: 28px; }
+.wordmark { font-family: var(--font-display); font-size: 25px; font-weight: 700; display: flex; align-items: center; gap: 10px; }
+.wordmark svg { color: var(--gold); width: 26px; }
+
+/*
+A LOGO DENTRO DA WORDMARK.
+
+A wordmark era `<Crown /> ELDORIA` — um icone e o nome em texto. Agora e a
+arte do projeto, e o desenho ja traz o nome dentro: por isso o `alt` fica no
+`img` e o texto some do DOM. Sem `flex-shrink: 0` a arte encolheria dentro
+do flex do cabecalho em tela estreita, que e o contrario de uma marca
+*/
+.marca { display: block; flex-shrink: 0; object-fit: contain; }
+
+/*
+O TAMANHO DA MARCA, POR ONDE ELA APARECE.
+
+A marca e um PNG quadrado de 1600px, entao a largura segue da altura. O que
+muda entre os lugares e so o numero — e ele e medido contra a altura da
+caixa em que a marca senta:
+
+- header do site: 88px de altura, com um botao de 48px ao lado. A 40px a
+  marca ficava pequena ao lado de um botao quase do mesmo tamanho, e quem
+  aparecia na tela era o botao. A 56px ela ocupa dois tercos da caixa e
+  continua sendo a maior coisa da linha
+- rodape: 42px. O rodape e a ultima coisa que o jogador ve, e a marca nele e
+  a unica assinatura do projeto — smaller que no header e ela some entre as
+  duas linhas de texto ao lado
+- tela de entrada e de personagens: mantidas em 36 e 32, porque ali a marca
+  divide a linha com o titulo do formulario e com o botao de sair
+
+O `.site-header` no seletor NAO e sobra: ele precisa da especificidade de
+tres classes para vencer o `.wordmark .marca` da base e o do rodape, senao
+uma regra de tela estreita abaixo repõe o tamanho velho no header
+*/
+.wordmark .marca { height: 40px; width: auto; }
+.site-header .wordmark .marca { height: 56px; width: auto; }
+footer .wordmark .marca { height: 72px; width: auto; }
+
+/*
+A TELA ESTREITA: O HEADER CAI DE 88 PARA 72.
+
+O nome da regra no comentario porque a ordem importa: o `.wordmark .marca` de
+baixo tem especificidade menor que as duas de cima, entao sozinho ele
+nunca entraria no header — o `@media` precisaria repetir o `.site-header`
+para alcancar a regra que ganha
+*/
+@media (max-width: 900px) {
+  .wordmark .marca { height: 34px; }
+  .site-header .wordmark .marca { height: 42px; }
+  footer .wordmark .marca { height: 66px; }
+}
+.auth-card .wordmark .marca { height: 36px; }
+.chars-header .wordmark .marca { height: 32px; }
+.desktop-nav { display: flex; align-items: center; gap: 29px; }
+.desktop-nav a { font-size: 12px; color: var(--muted-foreground); text-decoration: none; transition: color .2s; }
+.desktop-nav a:hover, .desktop-nav a.active { color: var(--foreground); }
+.game-button { background: var(--primary); color: var(--primary-foreground); border: 1px solid color-mix(in oklab, var(--primary) 75%, var(--foreground)); border-radius: 3px; height: 48px; padding: 0 25px; font-size: 12px; font-weight: 800; box-shadow: var(--shadow-game); }
+.game-button:hover { background: color-mix(in oklab, var(--primary) 85%, var(--foreground)); }
+.game-button-outline { background: transparent; color: var(--foreground); border: 1px solid var(--border); border-radius: 3px; height: 48px; padding: 0 24px; font-size: 12px; }
+.game-button-outline:hover { background: var(--accent); }
+.navigation-button { background: transparent; color: var(--muted-foreground); }
+.mobile-menu-button { display: none; }
+.hero { position: relative; min-height: 665px; display: flex; align-items: center; overflow: hidden; }
+.hero-art { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; object-position: 65% center; }
+.hero::before { content: ''; position: absolute; inset: 0; background: var(--hero-shade); z-index: 1; }
+.hero::after { content: ''; position: absolute; inset: 0; background: var(--hero-bottom); z-index: 1; pointer-events: none; }
+.hero-content { position: relative; z-index: 2; width: 100%; padding-top: 45px; padding-bottom: 110px; }
+.eyebrow { display: flex; align-items: center; gap: 10px; text-transform: uppercase; font-size: 10px; font-weight: 700; color: var(--gold); }
+.eyebrow::before { content: ''; width: 25px; height: 1px; background: var(--gold); }
+.hero h1 { font-family: var(--font-display); font-size: 88px; line-height: 1.1; font-weight: 500; margin: 22px 0 8px; }
+.hero-subtitle { font-family: var(--font-display); font-size: 27px; margin: 0 0 22px; }
+.hero-copy { max-width: 430px; color: var(--muted-foreground); font-size: 13px; line-height: 1.9; }
+.hero-actions { display: flex; gap: 13px; margin-top: 30px; }
+.platform-note { margin-top: 22px; display: flex; gap: 8px; align-items: center; font-size: 10px; color: var(--muted-foreground); }
+.hero-marker { position: absolute; right: 64px; bottom: 69px; z-index: 3; display: flex; gap: 12px; align-items: center; font-size: 10px; color: var(--muted-foreground); }
+.hero-marker span { color: var(--gold); }
+.feature-strip { border-top: 1px solid var(--border); border-bottom: 1px solid var(--border); }
+.feature-grid { display: grid; grid-template-columns: repeat(4, 1fr); padding-top: 26px; padding-bottom: 26px; }
+.feature { display: flex; gap: 14px; align-items: center; justify-content: center; border-right: 1px solid var(--border); }
+.feature:first-child { justify-content: flex-start; }
+.feature:last-child { border: 0; }
+.feature svg { color: var(--gold); width: 24px; stroke-width: 1.2; }
+.feature strong { display: block; font-size: 11px; font-weight: 600; }
+.feature small { display: block; font-size: 10px; color: var(--muted-foreground); margin-top: 5px; }
+.section { padding-top: 83px; padding-bottom: 83px; }
+.section-heading { text-align: center; margin-bottom: 38px; }
+.section-heading .eyebrow { justify-content: center; }
+.section-heading .eyebrow::after { content: ''; width: 25px; height: 1px; background: var(--gold); }
+.section-heading h2 { font-family: var(--font-display); font-weight: 500; font-size: 34px; margin: 13px 0; }
+.section-heading p { color: var(--muted-foreground); font-size: 12px; line-height: 1.8; margin: 0 auto; max-width: 490px; }
+.world-grid { display: grid; grid-template-columns: 1.4fr 1fr; gap: 22px; }
+.world-image { width: 100%; height: 300px; object-fit: cover; border-radius: 4px; }
+.world-detail { display: flex; flex-direction: column; justify-content: center; padding-left: 22px; }
+.world-detail h3 { font-family: var(--font-display); font-size: 25px; font-weight: 500; margin: 15px 0; }
+.world-detail p { color: var(--muted-foreground); font-size: 12px; line-height: 1.9; }
+.world-detail .game-button-outline { align-self: flex-start; margin-top: 16px; }
+.classes-section { border-top: 1px solid var(--border); }
+.class-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 22px; }
+.class-card { border: 1px solid var(--border); background: var(--card); border-radius: 4px; overflow: hidden; transition: border-color .25s, transform .25s; }
+.class-card:hover { border-color: var(--gold); transform: translateY(-5px); }
+.class-art { height: 315px; overflow: hidden; background: var(--card); }
+.class-art img { width: 300%; height: 100%; max-width: none; object-fit: cover; }
+.class-art-1 img { transform: translateX(-33.333%); }
+.class-art-2 img { transform: translateX(-66.666%); }
+.class-info { padding: 22px; border-top: 1px solid var(--border); }
+.class-title { display: flex; align-items: center; gap: 10px; font-family: var(--font-display); font-size: 20px; }
+.class-title svg { width: 19px; color: var(--gold); }
+.class-info p { color: var(--muted-foreground); font-size: 11px; line-height: 1.8; min-height: 40px; }
+.class-info .navigation-button { padding: 0; font-size: 11px; color: var(--gold); }
+.class-stats { margin: 14px 0 16px; }
+.class-stats .chars-stat { grid-template-columns: 62px 1fr 24px; gap: 8px; }
+.community { text-align: center; border-top: 1px solid var(--border); background: var(--secondary); }
+.community-actions { margin-top: 25px; display: flex; flex-wrap: wrap; gap: 14px; justify-content: center; }
+.game-button-discord { background: var(--discord); color: var(--discord-foreground); border: 1px solid color-mix(in oklab, var(--discord) 75%, var(--foreground)); border-radius: 3px; height: 48px; padding: 0 25px; font-size: 12px; font-weight: 800; box-shadow: var(--shadow-discord); }
+.game-button-discord:hover { background: color-mix(in oklab, var(--discord) 85%, var(--foreground)); }
+.community h2 { font-family: var(--font-display); font-size: 34px; font-weight: 500; }
+.community p { font-size: 12px; color: var(--muted-foreground); }
+.faq { max-width: 760px; margin: 0 auto; }
+.faq details { padding: 20px 0; border-bottom: 1px solid var(--border); font-size: 13px; }
+.faq summary { cursor: pointer; }
+.faq p { color: var(--muted-foreground); line-height: 1.9; }
+footer { border-top: 1px solid var(--border); padding: 30px 0; }
+.footer-inner { display: flex; align-items: center; justify-content: space-between; gap: 20px; }
+footer .wordmark { font-size: 19px; }
+footer p { font-size: 10px; color: var(--muted-foreground); }
+.dialog-art { width: 100%; border-radius: 3px; image-rendering: pixelated; }
+.mobile-nav { position: absolute; top: 88px; left: 0; right: 0; background: var(--background); padding: 25px; border-bottom: 1px solid var(--border); display: flex; flex-direction: column; gap: 22px; }
+.mobile-nav a { text-decoration: none; color: var(--foreground); font-size: 13px; }
+@media (max-width: 1000px) { .page-width { padding-left: 32px; padding-right: 32px; } .desktop-nav { gap: 18px; } .hero h1 { font-size: 76px; } .class-art { height: 260px; } }
+@media (max-width: 720px) {
+ .page-width { padding-left: 24px; padding-right: 24px; } .site-header { height: 72px; } .wordmark { font-size: 21px; } .desktop-nav, .header-cta { display: none; } .mobile-menu-button { display: inline-flex; } .mobile-nav { top: 72px; }
+ .hero { min-height: 610px; } .hero-art { object-position: 61% center; } .hero-content { padding-top: 55px; padding-bottom: 80px; } .hero h1 { font-size: 56px; } .hero-subtitle { font-size: 21px; max-width: 270px; line-height: 1.5; } .hero-copy { max-width: 335px; font-size: 12px; } .hero-actions { flex-wrap: wrap; gap: 10px; } .hero-actions .game-button, .hero-actions .game-button-outline { padding-left: 17px; padding-right: 17px; font-size: 11px; } .hero-marker { right: 24px; bottom: 25px; } .feature-grid { grid-template-columns: repeat(2, 1fr); gap: 25px 12px; } .feature { justify-content: flex-start; border: 0; gap: 10px; } .feature strong { font-size: 10px; } .feature small { font-size: 9px; }
+ .section { padding-top: 55px; padding-bottom: 55px; } .section-heading h2, .community h2 { font-size: 27px; } .world-grid { grid-template-columns: 1fr; } .world-image { height: 230px; } .world-detail { padding: 0; } .class-grid { grid-template-columns: 1fr; max-width: 360px; margin: auto; } .class-art { height: 350px; } .footer-inner { flex-direction: column; text-align: center; }
+}
+@media (prefers-reduced-motion: reduce) { html { scroll-behavior: auto; } *, *::before, *::after { transition: none !important; animation: none !important; } }
+
+/* ---- Tela de entrada (login) ---- */
+.auth-screen { position: relative; min-height: 100vh; display: grid; place-items: center; padding: 24px; }
+.auth-art { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; object-position: 65% center; }
+.auth-veil { position: absolute; inset: 0; background: color-mix(in oklab, var(--background) 82%, transparent); }
+.auth-card { position: relative; width: min(420px, 100%); border: 1px solid var(--border); background: var(--card); box-shadow: var(--shadow-game); padding: 40px 32px; text-align: center; }
+.auth-card .wordmark { font-size: 21px; }
+.auth-card h1 { font-family: var(--font-display); font-size: 32px; font-weight: 500; margin: 20px 0 8px; }
+.auth-card p { font-size: 13px; color: var(--muted-foreground); }
+.auth-google { margin-top: 26px; width: 100%; height: 48px; display: inline-flex; align-items: center; justify-content: center; gap: 10px; background: #f4f6f8; color: #0d131a; border: 0; border-radius: 3px; font-size: 13px; font-weight: 800; cursor: pointer; transition: background .2s; }
+.auth-google:hover { background: #e2e7ec; }
+.auth-google:disabled { opacity: .6; cursor: wait; }
+.auth-error { margin-top: 14px; color: var(--primary) !important; }
+.auth-note { margin-top: 18px; font-size: 11px !important; }
+
+/* ---- Tela de personagens ---- */
+.chars-screen { position: relative; min-height: 100vh; padding: 24px; display: flex; justify-content: center; }
+.chars-shell { position: relative; width: min(1020px, 100%); margin: auto; }
+.chars-header { display: flex; align-items: center; justify-content: space-between; gap: 16px; padding: 18px 24px; border: 1px solid var(--border); background: color-mix(in oklab, var(--card) 88%, transparent); }
+.chars-header .wordmark { font-size: 20px; }
+.chars-header-right { display: flex; align-items: center; gap: 16px; }
+.chars-count { font-size: 11px; color: var(--muted-foreground); text-transform: uppercase; letter-spacing: .08em; }
+.chars-diamonds { display: inline-flex; align-items: center; gap: 6px; margin-left: 14px; padding: 5px 12px; border: 1px solid color-mix(in oklab, var(--primary) 45%, transparent); border-radius: 999px; font-size: 12px; font-weight: 700; color: var(--primary); background: color-mix(in oklab, var(--primary) 10%, transparent); }
+.chars-signout { display: inline-flex; align-items: center; gap: 6px; background: none; border: 1px solid var(--border); border-radius: 3px; color: var(--muted-foreground); font-size: 11px; padding: 7px 12px; cursor: pointer; transition: color .2s, border-color .2s; }
+.chars-signout:hover { color: var(--foreground); border-color: var(--primary); }
+
+.chars-create { display: grid; grid-template-columns: 380px 1fr; border: 1px solid var(--border); border-top: 0; background: var(--card); box-shadow: var(--shadow-game); }
+.chars-preview { position: relative; overflow: hidden; min-height: 560px; }
+.chars-preview img { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; object-position: center 20%; }
+.chars-preview::after { content: ''; position: absolute; inset: 0; background: linear-gradient(0deg, rgba(9, 13, 18, .92), transparent 55%); }
+.chars-preview-info { position: absolute; left: 24px; right: 24px; bottom: 22px; z-index: 1; }
+.chars-preview-info h2 { font-family: var(--font-display); font-size: 30px; font-weight: 500; margin: 10px 0 4px; overflow-wrap: anywhere; }
+.chars-preview-cls { font-size: 12px; color: var(--muted-foreground); margin: 0; }
+
+.chars-form { padding: 34px 32px; display: flex; flex-direction: column; gap: 16px; }
+.chars-form h1 { font-family: var(--font-display); font-size: 30px; font-weight: 500; margin: 6px 0 4px; }
+.chars-field { display: grid; gap: 7px; font-size: 12px; color: var(--muted-foreground); }
+.chars-field input { border: 1px solid var(--border); background: color-mix(in oklab, var(--background) 60%, transparent); border-radius: 3px; padding: 11px 13px; font-size: 14px; color: var(--foreground); outline: none; transition: border-color .2s; }
+.chars-field input:focus { border-color: var(--primary); }
+
+.chars-class-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; }
+.chars-class-card { position: relative; border: 1px solid var(--border); border-radius: 4px; overflow: hidden; background: var(--secondary); cursor: pointer; padding: 0; text-align: left; transition: border-color .2s, transform .2s; }
+.chars-class-card img { width: 100%; height: 110px; object-fit: cover; object-position: center 18%; display: block; }
+.chars-class-card:hover { border-color: color-mix(in oklab, var(--gold) 70%, transparent); transform: translateY(-2px); }
+.chars-class-card.is-active { border-color: var(--gold); box-shadow: 0 0 0 1px var(--gold), 0 8px 22px rgba(229, 187, 104, .25); }
+.chars-class-name { display: flex; align-items: center; gap: 6px; padding: 8px 10px; font-size: 11px; font-weight: 700; color: var(--foreground); }
+.chars-class-name svg { color: var(--gold); }
+.chars-class-desc { font-size: 12px; line-height: 1.8; color: var(--muted-foreground); margin: 0; min-height: 42px; }
+
+.chars-stats { display: grid; gap: 8px; }
+.chars-stat { display: grid; grid-template-columns: 64px 1fr 28px; align-items: center; gap: 10px; font-size: 11px; color: var(--muted-foreground); }
+.chars-stat b { color: var(--foreground); font-size: 11px; text-align: right; }
+.chars-stat-bar { height: 5px; border-radius: 3px; background: var(--accent); overflow: hidden; }
+.chars-stat-bar i { display: block; height: 100%; background: linear-gradient(90deg, var(--primary), var(--gold)); border-radius: 3px; transition: width .35s ease; }
+
+.chars-select { border: 1px solid var(--border); border-top: 0; background: var(--card); box-shadow: var(--shadow-game); padding: 44px 40px; text-align: center; }
+.chars-select-head .eyebrow { justify-content: center; }
+.chars-select-head .eyebrow::after { content: ''; width: 25px; height: 1px; background: var(--gold); }
+.chars-select-head h1 { font-family: var(--font-display); font-size: 34px; font-weight: 500; margin: 14px 0 8px; }
+.chars-select-head p { font-size: 12px; color: var(--muted-foreground); margin: 0 0 30px; }
+
+.chars-slots { display: grid; grid-template-columns: repeat(3, 1fr); gap: 16px; }
+.chars-slot { position: relative; border: 1px solid var(--border); border-radius: 4px; overflow: hidden; background: var(--secondary); cursor: pointer; transition: border-color .2s, transform .2s; min-height: 300px; display: flex; flex-direction: column; justify-content: flex-end; }
+.chars-slot img { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; object-position: center 18%; }
+.chars-slot::after { content: ''; position: absolute; inset: 0; background: linear-gradient(0deg, rgba(9, 13, 18, .92), transparent 55%); }
+.chars-slot:hover { border-color: color-mix(in oklab, var(--gold) 70%, transparent); transform: translateY(-3px); }
+.chars-slot.is-active { border-color: var(--gold); box-shadow: 0 0 0 1px var(--gold), 0 10px 26px rgba(229, 187, 104, .3); }
+.chars-slot-info { position: relative; z-index: 1; padding: 16px; text-align: left; }
+.chars-slot-info strong { display: block; font-family: var(--font-display); font-size: 18px; overflow-wrap: anywhere; }
+.chars-slot-info small { font-size: 11px; color: var(--muted-foreground); }
+.chars-slot-delete { position: absolute; top: 10px; right: 10px; z-index: 2; display: grid; place-items: center; width: 30px; height: 30px; border-radius: 3px; border: 1px solid var(--border); background: rgba(9, 13, 18, .7); color: var(--muted-foreground); cursor: pointer; opacity: 0; transition: opacity .2s, color .2s; }
+.chars-slot:hover .chars-slot-delete { opacity: 1; }
+.chars-slot-delete:hover { color: var(--primary); }
+.chars-slot-empty { align-items: center; justify-content: center; gap: 6px; border-style: dashed; color: var(--muted-foreground); padding: 20px; }
+.chars-slot-empty::after { display: none; }
+.chars-slot-empty span { font-size: 13px; font-weight: 700; color: var(--foreground); }
+.chars-slot-empty small { font-size: 11px; }
+.chars-slot-empty:hover { color: var(--foreground); }
+.chars-slot-locked { align-items: center; justify-content: center; gap: 6px; color: var(--muted-foreground); padding: 20px; background: color-mix(in oklab, var(--secondary) 60%, transparent); }
+.chars-slot-locked::after { display: none; }
+.chars-slot-locked span { font-size: 13px; font-weight: 700; color: var(--foreground); }
+.chars-slot-locked small { display: inline-flex; align-items: center; gap: 4px; font-size: 11px; color: var(--primary); }
+.chars-slot-locked:hover { border-color: color-mix(in oklab, var(--primary) 60%, transparent); }
+
+.unlock-dialog { max-width: 430px; gap: 14px; padding: 30px 28px 24px; text-align: center; background: var(--panel-strong); border-color: color-mix(in oklab, var(--gold) 34%, transparent); box-shadow: var(--shadow-game); }
+.unlock-icon { display: grid; place-items: center; width: 48px; height: 48px; margin: 0 auto; border: 1px solid color-mix(in oklab, var(--gold) 40%, transparent); border-radius: 3px; background: color-mix(in oklab, var(--gold) 9%, transparent); color: var(--gold); }
+.unlock-head { display: grid; gap: 8px; }
+.unlock-head .eyebrow { justify-content: center; }
+.unlock-head .eyebrow::after { content: ''; width: 25px; height: 1px; background: var(--gold); }
+.unlock-cost { display: grid; gap: 9px; padding: 14px 16px; border: 1px solid var(--border); border-radius: 3px; background: color-mix(in oklab, var(--background) 55%, transparent); }
+.unlock-cost div { display: flex; align-items: center; justify-content: space-between; }
+.unlock-cost span { font-size: 10px; font-weight: 700; text-transform: uppercase; color: var(--muted-foreground); }
+.unlock-cost b { display: inline-flex; align-items: center; gap: 6px; font-size: 14px; color: var(--gold); }
+.unlock-cost .is-after b { color: var(--foreground); }
+.unlock-short { margin: 0; font-size: 12px; color: var(--muted-foreground); }
+.unlock-short b { color: var(--primary); }
+.unlock-actions { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+@media (max-width: 560px) { .unlock-dialog { padding: 24px 18px 18px; } .unlock-actions { grid-template-columns: 1fr; } }
+
+/* pixel-art sprite presentation (archer) */
+.chars-preview img.is-sprite, .chars-slot img.is-sprite {
+  position: absolute; inset: auto; left: 50%; top: 50%; z-index: 1;
+  width: 84px; height: 84px; object-fit: contain;
+  transform: translate(-50%, -58%);
+  image-rendering: pixelated;
+  filter: drop-shadow(0 0 18px rgba(229, 187, 104, .3));
+}
+/* no cartão de seleção o herói também é ampliado em múltiplo inteiro do sprite nativo */
+.chars-slot img.is-sprite {
+  width: calc(var(--sprite-size, 84px) * 2); height: calc(var(--sprite-size, 84px) * 2);
+}
+/* personagem em destaque na criação: ampliação em inteiro múltiplo do sprite nativo */
+.chars-preview img.is-sprite {
+  width: calc(var(--sprite-size, 84px) * 3); height: calc(var(--sprite-size, 84px) * 3);
+  filter: drop-shadow(0 0 28px rgba(229, 187, 104, .32));
+}
+.chars-class-card img.is-sprite {
+  position: relative; z-index: 1;
+  width: 84px; height: 84px; object-fit: contain;
+  display: block; margin: 13px auto;
+  image-rendering: pixelated;
+  filter: drop-shadow(0 0 12px rgba(229, 187, 104, .22));
+}
+.chars-preview.has-sprite::before, .chars-slot.has-sprite::before {
+  content: ''; position: absolute; left: 50%; top: 50%; z-index: 0;
+  width: 168px; height: 168px; transform: translate(-50%, -58%);
+  border: 1px solid rgba(229, 187, 104, .26);
+  background:
+    radial-gradient(circle at 50% 45%, rgba(229, 187, 104, .12), transparent 70%),
+    repeating-linear-gradient(0deg, rgba(255, 255, 255, .035) 0 1px, transparent 1px 8px),
+    rgba(9, 13, 18, .6);
+  box-shadow: 0 0 34px rgba(229, 187, 104, .12), inset 0 0 26px rgba(9, 13, 18, .8);
+}
+.chars-preview.has-sprite::before { width: 340px; height: 340px; border-color: rgba(229, 187, 104, .3); }
+/* nos cartões de classe e de seleção a grade ocupa toda a área de arte, sem sobra */
+.chars-class-card.has-sprite::before, .chars-slot.has-sprite::before {
+  content: ''; position: absolute; inset: 0; z-index: 0;
+  border: 0;
+  background:
+    radial-gradient(circle at 50% 45%, rgba(229, 187, 104, .1), transparent 70%),
+    repeating-linear-gradient(0deg, rgba(255, 255, 255, .03) 0 1px, transparent 1px 8px),
+    rgba(9, 13, 18, .6);
+}
+.chars-class-card.has-sprite::before { height: 110px; border-bottom: 1px solid rgba(229, 187, 104, .22); }
+.chars-slot.has-sprite::before { width: auto; height: auto; transform: none; box-shadow: inset 0 0 26px rgba(9, 13, 18, .8); }
+.chars-play { margin-top: 26px; min-width: 260px; }
+
+@media (max-width: 900px) {
+  .chars-create { grid-template-columns: 1fr; }
+  .chars-preview { min-height: 400px; }
+  .chars-preview img.is-sprite { width: calc(var(--sprite-size, 84px) * 2); height: calc(var(--sprite-size, 84px) * 2); transform: translate(-50%, -66%); }
+  .chars-preview.has-sprite::before { width: 232px; height: 232px; transform: translate(-50%, -66%); }
+  .chars-slots { grid-template-columns: repeat(3, 1fr); gap: 10px; }
+  .chars-slot { min-height: 240px; }
+  .chars-slot-info { padding: 12px 10px; }
+  .chars-slot-info strong { font-size: 15px; }
+  .chars-class-grid { grid-template-columns: repeat(3, 1fr); gap: 8px; }
+  .chars-select { padding: 32px 18px; }
+  .chars-header { padding: 14px 16px; }
+  .chars-play { min-width: 0; width: 100%; }
+}
+
+@media (max-width: 560px) {
+  .chars-screen { padding: 14px; }
+  .chars-select { padding: 26px 12px; }
+  .chars-slots { gap: 7px; }
+  .chars-slot { min-height: 190px; }
+  .chars-slot img.is-sprite { width: var(--sprite-size, 84px); height: var(--sprite-size, 84px); }
+  .chars-slot-info { padding: 9px 8px; }
+  .chars-slot-info strong { font-size: 13px; }
+  .chars-slot-info small { font-size: 10px; }
+  .chars-slot-empty { gap: 4px; padding: 10px 6px; }
+  .chars-slot-empty span { font-size: 11px; }
+  .chars-slot-empty small { display: none; }
+  .chars-select-head h1 { font-size: 26px; }
+}
+
+/* home: pixel-art sprite inside the class card */
+.class-art.has-sprite {
+  position: relative;
+  display: grid;
+  place-items: center;
+  background: var(--panel-strong);
+}
+.class-art.has-sprite::before {
+  content: '';
+  position: absolute;
+  inset: 16px;
+  z-index: 0;
+  border: 1px solid rgba(229, 187, 104, .18);
+  background:
+    linear-gradient(rgba(229, 187, 104, .85), rgba(229, 187, 104, .85)) top left / 30px 1px no-repeat,
+    linear-gradient(rgba(229, 187, 104, .85), rgba(229, 187, 104, .85)) top left / 1px 30px no-repeat,
+    linear-gradient(rgba(229, 187, 104, .85), rgba(229, 187, 104, .85)) top right / 30px 1px no-repeat,
+    linear-gradient(rgba(229, 187, 104, .85), rgba(229, 187, 104, .85)) top right / 1px 30px no-repeat,
+    linear-gradient(rgba(229, 187, 104, .85), rgba(229, 187, 104, .85)) bottom left / 30px 1px no-repeat,
+    linear-gradient(rgba(229, 187, 104, .85), rgba(229, 187, 104, .85)) bottom left / 1px 30px no-repeat,
+    linear-gradient(rgba(229, 187, 104, .85), rgba(229, 187, 104, .85)) bottom right / 30px 1px no-repeat,
+    linear-gradient(rgba(229, 187, 104, .85), rgba(229, 187, 104, .85)) bottom right / 1px 30px no-repeat,
+    repeating-linear-gradient(0deg, rgba(255, 255, 255, .04) 0 1px, transparent 1px 10px),
+    repeating-linear-gradient(90deg, rgba(255, 255, 255, .028) 0 1px, transparent 1px 10px),
+    radial-gradient(ellipse 62% 54% at 50% 46%, rgba(229, 187, 104, .2), rgba(9, 13, 18, .94) 76%),
+    linear-gradient(180deg, #101820, #090d12);
+  box-shadow: inset 0 0 60px rgba(9, 13, 18, .9), 0 0 40px rgba(229, 187, 104, .1);
+}
+.class-art.has-sprite::after {
+  content: '';
+  position: absolute;
+  left: 50%;
+  bottom: 44px;
+  z-index: 0;
+  width: 210px;
+  height: 30px;
+  transform: translateX(-50%);
+  background: radial-gradient(ellipse at 50% 50%, rgba(229, 187, 104, .34), transparent 70%);
+  filter: blur(4px);
+}
+.class-art.has-sprite img {
+  position: relative;
+  z-index: 1;
+  width: 252px;
+  height: 252px;
+  max-width: none;
+  object-fit: contain;
+  transform: none;
+  image-rendering: pixelated;
+  filter: drop-shadow(0 8px 14px rgba(9, 13, 18, .85)) drop-shadow(0 0 26px rgba(229, 187, 104, .32));
+}
+
+@media (max-width: 1000px) {
+  .class-art.has-sprite img { width: 168px; height: 168px; }
+  .class-art.has-sprite::after { bottom: 40px; width: 170px; }
+}
+
+@media (max-width: 640px) {
+  .class-art.has-sprite img { width: 252px; height: 252px; }
+  .class-art.has-sprite::after { bottom: 54px; width: 220px; }
+}
+
+/* ---- Carregando o mapa (rota /jogo) ---- */
+
+/**
+ * A TELA QUE SEGURA O IFRAME.
+ *
+ * E `position: fixed` com `inset: 0` porque a rota /jogo nao tem o
+ * `min-height: 100vh` das outras telas: o mapa e a tela inteira, sem
+ * cabecalho nem rodape, e qualquer `padding` aqui apareceria como uma tarja
+ * preta em volta do jogo
+ */
+.jgj-tela { background: #0a0806; }
+
+/**
+ * O QUE O JOGADOR VENDE ENQUANTO O MAPA ENTRA.
+ *
+ * ## POR QUE UM FUNDO COM GRADIENTE E NAO A COR PLANA
+ *
+ * A cor de fundo do jogo e quase preta, e o vazio entre o clique em Jogar e
+ * o primeiro quadro e de alguns segundos — o bundle, o WebSocket, o
+ * primeiro snapshot. Uma cor plana daria a impressao de tela travada; o
+ * gradiente com o anel girando diz "esta carregando" sem precisar de texto
+ * grande
+ *
+ * ## E POR QUE O ELEMENTO TEM `aria-hidden`
+ *
+ * Porque ele e decorativo. O texto real que o leitor de tela le esta no
+ * `<p class="jgj-status">`, e o `aria-hidden` tira o anel da arvore de
+ * acessibilidade — sem ele, o leitor announces "elemento grafico" a cada
+ * quadro da animacao
+ */
+.jgj-carregando {
+  position: absolute;
+  inset: 0;
+  display: grid;
+  place-content: center;
+  justify-items: center;
+  gap: 22px;
+  background: radial-gradient(circle at 50% 42%, #14100c 0%, #0a0806 68%);
+  pointer-events: none;
+
+  /**
+   * A tela de espera POR CIMA do jogo, e nao na ordem do HTML.
+   *
+   * As duas camadas sao `position: absolute; inset: 0` com `z-index: auto`,
+   * e sem este numero quem pinta por cima e a ordem no DOM — que e o IFRAME,
+   * declarado depois. O jogo aparecia por cima do anel no mesmo quadro em que
+   * ficava visivel, e a tela de espera nunca chegava a cobrir carga nenhuma:
+   * ela so existia enquanto o iframe ainda estava em `display: none`
+   *
+   * E `pointer-events: none` acima e o que mantem isto seguro: o anel esta
+   * na frente, mas o clique e o teclado atravessam para o jogo
+   */
+  z-index: 2;
+}
+
+/**
+ * O ANEL QUE GIRA.
+ *
+ * E um `border` sem um dos lados, que e o truque mais barato de fazer giro
+ * sem imagem: o que falta no circulo e o que gira. `conic-gradient` nao
+ * entraria aqui porque nao tem "buraco" — o anel precisa ser um circulo com
+ * uma fatia faltando
+ */
+.jgj-anel {
+  width: 74px;
+  height: 74px;
+  border: 2px solid transparent;
+  border-top-color: #c9a227;
+  border-right-color: #6b551a;
+  border-radius: 50%;
+  animation: jgj-giro 900ms linear infinite;
+}
+
+/**
+ * O SEGUNDO ANEL, ATRAS.
+ *
+ * Dois circulos girando em sentidos e velocidades diferentes dao a sensacao
+ * de progresso sem precisar de barra. E o `animation-direction: reverse` no
+ * segundo: girando para o lado oposto, os dois brilhos nunca ficam na mesma
+ * fase, e o olho le o conjunto como "movimento" em vez de "dois circulos"
+ */
+.jgj-anel--interno {
+  width: 52px;
+  height: 52px;
+  border-top-color: #6b551a;
+  border-right-color: #c9a227;
+  animation-duration: 1400ms;
+  animation-direction: reverse;
+}
+
+@keyframes jgj-giro {
+  to { transform: rotate(360deg); }
+}
+
+/**
+ * O TEXTO, E A FRASE QUE FALA O QUE ESTA ACONTECENDO.
+ *
+ * O texto importa mais do que parece: sem ele, a espera parece travamento.
+ * As tres frases sao o que o jogador realmente espera nesta tela — o bundle
+ * do mapa, o socket e o primeiro estado do servidor — e cada uma aparece
+ * quando o passo correspondente comeca
+ */
+.jgj-status {
+  margin: 0;
+  font-family: var(--font-display);
+  font-size: 13px;
+  letter-spacing: .18em;
+  text-transform: uppercase;
+  color: #c9a227;
+}
+
+/**
+ * A BARRA DE PROGRESSO ABAIXO DO TEXTO.
+ *
+ * Nao mede nada de verdade — e um pulso, nao uma barra. Deixar uma barra
+ * que nao anda seria pior que nao ter: ela promete 40% e trava ali. O pulso
+ * so diz "ainda carregando", que e a unica informacao honesta antes do
+ * primeiro snapshot do servidor
+ */
+.jgj-barra {
+  width: 220px;
+  height: 2px;
+  overflow: hidden;
+  background: #241d12;
+}
+
+.jgj-barra::after {
+  content: "";
+  display: block;
+  width: 40%;
+  height: 100%;
+  background: linear-gradient(90deg, transparent, #c9a227, transparent);
+  animation: jgj-varre 1200ms ease-in-out infinite;
+}
+
+@keyframes jgj-varre {
+  0% { transform: translateX(-100%); }
+  100% { transform: translateX(250%); }
+}
+
+/**
+ * QUANDO O MAPA ENTROU, A TELA SAI.
+ *
+ * O `.jgj-tela` mantem o `background` para o instante entre o `setPronto` e
+ * o primeiro quadro do iframe: sem ele, esse instante mostraria o branco do
+ * body por baixo do frame ainda vazio
+ */
+.jgj-entrando .jgj-carregando {
+  opacity: 0;
+  transition: opacity .35s ease;
+}
+
+/**
+ * O JOGADOR SEM TOKEN.
+ *
+ * Quem abriu `/jogo` direto (sem passar pela tela de personagem) cai na tela
+ * de selecao de classe do jogo. E o comportamento correto, mas o jogo
+ * demora o mesmo tanto para montar — entao a tela de espera aparece igual
+ */
+@media (prefers-reduced-motion: reduce) {
+  .jgj-anel,
+  .jgj-anel--interno,
+  .jgj-barra::after { animation: none; }
+  .jgj-barra::after { width: 100%; }
+}
+
+/**
+ * A TELA DE ESPERA VIRANDO ERRO.
+ *
+ * ## POR QUE ANIMACAO MAIS LENTA E NAO PARADA
+ *
+ * Um anel parado com a frase de erro parece que a tela travou de vez, e o
+ * jogador recarrega sem entender. Continuar girando devolve a leitura de
+ * "o jogo esta trabalhando nisso" — que e a verdade enquanto o timeout
+ * nao expirou de novo
+ *
+ * ## E A COR, QUE SAI DO DOURADO
+ *
+ * O dourado da barra some no fundo escuro; o vermelho de erro e o que o
+ * olho pega primeiro, e a unica cor que sobrevive a esse contraste
+ */
+.jgj-carregando.is-erro .jgj-anel {
+  border-top-color: #b4443a;
+  border-right-color: #6b2620;
+}
+
+.jgj-carregando.is-erro .jgj-status {
+  color: #d9705f;
+  letter-spacing: .04em;
+  text-transform: none;
+  font-size: 15px;
+  max-width: 34ch;
+  line-height: 1.5;
+}
+
+.jgj-carregando.is-erro .jgj-barra::after {
+  background: linear-gradient(90deg, transparent, #b4443a, transparent);
+}
+
+/**
+ * O MAPA NAO MOSTRA CONTORNO DE FOCO.
+ *
+ * O `tabIndex={-1}` do iframe existe para o teclado chegar nele, e o
+ * navegador desenharia um contorno azul em volta da tela toda — o jogador
+ * veria o jogo com uma borda de link por cima.
+ *
+ * ## POR QUE ISTO NAO QUEBRA ACESSIBILIDADE
+ *
+ * Porque o iframe nao e um link nem um botao: ele e a tela do jogo. O foco
+ * nele e invisivel por desenho, e quem usa teclado nao precisa saber que
+ * existe uma borda — ele precisa que a tecla chegue no jogo
+ */
+.jgj-tela iframe { outline: none; }
+.jgj-tela iframe:focus { outline: none; }

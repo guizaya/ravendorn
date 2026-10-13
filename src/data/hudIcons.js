@@ -151,6 +151,20 @@ const HUD_ICON_GLYPH = {
   collection: "⛁",
 
   craft: "⚒",
+
+  /**
+   * O ENCANTAR, que ate aqui nem glifo tinha.
+   *
+   * E o `✦`, a estrela de brilho, e nao o `⚒` da forja: os dois botoes sao
+   * vizinhos, `craft` monta a peca e `encantar` e o que se faz depois que
+   * ela esta montada. O martelo e a bigorna sao a oficina; a estrela e o
+   * efeito que a peca recebe
+   *
+   * Sao tres verbos da oficina em botao, e cada um precisa de uma leitura
+   * propria antes mesmo de a arte entrar
+   */
+  encantar: "✦",
+
   rank: "♛",
 
   /**
@@ -275,6 +289,37 @@ const HUD_ICON_URL = {
     import.meta.url,
   ).href,
 
+  /**
+   * A LOJA, que ate aqui so tinha glifo.
+   *
+   * O `market` e a loja sao coisas diferentes: `market` e a troca entre
+   * jogadores e `loja` e o estoque do jogo. Entraram as duas artes no mesmo
+   * lote e cada uma foi para o seu botao — e o id ja era `loja`, pelo glifo
+   * `⚿`, entao a arte entrou nele e nao num id novo
+   */
+  loja: new URL(
+    "../assets/icons/loja.png",
+    import.meta.url,
+  ).href,
+
+  /**
+   * O ENCANTAR.
+   *
+   * ## POR QUE `✦` E NAO O `⚒` DA FORJA
+   *
+   * Porque os dois botoes ficam vizinhos e sao coisas diferentes: `craft`
+   * monta a peca, e `encantar` e o que se faz depois de montada. O `⚒` e
+   * martelo e bigorna, que e a oficina; o `✦` e a estrela de brilho, que e
+   * o efeito que a peça recebe
+   *
+   * Sao tres verbos da oficina em botao, e cada um precisa de uma leitura
+   * propria antes de a arte entrar
+   */
+  encantar: new URL(
+    "../assets/icons/encantar.png",
+    import.meta.url,
+  ).href,
+
   craft: new URL(
     "../assets/icons/craft.png",
     import.meta.url,
@@ -308,6 +353,18 @@ const HUD_ICON_URL = {
   // se chama
   settings: new URL(
     "../assets/icons/gear_pixel_icon.png",
+    import.meta.url,
+  ).href,
+
+  /**
+   * O PASSE, que ate aqui so tinha glifo.
+   *
+   * A arte entrou com o resto do lote novo, e como os outros o caminho fica
+   * escrito por extenso: e a regra do Vite, que so empacota o `new URL`
+   * quando o caminho e um literal
+   */
+  passe: new URL(
+    "../assets/icons/passe.png",
     import.meta.url,
   ).href,
 };

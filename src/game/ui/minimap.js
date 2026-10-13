@@ -208,6 +208,15 @@ export function drawMinimap(
     player,
     enemies,
     viewport,
+    /**
+     * O CENTRO DA CAMERA, que e o jogador preso aos limites do mapa.
+     *
+     * Vem de fora porque este arquivo nao tem como saber: o clamp depende
+     * do zoom e das medidas da tela, e quem tem as duas e o motor. Ausente
+     * — o chamador antigo, um teste — a camera segue o jogador, que e o
+     * comportamento de antes
+     */
+    centroDaCamera = null,
     /** os ids das props que o servidor tirou do mapa */
     pedidasFora,
     /** o canvas com o mapa do Tiled ja desenhado, quando o mapa tem um */
@@ -388,14 +397,32 @@ desenharObstaculos(
   context.strokeStyle = "rgba(255, 255, 255, 0.55)";
   context.lineWidth = 1;
 
-  context.strokeRect(
-    baseX +
-      Math.max(0, player.x - viewport.width / 2) * scale,
-    baseY +
-      Math.max(0, player.y - viewport.height / 2) * scale,
-    viewport.width * scale,
-    viewport.height * scale,
-  );
+  /**
+   * O RETANGULO DO CAMPO DE VISAO.
+   *
+   * Sai do CENTRO DA CAMERA, e nao do jogador: perto da borda do mapa os
+   * dois se separam, e medir pelo jogador desenhava a faixa longe de onde
+   * a tela estava realmente olhando.
+   *
+   * O `Math.max(0, ...)` tambem era de meio lado so — prendia a esquerda e
+   * o topo e deixava vazar pela direita e por baixo. Aqui os dois eixos
+   * passam pelo mesmo limite.
+   */
+  const centro = centroDaCamera ?? player;
+  const esquerda = Math.max(0, centro.x - viewport.width / 2);
+  const topo = Math.max(0, centro.y - viewport.height / 2);
+
+  const larguraVisivel = Math.min(viewport.width, map.width - esquerda);
+  const alturaVisivel = Math.min(viewport.height, map.height - topo);
+
+  if (larguraVisivel > 0 && alturaVisivel > 0) {
+    context.strokeRect(
+      baseX + esquerda * scale,
+      baseY + topo * scale,
+      larguraVisivel * scale,
+      alturaVisivel * scale,
+    );
+  }
 
   for (const enemy of enemies) {
     if (!enemy.alive) continue;

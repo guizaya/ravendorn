@@ -1503,44 +1503,53 @@ spawn: MAP_1_SPAWN,
    */
   cameraZoom: 1,
 
-  /**
-   * O SORCERER DESTE MAPA, 5px MAIOR QUE O PADRAO.
-   *
-   * ## A CONTA
-   *
-   * Sem este fator o sorcerer sai com `90 * 0.697 = 62.7px` no vale. O
-   * tamanho pedido agora e 67.7px, e o fator que produz isso e
-   *
-   *     67.7 / 62.7 = 1.079
-   *
-   * ## O HISTORICO DESTE FATOR
-   *
-   * Este numero ja foi 1.319 (82.7px) e depois 1.159 (72.7px), cada um
-   * dimuindo 10px a um pedido. A conta esta escrita porque o numero sozinho
-   * nao diz para que tamanho ele serve: trocar o valor sem trocar a conta
-   * deixa um comentario que promete um tamanho e entrega outro
-   *
-   * ## E POR QUE UM FATOR DO MAPA, E NAO A `SORCERER_SCALE`
-   *
-   * Porque a base tem uma exigencia propria: o sorcerer tem que sair do
-   * mesmo tamanho que o arqueiro la, e o `escalaSprites: { arbalist: 0.7,
-   * sorcerer: 0.7 }` da base resolve isso. Mudar a escala da CLASSE
-   * arrastaria a base junto e quebraria essa igualdade
-   *
-   * ## E POR QUE SO O SORCERER
-   *
-   * Porque `escalaSprites` e por classe. Guerreiro e lancer medem 36.8px e
-   * 34.4px no vale, e sao o tamanho de sempre — mexer neles aqui mudaria as
-   * outras tres classes sem ninguem pedir
-   *
-   * ## O QUE ISSO NAO MEXE
-   *
-   * Nem a base, nem o chefe e nem o mapa 2: cada um le o seu fator, e so
-   * este mapa declara um
-   *
-   * Todo mapa que nao declarar isto usa 1
-   */
-  escalaSprites: { sorcerer: 1.079 },
+/**
+     * O SORCERER DESTE MAPA, 5px MAIOR QUE O PADRAO.
+     *
+     * ## A CONTA
+     *
+     * Com a arte nova o sorcerer sai com `62 * 1.1 = 68.2px` no vale, sem
+     * este fator. O tamanho pedido e 67.7px — quase o mesmo, e o numero e o
+     * que mantem o personagem com a proporcao que o mapa ja usava
+     *
+     *     67.7 / 68.2 = 0.993
+     *
+     * ## POR QUE O FATOR CAIU TANTO
+     *
+     * Antes a conta era `67.7 / (90 * 0.697) = 1.079`, porque a arte antiga
+     * media 90px e a escala da classe compensava para 62.7px. A arte nova e
+     * de 62px e a escala passou a ser 1.1, a mesma do arqueiro e do
+     * guerreiro: o personagem ja nasce no tamanho certo, e o fator tem
+     * pouco a corrigir
+     *
+     * ## O HISTORICO DESTE FATOR
+     *
+     * Este numero ja foi 1.319 (82.7px), 1.159 (72.7px) e 1.079 (67.7px),
+     * cada um dimuindo 10px a um pedido. A conta esta escrita porque o numero
+     * sozinho nao diz para que tamanho ele serve: trocar o valor sem trocar
+     * a conta deixa um comentario que promete um tamanho e entrega outro
+     *
+     * ## E POR QUE UM FATOR DO MAPA, E NAO A `SORCERER_SCALE`
+     *
+     * Porque a base tem uma exigencia propria: o sorcerer tem que sair do
+     * mesmo tamanho que o arqueiro la, e o `escalaSprites: { arbalist: 0.7,
+     * sorcerer: 0.644 }` da base resolve isso. Mudar a escala da CLASSE
+     * arrastaria a base junto e quebraria essa igualdade
+     *
+     * ## E POR QUE SO O SORCERER
+     *
+     * Porque `escalaSprites` e por classe. Guerreiro e lancer medem 36.8px e
+     * 34.4px no vale, e sao o tamanho de sempre — mexer neles aqui mudaria as
+     * outras tres classes sem ninguem pedir
+     *
+     * ## O QUE ISSO NAO MEXE
+     *
+     * Nem a base, nem o chefe e nem o mapa 2: cada um le o seu fator, e so
+     * este mapa declara um
+     *
+     * Todo mapa que nao declarar isto usa 1
+     */
+  escalaSprites: { sorcerer: 0.993 },
 
   /**
    * A semente que espalha criaturas e arvores deste mapa.
@@ -1693,17 +1702,17 @@ cameraZoom: 1,
   /**
    * O SORCERER DESTE MAPA, COM O MESMO TAMANHO DO MAPA 1.
    *
-   * ## O MESMO 1.079, E POR QUE E O MESMO
-   *
-   * Porque o `cameraZoom` dos dois e 1. O fator e o que sobra para o
-   * personagem, depois que o mapa ja empurrou o zoom: com o mesmo zoom, o
-   * mesmo fator da o mesmo tamanho. Copiar o numero do mapa 1 e o que garante
-   * que o sorcerer nao mude de tamanho ao atravessar o portal
-   *
-   * O que este mapa NAO faz e usar a escala da classe: a base depende de
-   * `escalaSprites` proprio, e mudar a `SORCERER_SCALE` arrastaria ela junto
-   */
-  escalaSprites: { sorcerer: 1.079 },
+* ## O MESMO 0.993, E POR QUE E O MESMO
+    *
+    * Porque o `cameraZoom` dos dois e 1. O fator e o que sobra para o
+    * personagem, depois que o mapa ja empurrou o zoom: com o mesmo zoom, o
+    * mesmo fator da o mesmo tamanho. Copiar o numero do mapa 1 e o que garante
+    * que o sorcerer nao mude de tamanho ao atravessar o portal
+    *
+    * O que este mapa NAO faz e usar a escala da classe: a base depende de
+    * `escalaSprites` proprio, e mudar a escala da classe arrastaria ela junto
+    */
+  escalaSprites: { sorcerer: 0.993 },
 
   /**
    * A MESMA SEMENTE, e de proposito.
@@ -2053,6 +2062,29 @@ export const MAP_TESTE = {
   width: MAP_1_WIDTH,
   height: MAP_1_HEIGHT,
 
+  /**
+   * O LADO DO TILE DO VALE, declarado no mapa, em 64.
+   *
+   * ## POR QUE 64, E NAO O PADRAO DE 128 DO TERRENO
+   *
+   * Porque o vale vai virar um Tiled, e o `tilewidth` do arquivo tem de bater
+   * com este numero. E o mesmo valor que a base ja declara (`BASE_TILE`) e o
+   * mesmo que a arena usa nas suas camadas: 64 e o lado com que o editor, o
+   * `registroDeTiles` e o `colisaoTiled` vao fechar a conta de pixel para tile
+   *
+   * O `groundTile` deste mapa (`dark`) ainda e pintado pelo
+   * `TerrainRenderer` no ladrilho do terreno, que para a chave `dark` cai no
+   * `GROUND_TILE_SIZE` de 128. Este campo nao mexe nisso: ele declara a grade
+   * do mapa que vem, e a troca do ladrilho do chao e um passo separado
+   *
+   * ## POR QUE O MAPA JA ESTA EM MULTIPLO DE 64
+   *
+   * Porque `MAP_1_WIDTH` e `MAP_1_HEIGHT` saem do `MAP_1_TILE`, que ja e 64 —
+   * as medidas do vale ja fecham nesta grade, entao declarar 64 aqui e dizer a
+   * verdade do que as dimensoes ja dizem
+   */
+  tileSize: MAP_1_TILE,
+
   bounds: MAP_1_BOUNDS,
 
   background: "#17221f",
@@ -2125,8 +2157,30 @@ export const MAP_TESTE = {
   /** sem portal: quem volta para o mapa anterior e o botao da HUD */
   portals: [],
 
-  /** a linha do limite, que o vale nao precisa porque tem sebe */
-  limiteVisivel: true,
+  /**
+   * A LINHA CINZA DA BORDA NAO DESENTA NESTE MAPA.
+   *
+   * ## POR QUE `false`, E O QUE TROCOU
+   *
+   * Porque ela existia para o caso de o jogador sair andando do nada: sem
+   * parede de verdade na tela, o `clampToBounds` segura o boneco mas nao ha
+   * nada dizendo onde o mundo acaba. O vale nao tinha nem sebe nem parede —
+   * era um campo vazio com 40 cristais
+   *
+   * O `vale.tmj` resolveu isso pela porta certa: as 94 x 66 celulas estao
+   * TODAS pintadas, borda incluida, entao o proprio tile da borda e o que
+   * fecha o mundo. A linha cinza de 8px em `#647064` ia passar por cima
+   * desses tiles — a mesma parede pintada em cima da parede de verdade, que e
+   * exatamente o que o `drawMap` do vale nao quer
+   *
+   * ## POR QUE MANTER O CAMPO, E NAO APAGAR
+   *
+   * Porque `limiteVisivel` e uma flag de mapa, e o mapa e quem decide. O
+   * `GameEngine` le `map.limiteVisivel && map.bounds`, entao deixar o campo
+   * escrito como `false` documenta a decisao onde ela foi tomada, em vez de
+   * deixar um `undefined` que so o codigo do motor explica
+   */
+  limiteVisivel: false,
 };
 
 

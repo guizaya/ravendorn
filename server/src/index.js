@@ -1,4 +1,6 @@
 import { createServer } from "node:http";
+import { randomBytes } from "node:crypto";
+import { resolve } from "node:path";
 import express from "express";
 import { WebSocketServer } from "ws";
 import { GameServer } from "./domain/GameServer.js";
@@ -6,6 +8,14 @@ import { Client } from "./domain/Client.js";
 import {
   PASTA_PADRAO,
 } from "./persistence/CharacterStore.js";
+import { criarContas } from "./domain/Contas.js";
+import { criarEmissorDeToken } from "./domain/TokenDeEntrada.js";
+import {
+  confirmarVinculo,
+  pedirAssinatura,
+  pedirAssinaturaDeEntrada,
+  confirmarEntrada,
+} from "./domain/Carteira.js";
 import { SERVER_CONFIG } from "./config.js";
 import {
   nameKey,
@@ -20,7 +30,140 @@ import { PROTOCOL_VERSION } from "../../src/shared/protocol.js";
 const app = express();
 const http = createServer(app);
 
+/**
+ * O CORS, POR ENQUANTO.
+ *
+ * ## POR QUE ELE E NECESSARIO AGORA
+ *
+ * Em dev o front roda no Vite dele (3000) e o servidor do jogo em outra porta
+ * (8787). Origem diferente significa que o browser aplica a regra do CORS: a
+ * resposta precisa dizer "pode ler". Sem o header, o `fetch` morre antes de
+ * chegar no status — e o sintoma e um erro de CORS sem status nem corpo,
+ * exatamente o que o painel do jogador ve
+ *
+ * O mesmo servidor tambem serve o front por proxy (quando o front sobe na
+ * 3000 e o jogador entra pelo 8787), e nesse caminho NAO ha CORS: a origem e
+ * a mesma. Este header e so para quando o front e aberto direto na 3000
+ *
+ * ## POR QUE `*`
+ *
+ * Temporario, e o usuario pediu assim para destravar. Em producao isso
+ * permitira que qualquer site do navegador mandasse `POST /api/conta/...` com
+ * o token de sessao de outra pessoa — o `Authorization` nao impede, porque o
+ * navegador anexa o header que o codigo da pagina pediu
+ *
+ * ## A TROCA CORRETA
+ *
+ * `Access-Control-Allow-Origin: <origem exata>`, com a lista em env. A
+ * origem e o esquema + host + porta, e o servidor compara com a que veio no
+ * header `Origin`; se nao estiver na lista, nao devolve o header e o browser
+ * bloqueia sozinho
+ */
+app.use((request, response, next) => {
+  response.setHeader("Access-Control-Allow-Origin", "*");
+  response.setHeader("Access-Control-Allow-Methods", "GET, POST, DELETE, OPTIONS");
+  response.setHeader("Access-Control-Allow-Headers", "Content-Type, Authorization");
+
+  // o preflight e uma OPTIONS sem corpo: precisa da resposta antes da
+  // requisicao de verdade, e e ela que o browser mostra como "CORS error"
+  if (request.method === "OPTIONS") {
+    response.sendStatus(204);
+    return;
+  }
+
+  next();
+});
+
 app.use(express.json());
+
+/**
+ * AS CONTAS E O TOKEN, montados uma vez no boot.
+ *
+ * ## POR QUE SEM SEGREDO O SERVIDOR AINDA SOBE
+ *
+ * E o que mantem `npm run dev` funcionando para quem so quer mexer no
+ * jogo. Sem `SEGREDO_DO_TOKEN`, nao ha contas e nao ha token: as rotas de
+ * conta respondem 503 e o `GameServer` recebe `contas: null`, que e o
+ * caminho antigo — o JOIN por nome, sem conta
+ *
+ * A alternativa era derrubar o servidor, que e melhor que servir um token
+ * forjavel, mas derruba tambem quem esta so testando o mapa. O aviso vai
+ * para o console, e quem for jogar de verdade precisa da variavel
+ *
+ * Em producao o segredo e obrigatorio, e quem liga o front tem que
+ * configura-lo dos dois lados
+ */
+const segredoDoToken = process.env.SEGREDO_DO_TOKEN ?? null;
+
+const contas = segredoDoToken
+  ? criarContas({
+      pasta: process.env.CONTA_DIR ?? undefined,
+      segredoDoToken,
+    })
+  : null;
+
+const emissor = segredoDoToken
+  ? criarEmissorDeToken({
+      segredo: segredoDoToken,
+      segundosDeValidade: Number(process.env.SEGUNDO_DO_TOKEN ?? 60),
+    })
+  : null;
+
+if (!segredoDoToken) {
+  console.warn(
+    "[contas] SEGREDO_DO_TOKEN nao definido: contas e token de entrada DESLIGADOS. " +
+      "O jogo sobe, mas o front nao consegue entrar. Defina a variavel para ligar."
+  );
+}
+
+/**
+ * O TOKEN DA CONTA, e nao o token de entrada.
+ *
+ * Este e o que fica no navegador, em `localStorage`, e volta a cada
+ * chamada do front. O de entrada (`emissor`) e outro, e vive segundos
+ *
+ * Sem este token a sessao morre com a aba. Com ele, o front recarrega e
+ * ainda sabe quem e o jogador sem pedir o Google de novo
+ */
+const sessaoDeConta = new Map();
+
+function emitirTokenDeConta(contaId, tipo) {
+  const token = randomBytes(24).toString("base64url");
+  const expiraEm = Date.now() + 30 * 24 * 60 * 60 * 1000;
+  sessaoDeConta.set(token, { contaId, tipo, expiraEm });
+  return { token, expiraEm };
+}
+
+/**
+ * O token da conta -> a identidade, ou `null`
+ *
+ * ## POR QUE O TIPO VIA JUNTO
+ *
+ * `Contas.normalizarIdentidade` decide o prefixo do arquivo pelo `tipo`:
+ * carteira vira `carteira_0x...`, Google vira o `sub` cru. Se o token
+ * devolvesse so o `id`, a sessao procuraria `0x...` e nao acharia o
+ * arquivo `carteira_0x...` — a conta existiria mas pareceria nao existir
+ */
+function identidadeDoTokenDeConta(token) {
+  const registro = sessaoDeConta.get(token);
+
+  if (!registro) return null;
+
+  if (registro.expiraEm <= Date.now()) {
+    sessaoDeConta.delete(token);
+    return null;
+  }
+
+  return { tipo: registro.tipo, id: registro.contaId };
+}
+
+/** o header `Authorization: Bearer <token>`, como o front manda */
+function identidadeDoPedido(request) {
+  const header = request.headers.authorization ?? "";
+  const token = header.startsWith("Bearer ") ? header.slice(7).trim() : "";
+  if (!token) return null;
+  return identidadeDoTokenDeConta(token);
+}
 
 app.get("/health", (_request, response) => {
   response.json({
@@ -134,6 +277,440 @@ app.get("/api/personagem/:nome", (request, response) => {
   });
 });
 
+/**
+ * AS ROTAS DA CONTA.
+ *
+ * ## POR QUE ESTAS ROTAS EXISTEM NO SERVIDOR DO JOGO
+ *
+ * Elas substituem o que o Supabase fazia no front antigo: guardar a conta,
+ * os personagens e os diamantes. O `localStorage` sumiu — trocar de navegador
+ * nao pode mais apagar ninguem, e o servidor ja era a autoridade do save do
+ * personagem pelo outro lado
+ *
+ * ## O TOKEN DA CONTA, E O `Authorization: Bearer`
+ *
+ * O front guarda o token que ganha aqui e o manda em cada chamada. Ele e o
+ * que diz "eu sou a conta tal". E o `identidadeDoPedido` que o le
+ *
+ * ## POR QUE O TOKEN DE ENTRADA E OUTRO
+ *
+ * O token de conta fica no navegador por 30 dias. O token de entrada vive
+ * segundos e vai na URL do redirecionamento, uma vez so. Sao papeis
+ * diferentes: um e o cracha, o outro e a passagem de uso unico
+ */
+
+/** a conta logada, ou `401` */
+function exigeConta(request, response) {
+  const identidade = identidadeDoPedido(request);
+
+  if (!identidade) {
+    response.status(401).json({ erro: "SEM_SESSAO" });
+    return null;
+  }
+
+  return identidade;
+}
+
+/**
+ * LOGIN PELA CARTEIRA, em duas etapas.
+ *
+ * 1. o front chama `/pedir-assinatura` e recebe a mensagem com o nonce
+ * 2. a MetaMask assina, e o front devolve a assinatura aqui
+ *
+ * O endereco so vira conta DEPOIS que a assinatura prova que pertence a
+ * quem esta conectando
+ */
+app.post("/api/conta/carteira", (request, response) => {
+  const { endereco, assinatura } = request.body ?? {};
+
+  const resultado = confirmarVinculo({ endereco, assinatura });
+
+  if (resultado.erro) {
+    response.status(400).json({ erro: resultado.erro });
+    return;
+  }
+
+  // a conta e a CARTEIRA: o endereco verificado e a identidade, e nao um
+  // campo que o cliente escreve
+  const identidade = { tipo: "carteira", id: resultado.endereco };
+
+  const conta = contas.criarSeNaoExiste(identidade);
+
+  /**
+   * A CONTA PRECISA EXISTIR ANTES DE EMITIR SESSAO.
+   *
+   * Sem esta checagem, um `criarSeNaoExiste` que falhasse por id invalido
+   * devolveria `null`, o `resumo` viria `null`, e a rota responderia 200
+   * com um token de sessao para uma conta que nao esta no disco — o
+   * jogador entraria e a tela mostraria uma conta vazia que some ao
+   * recarregar
+   */
+  if (!conta) {
+    response.status(400).json({ erro: "IDENTIDADE_INVALIDA" });
+    return;
+  }
+
+  const sessao = emitirTokenDeConta(identidade.id, "carteira");
+
+  response.json({
+    token: sessao.token,
+    expiraEm: sessao.expiraEm,
+    identidade: { tipo: "carteira", endereco: resultado.endereco },
+    resumo: contas.resumo(identidade),
+  });
+});
+
+/**
+ * O PASSO 1 DA CARTEIRA: o servidor monta a mensagem e o nonce.
+ *
+ * O front leva `mensagem` para a MetaMask, que assina, e devolve a
+ * assinatura para `/api/conta/carteira` acima
+ */
+app.post("/api/conta/carteira/pedir-assinatura", (request, response) => {
+  const { endereco } = request.body ?? {};
+
+  const resultado = pedirAssinatura(endereco);
+
+  if (resultado.erro) {
+    response.status(400).json({ erro: resultado.erro });
+    return;
+  }
+
+  response.json({ endereco: resultado.endereco, mensagem: resultado.mensagem });
+});
+
+/**
+ * A CONTA LOGADA.
+ *
+ * Devolve o resumo (diamantes, vagas, personagens) sem o email e sem o
+ * endereco da carteira: o front so precisa do que desenha a tela
+ */
+app.get("/api/conta", (request, response) => {
+  const identidade = exigeConta(request, response);
+
+  if (!identidade) return;
+
+  const resumo = contas.resumo(identidade);
+
+  if (!resumo) {
+    response.status(404).json({ erro: "CONTA_NAO_ENCONTRADA" });
+    return;
+  }
+
+  response.json(resumo);
+});
+
+/** A LISTA DE PERSONAGENS da conta, que e o que a tela consome */
+app.get("/api/conta/personagens", (request, response) => {
+  const identidade = exigeConta(request, response);
+
+  if (!identidade) return;
+
+  response.json({ personagens: contas.personagens(identidade) });
+});
+
+/** CRIA UM PERSONAGEM. O nome e a classe passam pelas regras do SERVIDOR */
+app.post("/api/conta/personagens", (request, response) => {
+  const identidade = exigeConta(request, response);
+
+  if (!identidade) return;
+
+  const { nome, classe } = request.body ?? {};
+
+  const resultado = contas.criarPersonagem(identidade, { nome, classe });
+
+  if (resultado.erro) {
+    response.status(400).json(resultado);
+    return;
+  }
+
+  response.status(201).json({ personagem: resultado.personagem });
+});
+
+/** APAGA UM PERSONAGEM da conta */
+app.delete("/api/conta/personagens/:id", (request, response) => {
+  const identidade = exigeConta(request, response);
+
+  if (!identidade) return;
+
+  const apagado = contas.apagarPersonagem(identidade, request.params.id);
+
+  if (!apagado) {
+    response.status(404).json({ erro: "PERSONAGEM_NAO_ENCONTRADO" });
+    return;
+  }
+
+  response.json({ ok: true });
+});
+
+/** DESBLOQUEIA A PROXIMA VAGA, debitando diamantes */
+app.post("/api/conta/vaga", (request, response) => {
+  const identidade = exigeConta(request, response);
+
+  if (!identidade) return;
+
+  const resultado = contas.desbloquearVaga(identidade);
+
+  if (resultado.erro) {
+    response.status(400).json(resultado);
+    return;
+  }
+
+  response.json(contas.resumo(identidade));
+});
+
+/**
+ * O TOKEN DE ENTRADA: a ponte para o jogo.
+ *
+ * ## O TOKEN DE SESSAO SOZINHO NAO ABRE MAIS O MAPA
+ *
+ * Esta rota so emite depois que a DONA DA CONTA assinou, na rota de baixo.
+ * O token de sessao continua valendo por 30 dias e continua guardando a
+ * conta — listar, criar e apagar personagem seguem funcionando sem carteira
+ * — mas ele sozinho nao entrega mais um token de entrada
+ *
+ * E o que fecha o furo que o `Access-Control-Allow-Origin: "*"` abria: antes,
+ * qualquer site da internet podia mandar `POST /api/entrada` com o token de
+ * sessao de outra pessoa (o `Authorization` nao impede, porque o navegador
+ * anexa o header que o codigo da pagina pediu) e entrar com o personagem
+ * dela. Agora falta a assinatura, e a assinatura nao se rouba de um header
+ *
+ * ## POR QUE O PERSONAGEM E RESOLVIDO AQUI E NAO PELO CLIENTE
+ *
+ * Porque o token de sessao nao diz qual personagem. O front manda o
+ * `personagemId`, e o `Contas` confirma que a conta TEM ele. O token sai
+ * com o nome e a classe que o servidor leu — nao com os que o cliente
+ * mandou
+ */
+app.post("/api/entrada", (request, response) => {
+  const identidade = exigeConta(request, response);
+
+  if (!identidade) return;
+
+  const { personagemId, assinatura } = request.body ?? {};
+
+  const personagens = contas.personagens(identidade);
+
+  const personagem = personagens.find((p) => p.id === personagemId);
+
+  if (!personagem) {
+    response.status(404).json({ erro: "PERSONAGEM_NAO_ENCONTRADO" });
+    return;
+  }
+
+  /**
+   * SO CONTA DE CARTEIRA ENTRA ASSINANDO.
+   *
+   * Uma conta sem carteira nao tem nada para assinar. Recusar aqui e melhor
+   * do que emitir token sem assinatura: o token de sessao e de 30 dias, e um
+   * "deixa passar" silencioso viraria um buraco permanente
+   */
+  if (identidade.tipo !== "carteira") {
+    response.status(403).json({ erro: "CONTA_SEM_CARTEIRA" });
+    return;
+  }
+
+  /**
+   * `identidade.id` E O ENDERECO, E ELE SAIU DO TOKEN.
+   *
+   * Para conta de carteira, o id da identidade e o endereco verificado na
+   * assinatura do login (`index.js:333`). Ele nao vem do corpo do pedido, e
+   * por isso que comparar contra ele prova alguma coisa — um `endereco` no
+   * corpo seria o cliente provando a posse de si mesmo
+   */
+  const conferencia = confirmarEntrada({
+    contaId: identidade.id,
+    enderecoEsperado: identidade.id,
+    personagemId,
+    assinatura,
+  });
+
+  if (conferencia.erro) {
+    response.status(400).json({ erro: conferencia.erro });
+    return;
+  }
+
+  const token = emissor.emitir({
+    contaId: identidade.id,
+    tipoConta: identidade.tipo,
+    nome: personagem.nome,
+    classe: personagem.classe,
+  });
+
+  response.json({ token, personagem });
+});
+
+/**
+ * O PASSO 1 DA ENTRADA: o servidor monta a mensagem e guarda o pedido.
+ *
+ * O front leva `mensagem` para a MetaMask, que assina, e devolve a assinatura
+ * para `/api/entrada` acima
+ *
+ * ## POR QUE ESTA ROTA EXIGE O TOKEN DE SESSAO
+ *
+ * Porque ela precisa saber QUAL conta vai entrar. Sem o token, nao ha conta,
+ * nao ha endereco dono para escrever na mensagem, e nao ha personagem para
+ * amarrar a assinatura — a rota viria um pedido de assinatura que so o
+ * jogador, com o servidor, poderia atender
+ */
+app.post("/api/entrada/pedir-assinatura", (request, response) => {
+  const identidade = exigeConta(request, response);
+
+  if (!identidade) return;
+
+  if (identidade.tipo !== "carteira") {
+    response.status(403).json({ erro: "CONTA_SEM_CARTEIRA" });
+    return;
+  }
+
+  const { personagemId } = request.body ?? {};
+
+  const personagens = contas.personagens(identidade);
+
+  const personagem = personagens.find((p) => p.id === personagemId);
+
+  if (!personagem) {
+    response.status(404).json({ erro: "PERSONAGEM_NAO_ENCONTRADO" });
+    return;
+  }
+
+  const resultado = pedirAssinaturaDeEntrada({
+    contaId: identidade.id,
+    endereco: identidade.id,
+    personagem,
+  });
+
+  if (resultado.erro) {
+    response.status(400).json({ erro: resultado.erro });
+    return;
+  }
+
+  response.json({ mensagem: resultado.mensagem });
+});
+
+/**
+ * O FRONT E O JOGO, PASSANDO PELO MESMO ENDERECO.
+ *
+ * ## POR QUE IMPORTAR SER O MESMO
+ *
+ * O jogo deriva o endereco do WebSocket de `window.location`
+ * (`useGameClient.js`): `ws://` ou `wss://` + host + `/ws`. Se o front
+ * rodasse em outro dominio, o jogador buscaria o socket no host errado
+ *
+ * ## POR QUE UM PROXY, E NAO ARQUIVOS ESTATICOS
+ *
+ * Porque o front e SSR: o TanStack Start gera o `index.html` em RUNTIME, e
+ * nao existe HTML no build. O que sai em `.output/public` e so `assets`,
+ * `favicon` e `robots`
+ *
+ * `express.static` serviria a pasta e o jogador receberia 404 em `/`, sem
+ * documento nenhum. O que da certo e repassar a requisicao ao servidor do
+ * Nitro e deixar ELE montar o HTML
+ *
+ * A alternativa seria virar o front em SPA, que perderia o SSR e a landing
+ * page — que existe para ser indexada — cairia para um esqueleto
+ *
+ * ## A ORDEM IMPORTA
+ *
+ * Este bloco vem DEPOIS de todas as rotas de API e ANTES do 404. Se viesse
+ * antes, `/api/conta` iria para o front e a tela de personagem receberia
+ * HTML onde esperava JSON — erro que apareceria como "a tela nao carrega",
+ * longe da causa
+ *
+ * ## QUANDO O NITRO NAO ESTA NO AR
+ *
+ * O proxy responde 502 com uma frase que diz o que fazer. Um 404 silencioso
+ * seria pior: o jogador veria uma tela vazia e culparia o servidor
+ */
+const PORTA_DO_FRONT = Number(process.env.FRONT_PORT ?? 3000);
+
+async function repassarParaOFront(request, response) {
+  const destino = `http://127.0.0.1:${PORTA_DO_FRONT}${request.originalUrl}`;
+
+  try {
+    const resposta = await fetch(destino, {
+      method: request.method,
+      headers: {
+        // o host original e o que o front usa para montar as URLs
+        host: request.headers.host ?? `localhost:${SERVER_CONFIG.port}`,
+        accept: request.headers.accept ?? "text/html",
+      },
+    });
+
+    response.status(resposta.status);
+
+    const tipo = resposta.headers.get("content-type");
+
+    if (tipo) response.setHeader("content-type", tipo);
+
+    const corpo = Buffer.from(await resposta.arrayBuffer());
+
+    response.end(corpo);
+  } catch (erro) {
+    // o Nitro responde HTML, e este 502 precisa ser legivel no navegador
+    response
+      .status(502)
+      .type("text/html")
+      .send(
+        "<h1>O site nao subiu</h1>" +
+          "<p>O front (Nitro) nao respondeu na porta " +
+          PORTA_DO_FRONT +
+          ".</p>" +
+          "<p>Rode <code>npm run dev</code> dentro de <code>front_rpg/</code> " +
+          "e recarregue esta pagina.</p>" +
+          `<p style="color:#888">${erro instanceof Error ? erro.message : String(erro)}</p>`
+      );
+  }
+}
+
+/**
+ * O JOGO: `dist/` SERVIDO AQUI, E O IFRAME DO FRONT APONTANDO PARA ELE.
+ *
+ * ## POR QUE OS ARQUIVOS DO JOGO SAO SERVIDO AQUI
+ *
+ * O `jogo.html` e o bundle que o `vite build` da raiz produz. O iframe da
+ * rota `/jogo` do front aponta para ele, e ele precisa sair da MESMA origem
+ * que o WebSocket: assim o `urlDoServidor()` do jogo, que deriva o socket de
+ * `window.location`, acerta o `/ws` sem configuracao e sem CORS
+ *
+ * ## POR QUE O `index.html` DO JOGO NAO E SERVIDO NA RAIZ
+ *
+ * Porque o `dist/` tem DOIS html: o `index.html` (o jogo aberto direto) e o
+ * `jogo.html` (o jogo dentro do iframe). O `express.static` responderia
+ * `index.html` na `/` e o site receberia a tela de selecao de classe em vez
+ * da landing page — o sintoma seria "o site virou o jogo"
+ *
+ * E por isso que o `index` do static aponta para o `jogo.html`: nenhum
+ * arquivo de entrada do jogo disputa a raiz com o proxy do front, e quem
+ * responde `/` continua sendo o site
+ */
+const PASTA_DO_JOGO = process.env.JOGO_DIR ?? "dist";
+
+/**
+ * O `index.html` DO JOGO VIRA `jogo.html`.
+ *
+ * O `dist/` tem os dois html de entrada: o `index.html` (o jogo aberto
+ * direto, util para desenvolver) e o `jogo.html` (o jogo dentro do iframe).
+ * Os dois montam o mesmo bundle, entao responder `index.html` com o
+ * `jogo.html` e o mesmo documento com o titulo certo
+ *
+ * Sem isso, `/index.html` devolveria a tela de selecao de classe no meio do
+ * site, que e confuso sem ser um erro visivel
+ */
+app.get("/index.html", (_request, response) => {
+  response.sendFile(resolve(PASTA_DO_JOGO, "jogo.html"));
+});
+
+app.use(
+  express.static(resolve(PASTA_DO_JOGO), {
+    // o `index.html` do jogo nao disputa a raiz com o proxy do front
+    index: "jogo.html",
+  }),
+);
+
+// as rotas do front sao tudo que NAO e api, health ou o proprio socket
+app.get(/.*/, repassarParaOFront);
+
 app.use((_request, response) => {
   response.status(404).json({
     error: "Rota nao encontrada",
@@ -151,6 +728,19 @@ const jogo = new GameServer({
   persistencia: {
     pasta: process.env.SAVE_DIR ?? PASTA_PADRAO,
   },
+
+  /**
+   * AS CONTAS LIGADAS NO MUNDO.
+   *
+   * Com `contas` presente, o JOIN passa a exigir o token de entrada e o
+   * nome e a classe sao lidos DELE, e nao do pacote. E o que fecha o
+   * buraco do `JOIN { name, classId }` pelo console
+   *
+   * Sem `contas` — o jogo local, os testes — o JOIN volta a ser o de
+   * sempre, porque `this.contas` e o que decide. Nao ha flag separada
+   */
+  contas,
+  verificadorDeToken: (token) => emissor.verificar(token),
 });
 
 // o mesmo servidor HTTP responde o WebSocket. subir dois

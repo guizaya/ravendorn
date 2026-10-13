@@ -118,8 +118,17 @@ body {
   background: var(--t-abyss);
 }
 
+/**
+ * A COR DO CONTORNO DE FOCO, QUE NAO EXISTE MAIS.
+ *
+ * Esta regra so trocava a cor de um `outline` que o `styles.css` desligou.
+ * Enquanto ele existir, ela e uma linha morta: nao muda nada e sugere um
+ * contorno que nao aparece
+ *
+ * O `outline: none` esta em `styles.css`, no `button:focus-visible` geral
+ */
 button:focus-visible {
-  outline-color: var(--t-gold-bright);
+  outline: none;
 }
 
 /* ============================================================================
@@ -944,10 +953,30 @@ button:focus-visible {
   color: var(--t-gold-bright);
 }
 
+/**
+ * O AUTO LIGADO, EM DOURADO.
+ *
+ * ## POR QUE ESTA REGRA E A QUE VALE
+ *
+ * Porque o `theme-inventory.css` entra DEPOIS do `styles.css`, entao uma
+ * regra com o mesmo seletor aqui ganha da la. O `is-on` estava neste
+ * arquivo, e nao no `styles.css` — por isso trocar la nao mudava nada na
+ * tela, e o unico sintoma visivel era o pulso, que vem da animacao
+ *
+ * ## POR QUE DOURADO E NAO `--t-positive`
+ *
+ * Porque a borda do botao parado ja e dourada. Com o ligado voltando ao
+ * verde, o botao mudava de cor inteira ao ligar, e o verde lia como
+ * "confirmado" — um estado que o auto nao tem: liga-lo nao trava nada, so
+ * entrega o controle ao jogo
+ *
+ * E o dourado mantem o auto como um controle so: a cor nunca muda, e o que
+ * diz "ligado" e o brilho do pulso
+ */
 .hud-ability.is-on {
-  border-color: var(--t-positive);
-  color: var(--t-positive);
-  background: linear-gradient(180deg, #1f3a2c 0%, #14261d 100%);
+  border-color: var(--t-gold-bright);
+  color: var(--t-gold-bright);
+  background: linear-gradient(180deg, #453729 0%, #2a2118 100%);
 }
 
 .skill-slot__frame {
