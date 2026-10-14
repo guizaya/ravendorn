@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 
-import { ROTULO_DO_PAINEL } from "./rotuloDoPainel.js";
+import { rotuloDoTutorial } from "./rotuloDoPainel.js";
 
 /**
  * A WALKTHROUGH INTERATIVA DO TUTORIAL.
@@ -88,13 +88,17 @@ function Walkthrough({ passos, atual, aoAbrirPainel }) {
       {visivel.dica && <p className="wt__dica">{visivel.dica}</p>}
 
       <div className="wt__pe">
-        {visivel.painel && aoAbrirPainel ? (
+        {(visivel.painel || visivel.npc) && aoAbrirPainel ? (
           <button
             type="button"
             className="wt__ir"
-            onClick={() => aoAbrirPainel(visivel.painel)}
+            onClick={() => aoAbrirPainel(visivel.painel, visivel.aba, visivel.npc)}
           >
-            {ROTULO_DO_PAINEL[visivel.painel] ?? "ABRIR"}
+            {rotuloDoTutorial({
+              tipo: visivel.type,
+              painel: visivel.painel,
+              npc: visivel.npc,
+            }) ?? "ABRIR"}
           </button>
         ) : (
           <span className="wt__sem-painel">
@@ -126,7 +130,7 @@ function Walkthrough({ passos, atual, aoAbrirPainel }) {
 import ItemIcon from "../UI/ItemIcon.jsx";
 import { getItem } from "../../data/items/index.js";
 import { QUEST_SCOPE } from "../../data/quests/index.js";
-import { MAP_1, MAP_1_META, MAP_2, MAP_2_ZONES } from "../../data/maps/index.js";
+import { MAP_1, MAP_1_META, MAP_2, MAP_2_ZONES, mapaDaZona } from "../../data/maps/index.js";
 
 /**
  * OS MAPAS QUE TEM MISSAO.
@@ -169,10 +173,14 @@ const MAPO_INICIAL = MAPAS_RAIL[0].id;
  * A aba do mapa e escolhida pelo `location` de cada passo, e o mapa de
  * uma zona e o `mapId` que o registro dela carrega. As zonas do mapa 2
  * tem o prefixo `m2_` no id, mas nao no `mapId` — e o `mapId` que decide
+ *
+ * ## POR QUE A RESPOSTA SAI DE `data/maps` E NAO DAQUI
+ *
+ * Porque o `QuestLog` precisa da MESMA resposta para saber quais resgates
+ * pertencem a aba, e duas copias dessa pergunta e uma delas errada assim que
+ * uma zona mudar de nome. A funcao virou `mapaDaZona` no dado, e as duas
+ * leem de la
  */
-function mapaDaZona(zoneId) {
-  return zoneId?.startsWith("m2_") ? MAP_2.id : MAP_1.id;
-}
 
 /**
  * Quantas missoes do mapa ainda NAO foram concluidas.
@@ -656,7 +664,7 @@ function QuestRow({
           >
             Aceitar
           </button>
-        ) : quest.tutorial && state === "active" && aoAbrirPainel && quest.painel ? (
+        ) : quest.tutorial && state === "active" && aoAbrirPainel && (quest.painel || quest.npc) ? (
           /*
             O BOTAO DO TUTORIAL, E ELE ABRE O PAINEL CERTO.
 
@@ -685,10 +693,18 @@ function QuestRow({
           <button
             type="button"
             className="qst-action qst-action--tutorial"
-            onClick={() => aoAbrirPainel(quest.painel)}
-            data-tip={`Abre ${ROTULO_DO_PAINEL[quest.painel] ?? "o painel"}`}
+            onClick={() => aoAbrirPainel(quest.painel, quest.aba, quest.npc)}
+            data-tip={
+              quest.npc
+                ? "Leva o personagem ate o NPC"
+                : `Abre ${rotuloDoTutorial({ tipo: quest.type, painel: quest.painel }) ?? "o painel"}`
+            }
           >
-{ROTULO_DO_PAINEL[quest.painel] ?? "ABRIR"}
+            {rotuloDoTutorial({
+              tipo: quest.type,
+              painel: quest.painel,
+              npc: quest.npc,
+            }) ?? "ABRIR"}
           </button>
         ) : onFocus && state === "active" && !waiting ? (
           /*
@@ -885,6 +901,7 @@ export default function QuestPanel({
   onFocus,
   onToggleAuto,
   onClaim,
+  onClaimAll,
   aoAbrirPainel,
 }) {
   const data = quests ?? {
@@ -1038,6 +1055,31 @@ export default function QuestPanel({
     (entrada) => entrada.scope === scopeDaAba,
   );
 
+  /**
+   * OS RESGATEIS DA ABA QUE ESTA ABERTA, agora com o mapa.
+   *
+   * ## POR QUE O MAPA PRECISA ENTRAR NO FILTRO
+   *
+   * Porque o `scope` sozinho nao separa os mapas: existe aba principal no
+   * mapa 1 e no mapa 2, e secundaria nos dois. Com o filtro so pelo
+   * `scope`, o "RECEBER TUDO" da aba principal do vale pagaria os degraus
+   * do mapa 2 junto — e o jogador veria o botao na aba, sem a lista
+   * mostrar nada, e o dinheiro acabando sem explain
+   *
+   * O `location` existe em cada entrada por causa disso: ele nao estava no
+   * `claimable` do snapshot, e sem ele a aba nao sabia o que era dela
+   *
+   * ## E POR QUE O BOTAO SOME QUANDO A LISTA ESVAZIA
+   *
+   * Porque ele e derivado disto e nao de um campo do servidor. No instante
+   * em que o resgate esvazia a fila, o proximo snapshot traz a lista vazia
+   * e o botao desaparece — sem o jogador precisar recarregar nada, e sem
+   * um "nada a receber" para ele clicar e nao acontecer
+   */
+  const resgataveisDaAba = resgataveis.filter(
+    (entrada) => mapaDaZona(entrada.location) === mapa,
+  );
+
   const recompensaDe = (questId) =>
     resgataveis.find((entrada) => entrada.id === questId) ??
     null;
@@ -1149,6 +1191,46 @@ export default function QuestPanel({
             )}
           </button>
         ))}
+
+        {/*
+          O "RECEBER TUDO", NO FIM DA FILEIRA E NA DIREITA.
+
+          ## POR QUE NO FIM E NAO NO CABECALHO
+
+          Porque ele age sobre a aba ABERTA, e a aba e o que esta nessa
+          fileira. No cabecalho ele pareceria acao do painel inteiro, e o
+          jogador nao teria como saber que o mapa da esquerda tambem conta
+
+          ## POR QUE SO COM LISTA NA FRENTE
+
+          Porque um "receber tudo" clicavel sem nada para receber e um
+          botao que promete e nao cumpre. Ele e derivado de
+          `resgataveisDaAba`, que vem da fila do servidor — entao ele some
+          sozinho no quadro seguinte ao resgate, sem estado local
+
+          ## POR QUE O NUMERO E TAMBEM O ROTULO
+
+          Porque "2" sozinho nao diz o que e. O numero ao lado do texto faz
+          o jogador ler "2 a receber" sem passar o mouse, e o `data-tip`
+          explica o resto para quem nao reparou
+        */}
+        {resgataveisDaAba.length > 0 && (
+          <button
+            type="button"
+            className="qst-tabs__receber"
+            onClick={() => onClaimAll?.(scopeDaAba, mapa)}
+            data-tip={`Receber ${resgataveisDaAba.length} ${
+              resgataveisDaAba.length === 1
+                ? "recompensa"
+                : "recompensas"
+            } desta aba`}
+          >
+            Receber tudo
+            <i className="qst-tabs__receber-n">
+              {resgataveisDaAba.length}
+            </i>
+          </button>
+        )}
       </nav>
 
       <div className="qst-panel__body">

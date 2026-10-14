@@ -278,6 +278,17 @@ export default function useGameClient({
     [comCliente],
   );
 
+  /**
+   * EXPANDIR A MOCHILA, e sem argumento nenhum.
+   *
+   * O preco e os slots sao decididos pelo servidor. Passar os dois aqui
+   * mostraria um botao capaz de mudar de valor entre a tela e a resposta
+   */
+  const expandirMochila = useCallback(
+    () => comCliente((c) => c.expandirMochila()),
+    [comCliente],
+  );
+
   const criar = useCallback(
     (recipeId, rarity) =>
       comCliente((c) => c.criar(recipeId, rarity)),
@@ -419,6 +430,28 @@ const alternarAutoPlay = useCallback(
   );
 
   /**
+   * Resgata tudo que a aba aberta tem, pelo mesmo caminho do resgate
+   * individual: so online. Na tela, quem paga e o motor local
+   */
+  const resgatarTodasMissoes = useCallback(
+    (scope, mapa) =>
+      comCliente((c) => c.resgatarTodasMissoes(scope, mapa)),
+    [comCliente],
+  );
+
+  /**
+   * Gasta um ponto da arvore, pelo caminho de online
+   *
+   * Sem este ramo o `handleComprarNo` do HUD so chamava o motor da tela, e
+   * em jogo online o clique da arvore nao fazia nada: o ponto aparecia
+   * disponivel e o servidor nunca recebia o pedido
+   */
+  const aprenderNoArvore = useCallback(
+    (noId) => comCliente((c) => c.aprenderNoArvore(noId)),
+    [comCliente],
+  );
+
+  /**
    * Resgata UM dia do passe.
    *
    * Pelo mesmo caminho da recompensa de missao: quem tem a mochila e a lista
@@ -522,17 +555,16 @@ const alternarAutoPlay = useCallback(
   );
 
 /**
-     * As tres acoes do MARKET.
-     *
-     * O `price` e o `count` vao crus e o servidor decide: ele aplica o
-     * piso e o teto do mercado contra o inventario de quem pediu, e
-     * corta a quantidade no que a pilha tem. Passar os dois ja
-     * validados aqui daria a impressao de que o cliente tem autoridade
-     * sobre o valor
-     */
-  const listarNoMarket = useCallback(
-    (uid, price, count) =>
-      comCliente((c) => c.listarNoMarket(uid, price, count)),
+ * As acoes do MARKET.
+ *
+ * O `price`, a moeda, o modo, o lance e a quantidade vao crus e o servidor
+ * decide: ele aplica o piso e o teto contra o inventario de quem pediu, e
+ * corta a quantidade no que a pilha tem. Passar os dois ja validados aqui
+ * daria a impressao de que o cliente tem autoridade sobre o valor
+ */
+const listarNoMarket = useCallback(
+    (uid, price, count, opcoes) =>
+      comCliente((c) => c.listarNoMarket(uid, price, count, opcoes)),
     [comCliente],
   );
 
@@ -545,6 +577,16 @@ const alternarAutoPlay = useCallback(
   const cancelarNoMarket = useCallback(
     (listingId) =>
       comCliente((c) => c.cancelarNoMarket(listingId)),
+    [comCliente],
+  );
+
+  /**
+   * Dar lance e uma acao A PARTE de comprar: a compra tira o anuncio do ar, e
+   * o lance mantem, entao nao pode ser o mesmo caminho nem a mesma resposta
+   */
+  const darLanceNoMarket = useCallback(
+    (listingId, valor) =>
+      comCliente((c) => c.darLanceNoMarket(listingId, valor)),
     [comCliente],
   );
 
@@ -841,6 +883,7 @@ const mexerNoBau = useCallback(
     equiparMelhor,
     filtroDeLoot,
     podarMochila,
+  expandirMochila,
     criar,
     marcarAuto,
     criarGuilda,
@@ -877,6 +920,8 @@ const mexerNoBau = useCallback(
     aceitarMissaoSecundaria,
     abandonarMissaoSecundaria,
     resgatarRecompensaMissao,
+    resgatarTodasMissoes,
+    aprenderNoArvore,
     resgatarDiaDoPasse,
     definirPassePremium,
     cacarCriatura,
@@ -887,6 +932,7 @@ const mexerNoBau = useCallback(
     listarNoMarket,
     comprarNoMarket,
     cancelarNoMarket,
+    darLanceNoMarket,
     usarItem,
     comprarPocao,
     comprarLivro,

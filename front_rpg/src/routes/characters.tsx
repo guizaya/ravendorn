@@ -75,7 +75,7 @@ const CLASS_META: Record<IdDaClasse, {
   stats: ClassStat[]; sprite?: boolean; spriteSize?: number
 }> = {
   warrior: {
-    nome: 'Guerreiro', art: warriorSprite, icon: Swords, tagline: 'Muralha de aço', sprite: true, spriteSize: 88,
+    nome: 'Guerreiro', art: warriorSprite, icon: Swords, tagline: 'Muralha de aço', sprite: true, spriteSize: 84,
     description: 'Linha de frente inquebrável. Absorve dano, protege aliados e esmaga inimigos com golpes pesados.',
     stats: CLASS_STATS.Guerreiro,
   },

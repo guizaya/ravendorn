@@ -1,6 +1,7 @@
 import { useMemo, useState } from "react";
 
 import ItemIcon from "../UI/ItemIcon.jsx";
+import IconeMoeda from "../UI/IconeMoeda.jsx";
 import {
   CATEGORIA_INICIAL,
   LOJA_CATEGORIAS,
@@ -258,7 +259,7 @@ function PacoteCard({ pacote, comprado, onComprar }) {
       <footer className="loj-pacote__rodape">
         <div className="loj-preco">
           <span className="loj-preco__valor">
-            <i aria-hidden="true">◆</i>
+            <IconeMoeda moeda={pacote.moeda === "coins" ? "coins" : "diamonds"} />
             {pacote.preco}
           </span>
 

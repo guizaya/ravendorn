@@ -1009,7 +1009,28 @@ button:focus-visible {
   color: var(--t-text-bright);
 }
 
-.skill-slot__auto-badge,
+/*
+  O SELO `A`, DA SKILL EM AUTOMATICO.
+
+  ## POR QUE ESTE BLOCO ESTAVA COM OS OUTROS DOIS
+
+  `.bst-auto__tag` e `.qst-autoinfo__tag` sao as etiquetas de "automatico" do
+  bestiario e da missao, e as tres tomavam a mesma cor. O selo da skill foi
+  separado porque a skill em auto e dourada: o pulso do slot e dourado, e um
+  `A` verde ao lado de uma borda dourada diria duas coisas diferentes ao
+  mesmo tempo
+
+  ## E POR QUE `--t-abyss` NO TEXTO
+
+  O ouro `#d8b45c` e claro, e o texto escuro e o que da leitura. Com o
+  `--t-abyss` do tema, que e o fundo mais escuro do jogo, o `A` fica com o
+  mesmo contraste que tinha antes so que em outra cor de fundo
+*/
+.skill-slot__auto-badge {
+  color: var(--t-abyss);
+  background: var(--t-gold);
+}
+
 .bst-auto__tag,
 .qst-autoinfo__tag {
   color: var(--t-abyss);

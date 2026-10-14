@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from "react";
 
 import ItemIcon from "../UI/ItemIcon.jsx";
 import ItemCard from "../UI/ItemCard.jsx";
+import IconeMoeda from "../UI/IconeMoeda.jsx";
 import {
   canEnchantItem,
   describeEnchant,
@@ -223,7 +224,7 @@ function CaixaDoLado({
             .filter(Boolean)
             .join(" ")}
         >
-          <i>◉</i>
+          <IconeMoeda moeda="coins" />
           {custo}
         </span>
       </p>
@@ -488,7 +489,7 @@ function CaixaDoAprimorar({
             .filter(Boolean)
             .join(" ")}
         >
-          <i>◉</i>
+          <IconeMoeda moeda="coins" />
           {bloqueio ? "—" : custo}
         </span>
 
@@ -1299,12 +1300,12 @@ export default function EnchantPanel({
       */}
       <footer className="inv-status">
         <span className="inv-status__coins">
-          <i>◉</i>
+          <IconeMoeda moeda="coins" />
           {data.coins}
         </span>
 
         <span className="inv-status__coins inv-status__coins--steel">
-          <i>◈</i>
+          <IconeMoeda moeda="steel" />
           {data.steel ?? 0}
         </span>
       </footer>

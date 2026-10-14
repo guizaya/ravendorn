@@ -1,6 +1,36 @@
 export const SERVER_CONFIG = {
   port: Number(process.env.PORT ?? 8787),
-  host: process.env.HOST ?? "0.0.0.0",
+
+  /**
+   * O ENDERECO, E POR QUE O PADRAO E `::` E NAO `0.0.0.0`.
+   *
+   * ## O PROBLEMA QUE ESTO RESOLVE
+   *
+   * `localhost` resolve para DOIS enderecos nesta maquina: `::1` (IPv6) e
+   * `127.0.0.1` (IPv4). O navegador tenta o IPv6 primeiro e, se ele recusar, nao
+   * tenta o IPv4 — o `WebSocket` morre com "connection failed" sem deixar
+   * rastro de onde foi o problema
+   *
+   * Ouvindo so em `0.0.0.0`, o servidor nao respondia em `::1`, e era
+   * exatamente ai que o navegador ia primeiro
+   *
+   * ## POR QUE `::` E NAO `::1`
+   *
+   * `::` e o "todos os IPv6". Com o `ipv6Only` do Node em `false` — que e o
+   * padrao — esse socket e de DUAS pilhas: atende IPv6 E o IPv4 mapeado
+   * dentro dele. Entao `::1` e `127.0.0.1` chegam no mesmo processo, e o
+   * `localhost` funciona dos dois jeitos
+   *
+   * E por que nao `::1`: ele seria so o loopback IPv6, e o servidor voltaria a
+   * nao responder no IPv4 — o mesmo bug do outro lado
+   *
+   * ## E A RESERVA
+   *
+   * Uma maquina com IPv6 desativado no sistema inteiro nao consegue abrir
+   * esse socket. O `index.js` cai para `0.0.0.0` nesse caso, e o aviso sai no
+   * console — o servidor sempre sobe
+   */
+  host: process.env.HOST ?? "::",
 
   // o mesmo numero do `src/shared/protocol.js`. se os dois
   // divergirem, o handshake recusa em vez de deixar o cliente

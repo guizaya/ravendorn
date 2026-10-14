@@ -8,8 +8,10 @@ import {
   QUEST_SCOPE,
   QUEST_TYPE,
   SIDE_QUESTS,
+  temDestinoDeAuto,
   TIPOS_DE_TUTORIAL,
 } from "../../data/quests/index.js";
+import { mapaDaZona } from "../../data/maps/index.js";
 
 /**
  * Um abate conta para esta missao?
@@ -135,7 +137,22 @@ export class QuestLog {
 
     if (!quest) return null;
 
-    if (!isAutoCompletable(quest)) return null;
+    /**
+     * `temDestinoDeAuto` E NAO `isAutoCompletable`, E A DIFERENCA IMPORTANTE
+     *
+     * Este metodo responde "o auto tem para onde ir?", e nao "o auto fecha
+     * isso sozinho?". Uma missao de NPC tem destino e nao tem auto que a
+     * conclua: o auto leva ate o mestre e para, e o jogador compra o livro
+     * com a mao
+     *
+     * Com `isAutoCompletable` aqui, o `objective()` devolvia `null` para os
+     * sete tutorials, e o `toggleQuestAuto` desligava o auto de novo assim
+     * que ele era ligado — o botao "IR ATE O NPC" nao fazia nada
+     *
+     * O card continua dizendo que a missao e manual: quem monta esse texto
+     * e o `autoCompletable` do snapshot, que ainda usa o predicado strict
+     */
+    if (!temDestinoDeAuto(quest)) return null;
 
     return quest;
   }
@@ -626,9 +643,56 @@ onEquipRarity(rarity) {
         scope: entrada.scope,
         name: quest?.name ?? entrada.questId,
         summary: quest?.summary ?? "",
+
+        /**
+         * O MAPA DA MISSAO, e ele faltava.
+         *
+         * Sem este campo o painel so conseguia separar principal de
+         * secundaria: as duas abas do mapa 1 e as duas do mapa 2 entravam
+         * na mesma lista. O [RECEBER] de um cartao continuava certo — ele
+         * e por `id` — mas o "RECEBER TUDO" da aba nao teria como saber o
+         * que pertence a ela, e pagaria as missoes do outro mapa junto
+         */
+        location: quest?.location ?? null,
+
         rewards: entrada.reward,
       };
     });
+  }
+
+  /**
+   * OS IDS RESGATAVEIS DE UMA ABA, e nao as entradas inteiras.
+   *
+   * ## POR QUE SO O ID
+   *
+   * Porque quem paga e o `claimQuestReward` do motor, e ele ja sabe
+   * encontrar a recompensa pela id. Devolver a entrada inteira aqui seria
+   * mandar a recompensa pela rede duas vezes — uma no snapshot e outra no
+   * pedido do "receber tudo" — e qualquer divergencia entre as duas copias
+   * viraria pagamento errado
+   *
+   * ## POR QUE UM COPIA E NAO UM `filter` DIRETO
+   *
+   * Porque o `pending` e a fila do SERVIDOR, e o filtro acontece dos dois
+   * lados com dados diferentes: aqui e pelo mapa, e o `claim` do motor
+   * confirma que a linha ainda esta na fila. Um `filter` em cima de
+   * `this.pending` devolveria referencia viva, e o `claim` mutando a lista
+   * durante o laco mostraria linhas puladas
+   */
+  claimablesDe(scope, mapa) {
+    return this.pending
+      .filter((entrada) => {
+        if (scope && entrada.scope !== scope) return false;
+
+        if (!mapa) return true;
+
+        const quest =
+          getMainQuest(this.mainIndexOf(entrada.questId)) ??
+          getSideQuest(entrada.questId);
+
+        return mapaDaZona(quest?.location) === mapa;
+      })
+      .map((entrada) => entrada.questId);
   }
 
   isSideDone(questId) {
@@ -712,6 +776,8 @@ location: main.location ?? null,
                 tutorial: main.tutorial === true,
                 dica: main.dica ?? null,
                 painel: main.painel ?? null,
+                aba: main.aba ?? null,
+                npc: main.npc ?? null,
                 icone: main.icone ?? null,
               }
             : null,
@@ -738,6 +804,8 @@ steps: MAIN_QUESTS.map((quest, index) => ({
             tutorial: quest.tutorial === true,
             dica: quest.dica ?? null,
             painel: quest.painel ?? null,
+            aba: quest.aba ?? null,
+            npc: quest.npc ?? null,
             icone: quest.icone ?? null,
 
             /**

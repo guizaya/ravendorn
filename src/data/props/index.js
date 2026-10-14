@@ -166,6 +166,47 @@ export function propSemSombra(typeId, map) {
   return semSombra.includes(typeId);
 }
 
+/**
+ * A AURÉA DE TRÁS DOS CRISTAIS.
+ *
+ * ## O QUE ELA É
+ *
+ * Um brilho radial atrás do cristal, na cor da raridade. Não é a arte do
+ * cristal mudando: é a luz que ele derrama no chão, que é o que separa um
+ * cristal comum de um lendário quando os dois estão no mesmo quadro
+ *
+ * ## POR QUE A COR ESTÁ DUPLICADA DO `tint`
+ *
+ * Porque o `tint` é o que tinge a arte do cristal e o `aura.cor` é a luz que
+ * sai DELE. Hooke essas duas e o brilho passaria a mudar junto com a arte,
+ * que é uma coisa que ninguém pediu e que ninguém entenderia olhando o
+ * código
+ *
+ * ## E POR QUE A FORÇA SOBE COM A RARIDADE
+ *
+ * Porque um lendário brilha mais, e é essa a leitura: o brilho é o que
+ * anuncia "este aqui vale mais" de longe. Com as quatro aura iguais, o
+ * jogador teria que chegar perto para saber
+ *
+ * ## E POR QUE O RAIO NÃO É O `radius`
+ *
+ * O `radius` é a PEGADA — o quanto o cristal ocupa no chão. O raio da
+ * aura é a luz, que é maior que o cristal e menor que a pegada de uma
+ * árvore. Usar o `radius` faria o brilho do lendário cobrir três cristais
+ * vizinhos
+ *
+ * @param {object} aura `{ cor, raio, forca }`
+ * @param {string} aura.cor o hex da luz
+ * @param {number} aura.raio o raio do brilho em pixels
+ * @param {number} aura.forca a opacidade do centro, de 0 a 1
+ */
+export const AURA_DO_CRISTAL = {
+  cristal_comum: { cor: "#8a8f96", raio: 46, forca: 0.16 },
+  cristal_raro: { cor: "#2f8fd0", raio: 58, forca: 0.3 },
+  cristal_epico: { cor: "#c02b3f", raio: 70, forca: 0.42 },
+  cristal_lendario: { cor: "#d8a93a", raio: 86, forca: 0.58 },
+};
+
 export const PROP_TYPES = {
   /**
    * O ARBUSTO DA SEBE: a props que segura o jogador dentro dos campos.
@@ -349,20 +390,35 @@ export const PROP_TYPES = {
    * Porque o pe do cristal encosta na ultima linha da arte. Com 0.78 a
    * base flutuaria 20px acima do ponto de colisao, e o jogador pararia no
    * vazio embaixo do cristal
+   *
+   * ## E A `sombra`, QUE E O QUE FAZIA O CRISTAL PARECER NO AR
+   *
+   * A ponta do cristal tem SEIS pixels na ultima linha. A sombra padrao do
+   * `PropRenderer` sai do `radius` e dava 45px de largura, centrada 6px
+   * ABAIXO do ponto de contato: uma mancha larga com um vao entre ela e a
+   * ponta. O olho le isso como poça flutuando, nao como sombra
+   *
+   * Entao o cristal nao usa a sombra padrao. A dele e a medida pelo corpo
+   * largo do cristal, e sobe (`dy` negativo) para encostar na ponta
    */
   cristal_comum: {
     id: "cristal_comum",
     row: 0,
     blocking: true,
-    radius: 34,
-    collider: 22,
+    radius: 31,
+    collider: 20,
     tint: "#8a8f96",
     isTree: false,
     sheet: CRISTAL_COMUM_SHEET,
     frameWidth: 69,
     frameHeight: 90,
-    drawWidth: 69,
-    drawHeight: 90,
+    drawWidth: 62,
+    drawHeight: 81,
+
+    solidWidth: 58,
+    solidHeight: 71,
+
+    sombra: { raioX: 15, raioY: 4, dy: -2 },
     variants: 1,
     base: 1,
 
@@ -377,15 +433,20 @@ export const PROP_TYPES = {
     id: "cristal_raro",
     row: 0,
     blocking: true,
-    radius: 45,
-    collider: 28,
+    radius: 33,
+    collider: 21,
     tint: "#2f8fd0",
     isTree: false,
     sheet: CRISTAL_RARO_SHEET,
     frameWidth: 91,
     frameHeight: 120,
-    drawWidth: 91,
-    drawHeight: 120,
+    drawWidth: 65,
+    drawHeight: 85,
+
+    solidWidth: 59,
+    solidHeight: 74,
+
+    sombra: { raioX: 17, raioY: 4, dy: -2 },
     variants: 1,
     base: 1,
     solidoNaArte: true,
@@ -396,15 +457,20 @@ export const PROP_TYPES = {
     id: "cristal_epico",
     row: 0,
     blocking: true,
-    radius: 57,
-    collider: 34,
+    radius: 34,
+    collider: 22,
     tint: "#c02b3f",
     isTree: false,
     sheet: CRISTAL_EPICO_SHEET,
     frameWidth: 115,
     frameHeight: 150,
-    drawWidth: 115,
-    drawHeight: 150,
+    drawWidth: 68,
+    drawHeight: 89,
+
+    solidWidth: 62,
+    solidHeight: 78,
+
+    sombra: { raioX: 18, raioY: 5, dy: -2 },
     variants: 1,
     base: 1,
     solidoNaArte: true,
@@ -415,15 +481,20 @@ export const PROP_TYPES = {
     id: "cristal_lendario",
     row: 0,
     blocking: true,
-    radius: 69,
-    collider: 40,
+    radius: 37,
+    collider: 24,
     tint: "#d8a93a",
     isTree: false,
     sheet: CRISTAL_LENDARIO_SHEET,
     frameWidth: 139,
     frameHeight: 180,
-    drawWidth: 139,
-    drawHeight: 180,
+    drawWidth: 74,
+    drawHeight: 97,
+
+    solidWidth: 68,
+    solidHeight: 85,
+
+    sombra: { raioX: 20, raioY: 6, dy: -2 },
     variants: 1,
     base: 1,
     solidoNaArte: true,

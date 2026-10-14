@@ -1,7 +1,12 @@
 import {
   ANUNCIO_SEGUNDOS,
   ANUNCIOS_MAXIMOS,
+  lanceMinimoAtual,
   MARKET_RESULT,
+  MOEDA,
+  MODO_VENDA,
+  modoValido,
+  moedaValida,
   PRECO_MAXIMO,
   PRECO_MINIMO,
   corDoAnuncio,
@@ -121,7 +126,15 @@ export class MarketStore {
    * dois jogadores podem ter duas botas raras identicas, e cada uma e
    * um anuncio diferente
    */
-  list({ sellerKey, sellerName, uid, price }) {
+  list({
+    sellerKey,
+    sellerName,
+    uid,
+    price,
+    currency = MOEDA.OURO,
+    modo = MODO_VENDA.FIXO,
+    minBid = null,
+  }) {
     const preco = normalizarPreco(price);
 
     if (preco === null) {
@@ -129,6 +142,40 @@ export class MarketStore {
         ok: false,
         reason: MARKET_RESULT.PRECO,
       };
+    }
+
+    /**
+     * A MOEDA E O MODO SAO VALIDADOS AQUI, E NAO SÓ NA TELA.
+     *
+     * Porque os dois vem do cliente e o cliente nao e autoridade. Sem esta
+     * guarda, um pedido com `currency: "qualquerCoisa"` cairia no
+     * `spendCoins` do servidor por falta de caso no `switch` — o jogador
+     * anunciaria numa moeda que o servidor nao conhece e receberia em ouro
+     */
+    if (!moedaValida(currency)) {
+      return { ok: false, reason: MARKET_RESULT.MOEDA };
+    }
+
+    if (!modoValido(modo)) {
+      return { ok: false, reason: MARKET_RESULT.MODO };
+    }
+
+    /**
+     * O LANCE MINIMO E OBRIGATORIO NO LEILAO.
+     *
+     * E o que separa um leilao de uma loteria. O `price` de um leilao e o
+     * PRECO DE ABERTURA, e o que segura o item e o `minBid`; sem ele o
+     * primeiro a chegar leva pelo `price`, e o `price` vira so um numero
+     * decorativo
+     */
+    let lanceMinimo = null;
+
+    if (modo === MODO_VENDA.LEILAO) {
+      lanceMinimo = normalizarPreco(minBid);
+
+      if (lanceMinimo === null) {
+        return { ok: false, reason: MARKET_RESULT.LANCE };
+      }
     }
 
     if (this.countOf(sellerKey) >= ANUNCIOS_MAXIMOS) {
@@ -152,6 +199,27 @@ export class MarketStore {
       uid,
 
       price: preco,
+
+      /**
+       * A MOEDA, O MODO E O LANCE.
+       *
+     * Os tres vao junto com o anuncio porque eles sao o que faz o pagamento
+       * do servidor. `moedaDaConta` e o que decide se o desconto sai do
+       * personagem ou da conta
+       */
+      currency,
+      modo,
+      minBid: lanceMinimo,
+
+      /**
+       * O MAIOR LANCE, E QUEM FEZ.
+       *
+       * `null` enquanto ninguem lancou. E o comprador anterior e devolvido no
+       * ato, no `bid`: sem o `maiorLance` o dinheiro do perdedor ficava
+       * preso em um anuncio que ja nao e o dele
+       */
+      maiorLance: null,
+      lances: 0,
 
     // 1 ate o `fill`, que substitui pelo que foi realmente tirado da
     // mochila. Ver o comentario do `fill`: a quantidade do anuncio e o
@@ -234,6 +302,34 @@ export class MarketStore {
   }
 
   /**
+   * O LANCE RETIDO QUE O CANCELAMENTO DEVOLVE, ou `null`.
+   *
+   * ## POR QUE O ESTORNO NAO ESTA AQUI DENTRO
+   *
+   * Porque este arquivo nao tem saldo de ninguem. O `cancel` apaga o anuncio
+   * e DEVOLVE no resultado quem tinha dinheiro dentro, e quem credita e o
+   * servidor. Se o estorno saisse daqui, seria dinheiro criado num arquivo que
+   * so decide — e o caminho de quem credita passaria a existir em dois lugares
+   *
+   * E o que separa "cancelar um anuncio de ouro" de "cancelar um leilao": no
+   * primeiro nao ha ninguem para devolver; no segundo ha, e o dinheiro e dele
+   * ate o anuncio sair do ar
+   *
+   * @param {object} listing o anuncio ja removido
+   * @returns {object|null} `{ key, name, valor, currency }`
+   */
+  lanceARetornar(listing) {
+    if (listing.maiorLance == null || !listing.maiorLanceBuyer?.key) return null;
+
+    return {
+      key: listing.maiorLanceBuyer.key,
+      name: listing.maiorLanceBuyer.name,
+      valor: listing.maiorLance,
+      currency: listing.currency,
+    };
+  }
+
+  /**
    * Compra um anuncio.
    *
    * NAO mexe em nenhum inventario. Este metodo so decide e reserva: quem
@@ -270,11 +366,125 @@ export class MarketStore {
       };
     }
 
+    /**
+     * EM LEILAO NAO EXISTE COMPRA DIRETA.
+     *
+     * Porque o dinheiro do maior lance esta RETIDO, e o item nao sai do ar
+     * ate o tempo acabar. Deixar o `buy` passar abriria um caminho que entrega
+     * a peca pelo `price` de abertura — o lance minimo viraria decorativo
+     */
+    if (listing.modo === MODO_VENDA.LEILAO) {
+      return {
+        ok: false,
+        reason: MARKET_RESULT.MODO,
+      };
+    }
+
     this.listings.delete(listingId);
 
     this.registrarVenda(listing, buyerKey, buyerName);
 
     return { ok: true, listing };
+  }
+
+  /**
+   * UM LANCE EM UM LEILAO, e o dinheiro de quem era o maior.
+   *
+   * ## O QUE ESTE METODO NAO FAZ
+   *
+   * Nao move dinheiro nenhum. Ele so VALIDA e TROCA o maior lance, e devolve
+   * no resultado quem precisa ser devolvido. O debito e o credito sao do
+   * servidor: aqui nao existe saldo, e um `MarketStore` que cobrasse deixaria
+   * a valida��o do dinheiro em dois lugares — um que recusaria e um que nao
+   *
+   * ## POR QUE O ANUNCIO CONTINUA NO AR
+   *
+   * Porque e um leilao. O item so sai quando expira e o `finish` do
+   * servidor resolve, e e ai que o dinheiro vai para o vendedor
+   *
+   * @param {string} listingId o anuncio
+   * @param {string} buyerKey quem esta lancando
+   * @param {string} buyerName o nome do comprador, para a tela
+   * @param {number} valor o lance
+   * @returns {object} `{ ok, listing, devolvido }`, onde `devolvido` e o
+   *   lance anterior quando alguem foi ultrapassado, ou `null`
+   */
+  bid(listingId, buyerKey, buyerName = null, valor) {
+    const listing = this.get(listingId);
+
+    if (!listing || !listing.itemId) {
+      return { ok: false, reason: MARKET_RESULT.SEM_ANUNCIO };
+    }
+
+    if (listing.modo !== MODO_VENDA.LEILAO) {
+      return { ok: false, reason: MARKET_RESULT.MODO };
+    }
+
+    if (listing.sellerKey === buyerKey) {
+      return { ok: false, reason: MARKET_RESULT.PROPRIO };
+    }
+
+    const lance = normalizarPreco(valor);
+
+    if (lance === null || lance < lanceMinimoAtual(listing)) {
+      return { ok: false, reason: MARKET_RESULT.LANCE };
+    }
+
+/**
+     * O LANCE ANTERIOR, PARA DEVOLVER.
+     *
+     * E capturado ANTES de sobrescrever e devolvido no resultado, para o
+     * servidor saber QUEM foi ultrapassado. O dinheiro em si nao sai daqui: o
+     * `MarketStore` nao tem saldo de ninguem, e um desconto neste arquivo
+     * seria um desconto que nenhum lugar verificou
+     */
+    const valorAnterior = listing.maiorLance;
+    const compradorAnterior = listing.maiorLanceBuyer ?? null;
+
+    /**
+     * O `valor` viaja junto do comprador porque e o que o `desfazerLance` usa
+     * para repor o piso quando o servidor nao conseguir cobrar
+     */
+    const maiorAnterior = compradorAnterior
+      ? { ...compradorAnterior, valor: valorAnterior }
+      : null;
+
+    listing.maiorLance = lance;
+    listing.maiorLanceBuyer = { key: buyerKey, name: buyerName };
+    listing.lances += 1;
+
+    return {
+      ok: true,
+      listing,
+      devolvido: valorAnterior,
+      maiorAnterior,
+      lances: listing.lances,
+    };
+  }
+
+  /**
+   * DESFAZ UM LANCE QUE O SERVIDOR NAO CONSEGUIU COBRAR.
+   *
+   * ## POR QUE ISTO EXISTE, E NAO UM `if` LONGE DE AQUI
+   *
+   * Porque o `bid` ja trocou o maior lance quando o servidor tenta debitar. Se
+   * o debito falhar e o anuncio ficar com o lance de um jogador que nunca
+   * pagou, o proximo ve um piso errado e o item pode ser entregue de graca
+   *
+   * @param {string} listingId o anuncio
+   * @param {object|null} maiorAnterior quem era o maior, como o `bid` devolveu
+   * @param {number} lances o contador que o `bid` gravou
+   */
+  desfazerLance(listingId, maiorAnterior, lances) {
+    const listing = this.get(listingId);
+
+    if (!listing) return false;
+
+    listing.maiorLance = maiorAnterior?.valor ?? null;
+    listing.maiorLanceBuyer = maiorAnterior;
+    listing.lances = Math.max(0, (lances ?? 1) - 1);
+
+    return true;
   }
 
   /**
@@ -299,6 +509,15 @@ export class MarketStore {
       rarity: listing.rarity,
       count: listing.count,
       price: listing.price,
+
+/**
+       * A MOEDA DA VENDA.
+       *
+       * E nao um detalhe do historico: sem ela, uma linha de venda de um
+       * item em diamante e uma em ouro mostrariam o MESMO numero, e o
+       * jogador nao teria como saber qual das duas aconteceu
+       */
+      currency: listing.currency,
 
       sellerKey: listing.sellerKey,
       sellerName: listing.sellerName,
@@ -337,11 +556,11 @@ export class MarketStore {
    * e invisivel para o jogador, mas ele continua no `Map` ate alguem
    * CHAMAR o `expirar` e devolver o item ao dono
    *
-   * A separacao importa: se a vitrine usasse o `expirar` para nao
+* A separacao importa: se a vitrine usasse o `expirar` para nao
    * mostrar um anuncio vencido, ela apagaria o anuncio sem devolver o
-   * item — e o vendedor perderia a peca por ter aberto o painel
+   * item ao dono
    */
-  vencidos() {
+  expirados() {
     const agora = this.agora();
 
     return [...this.listings.values()].filter(
@@ -358,7 +577,7 @@ export class MarketStore {
     );
   }
 
-  /**
+/**
    * Remove os anuncios vencidos e devolve o que volta.
    *
    * E uma funcao LAZY: ela roda quando alguem le, nao num `setInterval`.
@@ -369,6 +588,16 @@ export class MarketStore {
    * O que EXPIROU volta para o vendedor: o item e dele, e sumir seria
    * o jogador perder trabalho por um esquecimento. Quem credita a
    * devolucao e o SERVIDOR, que e quem tem a sessao do dono
+   *
+   * ## E OS LEILÕES, POR QUE ESTE NÃO É O CAMINHO DELES
+   *
+   * Porque um leilao vencido tem dinheiro de terceiro dentro. Apagar o
+   * anuncio aqui devolveria o item ao vendedor sem nunca decidir o que
+   * acontece com o lance — e o comprador perderia o valor sem aviso
+   *
+   * Um leilao com lance e IGNORADO por este metodo, de proposito. Quem
+   * encerra leilao e o `fecharLeilao`, chamado pelo servidor, que e quem
+   * tem as duas sessoes para fazer as duas transferencias
    */
   expirar() {
     const agora = this.agora();
@@ -376,6 +605,14 @@ export class MarketStore {
 
     for (const [id, listing] of this.listings) {
       if (listing.expiresAt > agora) continue;
+
+      // dinheiro de terceiro dentro: nao apaga aqui
+      if (
+        listing.modo === MODO_VENDA.LEILAO &&
+        (listing.maiorLance != null || listing.lances > 0)
+      ) {
+        continue;
+      }
 
       this.listings.delete(id);
 
@@ -385,9 +622,59 @@ export class MarketStore {
     return expirados;
   }
 
-  /** quantos anuncios estao abertos agora */
   /**
- * Quantos anuncios estao abertos AGORA.
+   * ENCERRA UM LEILAO VENCIDO, e devolve quem venceu.
+   *
+   * ## POR QUE EXISTE SEPARADO DO `buy`
+   *
+   * Porque o `buy` e o COMPRADOR comprando no ato: ele paga e recebe na
+   * mesma hora. O leilao vence sozinho, sem ninguem online, e o dinheiro do
+   * lance precisa ir para o vendedor enquanto o item vai para o comprador —
+   * duas sessoes diferentes, possivelmente nenhuma das duas on-line
+   *
+   * ## E POR QUE ELE NAO CUIDA DO DINHEIRO
+   *
+   * Porque este arquivo nao tem saldo de ninguem. Ele devolve QUEM venceu e o
+   * VALOR, e quem credita e o servidor. Um `MarketStore` que pagasse seria a
+   * segunda implementacao do dinheiro do mercado, e as duas divergiriam
+   *
+   * @param {string} listingId o anuncio
+   * @returns {object} `{ ok, listing, comprador, valor }`, onde `comprador` e
+   *   `null` em um leilao sem lances — nesse caso o item volta ao vendedor
+   */
+fecharLeilao(listingId) {
+    /**
+     * O MAP CRU, e nao o `get`.
+     *
+     * E o detalhe que faz este metodo funcionar: `get` esconde o anuncio
+     * quando ele ja venceu, e um leilao que vence e EXATAMENTE o caso deste
+     * metodo. Lendo pelo `get`, todo leilao devolvia `{ ok: false }` no
+     * instante em que precisava fechar — o dinheiro do comprador ficava
+     * retido para sempre e o item nunca chegava a ninguem
+     */
+    const listing = this.listings.get(listingId) ?? null;
+
+    if (!listing || listing.modo !== MODO_VENDA.LEILAO) {
+      return { ok: false };
+    }
+
+  this.listings.delete(listingId);
+
+  // sem lance, o leilao vira uma devolucao comum: o `expirarAnuncios` do
+  // servidor ja sabe devolver um item ao dono
+  if (listing.maiorLance == null || !listing.maiorLanceBuyer?.key) {
+    return { ok: true, listing, comprador: null };
+  }
+
+  const comprador = listing.maiorLanceBuyer;
+  const valor = listing.maiorLance;
+
+  this.registrarVenda(listing, comprador.key, comprador.name);
+
+return { ok: true, listing, comprador, valor };
+}
+
+  /** quantos anuncios estao abertos AGORA.
  *
  * Roda `expirar` antes de contar. Um `openCount` que devolvesse o
  * tamanho do `Map` diria 1 para um anuncio que venceu no instante
@@ -485,6 +772,41 @@ get openCount() {
       count: Math.max(1, Math.floor(numero(bruto.count, 1))),
       uid: texto(bruto.uid, 64),
       price,
+
+      /**
+       * A MOEDA, O MODO E O LANCE, LIDOS DO DISCO.
+       *
+       * Os tres caem em `coins` e `fixo` quando o arquivo nao traz, porque
+       * esse era o unico formato que existia antes. Um anuncio antigo gravado
+       * sem os campos tem de continuar valendo como o que ele sempre foi: um
+       * anuncio de ouro, com compra direta
+       *
+       * E o `modo` e lido ANTES do `minBid`, porque um `minBid` gravado num
+       * anuncio de venda fixa nao faz sentido de restaurar — o `market.list`
+       * e o `market.bid` so olham para o `minBid` em leilao
+       */
+      currency: moedaValida(bruto.currency) ? bruto.currency : MOEDA.OURO,
+      modo: modoValido(bruto.modo) ? bruto.modo : MODO_VENDA.FIXO,
+
+      /**
+       * O MAIOR LANCE E QUEM FEZ.
+       *
+       * Juntos ou nada: um `maiorLance` sem comprador nao tem a quem devolver,
+       * e um comprador sem valor nao tem o que devolver. Um arquivo com a
+       * metade gravada vira um piso que ninguem pagou
+       */
+      minBid: normalizarPreco(bruto.minBid),
+      maiorLance: normalizarPreco(bruto.maiorLance),
+      maiorLanceBuyer:
+        bruto.maiorLanceBuyer &&
+        typeof bruto.maiorLanceBuyer === "object"
+          ? {
+              key: texto(bruto.maiorLanceBuyer.key, 64) ?? "",
+              name: texto(bruto.maiorLanceBuyer.name, 64) ?? "",
+            }
+          : null,
+      lances: Math.max(0, Math.floor(numero(bruto.lances, 0))),
+
       createdAt,
       expiresAt:
         expiresAt > createdAt
@@ -515,6 +837,11 @@ get openCount() {
         null,
       count: Math.max(1, Math.floor(numero(bruto.count, 1))),
       price,
+
+      // a moeda entra tambem no disco da venda, com a mesma queda para ouro
+      // do anuncio: uma venda gravada antes das moedas era em ouro
+      currency: moedaValida(bruto.currency) ? bruto.currency : MOEDA.OURO,
+
       sellerKey: texto(bruto.sellerKey, 64) ?? "",
       sellerName: texto(bruto.sellerName, 64) ?? "Anônimo",
       buyerKey: texto(bruto.buyerKey, 64) ?? "",
@@ -558,6 +885,30 @@ export function snapshotMarket({
       rarity: listing.rarity,
       count: listing.count,
       price: listing.price,
+
+      /**
+       * A MOEDA, O MODO E O PISO DO LANCE, e eles SAlEM PARA O CLIENTE.
+       *
+       * Porque o `ListingCard` decide entre comprar e dar lance lendo o
+       * `modo`, e o `IconeMoeda` precisa saber qual arte desenhar. Sem os
+       * tres no snapshot, o cliente cairia no padrao ouro e o mostraria para
+       * um anuncio que o servidor cobra em diamante
+       */
+      currency: listing.currency,
+      modo: listing.modo,
+      minBid: listing.minBid,
+      maiorLance: listing.maiorLance,
+
+      /**
+       * QUEM ESTA NO MAIOR LANCE, so o NOME.
+       *
+       * A chave fica de fora pelo mesmo motivo da chave do vendedor: ela
+       * existe para o servidor devolver o dinheiro, e nao ajuda o jogador a
+       * ler o card
+       */
+      maiorLanceBuyer: listing.maiorLanceBuyer?.name ?? null,
+      lances: listing.lances,
+
       sellerName: listing.sellerName,
 
       /**
@@ -589,6 +940,15 @@ export function snapshotMarket({
     rarity: listing.rarity,
     count: listing.count,
     price: listing.price,
+
+    // os mesmos tres da vitrine, e pelo mesmo motivo: a aba "meus anuncios"
+    // precisa dizer em que moeda o item esta e se ele esta em leilao
+    currency: listing.currency,
+    modo: listing.modo,
+    minBid: listing.minBid,
+    maiorLance: listing.maiorLance,
+    lances: listing.lances,
+
     expiresAt: listing.expiresAt,
     restanteMs: Math.max(
       0,
@@ -608,6 +968,7 @@ export function snapshotMarket({
     rarity: venda.rarity,
     count: venda.count,
     price: venda.price,
+    currency: venda.currency,
     sellerName: venda.sellerName,
     buyerName: venda.buyerName ?? venda.buyerKey,
     soldAt: venda.soldAt,

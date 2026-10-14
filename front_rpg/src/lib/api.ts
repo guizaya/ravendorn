@@ -104,6 +104,26 @@ export function limparSessao() {
 }
 
 /**
+ * A SESSÃO ESTÁ VIVA?
+ *
+ * Existe separada do `sessaoSalva` porque "tem coisa no `localStorage`" e "pode
+ * usar a conta agora" são duas perguntas. Um token vencido ainda está lá, e é
+ * o `expiraEm` que diz se ele vale
+ *
+ * ## POR QUE O JOGO NÃO ACEITA TOKEN VENCIDO
+ *
+ * Porque a API responde 401 e a tela de personagens redireciona para o login.
+ * Mandar o jogador para lá para receber o mesmo 401 é um ida-e-volta que
+ * não informa nada — a `/characters` já faz essa checagem, mas só depois de
+ * pintar a tela
+ */
+export function sessaoValida(): boolean {
+  const sessao = sessaoSalva();
+
+  return Boolean(sessao && sessao.token && sessao.expiraEm > Date.now());
+}
+
+/**
  * O ERRO QUE A CHAMADA LANCA.
  *
  * `dados` e o corpo da resposta do servidor. E opcional porque o servidor

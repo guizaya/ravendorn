@@ -6,6 +6,19 @@ import "./styles.css";
 import "./theme-inventory.css";
 
 /**
+ * A CAMADA DA ARVORE DE HABILIDADE, e ela entra por ULTIMO de proposito.
+ *
+ * Como o `theme-inventory.css`, este arquivo so sobrescreve o que a arvore
+ * precisa de diferente: altura fixa do painel, os degraus empilhados e a
+ * rolagem nos dois eixos. O desenho dos nos NAO esta aqui — ele vem das
+ * classes do talento da guilda, e e por isso que as duas arvores sao iguais
+ *
+ * Entrando depois do tema do inventario, o `var(--t-gold)` e o `--t-line-2`
+ * ja valem os valores do tema, e a arvore nao precisa repetir nenhuma cor
+ */
+import "./theme-skilltree.css";
+
+/**
  * A CAMADA DE TILE DO MAPA 1, e ela se registra por efeito de import.
  *
  * E um import de arquivo inteiro, e nao uma chamada: este arquivo e o
@@ -50,6 +63,17 @@ import "./game/maps/camadaDoBoss1.js";
  * nenhum efeito na tela
  */
 import "./game/maps/camadaDoVale1.js";
+
+/**
+ * A CAMADA DO MAPA 2.
+ *
+ * O quinto import de camada, e pelo mesmo motivo dos outros: e um registro
+ * por efeito de import, e ele precisa acontecer antes do primeiro quadro.
+ * Sem este `import`, o mapa 2 continuaria desenhando a neve do
+ * `TerrainRenderer` em vez do `map_2.tmj`, e as paredes da camada `PAREDES`
+ * nao existiriam para o `colisaoTiled` ler
+ */
+import "./game/maps/camadaDoMapa2.js";
 
 ReactDOM.createRoot(document.getElementById("root")).render(
   <React.StrictMode>

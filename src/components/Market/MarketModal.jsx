@@ -1,7 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 
 import BalanceBar from "./BalanceBar.jsx";
-import CreateListingModal from "./CreateListingModal.jsx";
 import VitrineAba from "./VitrineAba.jsx";
 import {
   HistoricoAba,
@@ -78,20 +77,29 @@ export default function MarketModal({
   market,
   inventory,
   onBuy,
+  onBid,
   onCancel,
   onList,
+  onAbrirAnunciar,
   onClose,
 }) {
   const [aba, setAba] = useState("comprar");
 
   /**
-   * O FORMULARIO DE ANUNCIAR, empilhado sobre este modal.
+   * O FORMULARIO DE ANUNCIAR NAO É RENDERIZADO AQUI.
    *
-   * E estado AQUI e nao dentro do CreateListingModal porque o botao 
-   * + ANUNCIAR vive na barra de saldo, que e deste modal. E o modal
-   * precisa saber se ele continua aberto depois de confirmar
+   * ## POR QUE ELE SAIU DE DENTRO
+   *
+   * Porque o `CreateListingModal` é `position: absolute; inset: 0`, e dentro
+   * do `.mkt-modal__painel` o `absolute` é resolvido pela CAIXA DO MERCADO, e
+   * nao pela tela. A modal de anunciar nascia limited a altura do mercado, e
+   * com o formulário maior que essa altura ele aparecia cortado em cima e
+   * embaixo
+   *
+   * Ele virou IRMÃO do `MarketModal` no `HUD`, que é quem posiciona as duas
+   * na mesma referência
    */
-  const [anunciando, setAnunciando] = useState(false);
+  // (o estado `anunciando` migrou para o HUD, junto com o `CreateListingModal`)
 
   /**
    * O SNAPSHOT VAZIO, e nao `null`.
@@ -187,7 +195,7 @@ export default function MarketModal({
           inventory={inventory}
           maxAnuncios={data.limites?.maxAnuncios ?? null}
           anunciosAtivos={data.meus?.length ?? 0}
-          onAnunciar={() => setAnunciando(true)}
+           onAnunciar={() => onAbrirAnunciar?.()}
         />
 
         <nav className="mkt-modal__abas" role="tablist" aria-label="Mercado">
@@ -233,6 +241,7 @@ export default function MarketModal({
               data={data}
               inventory={inventory}
               onBuy={onBuy}
+              onBid={onBid}
             />
           )}
 
@@ -250,25 +259,6 @@ export default function MarketModal({
             <MeusAnunciosAba data={data} onCancel={onCancel} />
           )}
         </div>
-
-        {/*
-          O FORMULARIO DE ANUNCIAR, empilhado SOBRE este modal.
-
-          E um irmão do painel, não filho dele: o `MarketModal` continua
-          montado e visível atrás, que é o que o desenho pede, e o `z-index`
-          do `lst-modal` é maior que o do `mkt-modal` para que ele receba o
-          clique primeiro
-        */}
-        {anunciando && (
-          <CreateListingModal
-            inventory={inventory}
-            onConfirmar={(pedido) => {
-              onList?.(pedido);
-              setAnunciando(false);
-            }}
-            onClose={() => setAnunciando(false)}
-          />
-        )}
       </div>
     </div>
   );

@@ -167,7 +167,6 @@ export const TIPOS_COM_PAINEL = new Set([
   QUEST_TYPE.ENCHANT,
   QUEST_TYPE.ENHANCE,
   QUEST_TYPE.DELIVER,
-  QUEST_TYPE.LEARN_SKILL,
   QUEST_TYPE.BUY,
 ]);
 
@@ -212,7 +211,6 @@ export const PAINEL_DO_TUTORIAL = {
   [QUEST_TYPE.ENCHANT]: "enchant",
   [QUEST_TYPE.ENHANCE]: "enchant",
   [QUEST_TYPE.DELIVER]: "collection",
-  [QUEST_TYPE.LEARN_SKILL]: "loja",
   [QUEST_TYPE.BUY]: "loja",
 
   /**
@@ -237,6 +235,51 @@ export const PAINEL_DO_TUTORIAL = {
    * tem oito, e ele nao se juntaria aos outros: os outros paineis sao de
    * consulta rapida, e o codex e de leitura longa
    */
+};
+
+/**
+ * A ABA QUE ABRE DENTRO DO PAINEL.
+ *
+ * ## POR QUE SO ENCANTAR E APRIMORAR PRECISAM DISSO
+ *
+ * Porque `enchant` e o UNICO painel do mapa que tem duas abas: encantar e
+ * aprimorar. Os dois tutorials apontam para o mesmo `painel`, e sem este
+ * mapa o painel abria sempre na primeira aba — a missao de aprimorar
+ * mandava o jogador para a tela de encantar
+ *
+ * ## POR QUE O `includes` DO PAINEL JA NAO RESOLVE
+ *
+ * Porque o `EnchantPanel` so troca de aba quando o `abaInicial` MUDA. A
+ * aba nasce em `useState("encantar")` e o efeito so roda quando o valor
+ * recebido e diferente. Quem precisa dizer qual aba abrir e o botao da box,
+ * e nao o painel: o painel nao sabe que tutorial o jogador esta fazendo
+ */
+export const ABA_DO_TUTORIAL = {
+  [QUEST_TYPE.ENCHANT]: "encantar",
+  [QUEST_TYPE.ENHANCE]: "aprimorar",
+};
+
+/**
+ * O NPC QUE O TUTORIAL MANDA O JOGADOR ATENDER.
+ *
+ * E o outro lado de "nao abre painel": um tutorial pode ser feito em uma
+ * pessoa, e nao em uma aba. O livro de habilidade e vendido pelo mestre de
+ * habilidades, que mora na base — e nao pela loja de diamantes
+ *
+ * ## POR QUE O ID E DE DADO E NAO UM NOME
+ *
+ * Porque e o `id` que o motor procura no mapa da base para saber a
+ * coordenada. Um nome viraria busca por texto, e o motor teria de adivinhar
+ * o NPC certo em uma lista
+ *
+ * ## POR QUE ISSO NAO E UM PAINEL
+ *
+ * Porque o mestre de habilidades nao abre um painel: ele e um NPC em pe no
+ * calcamento. Mandar o jogador ate ele e um caminhar, e o que o `travelPlan`
+ * ja faz sozinho quando o destino esta em outro mapa
+ */
+export const NPC_DO_TUTORIAL = {
+  [QUEST_TYPE.LEARN_SKILL]: "npc_habilidades_base",
 };
 
 /**
@@ -269,6 +312,41 @@ export const AUTO_TYPES = new Set([
 
 export function isAutoCompletable(quest) {
   return Boolean(quest) && AUTO_TYPES.has(quest.type);
+}
+
+/**
+ * OS TIPOS QUE O AUTO SABE LEVAR ATE, e nao so completar.
+ *
+ * ## A DISTINCAO QUE FALTAVA
+ *
+ * `isAutoCompletable` responde "o auto sozinho fecha essa missao?", e a
+ * resposta e nao para sete dos sete tutorials: nenhum deles e "mate N bicho".
+ * Mas essa resposta estava sendo usada para uma segunda pergunta — "o auto
+ * tem para onde andar?" — e as duas nao sao a mesma coisa
+ *
+ * O sintoma foi o botao "IR ATE O NPC" da missao do livro: ele ligava o
+ * auto, o `toggleQuestAuto` chamava `objective()`, recebia `null` porque
+ * `LEARN_SKILL` nao esta no `AUTO_TYPES`, e desligava o auto de novo
+ * mostrando "Nenhuma missao automatica disponivel". O botao acionado nao
+ * acontecia
+ *
+ * ## POR QUE O `LEARN_SKILL` ENTRA AQUI
+ *
+ * Porque ele e o unico dos sete que tem um LUGAR: um NPC em outro mapa. Os
+ * outros seis tem aba, e aba nao se alcanca a pe. Este tem um destino de
+ * verdade, e o `travelPlan` sabe ir la atravessando portal
+ *
+ * E o auto para quando chega: ele leva o jogador ate o mestre e para. Quem
+ * compra o livro e usa e o jogador, nao o auto — por isso ele NAO esta no
+ * `AUTO_TYPES`, e o card continua pedindo acao manual
+ */
+export const TIPOS_COM_DESTINO = new Set([
+  ...AUTO_TYPES,
+  QUEST_TYPE.LEARN_SKILL,
+]);
+
+export function temDestinoDeAuto(quest) {
+  return Boolean(quest) && TIPOS_COM_DESTINO.has(quest.type);
 }
 
 /**
@@ -1328,11 +1406,12 @@ function quantidadeDeTutoriaisAntes(posicao) {
        * conhece craft, encantar, minerar, aprimorar, colecao, loja e
        * habilidades. Sao os sete sistemas
        */
-      objetivo: "Aprenda 1 habilidade usando um livro",
+objetivo: "Aprenda 1 habilidade usando um livro",
       dica:
-        "O livro de habilidade cai no loot. Use o livro na mochila e a " +
-        "skill entra no seu slot de habilidade.",
-      icone: "\u2605",
+        "O mestre de habilidades, na base, vende o livro. Clique em " +
+        "IR ATE O NPC e o auto te leva ate la — depois e so usar o livro " +
+        "na mochila e a skill entra no seu slot de habilidade.",
+      icone: "★",
     },
   ];
 
@@ -1468,6 +1547,8 @@ function questDoTutorial(passo, indice) {
     dica: tutorial.dica,
     icone: tutorial.icone,
     painel,
+    aba: ABA_DO_TUTORIAL[tutorial.tipo] ?? null,
+    npc: NPC_DO_TUTORIAL[tutorial.tipo] ?? null,
     tutorial: true,
 
     rewards: {

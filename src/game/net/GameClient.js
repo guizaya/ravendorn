@@ -176,6 +176,21 @@ export class GameClient {
     this.socket.onclose = () => {
       this.socket = null;
 
+      /**
+       * A FILA MORRE COM O SOCKET.
+       *
+       * E o que fecha um vazamento que vinha crescendo a cada queda. Os
+       * comandos da fila descrevem o que o jogador ESTAVA FAZENDO ha pouco —
+       * e o `INPUT` guarda o delta de movimento. Se eles sobreviverem a
+       * queda, a reconexao despeja tudo de uma vez, e o personagem anda
+       * sozinho repetindo um andar que ja acabou
+       *
+       * E nao e Loss of amostra aceitavel: perder alguns comandos de um
+       * socket caido e o comportamento correto. O que o jogador fez depois da
+       * queda e que vale, e isso passa pelo input novo
+       */
+      this.fila.length = 0;
+
       // um RECUSADO nao pode virar FECHADO: o `close` que eu mesmo
       // faco ao receber a recusa dispara este evento logo depois, e
       // a tela mostraria "voce saiu" em vez de "esse nome nao
@@ -368,6 +383,18 @@ export class GameClient {
    */
   podarMochila() {
     return this.pedirPainel({ op: PANEL_OPS.PRUNE_INVENTORY });
+  }
+
+  /**
+   * Compra mais 10 slots de mochila.
+   *
+   * Nao leva quantos slots nem por quanto: o servidor le a capacidade da
+   * sessao e cobra com `proximaCompra`. Passar os numeros aqui daria ao
+   * cliente uma autoridade que ele nao tem — e um cliente modificado mandando
+   * `slots: 999` viraria uma mochila de graca
+   */
+  expandirMochila() {
+    return this.pedirPainel({ op: PANEL_OPS.EXPAND_INVENTORY });
   }
 
   /**
@@ -940,6 +967,44 @@ irParaTeste() {
   }
 
   /**
+   * Gasta um ponto da arvore num no.
+   *
+   * ## POR QUE SO O `noId` VIAJA
+   *
+   * Porque o custo, o bonus e os pre-requisitos sao DADO do catalogo da
+   * classe. Mandar qualquer um deles no pedido seria o cliente dizendo o
+   * que custa, e o servidor pagaria o que o cliente pediu
+   */
+  aprenderNoArvore(noId) {
+    return this.pedirPainel({
+      op: PANEL_OPS.LEARN_TREE_NODE,
+      noId,
+    });
+  }
+
+  /**
+   * Resgata TUDO que a aba aberta tem na fila.
+   *
+   * ## POR QUE VIAJA O ESCOPO E O MAPA, E NAO A LISTA
+   *
+   * Porque quem tem a fila e o servidor. Mandando os ids, o cliente estaria
+   * dizendo o que deve ser pago, e a lista passaria pela rede duas vezes
+   * — uma no `claimable` do snapshot e outra aqui. Mandando "esta aba, deste
+   * mapa", o servidor filtra com o mesmo dado que montou o snapshot, e as
+   * duas contas nao podem divergir
+   *
+   * O `mapa` e o que impede a aba principal do mapa 1 de pagar os degraus
+   * do mapa 2: as duas abas existem nos dois mapas
+   */
+  resgatarTodasMissoes(scope, mapa) {
+    return this.pedirPainel({
+      op: PANEL_OPS.CLAIM_ALL_QUEST_REWARDS,
+      scope,
+      mapa,
+    });
+  }
+
+  /**
    * Resgata UM dia do passe.
    *
    * ## POR QUE SO O PAR `passId` E `dia` VIAJA
@@ -1094,12 +1159,19 @@ irParaTeste() {
    * modificado que mandasse um preco de 1 levaria o item por 1 moeda:
    * quem aplica o piso de preco e o servidor, nao este codigo
    */
-  listarNoMarket(uid, price, count = null) {
+  listarNoMarket(uid, price, count = null, opcoes = {}) {
     return this.pedirPainel({
       op: PANEL_OPS.MARKET_LIST,
       uid,
       price,
       count,
+
+      // a moeda e o modo vao no MESMO pedido do preco: sao as tres metades do
+      // mesmo anuncio, e mandar duas vezes permitiria um anuncio com preco de
+      // ouro e entrega em diamante
+      currency: opcoes.currency,
+      modo: opcoes.modo,
+      minBid: opcoes.minBid,
     });
   }
 
@@ -1107,6 +1179,19 @@ irParaTeste() {
     return this.pedirPainel({
       op: PANEL_OPS.MARKET_BUY,
       listingId,
+    });
+  }
+
+  /**
+   * UM LANCE. E um pedido a parte do `comprar` porque a resposta e diferente:
+   * a compra tira o item do ar, e o lance mantem o anuncio e devolve o valor
+   * de quem foi ultrapassado
+   */
+  darLanceNoMarket(listingId, valor) {
+    return this.pedirPainel({
+      op: PANEL_OPS.MARKET_BID,
+      listingId,
+      price: valor,
     });
   }
 
@@ -1595,7 +1680,36 @@ irParaTeste() {
     if (!this.socket) return false;
 
     if (this.socket.readyState !== 1) {
+      /**
+       * A FILA TEM TETO.
+       *
+       * ## POR QUE 200
+       *
+       * Porque a fila existe para a janela entre `entrar()` e o socket abrir,
+       * que dura quelques milissegundos. O que cabe nela nesse tempo e o
+       * `JOIN` e o primeiro `INPUT` — uma duzia de comandos. Duzentos e uma
+       * folga de tres ordens de grandeza
+       *
+       * ## E POR QUE `shift` E NAO `pop`
+       *
+       * Porque o mais ANTIGO e o mais velho. Descartando o fim, perderíamos o
+       * `JOIN` e o servidor nunca saberia quem e o jogador — oRejected seria
+       * "sem nome", que e um erro diferente do verdadeiro
+       *
+       * ## O QUE ACONTECIA SEM TETO
+       *
+       * Se o socket ficasse em `CONNECTING` — o estado exato do erro do
+       * console, "closed before the connection is established" — cada comando
+       * do auto-play entrava na fila e nenhum saia. O `despejaFila` so roda
+       * com o socket ABERTO, entao nada drenava. Minutos depois, a fila podia
+       * ter milhares de `INPUT` velhos, e a reconexao mandava todos de uma
+       * vez — pastindo o `RATE_LIMIT` do servidor e fazendo o personagem
+       * repetir o andar que ja tinha acabado
+       */
       this.fila.push(comando);
+
+      while (this.fila.length > 200) this.fila.shift();
+
       return true;
     }
 

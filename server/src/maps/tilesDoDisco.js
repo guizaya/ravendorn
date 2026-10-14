@@ -115,6 +115,28 @@ const CAMADAS = [
     tmj: "src/assets/tilesets/vale_1/vale.tmj",
     tilesets: { "vale.tsx": null },
   },
+  {
+    /**
+     * O MAPA 2.
+     *
+     * A mesma razao das outras: o movimento online e autoritativo, e o
+     * servidor precisa ler o MESMO `map_2.tmj` que o navegador desenha
+     *
+     * ## E O QUE A CAMADA `PAREDES` FAZ AQUI
+     *
+     * O mapa 2 tem quatro retangulos nela, que fecham a borda da sala. Sem
+     * esta entrada o servidor nao leria nenhum deles, e o jogador bateria na
+     * parede no cliente e atravessaria no servidor — o pior defeito que
+     * existe nesta parte do jogo
+     *
+     * O `tilesets` leva `png.tsx` porque e o que o `source` do `.tmj` traz:
+     * o autor chamou a folha de `png` no Tiled, e casar pelo nome do arquivo
+     * e o que impede a camada de ser ignorada em silencio
+     */
+    mapId: "map_2",
+    tmj: "src/assets/tilesets/map_2/map_2.tmj",
+    tilesets: { "png.tsx": null },
+  },
 ];
 
 /**

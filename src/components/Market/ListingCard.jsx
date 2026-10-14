@@ -1,5 +1,13 @@
+import { useState } from "react";
+
 import ItemCard from "../UI/ItemCard.jsx";
-import { precoUnitario } from "../../data/market/index.js";
+import IconeMoeda from "../UI/IconeMoeda.jsx";
+import {
+  lanceMinimoAtual,
+  MODO_VENDA,
+  MODO_VENDA_LABEL,
+  precoUnitario,
+} from "../../data/market/index.js";
 import { CHARACTER_CLASSES } from "../../data/characters/index.js";
 import { classesOfItem } from "../../data/craft/craftPorClasse.js";
 import { formatarMoedas } from "../../data/guild/index.js";
@@ -26,11 +34,45 @@ import BarraTempo from "./MarketPanel.jsx";
 export default function ListingCard({
   listing,
   onBuy,
+  onBid,
   podeComprar = true,
   motivoBloqueio = null,
 }) {
   /**
-   * A RESTRIÇÃO DE CLASSE do item, em nome de exibição.
+   * O ESTADO DO CAMPO DE LANCE.
+   *
+   * Vive aqui porque o campo SO EXISTE em leilao: um `useState` no card, e nao
+   * no painel, porque o painel lista varios anuncios e o texto digitado em um
+   * nao pode vazar para o lance do outro
+   */
+  const [lanceTexto, setLanceTexto] = useState("");
+
+  /**
+   * O LEILÃO E A VENDA DIRETA, e o card é o mesmo.
+   *
+   * Porque o `ItemCard` ja resolve o item, a raridade e o nome. O que muda
+   * entre os dois modos é o preço, a etiqueta e o botão — e um card separado
+   * para o leilão seria uma segunda copia de tudo isso
+   */
+  const leilao = listing.modo === MODO_VENDA.LEILAO;
+
+  /**
+   * O MENOR LANCE ACEITO AGORA.
+   *
+   * Vem de `lanceMinimoAtual`, que e a MESMA funcao que o servidor usa no
+   * `market.bid`. Escrever o piso aqui de novo daria um campo com 100 e um
+   * servidor recusando 100 — o jogador perderia a diferenca de uma moeda sem
+   * entender o motivo
+   */
+  const piso = leilao ? lanceMinimoAtual(listing) : 0;
+
+  const lance = Number(lanceTexto.replace(/\D/g, "")) || 0;
+  const lanceOk = lance >= piso && lance > 0;
+
+  const podeLancar = podeComprar && leilao && lanceOk;
+
+  /**
+   * O RESTRIÇÃO DE CLASSE do item, em nome de exibição.
    *
    * E a PRIMEIRA coisa do projeto que le isto. O dado alimenta o
    * `canClassUseItem` desde sempre, e aparecia no mundo so como um "não pode
@@ -53,11 +95,25 @@ export default function ListingCard({
       )}
 
       {/*
+        A ETIQUETA DO MODO, e ela vem ANTES do preço.
+
+        Porque o número sozinho não diz o que ele é: 350.000 num leilão é o
+        piso, e 350.000 na venda direta é o pagamento. Quem lê de baixo para
+        cima veria um preço que não vai ser cobrado
+      */}
+      {leilao && (
+        <span className="mkt-listing__modo">
+          {MODO_VENDA_LABEL[listing.modo]}
+        </span>
+      )}
+
+      {/*
         O PREÇO. A unidade so aparece quando o anúncio tem mais de uma peça,
         porque com uma peça "350.000/un" e "350.000" sao o mesmo numero dito
         duas vezes — e o "/un" faz o jogador reler o valor maior
       */}
       <span className="mkt-listing__preco">
+        <IconeMoeda moeda={listing.currency} lado={16} />
         <strong>{formatarMoedas(listing.price)}</strong>
 
         {listing.count > 1 && (
@@ -67,6 +123,20 @@ export default function ListingCard({
           </small>
         )}
       </span>
+
+      {/*
+        O MAIOR LANCE, quando existe. E a informação que faz um leilão ser um
+        leilão: sem o valor atual, o jogador não sabe se o piso que ele vê
+        é o primeiro lance ou um dispute já begun
+      */}
+      {leilao && listing.maiorLance != null && (
+        <span className="mkt-listing__maior">
+          {`Maior lance: ${formatarMoedas(listing.maiorLance)}`}
+          {listing.maiorLanceBuyer?.name
+            ? ` — ${listing.maiorLanceBuyer.name}`
+            : ""}
+        </span>
+      )}
 
       <BarraTempo restanteMs={listing.restanteMs} />
 
@@ -79,19 +149,50 @@ export default function ListingCard({
         </span>
       </span>
 
-      <button
-        type="button"
-        className="mkt-item__buy mkt-listing__comprar"
-        onClick={() => onBuy?.(listing.id)}
-        disabled={!podeComprar}
-        data-tip={
-          podeComprar
-            ? "Comprar"
-            : (motivoBloqueio ?? "Indisponível")
-        }
-      >
-        Comprar
-      </button>
+      {leilao ? (
+        <div className="mkt-listing__lance">
+          <input
+            type="text"
+            inputMode="numeric"
+            className="lst-campo lst-campo--narrow"
+            placeholder={formatarMoedas(piso)}
+            value={lanceTexto}
+            onChange={(event) =>
+              setLanceTexto(event.target.value.replace(/\D/g, ""))
+            }
+            data-tip={`Mínimo agora: ${formatarMoedas(piso)}`}
+            aria-label={`Lance mínimo ${formatarMoedas(piso)}`}
+          />
+
+          <button
+            type="button"
+            className="mkt-item__buy mkt-listing__comprar"
+            onClick={() => onBid?.(listing.id, lance)}
+            disabled={!podeLancar}
+            data-tip={
+              podeComprar
+                ? "Dar lance"
+                : (motivoBloqueio ?? "Indisponível")
+            }
+          >
+            Lance
+          </button>
+        </div>
+      ) : (
+        <button
+          type="button"
+          className="mkt-item__buy mkt-listing__comprar"
+          onClick={() => onBuy?.(listing.id)}
+          disabled={!podeComprar}
+          data-tip={
+            podeComprar
+              ? "Comprar"
+              : (motivoBloqueio ?? "Indisponível")
+          }
+        >
+          Comprar
+        </button>
+      )}
     </ItemCard>
   );
 }

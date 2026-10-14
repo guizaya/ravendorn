@@ -1,6 +1,10 @@
 import { MAX_LEVEL } from "../progression/Levels.js";
 import { getItem, ITEM_TYPE } from "../../data/items/index.js";
 import { SKILL_PACKS } from "../../data/skills/index.js";
+import {
+  custoTotalDaArvore,
+  nosConfiaveis,
+} from "../../data/skills/tree.js";
 import { normalizeLootFilter } from "../loot/lootFilter.js";
 import { isEnchant } from "../../data/enchant/index.js";
 import { getQuest, normalizeRewards, questScopeOf } from "../../data/quests/index.js";
@@ -17,6 +21,7 @@ import {
 } from "../pass/passLog.js";
 import { PASSE_PADRAO } from "../../data/passes/index.js";
 import { sanear as sanearFarmOffline } from "../progression/OfflineFarm.js";
+import { capacidadeConfiavel } from "../../data/inventory/capacidade.js";
 
 /**
  * O personagem em um arquivo: tirar e devolver.
@@ -171,6 +176,22 @@ export function snapshotSession(sessao) {
        * em `NaN` na barra de saldo do mercado mostraria "NaN" em vez de "0"
        */
       diamonds: Math.floor(inventory.diamonds ?? 0),
+
+      /**
+       * A CAPACIDADE DA MOCHILA, e ela e o que o jogador COMPROU.
+       *
+       * ## POR QUE O CAMPO PRECISA EXISTIR
+       *
+       * Porque sem ele a expansao vive so enquanto a sessao esta de pe. A
+       * `capacity` nasce em 20 no construtor do `Inventory`, entao um save que
+       * nao a guarda devolve o jogador para 20 slots no proximo login — com o
+       * diamante ja debitado e o espaco sumido
+       *
+       * E ela passa por `capacidadeConfiavel` de novo na escrita, e nao so na
+       * leitura: `snapshotSession` tambem e chamada em teste e em script, e um
+       * `capacity: 99999` gravado por la voltaria cortado na leitura
+       */
+      capacity: capacidadeConfiavel(inventory.capacity),
 
       overflow: Math.floor(inventory.overflow ?? 0),
       stacks: inventory.stacks.map((pilha) => ({
@@ -383,6 +404,37 @@ passe: {
     habilidades: [...(sessao.habilidadesAprendidas ?? [])],
 
     /**
+     * OS PONTOS DE HABABILIDADE QUE AINDA NAO FORAM GASTOS.
+     *
+     * ## POR QUE FICA NO RAIZ E NAO DENTRO DE `player`
+     *
+     * Pelo mesmo motivo do `poder`: e uma carteira, e nao um atributo. Nao
+     * morre com a vida, nao some quando o equipamento quebra, e nao cresce
+     * com o nivel — ele cresce porque o jogador subiu de nivel, e so entao
+     * vira numero guardado
+     */
+    pontosHabilidade: inteiro(sessao.pontosHabilidade),
+
+    /**
+     * OS NOS DA ARVORE QUE O PERSONAGEM INVESTIU.
+     *
+     * ## POR QUE UM ARRAY E NAO UM `Set` COMO AS HABILIDADES
+     *
+     * Pelo mesmo motivo: o `Set` e em memoria, o arquivo e JSON. E por isso
+     * que ele passa pelo `nosConfiaveis` na leitura, que e o filtro que
+     * confere o id contra a arvore DA CLASSE e exige que o no anterior
+     * tambem esteja salvo
+     *
+     * ## E POR QUE E SEPARADO DAS `habilidades`
+     *
+     * Porque os dois se escrevem juntos mas nao sao a mesma coisa: um no pode
+     * dar so bonus, sem skill nenhuma. Colar os dois num campo so faria o
+     * bonus ser reconstruido pelo id da skill, e o bonus sumiria no primeiro
+     * no passivo
+     */
+    nosArvore: [...(sessao.nosArvore ?? [])],
+
+    /**
      * O filtro de coleta do jogador.
      *
      * `null` e "pega tudo", e e o estado inicial de uma sessao nova.
@@ -541,6 +593,20 @@ sessao,
      * jogo produz diamante negativo, e um save antigo nao tem o campo
      */
     inventory.diamonds = Math.max(0, inteiro(inv.diamonds, 0));
+
+  /**
+   * A CAPACIDADE VOLTA, E O SAVE ANTIGO VOLTA COM A BASE.
+   *
+   * E `capacidadeConfiavel` e nao `inteiro(inv.capacity, 20)` porque o
+   * `inteiro` so devolve 0 para o que nao e numero: um `capacity: 10000` num
+   * arquivo editado a mao passaria inteiro, viraria uma mochila de 10.000
+   * slots sem um diamante pago, e o `Math.min` do teto e o que fecha isso
+   *
+   * E a expansao que COMPRA e a unica forma de passar de 20, entao o piso
+   * aqui e o que garante que um save com `capacity: 0` ou `capacity: 12` nao
+   * encolha a mochila do jogador
+   */
+  inventory.capacity = capacidadeConfiavel(inv.capacity);
 
   inventory.overflow = inteiro(inv.overflow, 0);
 
@@ -938,6 +1004,43 @@ sessao,
           (skill) => skill.id === id,
         ),
       ),
+  );
+
+  // --- arvore de habilidade ---
+  //
+  // O `nosConfiaveis` ja faz o trabalho sujo: confere cada id contra a
+  // arvore da CLASSES e descarta o no cujo pre-requisito nao veio junto. Um
+  // save forjado com `"sorcerer_orb"` num Warrior entra vazio, e o bonus
+  // simplesmente nao existe — que e a resposta certa para arquivo nao
+  // confiavel, e nao uma excecao
+  sessao.nosArvore = nosConfiaveis(
+    sessao.classId,
+    lista(bruto.nosArvore)
+      .map((id) => texto(id, 64))
+      .filter(Boolean),
+  );
+
+  /**
+   * OS PONTOS QUE SOBRARAM, E O TETO DE CIMA DELES.
+   *
+   * O `custoTotalDaArvore` e o teto porque o save nao confia no numero: um
+   * arquivo com `pontosHabilidade: 9000` daria pontos infinitos e o jogador
+   * maxaria a arvore no nivel 1. Ja investidos sao descontados porque eles
+   * foram GASTOS de pontos que o jogador tinha — um save honesto nunca passa
+   * do total, mas um save antigo, ou um que veio de antes da arvore existir,
+   * pode
+   */
+  const pontosDoArquivo = inteiro(bruto.pontosHabilidade);
+
+  sessao.pontosHabilidade = Math.max(
+    0,
+    Math.min(
+      pontosDoArquivo,
+      Math.max(
+        0,
+        custoTotalDaArvore(sessao.classId) - sessao.nosArvore.size,
+      ),
+    ),
   );
 
   // --- filtro de coleta ---

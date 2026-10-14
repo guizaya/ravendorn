@@ -187,12 +187,24 @@ export const LOJA_PACOTES = [
 
   /* ---------------- ITENS ---------------- */
 
+  /*
+   * A ABA DE ITENS E A UNICA EM OURO.
+   *
+   * O diamante e a moeda da conta: nao sai de drop nenhum, e o jogador so o
+   * ganha em evento. Cobrar diamante por pocao e pergaminho — coisas que ele
+   * encontra no mapa — punia o jogo, nao a compra
+   *
+   * `moeda: "coins"` e o que faz isso, e nao o preco: o numero continua
+   * sendo o valor, e quem decide o que e descontado e o campo. Sem ele o
+   * pacote cai no diamante, que era o padrao de todas as outras categorias
+   */
   {
     id: "item-brasa-viva",
     categoria: "itens",
     nome: "Brasa Viva",
     tag: null,
     terminaEmHoras: null,
+    moeda: "coins",
     preco: 140,
     valorReal: { ouro: 300, steel: 0, texto: "300 de ouro" },
     itens: [{ itemId: "pocao_grande", quantidade: 3 }],
@@ -203,19 +215,10 @@ export const LOJA_PACOTES = [
     nome: "Selo Rúnico",
     tag: null,
     terminaEmHoras: null,
+    moeda: "coins",
     preco: 90,
     valorReal: { ouro: 80, steel: 0, texto: "80 de ouro" },
     itens: [{ itemId: "pergaminho_teleporte", quantidade: 2 }],
-  },
-  {
-    id: "item-arco-lendario",
-    categoria: "itens",
-    nome: "Arco do Alvorecer",
-    tag: "new",
-    terminaEmHoras: null,
-    preco: 620,
-    valorReal: { ouro: 121, steel: 30, texto: "121 de ouro + 30 de steel" },
-    itens: [{ itemId: "willow_bow", quantidade: 1, rarity: "legendary" }],
   },
   {
     id: "item-pocao-lendaria",
@@ -223,6 +226,7 @@ export const LOJA_PACOTES = [
     nome: "Poção Élfica",
     tag: null,
     terminaEmHoras: null,
+    moeda: "coins",
     preco: 210,
     valorReal: { ouro: 250, steel: 0, texto: "250 de ouro" },
     itens: [{ itemId: "pocao_media", quantidade: 5 }],

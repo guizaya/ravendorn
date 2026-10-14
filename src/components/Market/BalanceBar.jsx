@@ -1,4 +1,5 @@
 import { MOEDAS_ESPECIAIS } from "../../data/loja/index.js";
+import IconeMoeda from "../UI/IconeMoeda.jsx";
 
 /**
  * A BARRA DE SALDO do mercado.
@@ -55,7 +56,7 @@ export default function BalanceBar({
               data-tip={moeda.nome}
             >
               <span className="mkt-balanco__glifo" aria-hidden="true">
-                {moeda.icone}
+                <IconeMoeda moeda={campoDaMoeda(id)} lado={16} />
               </span>
 
               <span className="mkt-balanco__valor">{valor}</span>
@@ -103,6 +104,17 @@ export default function BalanceBar({
  */
 function campoDoSaldo(moedaId) {
   return { ouro: "coins", diamante: "diamonds" }[moedaId] ?? null;
+}
+
+/**
+ * O ID QUE O `IconeMoeda` ESPERA, e e o mesmo do `campoDoSaldo`.
+ *
+ * Sao a MESMA conta com dois nomes, e nao por escolha: `campoDoSaldo` diz a
+ * chave do `Inventory` e o `IconeMoeda` quer o id da arte. Os dois happens de
+ * ser iguais hoje; se um dia divergirem, este e o lugar que denuncia
+ */
+function campoDaMoeda(moedaId) {
+  return campoDoSaldo(moedaId);
 }
 
 /** O saldo como texto, com milhar pt-BR. */

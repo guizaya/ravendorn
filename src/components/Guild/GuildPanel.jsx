@@ -2,6 +2,7 @@ import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } fr
 
 import ItemIcon from "../UI/ItemIcon.jsx";
 import InvSlotView from "../UI/InvSlotView.jsx";
+import IconeMoeda from "../UI/IconeMoeda.jsx";
 
 import {
   GUILD_BONUS_ROTULO,
@@ -1136,7 +1137,7 @@ function AbaCriar({
               : `Faltam ${formatarMoedas(GUILD_CRIACAO_CUSTO - moedas)}`
           }
         >
-          <i aria-hidden="true">◉</i>
+          <IconeMoeda moeda="coins" />
           {formatarMoedas(GUILD_CRIACAO_CUSTO)}
         </span>
       </div>

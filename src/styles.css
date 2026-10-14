@@ -2071,6 +2071,44 @@ color:var(--t-gold-bright)}
  * Um botao cujo texto e "Reviver Ã‚Â· 60" faz o olho voltar para o
  * rotulo para descobrir o que significa o 60
  */
+/*
+   A ARTE DA MOEDA
+
+   ## POR QUE UM `.img` E NAO MAIS UM `<i>` COM GLIFO
+
+   Porque o `◉` era um CARACTERE: ele sao desenhado com a fonte da maquina.
+   No Windows sai redondo, no Linux pode nem existir, e em nenhum dos dois
+   parecem uma moeda de ouro — pareciam um ponto. A arte e a mesma em todo
+   lugar, que e o que o jogador espera de um dinheiro
+
+   ## E POR QUE O LADO VEM DO CSS
+
+   Porque o numero ao lado usa `font-variant-numeric: tabular-nums` e
+   `line-height` proprio. Se a arte ficasse num `<i>` sem medida, ela
+   herdaria a altura da linha e empurraria o numero para baixo em alguns
+   lugares e o deixaria alto em outros
+
+   ## E POR QUE `image-rendering: pixelated`
+
+   Porque sao artes de pixel. Sem isso o navegador interpola a imagem e
+   * desfoca a moeda na tela inteira, que e o mesmo defeito que o
+   * AGENTS.md do front ja proibe nas contas ampliadas
+   */
+.moeda {
+  display: block;
+  width: 1.05em;
+  height: 1.05em;
+  flex: none;
+  object-fit: contain;
+  image-rendering: pixelated;
+}
+
+/* o glifo era do mesmo tamanho da fonte menor do container */
+.dth__btn-cost .moeda {
+  width: 0.95em;
+  height: 0.95em;
+}
+
 .dth__btn-cost {
   display: inline-flex;
   align-items: center;
@@ -7310,6 +7348,58 @@ box-shadow:var(--t-bevel),inset 0 -2px 6px #00000073}
 .qst-tab.is-active .qst-tab__count,.qst-reward,.qst-reward--gold {
 color:var(--t-gold-bright)}
 
+/* ---- o "receber tudo", no fim da fileira de abas ----
+   Ele entrega algo, entao e pintado com a MESMA arte do `.qst-action--claim`:
+   dourado cheio, texto escuro e o brilho. A aba da fileira e um cartao de
+   navegacao e usa a cor de texto da aba; este e acao, e acao que paga tem
+   essa cor em todo o painel
+
+   O `margin-left: auto` e o que joga para a direita: a fileira e um flex, e
+   sem ele o botao encostaria na aba "Secundarias" como se fosse uma
+   terceira aba
+
+   A borda arredondada de 4px tambem vem de la. Uma pHvoreba sem raio num
+   painel de cantos retos denuncia que o botao veio de fora dele */
+.qst-tabs__receber {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-left: auto;
+  /* `stretch` e o padrao da fileira: e ele que faz as abas terem a mesma
+     altura. Aqui o botao precisa sair fora disso, senao ele estica ate a
+     altura da aba e o `padding` vira nada */
+  align-self: center;
+  padding: 5px 12px 6px;
+  cursor: pointer;
+  border: 1px solid var(--gold);
+  border-radius: 4px;
+  color: #1a1208;
+  background: linear-gradient(180deg,#f0d9a8 0%,#d8b45c 100%);
+  box-shadow: 0 0 10px rgba(216, 180, 92, .35);
+  font-size: 9px;
+  font-weight: 800;
+  letter-spacing: .04em;
+  white-space: nowrap;
+  transition: border-color 120ms ease, color 120ms ease, background 120ms ease;
+}
+.qst-tabs__receber:hover {
+  border-color: #ffeec4;
+  color: #120c04;
+  background: linear-gradient(180deg,#ffeec4 0%,#e5bb68 100%);
+}
+.qst-tabs__receber:active {
+  transform: translateY(1px);
+}
+/* O numero e o mesmo `qst-tab__count` de texto puro: um circulo colorido
+   aqui seria uma terceira linguagem de contagem no mesmo painel */
+.qst-tabs__receber-n {
+  font-size: 10px;
+  font-style: normal;
+  font-weight: 800;
+  font-variant-numeric: tabular-nums;
+  opacity: .8;
+}
+
 .qst-group {
   margin-bottom: 18px;
 }
@@ -9880,6 +9970,108 @@ color:var(--t-text-dim)}
     #4a2020 0%,
     #2a1212 100%);
 }
+/*
+   A BOX DO CRITERIO DE ORDENACAO
+
+   ## POR QUE ELA E IRMA DO `.inv-filter-panel` E NAO UM MENU SOLTO
+
+   Porque o `select` e um controle do SO e do TAB: ele abre uma lista do
+   sistema, com a aparencia do sistema, e nao segue nenhum dos botoes do
+   painel. Dentro de uma caixa com a mesma forma do filtro de coleta, ele
+   vira uma linha da lista do jogo
+
+   ## E POR QUE A BOX NAO E REINVENTADA
+
+   Porque o `inv-filter-panel` ja sabe onde cair: ele e posicionado em
+   relacao ao painel, nao a viewport, e e cortado junto com ele. Uma segunda
+   caixa com as mesmas medidas seria duas copias do mesmo calculo, e elas
+   divergiriam no dia que uma mudasse
+
+   O `top` a direita e o que empurra a caixa para baixo do cabecalho, que e
+   onde os dois botoes moram
+ */
+/*
+   A BOX DO CRITERIO DE ORDENACAO
+
+   ## POR QUE O SELECTOR PRECISA DO `.inv-v2`
+
+   Porque o `inv-filter-panel` do painel e `.inv-v2 .inv-filter-panel`, com
+   especificidade 0,2,0. Uma regra `.inv-ordem-panel` sozinha tem 0,1,0 e
+   perdia: o `top: 56px` da base continuava valendo e o `top` deste bloco
+   nunca era lido. Nao parecia erro nenhum — o painel simplesmente abria no
+   lugar errado
+
+   ## E POR QUE O `.inv-filter` DE DENTRO E O QUE FAZ O CARTAO
+
+   Porque os dois nomes sao parecidos e as duas papeis nao tem nada a ver: o
+   painel de fora so tem `position`, `z-index`, `top` e `right`; a borda, o
+   fundo e o arredondado estao no `.inv-filter` de dentro. Sem o embrulho o
+   criterio aparecia VOANDO, posicionado e sem nada para ele ser
+ */
+.inv-v2 .inv-ordem-panel {
+  top: 56px;
+}
+
+/*
+   O `.inv-filter` DENTRO DA BOX DE ORDENACAO
+
+   ## POR QUE PRECISA REPETIR A POSICAO
+
+   Porque o `.inv-filter` original e `position: absolute` com
+   `top: calc(100% + 4px)` — ele se posiciona em relacao ao BOTAO que o
+   abriu. Aqui o botao nao e o pai: o pai e o `inv-ordem-panel`, que e o
+   painel de fora, e o `calc(100% + 4px)` o empurraria para fora da tela
+ */
+.inv-v2 .inv-ordem-panel > .inv-filter {
+  position: static;
+  width: 268px;
+}
+
+.inv-ordem-panel__linha {
+  padding: 0;
+}
+
+.inv-ordem-panel__select {
+  width: 100%;
+  padding: 6px 10px;
+  border: 1px solid #2c241b;
+  border-radius: 3px;
+  color: #d8dee6;
+  background: linear-gradient(180deg, #33291f 0%, #201912 100%);
+  cursor: pointer;
+  font-size: 11px;
+  font-weight: 700;
+}
+
+.inv-ordem-panel__select:focus {
+  outline: none;
+  border-color: #8a7250;
+}
+
+/*
+   A LISTA DE OPCOES, E POR QUE PRECISA DE REGUA PROPRIA
+
+   ## POR QUE O `appearance: none` NAO RESOLVE
+
+   Porque ele so muda o CAMPO. A lista que abre embaixo — aonde ficam
+   "Raridade", "Nome", "Quantidade" e "Valor" — e desenhada pelo sistema
+   operacional, com a paleta DELE: fundo branco e texto preto
+
+   E o branco aparecia dentro de uma caixa marrom escuro, que e a pior das
+   combinacoes: o jogador clicava num botao escuro e recebia uma lista clara
+   no meio do painel
+
+   ## E POR QUE OS MESMOS NUMEROS DO `.inv-sort__select option`
+
+   Porque sao os numeros que a outra lista de selecao do projeto ja usa, e
+   duas listas com cores diferentes no mesmo painel seria um segundo
+   defeito escondendo o primeiro
+ */
+.inv-v2 .inv-ordem-panel__select option {
+  color: #eef2f6;
+  background: #1c1710;
+}
+
 .inv-gear {
   display: grid;
   width: 24px;
@@ -16884,12 +17076,6 @@ background:var(--t-positive)}
     0,
     0.6);
     border-radius: 50%;
-    color: #06121a;
-    background: #7ef0b0;
-    box-shadow: 0 0 5px rgba(126,
-    240,
-    176,
-    0.65);
     font-size: 9px;
     font-weight: 900;
     line-height: 1;
@@ -16943,11 +17129,16 @@ background:var(--t-positive)}
  * verde da propria skill encostava na borda, e um brilho na MESMA cor da
  * arte sumia dentro dela Ã¢â‚¬â€ o efeito estava no lugar e nao se via
  *
- * O verde mint e a cor que o jogo ja usa para "automatico": e a do
- * `.skill-slot.is-drag-on` e a do selo `A`. Passar a usar a mesma cor deixa
- * o estado legivel como estado, e nao como "esta skill e desta cor"
+ * O verde minta e a cor que o jogo usava para "automatico" em todo lugar.
+ * Hoje o auto da skill e DOURADO, e o selo `A` junto, para os dois lerem
+ * como o mesmo estado. O `--t-gold` do tema, e nao um dourado escrito a mao
  *
- * E o `--t-positive` do tema, nao um verde escrito a mao
+ * ## E POR QUE O RESTO DO JOGO CONTINUA VERDE
+ *
+ * Porque isto e so o slot da skill. O auto de missao, o de bestiario e o
+ * arrasto de skill (`is-drag-on`) tem as suas proprias regras, e trocar
+ * `--t-positive` globalmente levaria a mudanca para telas que nao foram
+ * pedidas
  */
 .skill-slot.is-auto {
   animation: skill-auto-border 1.9s ease-in-out infinite;
@@ -16955,21 +17146,21 @@ background:var(--t-positive)}
 @keyframes skill-auto-border {
   0%,
   100% {
-    border-color: var(--t-positive);
+    border-color: var(--t-gold);
 
     box-shadow:
       0 5px 14px rgba(0, 0, 0, 0.55),
-      0 0 0 1px color-mix(in srgb, var(--t-positive) 60%, transparent),
-      0 0 12px 0 color-mix(in srgb, var(--t-positive) 50%, transparent);
+      0 0 0 1px color-mix(in srgb, var(--t-gold) 60%, transparent),
+      0 0 12px 0 color-mix(in srgb, var(--t-gold) 50%, transparent);
   }
 
   50% {
-    border-color: color-mix(in srgb, var(--t-positive) 45%, transparent);
+    border-color: color-mix(in srgb, var(--t-gold) 45%, transparent);
 
     box-shadow:
       0 5px 14px rgba(0, 0, 0, 0.55),
       0 0 0 1px transparent,
-      0 0 22px 4px color-mix(in srgb, var(--t-positive) 80%, transparent);
+      0 0 22px 4px color-mix(in srgb, var(--t-gold) 80%, transparent);
   }
 }
 /* ---------- large action button ---------- */
@@ -20768,7 +20959,7 @@ color:var(--t-text-faintest)}
   */
   grid-template-columns: repeat(
     auto-fill,
-    minmax(var(--inv-col-min, 74px), var(--inv-col-max, 86px))
+    minmax(var(--inv-col-min, 74px), var(--inv-col-max, 66px))
   );
 
     /**
@@ -20803,7 +20994,7 @@ color:var(--t-text-faintest)}
      enhances, um segundo nome â€” e o card passar disso, este numero tem de
      subir junto
   */
-  grid-auto-rows: var(--inv-linha, 124px);
+  grid-auto-rows: var(--inv-linha, 60px);
   align-content: start;
 
   /**
@@ -22655,9 +22846,64 @@ color:var(--t-text)}
 .mkt-listing__preco {
   display: flex;
   margin-top: 8px;
-  align-items: baseline;
+  align-items: center;
   justify-content: center;
-  gap: 4px;
+  gap: 5px;
+}
+
+/*
+  O ICONE DA MOEDA no preco do anuncio.
+
+  O `baseline` de antes descia o numero e a arte ficava torta: o `img` tem
+  `vertical-align` por padrao e o flex o alinhava pela linha de base do texto,
+  que nao e a base da imagem. `center` e o que faz o ouro, o steel e o
+  diamante ficarem na mesma altura do numero, seja qual for a moeda
+*/
+.mkt-listing__preco .moeda {
+  display: block;
+  flex: none;
+}
+
+/* A ETIQUETA DO LEILAO */
+.mkt-listing__modo {
+  align-self: center;
+  padding: 1px 6px;
+  border: 1px solid var(--t-gold);
+  border-radius: 2px;
+  font-size: 9px;
+  font-weight: 700;
+  letter-spacing: 0.4px;
+  color: var(--t-gold);
+}
+
+/* O MAIOR LANCE */
+.mkt-listing__maior {
+  display: block;
+  margin-top: 4px;
+  font-size: 10px;
+  color: var(--t-text-faintest);
+  text-align: center;
+}
+
+/* A LINHA DO LANCE */
+.mkt-listing__lance {
+  display: flex;
+  margin-top: 8px;
+  align-items: stretch;
+  gap: 5px;
+}
+
+.mkt-listing__lance .lst-campo {
+  flex: 1;
+  min-width: 0;
+  min-height: 28px;
+}
+
+.mkt-listing__lance .mkt-listing__comprar {
+  flex: none;
+  min-height: 28px;
+  padding: 0 10px;
+  font-size: 11px;
 }
 
 .mkt-listing__preco strong {
@@ -22727,7 +22973,9 @@ background:color-mix(in srgb,var(--t-danger) 12%,transparent)}
   position: relative;
   display: flex;
   width: min(871px, calc(100vw - 32px));
+
   max-height: min(703px, calc(100vh - 32px));
+
   flex-direction: column;
   overflow: hidden;
 }
@@ -23082,19 +23330,60 @@ outline:none}
   cursor: not-allowed;
 }
 
-/* A MOEDA: SO OURO, E DESABILITADA */
+/*
+  UMA COLUNA QUE OCUPA A LINHA INTEIRA.
+
+  A moeda e o modo ficam aqui porque os botaos deles nao cabem em meia coluna:
+  tres moedas com icone e nome pedem ~257px e a meia coluna do `lst-linha` tem
+  181px. Sem esta regra, o `flex: 1` espremia cada botao em ~56px e o
+  "Diamante" (98px) invadia o campo de preco vizinho
+*/
+.lst-coluna--inteira {
+  grid-column: 1 / -1;
+}
+
+/* A MOEDA: AS TRES ESCOLHAS */
+.lst-moedas {
+  display: grid;
+
+  /*
+    `minmax(0, 1fr)` E NAO `1fr`.
+
+    O piso implicito de um `1fr` e o `min-content`, que aqui e a largura do
+    texto mais o icone mais o padding. Com o piso em 0 a coluna pode ser menor
+    que o botao, e o `overflow: hidden` abaixo corta o texto em vez de
+    empurrar o campo vizinho — que e o defeito que o jogador viu
+  */
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 6px;
+}
+
 .lst-moeda {
   display: flex;
-  width: 100%;
+  min-width: 0;
   min-height: 32px;
-  padding: 0 12px;
+  padding: 0 10px;
   border: 1px solid var(--t-line-2);
   border-radius: 3px;
   align-items: center;
-  gap: 8px;
+  justify-content: center;
+  gap: 6px;
+  overflow: hidden;
+  white-space: nowrap;
   font-family: inherit;
   font-size: 12px;
   font-weight: 700;
+  color: var(--t-text-1);
+  background: transparent;
+  cursor: pointer;
+}
+
+.lst-moeda:hover:not(:disabled) {
+  border-color: var(--t-gold);
+}
+
+.lst-moeda:disabled {
+  opacity: 0.5;
   cursor: not-allowed;
 }
 
@@ -23104,9 +23393,50 @@ outline:none}
 }
 
 .lst-moeda__icone {
+  display: inline-flex;
   color: var(--t-gold);
   font-size: 14px;
   line-height: 1;
+  align-items: center;
+  justify-content: center;
+}
+
+/* O MODO: PRECO FIXO OU LEILAO */
+/* o mesmo `minmax(0, 1fr)` da moeda, pelo mesmo motivo */
+.lst-modos {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 6px;
+}
+
+.lst-modo {
+  min-width: 0;
+  min-height: 30px;
+  overflow: hidden;
+  white-space: nowrap;
+  padding: 0 10px;
+  border: 1px solid var(--t-line-2);
+  border-radius: 3px;
+  font-family: inherit;
+  font-size: 12px;
+  font-weight: 700;
+  color: var(--t-text-1);
+  background: transparent;
+  cursor: pointer;
+}
+
+.lst-modo:hover:not(:disabled) {
+  border-color: var(--t-gold);
+}
+
+.lst-modo:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.lst-modo.is-active {
+  border-color: var(--t-gold);
+  background: color-mix(in srgb, var(--t-gold) 14%, transparent);
 }
 
 /* B3.4 A DURACAO FIXA */
@@ -23699,9 +24029,54 @@ color-scheme:dark;
   display: flex;
   flex: none;
   align-items: center;
-  gap: 1px;
-  padding: 8px 10px;
-  border-bottom: 1px solid var(--t-line);
+
+  /**
+   * O VAO ENTRE OS BOTOES, E POR QUE NAO BASTAVA O `gap: 1px`
+   *
+   * O `gap: 1px` colava "Limpar" em "Excluir" e os dois pareciam um botao so
+   * com um canto torto. E sao as duas pontas de um mesmo par: uma desiste do
+   * que foi marcado, a outra apaga. O vao entre elas e o que diz ao jogador
+   * onde uma acaba e a outra comeca
+   */
+  gap: 8px;
+
+  /**
+   * A MESMA LARGURA DAS ABAS, E POR QUE ISSO E MARGEM E NAO `padding`
+   *
+   * A barra e IRMA do `.inv-toolbar`, e as duas sao filhas do mesmo pai. O
+   * `padding: 8px 10px` da barra empurrava o CONTEUDO para 10px, igual as
+   * abas — mas o FUNDO dela continuava cobrindo a largura toda, porque
+   * `padding` nao encolhe a caixa. O resultado era uma faixa que saia dos dois
+   * lados das abas e do filtro de raridade
+   *
+   * Com `margin`, e a CAIXA que encolhe: o fundo passa a comecar nos mesmos
+   * 10px onde comeca a aba. E o `padding` horizontal vai a zero porque a
+   * margem ja fez esse servico — deixar os dois colocaria o conteudo em
+   * 20px, e ele deixaria de bater com a aba
+   */
+  /**
+   * O FOLGADO DENTRO DO CARD, E POR QUE 9px E NAO 12
+   *
+   * Os 12px de cada lado eram folga de PAGE, e nao de card: dariam uma caixa
+   * de 64px de altura para uma faixa de 26px. O card precisa de ar em volta
+   * do conteudo, e nao de uma propria barra de respiro
+   *
+   * O `9px` deixa os botoes — que tem 5px de padding e 10px de fonte — com o
+   * respiro que eles pedem sem a caixa virar uma segunda faixa
+   */
+  margin: 8px 10px 0;
+  padding: 9px 12px;
+
+  /**
+   * O CANTO ARREDONDADO, E O MESMO DO RESTO DO PAINEL
+   *
+   * Sem ele a barra e a unica caixa do inventario com canto vivo: a aba
+   * arredonda em cima, o slot arredonda, o cartao arredonda. Uma faixa reta
+   * no meio disso parece um elemento que caiu de outro projeto
+   */
+  border: 1px solid var(--t-line);
+  border-radius: 4px;
+
   background: color-mix(in srgb, var(--t-abyss) 55%, transparent);
 }
 
@@ -23709,8 +24084,8 @@ color-scheme:dark;
    A CONTA, E ELA E O QUE FAZ A FITA EXISTIR.
 
    Sem numero a barra seria so dois botoes e o jogador nao saberia se o
-   clique nao pegou. O texto muda inteiro entre os tres estados Ã¢â‚¬â€ nada
-   marcado, um item, varios Ã¢â‚¬â€ porque um numero sozinho nao diz o que ele
+   clique nao pegou. O texto muda inteiro entre os tres estados — nada
+   marcado, um item, varios — porque um numero sozinho nao diz o que ele
    significa
  */
 .inv-mark-bar__conta {
@@ -23868,7 +24243,7 @@ color-scheme:dark;
    morto embaixo de cada item, que e o que o jogador reclamaria em seguida
  */
 .inv-v2 .inv-grid-modern {
-  grid-auto-rows: 106px;
+  grid-auto-rows: 65px;
 
   /*
      O VAO SOBE DE 6px PARA 10px NESTA MOCHILA SO.
@@ -24009,7 +24384,19 @@ color-scheme:dark;
   line-height: 1.35;
 
   text-align: left;
-  white-space: normal;
+
+  /**
+   * `pre-line`, E NAO `normal`.
+   *
+   * Porque a arvore de habilidade manda o balão em VÁRIAS LINHAS: nome, o que
+   * ele ensina, o bônus, e o custo ou o motivo do bloqueio. Com `normal` o
+   * `\n` vira um espaço e as quatro linhas viravam uma frase corrida — que
+   * era como a caixa aparecia antes deste `pre-line`
+   *
+   * Os outros 138 tooltips do jogo mandam UMA linha e não têm `\n` nenhum,
+   * então `pre-line` não muda nenhum deles
+   */
+  white-space: pre-line;
   word-break: break-word;
 
   /**
@@ -24369,6 +24756,68 @@ color-scheme:dark;
   );
 }
 
+/*
+   O ESPACO VAZIO DA MOCHILA, E A CASCA QUE DESENHA O TAMANHO
+
+   ## O QUE ELE APARECE
+
+   A casca inteira do item, com o mesmo `padding` e a mesma borda do item
+   ocupado — e sem a casca de verdade: sem fundo, sem a barrinha de raridade
+   e sem a borda do cartao. O que sobra e o `.inv-slot--empty` tracejado,
+   que e o desenho que o projeto ja usava para espaco vazio
+
+   ## POR QUE A CASCA, E NAO SO O `.inv-slot`
+
+   Porque o `.inv-slot` tem `width: 100%` com `aspect-ratio: 1`: sozinho ele
+   preenche a coluna e fica quadrado, estourando a linha de 106px. Com a
+   casca, a caixa vem da MESMA regra que a do item — e nao de uma conta nova
+   que sai de sincronia quando o `padding` muda
+
+   ## POR QUE A COLUNA INCHAVA
+
+   Porque o `aspect-ratio: 1` de um filho sem largura fixa pede altura para
+   caber, e o `auto-fit` da grade engordava as colunas para satisfazer. O
+   sintoma era o espaco vazio gigante E os vizinhos com vao gigante: um
+   defeito só, visto de dois jeitos
+
+   ## E POR QUE `min-width: 0`
+
+   Porque sem ele o item flex dentro da casca nao encolhe abaixo do conteudo,
+   e uma peca com nome largo voltaria a empurrar a coluna
+ */
+/*
+   O ESPACO VAZIO DA MOCHILA, E A CAIXA E A MESMA DO ITEM
+
+   ## UMA CAIXA, E NAO DUAS
+
+   O espaco vazio nao tem um `.inv-slot` dentro de uma casca — ele E a casca.
+   Com o slot dentro, a casca ficava maior que o tracejado, com uma folga
+   invisivel em volta: o jogador via um quadrado dentro de outro quadrado,
+   ao lado de itens que tem so uma caixa
+
+   ## O DESENHO E O `.inv-slot--empty` RECICLADO
+
+   A borda tracejada, o fundo escuro e o `box-shadow` sao os mesmos numeros da
+   regra que o projeto ja usava para espaco vazio. Reaproveitar e o que
+   garante que o vazio tenha a mesma aparencia do slot que o `InvSlotView`
+   ja desenhava quando nao tinha item
+
+   ## E O `box-sizing`
+
+   Porque a casca tem `padding`, e sem `border-box` o padding SOMA por fora
+   da largura: um espaco vazio com 6px de cada lado ficaria 12px mais largo
+   que o item, que e exatamente o defeito que este bloco veio consertar
+
+   ## E POR QUE `::before` SOME
+
+   Porque e a barrinha de raridade do item. Num espaco vazio ela seria uma
+   linha de cor no alto de um buraco
+ */
+.inv-v2 .inv-grid-modern > .inv-slot--empty {
+  width: calc(100% - 14px);
+  justify-self: center;
+}
+
 /* ===================================================================
    O ICONE DO BOTAO DE AUTO
    ===================================================================
@@ -24424,4 +24873,153 @@ color-scheme:dark;
   pointer-events: none;
   user-select: none;
   -webkit-user-drag: none;
+}
+/* ===================================================================
+   A EXPANSÃO DA MOCHILA: O `+` DA BARRA E A MODAL
+   ===================================================================
+
+   A modal reaproveita a familia `lst-modal` — veu, painel, cabeca, titulo e
+   rodape. Sao as mesmas bordas, o mesmo raio e a mesma sombra do modal de
+   anunciar, e por isso ela fica NO MESMO nivel visual das outras caixas do
+   jogo sem uma segunda definicao de cor
+
+   A unica coisa trocada e a LARGURA: o `lst-modal__painel` e de 871px porque
+   abriga dois paineis lado a lado, e 871px para um numero e um botao seria um
+   oculo de relogio no meio da tela
+   =================================================================== */
+
+.mch-exp-modal .lst-modal__painel {
+  width: min(420px, calc(100vw - 32px));
+}
+
+.mch-exp__corpo {
+  display: flex;
+  min-height: 0;
+  flex: 1;
+  padding: 18px 16px;
+  flex-direction: column;
+  gap: 14px;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  scrollbar-width: thin;
+}
+
+/* O "20 -> 30": o numero grande e o que o jogador le primeiro */
+.mch-exp__cabeca {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.mch-exp__slot {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.mch-exp__slot__agora {
+  font-size: 26px;
+  font-weight: 700;
+  line-height: 1;
+  color: var(--t-text-faint);
+  font-variant-numeric: tabular-nums;
+}
+
+.mch-exp__slot__seta {
+  font-size: 16px;
+  color: var(--t-line-2);
+}
+
+.mch-exp__slot__depois {
+  font-size: 30px;
+  font-weight: 700;
+  line-height: 1;
+  color: var(--t-gold);
+  font-variant-numeric: tabular-nums;
+}
+
+/* no teto, o numero do futuro deixa de ser promessa e vira teto */
+.mch-exp__slot__depois.is-bloqueado {
+  color: var(--t-text-faintest);
+}
+
+.mch-exp__uso {
+  font-size: 11px;
+  color: var(--t-text-faintest);
+}
+
+/* O PRECO, e ele fica entre o numero e o botao */
+.mch-exp__texto {
+  display: flex;
+  margin: 0;
+  align-items: center;
+  gap: 8px;
+  font-size: 13px;
+  color: var(--t-text-1);
+}
+
+.mch-exp__preco {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 17px;
+  font-weight: 700;
+  color: var(--t-gold);
+  font-variant-numeric: tabular-nums;
+}
+
+.mch-exp__texto .mch-exp__preco .moeda,
+.mch-exp__aviso .moeda {
+  flex: none;
+}
+
+/*
+  O AVISO E A COR DE FALTA, e nao um erro.
+
+  "Faltam 30 diamantes" e um estado normal de quem esta juntando: o botao
+  esta desligado porque o saldo nao chega, e o texto diz quanto falta. Usar a
+  cor de erro faria o jogador achar que o jogo quebrou
+*/
+.mch-exp__aviso {
+  margin: 0;
+  font-size: 12px;
+  color: var(--t-gold);
+}
+
+/* A ESCADA DE COMPRAS, que mostra que o preco sobe */
+.mch-exp__barra {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.mch-exp__barra__trilho {
+  height: 5px;
+  border-radius: 3px;
+  background: var(--t-line);
+  overflow: hidden;
+}
+
+.mch-exp__barra__preenchida {
+  height: 100%;
+  background: var(--t-gold);
+}
+
+.mch-exp__barra__legenda {
+  font-size: 10px;
+  color: var(--t-text-faintest);
+}
+/*
+  O GLIFO DO `+` EM 24px.
+
+  A `engrenagem` e o `▽` desenham uma forma em 12px e a caixa 24px engole o
+  resto. O `+` e duas linhas de 1px, e em 12px ele some no fundo do gradiente.
+  O `font-weight` e o que engrossa sem aumentar o desenho — e subir o
+  `font-size` empurraria o `+` para fora da caixa, porque o `place-items`
+  centra pelo quadrado da linha e nao pelo glifo
+*/
+.inv-gear--expandir {
+  font-weight: 700;
+  font-size: 14px;
 }

@@ -8,6 +8,8 @@ import {
 } from "node:fs";
 import { resolve } from "node:path";
 
+import { MOEDA, moedaValida } from "../../../src/data/market/index.js";
+
 /**
  * O estado do MERCADO, que nao pertence a nenhum jogador.
  *
@@ -130,7 +132,23 @@ export function pagamentosLegiveis(bruto) {
     if (!ownerKey) return [];
     if (!Number.isFinite(coins) || coins <= 0) return [];
 
-    return [{ ownerKey, coins }];
+    /**
+     * A MOEDA VIA JUNTO, e a mesma regra da queda do anuncio.
+     *
+     * Sem este campo, um pagamento de um lance ultrapassado em diamante
+     * voltaria creditado em OURO quando o vendedor entrasse — e o jogador
+     * receberia uma moeda que nao e a que ele pagou, com o valor certo e a
+     * moeda errada. E o pior tipo de bug: o numero bate e a mentira nao
+     */
+    return [
+      {
+        ownerKey,
+        coins,
+        currency: moedaValida(pagamento.currency)
+          ? pagamento.currency
+          : MOEDA.OURO,
+      },
+    ];
   });
 }
 

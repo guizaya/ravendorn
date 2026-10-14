@@ -49,6 +49,7 @@ export default function VitrineAba({
   data,
   inventory,
   onBuy,
+  onBid,
 }) {
   const [busca, setBusca] = useState("");
   const [tipo, setTipo] = useState("");
@@ -264,6 +265,7 @@ export default function VitrineAba({
                   <ListingCard
                     listing={listing}
                     onBuy={onBuy}
+                    onBid={onBid}
                     podeComprar={
                       cabe &&
                       Boolean(listing.itemId) &&

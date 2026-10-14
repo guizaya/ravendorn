@@ -139,11 +139,101 @@ export default function GameCanvas({
 
     let quadro = 0;
 
+    /**
+     * QUANTOS QUADROS JA FORAM PULADOS DE SEGUIDA, e o que ja foi avisado.
+     *
+     * ## POR QUE ISTO EXISTE
+     *
+     * Porque o `return` abaixo e um portao SILENCIOSO. Quando ele fecha, o
+     * jogo para de desenhar e de atualizar sem lancar excecao e sem escrever
+     * nada no console — e o painel continua abrindo, porque o React roda em
+     * outro sistema. O sintoma e "o jogo travou" sem nenhuma pista de por que
+     *
+     * ## E POR QUE SO AVISA DEPOIS DE 3 SEGUNDOS
+     *
+     * Porque o comeco e normal: a espera do primeiro quadro, a folha do
+     * jogador, uma folha de tile. Avisar no primeiro quadro seria transformar
+     * cada espera em um susto no console. Tres segundos de silencio ja e
+     * demais para ser espera
+     *
+     * E o aviso sai uma vez so por episodio: `avisado` segura, para nao
+     * encher o console de 60 linhas identicas por segundo
+     */
+    let pulados = 0;
+    let avisado = null;
+
+    /**
+     * O CRONOMETRO DO QUADRO.
+     *
+     * ## POR QUE ELE EXISTE
+     *
+     * Porque "o jogo travou" tem DUAS causas com sintomas parecidos e
+     * conserto oposto:
+     *
+     * - o quadro esta LEVANDO TEMPO DEMAIS para sair, e o jogo parece preso
+     * - o quadro sai rapido, mas nao esta mais_atualizando nada
+     *
+     * Na tela parada as duas sao identicas. So o tempo entre quadros separa
+     * uma da outra — e e por isso que este numero e o que decide para onde ir
+     * olhar em vez de outro palpite
+     *
+     * ## E POR QUE UM AVISO E NAO UM GRAFICO
+     *
+     * Porque um grafico e uma aba inteira do DevTools, e o jogador teria que
+     * saber abrir. Duas linhas no console chegam antes de qualquer tooltip
+     */
+    let ultimoQuadro = 0;
+    let lentidaoAvisada = false;
+
     const avisar = () => {
+      const agora = performance.now();
+
+      if (ultimoQuadro > 0) {
+        const dt = agora - ultimoQuadro;
+
+        /**
+         * 250ms E O LIMIAR.
+         *
+         * E 15 quadros a 60Hz: abaixo disso o jogo ainda parece vivo, e acima
+         * de meio segundo o jogador ja percebeu. O aviso sai uma vez, e
+         * `lentidaoAvisada` trava ate a lentidao passar
+         */
+        if (dt > 250 && !lentidaoAvisada) {
+          lentidaoAvisada = true;
+
+          console.warn(
+            `[game] quadro demorou ${Math.round(dt)}ms. ` +
+              "O jogo esta lento, nao parado: alguma coisa esta custando caro por quadro.",
+          );
+        } else if (dt < 100) {
+          lentidaoAvisada = false;
+        }
+      }
+
+      ultimoQuadro = agora;
+
       if (!motor.mundoDesenhavel()) {
+        pulados += 1;
+
+        const onde = motor.portaoDaEspera();
+
+        if (pulados === 180 && onde !== avisado) {
+          avisado = onde;
+
+          console.warn(
+            `[game] o mundo parou de ser desenhado ha ~3s e o painel segue abrindo. ` +
+              `O portao fechado e: "${onde}".`,
+          );
+        }
+
         quadro = requestAnimationFrame(avisar);
 
         return;
+      }
+
+      if (pulados > 0) {
+        pulados = 0;
+        avisado = null;
       }
 
       avisarRef.current?.();

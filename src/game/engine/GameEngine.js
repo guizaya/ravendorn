@@ -1,4 +1,4 @@
-﻿import { createTrainingDummies } from "../entities/TrainingDummy.js";
+import { createTrainingDummies } from "../entities/TrainingDummy.js";
 import {
   BAU_CAPACITY,
   createPlayerSession,
@@ -19,6 +19,12 @@ import {
   xpToNext,
 } from "../progression/Levels.js";
 import { reviveCost, BALANCE } from "../balance.js";
+import {
+  PONTOS_POR_NIVEL,
+  bonusDaArvore,
+  noDaArvore,
+  skillDoNoConfiavel,
+} from "../../data/skills/tree.js";
 import { CRAFT_RESULT } from "../craft/Craft.js";
 import { DELIVER_RESULT as COLLECTION_RESULT } from "../collection/Collection.js";
 import { isAutoCompletable } from "../../data/quests/index.js";
@@ -97,6 +103,24 @@ import {
 } from "../../data/bestiary/index.js";
 
 /**
+ * O QUANTO PERTO DO NPC CONTA COMO "CHEGOU", em cada direcao.
+ *
+ * ## POR QUE UM RETANGULO E NAO O PONTO
+ *
+ * Porque o `y` de um NPC e o PE do desenho, e nao o meio do corpo. Apontar
+ * o auto para o ponto exato e mandar o boneco andar ate a base do sprite,
+ * onde ele bate na parede de tras do NPC e fica tremendo: o auto esta
+ * ligado, o destino foi alcancado, e o boneco nao sai do lugar
+ *
+ * ## POR QUE NAO E O ALCANCE DE INTERACAO
+ *
+ * Porque aqui o retangulo e uma AREA DE CHEGADA, e nao uma distancia de
+ * conversa. O auto so precisa de encostar no jogador parar; quem abre a
+ * conversa e o clique, e ele ja tem a propria tolerancia
+ */
+const ALCANCE_DE_CHEGADA = 48;
+
+/**
  * soma dicionarios de bonus stat por chave.
  * spread nao serve aqui: equipamento e bestiario usam as mesmas
  * chaves (maxHp, attack...) e uma sobrescreveria a outra.
@@ -117,6 +141,7 @@ export function mergeBonuses(...sources) {
 import { CollisionSystem } from "../collision/CollisionSystem.js";
 import { StatusSystem } from "../effects/StatusSystem.js";
 import { EffectSystem } from "../effects/EffectSystem.js";
+import { Ambience } from "../ambience/Ambience.js";
 import { DamageSystem } from "../combat/DamageSystem.js";
 import { SkillSystem } from "../skills/SkillSystem.js";
 import { distance, normalize } from "../math.js";
@@ -270,6 +295,7 @@ import {
   MINIMAP_LEFT,
   MINIMAP_TOP_IDLE,
   MINIMAP_WIDTH,
+  CHEFE_NO_MINIMAPA,
 } from "../ui/minimap.js";
 import { getZoneById } from "../../data/maps/index.js";
 import { NavGrid } from "../nav/NavGrid.js";
@@ -1719,6 +1745,7 @@ export class GameEngine {
     this.addPlayer(sessaoLocal, { focus: true });
 
     this.effects = new EffectSystem();
+    this.ambience = new Ambience();
 
     /**
      * O `onHeal` do StatusSystem.
@@ -4518,7 +4545,115 @@ sessao.habilidadesAprendidas.add(skillId);
        * navegador, e sem ele o jogador usaria o livro e a barra so
        * atualizaria no proximo painel
        */
-      return true;
+return true;
+  }
+
+  /**
+   * COMPRA UM NO DA ARVORE.
+   *
+   * ## POR QUE O SERVIDOR DECIDE E NAO A TELA
+   *
+   * Porque e dinheiro de verdade: um no compra ponto de vida e de ataque. Se
+   * a tela decidisse, um jogador com o console aberto chamaria o metodo com
+   * qualquer id e o motor acreditaria. Cada recusao abaixo esta aqui por isso
+   *
+   * ## POR QUE A REGRA DE DISPONIBILIDADE E REIMPORTADA E NAO CHAMADA
+   *
+   * Porque o `nosDisponiveis` do painel devolve um estado LEGIVEL para
+   * desenhar — com `pode`, `motivo` e a lista inteira. Aqui o que importa e
+   * so a resposta de um no. A regra em si esta em `nosDisponiveis`, e o teste
+   * acima dela e a mesma conta, escrita uma vez so em cada ponta: uma para a
+   * tela, outra para o motor
+   *
+   * @param {string} noId o id do no
+   * @returns {boolean} `true` se o no foi comprado agora
+   */
+  learnTreeNode(noId) {
+    const sessao = this.world.session;
+
+    if (!sessao) return false;
+
+    const no = noDaArvore(sessao.classId, noId);
+
+    if (!no) {
+      this.showMessage("Esse no nao existe para a sua classe.", true);
+
+      return false;
+    }
+
+    if (sessao.nosArvore.has(noId)) {
+      this.showMessage("Voce ja usou esse ponto aqui.", true);
+
+      return false;
+    }
+
+    const level = this.world.player?.level ?? 1;
+
+    if (level < no.nivel) {
+      this.showMessage(`Voce precisa do nivel ${no.nivel}.`, true);
+
+      return false;
+    }
+
+    const faltando = (no.exige ?? []).filter(
+      (id) => !sessao.nosArvore.has(id),
+    );
+
+    if (faltando.length > 0) {
+      this.showMessage("Falta o no anterior desta linha.", true);
+
+      return false;
+    }
+
+    const pontos = sessao.pontosHabilidade ?? 0;
+
+    if (pontos < no.custo) {
+      this.showMessage(
+        `Esse no custa ${no.custo} ponto${no.custo > 1 ? "s" : ""}, e voce tem ${pontos}.`,
+        true,
+      );
+
+      return false;
+    }
+
+    sessao.pontosHabilidade = pontos - no.custo;
+    sessao.nosArvore.add(noId);
+
+    /**
+     * A SKILL DO NO ENTRA NO MESMO LUGAR DE SEMPRE.
+     *
+     * `habilidadesAprendidas` e o que o `useSkillSlot` consulta e o que o
+     * save grava. A arvore nao abre um segundo caminho: ela escreve no
+     * conjunto que ja existia, e por isso um no que da skill e um livro
+     * quebram o mesmo lugar. Se a arvore tivesse lista propria, o save
+     * teria de gravar as duas e as duas poderiam divergir
+     *
+     * O `skillDoNoConfiavel` e o filtro: ele confere o id contra o pack da
+     * classe, entao um no mal escrito na arvore nao ensina uma skill de outra
+     * classe nem para a barra
+     */
+    const skillId = skillDoNoConfiavel(sessao.classId, noId);
+
+    if (skillId && !sessao.habilidadesAprendidas.has(skillId)) {
+      sessao.habilidadesAprendidas.add(skillId);
+
+      this.resolveQuestProgress(
+        this.world.quests.onAcao("learnSkill"),
+      );
+    }
+
+    /**
+     * O STATS RECALCULA AQUI, E NAO ESPERANDO O PAINEL.
+     *
+     * O bonus do no muda `maxHp` e `attack`, e sem isto o jogador compraria o
+     * no e so veria o numero subir quando abrisse outra tela. `applyEquipment`
+     * preserva a vida na proporcao — e o que ele ja faz quando um item muda
+     */
+    this.applyEquipment();
+
+    this.showMessage(`${no.nome} aprendido!`);
+
+    return true;
   }
 
   /**
@@ -5358,6 +5493,22 @@ guildBonuses() {
       this.world.bestiary.bonuses(),
       this.world.collection.bonuses(),
       this.guildBonuses(),
+
+      /**
+       * A ARVORE E O SEXTO TERMO, E O UNICO QUE O JOGADOR ESCOLHEU.
+       *
+       * Os outros cinco (equipamento, afixo, bestiario, colecao e guilda)
+       * chegam sem decisao: veio loot, veio.drop, veio guilda. Este vem de
+       * pontos que o jogador gastou, na ordem que ele quis — que e o que faz
+       * uma build ser uma build e nao so um numero maior
+       *
+       * E entra SOMADO como os outros, nao multiplicado: o no soma um valor
+       * fixo, e a fração do afixo de uma peca continua valendo por baixo
+       */
+      bonusDaArvore(
+        this.world.session?.classId,
+        this.world.session?.nosArvore,
+      ),
     );
 
     const maxHp =
@@ -6234,6 +6385,23 @@ this.showMessage(
      * arrastadas, e o jogador as arrasta de volta
      */
     if (sessao) sessao.skillAuto.clear();
+
+    /**
+     * O AUTO DA MISSAO, e o sexto dos modos.
+     *
+     * Ficou de fora da lista de cima quando ela foi escrita, e o sintoma era
+     * o AUTO continuar ligado: o `updateAutoPlay` sai cedo com `hp <= 0` e
+     * nao mexe no flag, entao a caixa de missoes continuava marcando AUTO ON
+     * com o jogador dead no chao
+     *
+     * ## POR QUE ELE PRECISA DO `setAuto` E NAO DE UM `= false`
+     *
+     * Porque o `autoEnabled` mora no `QuestLog` e o `setAuto` limpa o
+     * `objectiveId` junto. Escrever so o flag deixaria a missao apontada como
+     * objetivo, e o `objective()` devolveria essa missao no primeiro
+     * `updateAutoPlay` depois do revive — o auto religava sozinho
+     */
+    this.world.quests.setAuto(false);
   }
 
   /**
@@ -7086,7 +7254,7 @@ destinoDoChefe(objective) {
 
       if (!portal) return null;
 
-      return {
+return {
         x: portal.x,
         y: portal.y,
         mapId: mapa.id,
@@ -7094,7 +7262,77 @@ destinoDoChefe(objective) {
       };
     }
 
-getQuestZone(quest) {
+  /**
+   * ONDE ESTA O NPC QUE O TUTORIAL MANDA ATENDER.
+   *
+   * ## POR QUE ISTO EXISTE E NAO UM PAINEL
+   *
+   * Porque o livro de habilidade nao se compra na loja de diamantes: e o
+   * mestre de habilidades, que mora na base. A missao apontava para a
+   * loja, o jogador abria a loja, e o livro nao estava la — a missao
+   * ficava impossivel de cumprir por um botao
+   *
+   * ## POR QUE A COORDENADA SAI DO MAPA E NAO DO `world`
+   *
+   * Porque o NPC so existe no `world` do mapa em que o jogador esta. A
+   * missao comeca no mapa 1, e o mestre esta na base: se eu lesse o
+   * `world.npcs` aqui, a busca viria vazia justamente no caso que importa,
+   * que e o jogador longe do destino. Ler do mapa e o que faz o destino
+   * existir antes de o jogador chegar la
+   *
+   * ## E POR QUE ELE VAI NO `mapId`
+   *
+   * Porque e ele que entrega a viagem entre mapas. O `travelPlanParaObjetivo`
+   * ja sabe receber um destino em outro mapa e montar a etapa de portal com
+   * o `rotaDeMapas` — e na base que o mestre esta. Sem o `mapId`, o auto
+   * receberia uma coordenada da base e a.andaria contra a borda do mapa 1
+   *
+   * ## E POR QUE UM `null` SILENCIOSO
+   *
+   * Porque um tutorial sem `npc` nao e um erro: sao os outros seis. E o
+   * `null` cai no `getQuestZone`, que e o caminho normal deles
+   */
+  destinoDoNpc(objective) {
+    const npcId = objective?.npc;
+
+    if (!npcId) return null;
+
+    const base = findMap("base");
+
+    const npc = (base?.npcs ?? []).find((n) => n.id === npcId);
+
+    if (!npc) return null;
+
+    /**
+     * A `zone` E O QUE FAZ O AUTO PARAR NO LUGAR CERTO.
+     *
+     * O `autoPlayTarget` chama `reachedQuestZone(destino.zone)` para saber
+     * se ja chegou, e essa funcao le `zone.x`. Um destino sem `zone` — que
+     * era o que eu montei primeiro — estourava o motor com
+     * `Cannot read properties of undefined (reading 'x')` no exato quadro em
+     * que o jogador chegava na base
+     *
+     * E o retangulo e largo de proposito: ele e a area de CHEGADA, nao o
+     * ponto do NPC. Se fosse justa no boneco, o auto andaria ate a sombra
+     * dele e ficaria ali batendo na parede, porque o `y` do NPC e o PE do
+     * desenho e nao o meio do corpo
+     */
+    const zone = {
+      x: npc.x - ALCANCE_DE_CHEGADA,
+      y: npc.y - ALCANCE_DE_CHEGADA,
+      width: ALCANCE_DE_CHEGADA * 2,
+      height: ALCANCE_DE_CHEGADA * 2,
+    };
+
+    return {
+      x: npc.x,
+      y: npc.y,
+      mapId: base.id,
+      zone,
+    };
+  }
+
+  getQuestZone(quest) {
     if (!quest?.location) return null;
 
     return getZoneById(quest.location);
@@ -7277,6 +7515,17 @@ getQuestZone(quest) {
 
   reachedQuestZone(zone) {
     const player = this.world.player;
+
+    /**
+     * SEM ZONA E "JA CHEGOU".
+     *
+     * Porque um destino pode nao ter retangulo: o do NPC e um ponto em pe,
+     * e o do chefe e um portal. Ler `zone.x` com `zone` vazio estourava o
+     * motor no quadro em que o jogador chegava, e o sintoma era o jogo
+     * congelando exatamente na chegada — sem mensagem, porque um acesso em
+     * `undefined` e um `TypeError` que o tick engole
+     */
+    if (!zone) return true;
 
     return (
       player.x >= zone.x &&
@@ -7557,6 +7806,16 @@ const objective = this.getAutoObjective();
   const destinoDoChefe = this.destinoDoChefe(objective);
 
   if (destinoDoChefe) return destinoDoChefe;
+
+  /**
+   * O NPC ANTES DA ZONA, e pela mesma razao do chefe: o destino e uma
+   * pessoa em um mapa que nao tem zona nenhuma. Sem esta ordem, a missao do
+   * livro cairia no `getQuestZone` e o auto andaria ate a campanha — o
+   * lugar errado, e sem nenhum aviso
+   */
+  const destinoDoNpc = this.destinoDoNpc(objective);
+
+  if (destinoDoNpc) return destinoDoNpc;
 
   const zona = this.getQuestZone(objective);
 
@@ -9076,6 +9335,15 @@ travelPlanParaObjetivo() {
        */
 this.effects.update(deltaTime);
 
+      /**
+       * O AR TAMBEM ANDA NO MODO REDE.
+       *
+       * Pelo mesmo motivo dos efeitos: este ramo e o unico que roda no
+       * cliente, e o cliente e quem tem o canvas. Sem esta linha a neve
+       * ficaria congelada no lugar no primeiro quadro
+       */
+      this.ambience.update(deltaTime, this.vistaDaAmbiencia(), this.world.map);
+
       this.snapshotAccumulator += deltaTime;
 
       if (this.snapshotAccumulator >= 0.1) {
@@ -9218,6 +9486,19 @@ this.runMineracao(deltaTime);
     }
 
 this.effects.update(deltaTime);
+
+    /**
+     * O AR AVANCA UMA VEZ, e nao uma vez por jogador.
+     *
+     * E o mesmo cuidado do `effects.update` acima. A `Ambience` nao tem nada
+     * que seja de um jogador — e o ar do mapa — e rodar dentro do laco de
+     * `withPlayer` faria a neve cair N vezes mais rapida com N gente online
+     */
+    this.ambience.update(
+      deltaTime,
+      this.vistaDaAmbiencia(),
+      this.world.map,
+    );
 
     /**
      * OS TELEGRAPHS AVANCA UMA VEZ, e nao uma vez por jogador.
@@ -9642,6 +9923,7 @@ this.autoMoveDirection = null;
       player.hitFlash - deltaTime,
     );
   }
+
 
   updateEnemies(deltaTime) {
     const player = this.world.player;
@@ -10669,8 +10951,38 @@ this.autoMoveDirection = null;
       return false;
     }
 
-    const { reward } = entrada;
+    this.pagarRecompensaDeMissao(entrada.reward);
 
+    this.showMessage(
+      `Recompensa recebida: ${descreverRecompensa(entrada.reward)}.`,
+    );
+
+    this.sendSnapshot();
+
+    return true;
+  }
+
+  /**
+   * O PAGAMENTO, sem mensagem e sem snapshot.
+   *
+   * ## POR QUE FOI TIRADO DO `claimQuestReward`
+   *
+   * Porque o "receber tudo" paga N missoes em um pedido so, e cada uma
+   * chamando `claimQuestReward` mostraria uma mensagem propria. O jogador
+   * veria quatro linhas de "Recompensa recebida" empilhadas em quatro
+   * quadros, e a soma do ouro delas nunca apareceria
+   *
+   * E o `sendSnapshot` por resgate custaria um painel inteiro a cada
+   * clique — quatro paineis montados para mostrar o que um painel mostraria
+   *
+   * ## POR QUE A CONTA NAO FOI DUPLICADA
+   *
+   * Porque preco, item e xp sao Somados em tres lugares do jogo: no abate,
+   * na entrega e aqui. Uma quarta copia passaria a divergir das outras em
+   * uma regra de bonus qualquer, e a divergencia apareceria so no resgate
+   * em lote, que ninguem playtestou
+   */
+  pagarRecompensaDeMissao(reward) {
     if (reward.coins > 0) {
       this.world.inventory.addCoins(reward.coins);
     }
@@ -10691,9 +11003,72 @@ this.autoMoveDirection = null;
     // os stats. Sem isto o jogador ficaria com vida maxima antiga ate
     // o proximo abate
     this.applyEquipment();
+  }
+
+  /**
+   * Paga TUDO o que a aba aberta tem na fila de resgate.
+   *
+   * ## POR QUE O PEDIDO TRAZ O ESCOPO E O MAPA, E NAO A LISTA DE IDS
+   *
+   * Porque quem decide o que existe na fila e o `QuestLog`, no servidor. O
+   * cliente mandando os ids seria o cliente dizendo o que deve ser pago, e
+   * a lista passingaria pela rede duas vezes: uma no snapshot e outra no
+   * pedido. Mandando "a aba tal, do mapa tal", o servidor filtra com o
+   * mesmo dado que montou o snapshot, e as duas contas nao podem divergir
+   *
+   * ## POR QUE CADA PAGAMENTO PASSA PELO `claim`
+   *
+   * Porque `claim` e o que tira a linha da fila, e e o que garante que o
+   * segundo clique nao paga de novo. Chamar `pagarRecompensaDeMissao`
+   * direto pagaria uma recompensa que o `claim` recusaria — e essa e a
+   * linha de defesa contra clique duplo
+   */
+  claimQuestRewards(scope, mapa) {
+    const ids = this.world.quests.claimablesDe(scope, mapa);
+
+    if (ids.length === 0) return false;
+
+    /**
+     * O TOTAL ANTES DE PAGAR, e nao a soma por resgate.
+     *
+     * Sao tres moedas separadas: a de uma missao, a da seguinte e a da
+     * outra. O jogador precisa do numero que entrou na mochila, e "240
+     * moedas" e melhor que tres linhas de 80
+     */
+    let moedas = 0;
+    let xp = 0;
+    let itens = 0;
+    let pagos = 0;
+
+    for (const questId of ids) {
+      const entrada = this.world.quests.claim(questId);
+
+      if (!entrada) continue;
+
+      this.pagarRecompensaDeMissao(entrada.reward);
+
+      moedas += entrada.reward.coins ?? 0;
+      xp += entrada.reward.xp ?? 0;
+      itens += (entrada.reward.items ?? []).reduce(
+        (total, item) => total + (item.count ?? 0),
+        0,
+      );
+
+      pagos += 1;
+    }
+
+    if (pagos === 0) return false;
+
+    const partes = [];
+
+    if (moedas > 0) partes.push(`${moedas} moedas`);
+    if (xp > 0) partes.push(`${xp} xp`);
+    if (itens > 0) partes.push(`${itens} item(ns)`);
 
     this.showMessage(
-      `Recompensa recebida: ${descreverRecompensa(reward)}.`,
+      `${pagos} ${pagos === 1 ? "recompensa recebida" : "recompensas recebidas"}${
+        partes.length > 0 ? `: ${partes.join(", ")}` : "."
+      }`,
     );
 
     this.sendSnapshot();
@@ -10701,8 +11076,26 @@ this.autoMoveDirection = null;
     return true;
   }
 
-  announceLevelUp(level) {
-    this.showMessage(`NÃ­vel ${level} alcanÃ§ado!`);
+announceLevelUp(level) {
+    /**
+     * O PONTO DE HABILIDADE NASCE AQUI.
+     *
+     * Este e o UNICO lugar onde o motor diz "o jogador subiu": as tres
+     * entradas de XP — abate, entrega e recompensa de missao — passam por ele.
+     * Pontuar aqui e o que garante que nao exista um caminho de XP que suba
+     * nivel sem dar ponto
+     *
+     * E `PONTOS_POR_NIVEL` vem da arvore, e nao e um `1` solto: quando o
+     * Mestre mudar a moeda da progressao, nao se mexe no motor
+     */
+    const sessao = this.world.session;
+
+    if (sessao) {
+      sessao.pontosHabilidade =
+        (sessao.pontosHabilidade ?? 0) + PONTOS_POR_NIVEL;
+    }
+
+    this.showMessage(`Nível ${level} alcançado! +${PONTOS_POR_NIVEL} ponto de habilidade`);
   }
 
   /**
@@ -11291,6 +11684,37 @@ market: this.marketStore
         xpToNext: xpToNext(player.level ?? 1),
 
         /**
+         * A CARTEIRA DA ARVORE, JUNTO DO NIVEL E DO XP.
+         *
+         * ## POR QUE AQUI E NAO NUM BLOCO PROPRIO
+         *
+         * Porque e a mesma informacao: o painel da arvore mostra "voce tem N
+         * pontos", e o numero que muda quando o jogador sobe de nivel e o
+         * `level` de duas linhas acima. Deixar os dois em lugares separados
+         * faria a tela ler tres caminhos para saber que ha ponto a gastar
+         *
+         * E o `nosArvore` vai como array pelo mesmo motivo do `habilidades`:
+         * `Set` e em memoria, JSON e array, e o painel so precisa iterar
+         */
+        pontosHabilidade: this.world.session?.pontosHabilidade ?? 0,
+        nosArvore: [...(this.world.session?.nosArvore ?? [])],
+
+        /**
+         * A CLASSE SAI DO `definition`, E NAO DA SESSAO.
+         *
+         * E a mesma fonte do `className` duas linhas acima, e por isso e a
+         * fonte que a tela ja provou trustworthy: o `StatusPanel` mostra o
+         * nome da classe desde sempre, e nunca mostrou nada.
+         *
+         * Ler `session.classId` seria um segundo caminho para a mesma
+         * informacao — e um caminho que pode dar `null` enquanto o `player` do
+         * snapshot esta la dentro. Quando os dois discordarem, o painel mostra
+         * "esta classe nao tem arvore" para um jogador que TEM arvore, e nao
+         * ha como ele dizer qual dos dois ids chegou
+         */
+        classId: player.definition?.id ?? this.world.session?.classId ?? null,
+
+        /**
          * ONDE O PERSONAGEM ESTA NO MAPA.
          *
          * Arredondado, e nao bruto: o mostrador do canto esquerdo da
@@ -11665,17 +12089,29 @@ market: this.marketStore
   reportFrameError(error) {
     this.frameErrors += 1;
 
-    if (this.frameErrors > 3) return;
-
-    console.error(
-      `[GameEngine] erro no frame: ${error?.message ?? error}`,
-      error,
-    );
-
-    if (this.frameErrors === 3) {
+    /**
+     * O PRIMEIRO ERRO SEMPRE SAI.
+     *
+     * E a mesma mensagem dos tres primeiros de antes, porque a causa raiz de
+     * um quadro quebrado quase nunca e o primeiro — ela e um estado que o
+     * jogo alcanca andando, lutando ou esperando. O primeiro erro e a prova
+     * de que existe bug, e esconder ele atrasa a correcao
+     */
+    if (this.frameErrors <= 3 || this.frameErrors % 60 === 0) {
       console.error(
-        "[GameEngine] suprimindo logs de erro apos 3 falhas",
+        `[GameEngine] erro no frame ${this.frameErrors}: ` +
+          `${error?.message ?? error}`,
+        error,
       );
+
+      if (this.frameErrors === 1) {
+        console.error(
+          "[GameEngine] o quadro esta morrendo. Se a tela parece travada mas " +
+            "os paineis abrem, e este erro: o canvas fica preso no ultimo " +
+            "quadro que deu certo enquanto o React segue vivo. A partir do " +
+            "terceiro, so aparece um por segundo.",
+        );
+      }
     }
   }
 
@@ -11774,6 +12210,17 @@ market: this.marketStore
     this.drawSelectedTarget(context);
     this.drawWorldSorted(context);
     this.effects.draw(context);
+
+    /**
+     * O AR, EM COORDENADA DE MUNDO.
+     *
+     * Depois dos efeitos e nao antes: a poeira e o que esta NO AR, e o ar
+     * passa por cima de tudo que acontece em cima dele. Se ela viesse antes do
+     * `drawWorldSorted`, um goblin grande esconderia as particulas que esto
+     * logo atras dele — e o ar sumiria justo onde a tela esta mais cheia
+     */
+    this.ambience.drawParticulas(context);
+
     this.drawEnemyHpBar(context);
 
     context.restore();
@@ -11781,6 +12228,29 @@ market: this.marketStore
     if (this.input.pointer.inside) {
       this.drawCrosshair(context);
     }
+
+    /**
+     * A PELICULA E O ULTIMO DESENHO, e ela cobre a tela INTEIRA.
+     *
+     * Antes do minimapa, e nao depois: a vinheta existe para levar o olho ao
+     * centro, e um minimapa com a borda escura por cima fica mais dificil de
+     * ler justo quando o jogador esta precisando dele
+     */
+    /**
+     * A NEBLINA ANTES DA PELICULA, E NAO DEPOIS.
+     *
+     * A neblina e uma camada de ar que existe ENTRE a camera e o mundo, e a
+     * vinheta e uma moldura em volta da lente. A ordem se inverte e a neblina
+     * apaga justamente o gradiente escuro que faz o olho ir ao centro
+     */
+    this.ambience.drawNevoa(
+      context,
+      width,
+      height,
+      this.centroDaCameraLimitado(),
+    );
+
+    this.ambience.drawPelicula(context, width, height);
 
     this.drawMinimap(context, width, height);
   }
@@ -11813,11 +12283,79 @@ market: this.marketStore
    *
    * @returns {{x: number, y: number}} o ponto que vira o centro da tela
    */
+  /**
+ * A VISTA QUE A AMBIENTACAO PRECISA.
+ *
+ * Sao tres numeros: o centro da camera, e o tamanho da tela ja SEM o zoom.
+ * A camera ja tem um metodo que devolve o centro — `centroDaCameraLimitado`,
+ * e e o mesmo que o desenho usa, para as particulas nascerem onde a tela esta
+ * olhando e nao onde o jogador esta
+ *
+ * ## POR QUE A LARGURA E EM PIXEL DE MUNDO, E NAO DE TELA
+ *
+ * Porque a `Ambience` espalha as particulas em coordenada de mundo. Se ela
+ * recebesse a largura da tela em pixel de tela, o campo nasceria apertado
+ * demais num zoom alto — e o zoom da arena e 1.43, o mais fechado do jogo.
+ * E a largura em mundo que mantem a mesma densidade de ar em qualquer zoom
+ *
+ * @returns {{x:number,y:number,largura:number,altura:number}} o retangulo visto
+ */
+vistaDaAmbiencia() {
+    /**
+     * O `centroDaCameraLimitado()` JA DEVOLVE O CENTRO DO MAPA QUANDO NAO HA
+     * JOGADOR, entao aqui nao ha guarda nenhuma.
+     *
+     * E de proposito: uma guarda neste ponto esconderia o problema de quem
+     * chamou, e o `drawNevoa` — o outro consumidor deste mesmo centro —
+     * continuaria estourando no `render`. A correcao fica na origem, e os tres
+     * chamadores herdam dela
+     */
+    const centro = this.centroDaCameraLimitado();
+
+    return {
+      x: centro.x,
+      y: centro.y,
+      largura: this.viewport.width,
+      altura: this.viewport.height,
+    };
+  }
+
   centroDaCameraLimitado() {
     const player = this.world.player;
     const mapa = this.world.map;
     const z = this.cameraZoom;
     const { width, height } = this.viewport;
+
+    /**
+     * SEM JOGADOR EM FOCO, A CAMERA VIRA O CENTRO DO MAPA.
+     *
+     * ## POR QUE ISTO ESTA AQUI E NAO SO NO `vistaDaAmbiencia`
+     *
+     * Porque este metodo e chamado de quatro lugares, e o quarto e o que
+     * matou o servidor: o `update` do ambience, que roda no tick de 20Hz do
+     * SERVIDOR. Entre um jogador sair e o proximo entrar, `world.player` e
+     * `null`, e o tick do mundo estourava com `Cannot read properties of null`
+     *
+     * ## POR QUE ISSO PARAVA O JOGO INTEIRO, E NAO SO A CAMERA
+     *
+     * Porque o `GameServer.tick` conta os erros seguidos e, no terceiro,
+     * PARA O LACO DE SIMULACAO. Tres tiques de ar quebrado viravam um
+     * servidor que nao movia ninguem — o cliente recebia o ultimo estado e
+     * parava, com o boneco e o inimigo desenhados no ultimo quadro bom
+     *
+     * ## E POR QUE O CENTRO DO MAPA E UMA RESPOSTA HONESTA
+     *
+     * Porque sem jogador nao existe camera de ninguem. O centro do mapa e o
+     * unico ponto que naolies sobre posicao de alguem, e o ar precisa de um
+     * lugar para nascer. Um `return { x: 0, y: 0 }` tambem funcionaria, e
+     * empurraria todo o ar para um canto da vila
+     */
+    if (!player) {
+      return {
+        x: mapa?.width ? mapa.width / 2 : 0,
+        y: mapa?.height ? mapa.height / 2 : 0,
+      };
+    }
 
     // sem largura/altura de mapa, ou um mapa tao pequeno que a tela maior
     // que ele, o clamp e um no-op: o jogador seria preso no meio de um mapa
@@ -12121,7 +12659,9 @@ drawWorldSorted(context) {
 
     for (const entry of list) {
       if (entry.kind === 1) {
-        // o mapa decide a folha da prop e se ela tem sombra
+        // o mapa decide a folha da prop e se ela tem sombra.
+        // a aura vai PRIMEIRO: ela e luz, e luz fica atras da sombra e da arte
+        this.props.drawAura(context, entry.ref, this.world.map);
         this.props.drawShadow(context, entry.ref, this.world.map);
         this.props.drawProp(context, entry.ref, this.world.map);
         continue;
@@ -12625,6 +13165,60 @@ guildaSnapshot() {
     );
   }
 
+  /**
+   * OS MARCADORES DE CHEFE QUE O MINIMAPA DEVE MOSTRAR.
+   *
+   * ## O QUE ELES SAO
+   *
+   * O `bosses` do mapa nao e a lista de inimigos: e o ponto do mundo onde o
+   * chefe esta — no vale, o Hulk mora na arena e o `bosses` do vale marca
+   * o lugar dela. Sem isto o minimapa do vale nao dizia nada sobre o chefe,
+   * e o jogador tinha de andar o mapa inteiro para descobrir
+   *
+   * ## E A REGRA DE PRESENCA
+   *
+   * Se a criatura do marcador esta VIVA no `world.enemies`, o jogador esta do
+   * lado dela: na arena. Aí o ponto sai, porque la os dois se vendo e o
+   * minimapa so atrapalharia
+   *
+   * E por criatura, e nao por mapa: um chefe novo em um mapa novo entra
+   * sozinho, sem este codigo saber o nome dele
+   */
+  marcadoresDeChefe() {
+    const bosses = this.world.map?.bosses;
+
+    if (!bosses?.length) return [];
+
+    /**
+     * A REGRA E A INVERSA DO QUE PARECE CERTA, E O MOTIVO E IMPORTANTE
+     *
+     * A primeira versao filtrava por "o chefe nao esta vivo aqui", para o
+     * ponto sumir dentro da arena. E na arena o marcador SUMIA TAMBEM NO
+     * VALE, e o ponto vermelho nunca aparecia
+     *
+     * A causa: e o proprio motor que cria o chefe como inimigo, pelo
+     * `createBosses(map)`. Entao `world.enemies` tem o `hulk_val` no vale
+     * tambem — e o filtro achava que o jogador estava dos dois lados
+     *
+     * ## POR QUE AGORA E SEMPRE
+     *
+     * Porque o marcador so existe para compensar um filtro que JA acontece:
+     * `inimigosDoMinimapa` tira o chefe da lista de inimigos justamente para
+     * nao virar uma mancha de 46px. Logo, em qualquer mapa que declara
+     * `bosses`, o chefe NUNCA e desenhado como ponto comum — e e exatamente
+     * por isso que o marcador e necessario
+     *
+     * E o tamanho do ponto e o que resolve a worry da arena: 3px, e nao o
+     * raio da criatura. Na arena ele marca o centro com um ponto, e nao
+     * tapa o minimapa inteiro
+     */
+    return bosses.map((b) => ({
+      x: b.x,
+      y: b.y,
+      color: CHEFE_NO_MINIMAPA,
+    }));
+  }
+
   drawMinimap(context, width, height) {
     if (!this.world.map) return;
 
@@ -12730,6 +13324,29 @@ drawMinimap(context, {
        * novo nao precisa deste codigo saber o nome dele
        */
       enemies: this.inimigosDoMinimapa(),
+
+      /**
+       * OS PONTOS VERMELHOS DO CHEFE, E SO DE ONDE ELE NAO ESTA.
+       *
+       * ## POR QUE SEPARADO DE `enemies`
+       *
+       * Porque `inimigosDoMinimapa` tira o chefe da lista DE PROPONENTES, e
+       * ele entra aqui com o tamanho de um ponto. Sao coisas diferentes: um
+       * quadrado do tamanho do raio do chefe, dentro da arena, e o mapa
+       * inteiro, com o chefe do outro lado do mundo
+       *
+       * ## POR QUE SO QUANDO ELE NAO ESTA PRESENTE
+       *
+       * Porque na arena o jogador esta DENTRO dela, com o chefe a metros, e
+       * os dois se vendo na tela. O minimapa existe para achar o que esta
+       * longe; um ponto vermelho no meio da arena seria ruido na unica tela
+       * em que ele nao ajuda em nada
+       *
+       * E o filtro e pela CRIATURA PRESENTE, e nao pelo mapa: o mesmo `bosses`
+       * que declara o marcador do vale tambem descreve o chefe da arena, e e
+       * a presenca dele no `world.enemies` que diz de que lado o jogador esta
+       */
+      chefes: this.marcadoresDeChefe(),
 
       /**
        * A FAIXA QUE A CAMERA VE, no minimapa.
@@ -12951,10 +13568,61 @@ mundoDesenhavel() {
    */
   const folha = this.spriteSheet;
 
-  if (folha && !folha.ready && !folha.failed) return false;
+if (folha && !folha.ready && !folha.failed) return false;
 
-  return true;
-}
+    return true;
+  }
+
+  /**
+   * POR QUE O MUNDO NAO ESTA SENDO DESENHADO, OU `null` quando ele esta.
+   *
+   * ## POR QUE ISTO EXISTE
+   *
+   * Porque o `GameCanvas` tem um laco que simplesmente pula o quadro quando o
+   * mundo nao esta pronto:
+   *
+   * ```js
+   * if (!motor.mundoDesenhavel()) {
+   *   requestAnimationFrame(avisar);
+   *   return;              // sem desenhar, sem atualizar, sem aviso
+   * }
+   * ```
+   *
+   * Isso e certo para a espera normal do primeiro quadro. Mas e um portao que
+   * pode ficar fechado sem que ninguem perceba: o jogo para inteiro, sem
+   * excecao, sem log, sem nada no console — e o painel continua abrindo porque
+   * o React e um sistema separado
+   *
+   * ## O QUE ESTA FAZENDO
+   *
+   * Nao muda o comportamento. So diz QUAL das tres condicoes esta barrando,
+   * para o `GameCanvas` conseguir avisar depois de alguns segundos de silencio
+   *
+   * @returns {string|null} o portao fechado, ou `null` quando tudo esta pronto
+   */
+  portaoDaEspera() {
+    const map = this.world.map;
+
+    if (!map) return "mapa ausente";
+
+    const tiled = tiledDoMapa(map.id);
+
+    const chaoPronto = tiled
+      ? this.tiles.isReady(tiled)
+      : this.terrain.isReady();
+
+    if (!chaoPronto) {
+      return tiled
+        ? `tiles de "${map.id}" ainda carregando`
+        : `terreno de "${map.id}" ainda carregando`;
+    }
+
+    const folha = this.spriteSheet;
+
+    if (folha && !folha.ready && !folha.failed) return "folha do jogador";
+
+    return null;
+  }
 
 
   drawMap(context) {

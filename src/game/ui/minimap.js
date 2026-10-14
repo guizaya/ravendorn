@@ -28,6 +28,27 @@ export const MINIMAP_WIDTH = 168;
 export const MINIMAP_HEIGHT = 118;
 
 /**
+ * A COR E O TAMANHO DO PONTO DO CHEFE.
+ *
+ * ## POR QUE UM TOM SEPARADO DO VERMELHO DE INIMIGO
+ *
+ * Porque o vermelho dos inimigos aqui e o `enemy.color`, que cada criatura
+ * traz do catalogo. Um chefe marcado com o mesmo vermelho nao se distinguiria
+ * de um mob raro no meio de outros 30 pontos
+ *
+ * E o tom e mais quente e mais saturado que o vermelho de mob: no minimapa ele
+ * tem que ser o unico ponto que o jogador procura
+ *
+ * ## E POR QUE 3px, E NAO O RAIO DO CHEFE
+ *
+ * Porque o marcador do vale e um LUGAR, nao a criatura: e onde o chefe esta.
+ * Desenhar no tamanho do Hulk daria um quadrado de 46px no meio de um
+ * minimapa de 168 — um terco da largura para dizer "o chefe esta aqui"
+ */
+export const CHEFE_NO_MINIMAPA = "#ff3b46";
+export const LADO_DO_CHEFE = 3;
+
+/**
  * A MARGEM DA DIREITA.
  *
  * O minimapa mora na coluna ESQUERDA, embaixo da box do personagem, entao
@@ -207,6 +228,8 @@ export function drawMinimap(
     zones,
     player,
     enemies,
+    /** os pontos do chefe, quando ele nao esta no mesmo mapa do jogador */
+    chefes = [],
     viewport,
     /**
      * O CENTRO DA CAMERA, que e o jogador preso aos limites do mapa.
@@ -440,6 +463,39 @@ desenharObstaculos(
       size,
       size,
     );
+  }
+
+  /**
+   * OS PONTOS DO CHEFE, DEPOIS DOS INIMIGOS E ANTES DO JOGADOR.
+   *
+   * ## A ORDEM
+   *
+   * Depois dos inimigos, para o ponto do chefe ficar POR CIMA deles: no vale
+   * ele e o unico ponto vermelho quente e o resto sao criaturas, e ele nao
+   * pode sumir atras de um mob que caiu na frente
+   *
+   * Antes do jogador, pela mesma razao com o quadrado branco: o jogador e o
+   * unico que nunca pode ficar escondido
+   *
+   * ## E POR QUE SO UM PONTO FIXO
+   *
+   * Porque o que entra aqui e o `bosses` do mapa: o lugar onde o chefe esta.
+   * O desenho dele em tamanho de criatura foi o que virou uma mancha de 46px
+   * no meio da arena, e o minimapa nao e um mapa deSizes — e um mapa de onde
+   * ir
+   */
+  for (const chefe of chefes) {
+    context.fillStyle = chefe.color ?? CHEFE_NO_MINIMAPA;
+
+    context.beginPath();
+    context.arc(
+      baseX + chefe.x * scale,
+      baseY + chefe.y * scale,
+      LADO_DO_CHEFE,
+      0,
+      Math.PI * 2,
+    );
+    context.fill();
   }
 
   const playerX = baseX + player.x * scale;

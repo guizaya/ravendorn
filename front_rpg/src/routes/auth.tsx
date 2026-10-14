@@ -2,7 +2,8 @@
 import { useEffect, useState } from 'react'
 import { ArrowRight } from 'lucide-react'
 import { Button } from '@/components/ui/button'
-import { entrarComCarteira, sessaoSalva, limparSessao } from '@/lib/api'
+import { entrarComCarteira, limparSessao } from '@/lib/api'
+import { destinoDaAventura } from '@/lib/comecar'
 import { assinarComCarteira } from '@/lib/carteira'
 import world from '@/assets/world-map.png'
 import { NOME_DO_PROJETO, MarcaRavenDorn } from '@/components/marca-projeto'
@@ -95,13 +96,16 @@ function AuthPage() {
   const [busy, setBusy] = useState(false)
   const [conectado, setConectado] = useState<string | null>(null)
 
-  useEffect(() => {
+useEffect(() => {
     // quem ja tem sessao vai direto para os personagens. Sem isso, o
-    // jogador logado veria a tela de entrar de novo ao clicar em "voltar"
-    const sessao = sessaoSalva()
-    if (sessao && sessao.expiraEm > Date.now()) {
-      navigate({ to: '/characters' })
-    }
+    // jogador logado veria a tela de entrar de novo ao clicar em "voltar".
+    // E o `destinoDaAventura` e o MESMO que a home usa no botao "comecar
+    // aventura": uma regra em dois lugares divergiria no primeiro token
+    // vencido, e o jogador veria a home mandando para uma tela que
+    // imediatamente joga ele para a outra
+    void destinoDaAventura().then((destino) => {
+      if (destino === '/characters') navigate({ to: '/characters' })
+    })
   }, [navigate])
 
 /**

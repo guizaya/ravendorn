@@ -347,6 +347,26 @@ passe: {
     habilidadesAprendidas: new Set(),
 
   /**
+   * A ARVORE DE HABILIDADE DO PERSONAGEM.
+   *
+   * ## POR QUE DOIS CAMPOS E NAO UM
+   *
+   * Porque sao coisas diferentes: `nosArvore` e o que foi COMPRADO e nao
+   * volta, e `pontosHabilidade` e a carteira que ainda pode gastar. Colar os
+   * dois num so impediria de devolver ponto — e nao ha devolucao, e a decisao
+   * do ponto e do jogador
+   *
+   * ## POR QUE COMECAM ASSIM
+   *
+   * `Set` vazio e zero pontos sao o estado de quem nunca subiu de nivel. Um
+   * save antigo, escrito antes de a arvore existir, entra aqui por este
+   * caminho sem migracao nenhuma — e e o `applyCharacterSave` que preenche os
+   * dois quando o arquivo traz os campos
+   */
+  nosArvore: new Set(),
+  pontosHabilidade: 0,
+
+  /**
    * OS PRODUTOS DA LOJA QUE ESTE JOGADOR JA COMPROU.
    *
    * ## POR QUE FICA NA SESSAO E NAO NA TELHA

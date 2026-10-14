@@ -1,0 +1,457 @@
+/* ============================================================================
+   TEMA ARVORE DE HABILIDADE - camada de override
+   ----------------------------------------------------------------------------
+   Este arquivo NAO edita styles.css. Ele entra DEPOIS dele, e depois do
+   `theme-inventory.css`, e cuida SO do painel de arvore de habilidade.
+
+   PARA REVERTER: comente a linha de import em src/main.jsx
+       import "./theme-skilltree.css";
+   e apague este arquivo.
+
+   O DESENHO VEIO DE `src/assets/Items/drops/Screenshot_3.png`:
+   hexagonos em vez de cartoes, rotulo `comprados/total`, o grafico convergindo
+   num no so no meio, e a grade escura com o brilho no centro.
+
+   A COR NAO VEIO DE LA. A referencia e verde, e este painel e do projeto
+   RavenDorn, que e dourado sobre madeira escura. A forma veio da imagem; a
+   paleta e toda do `theme-inventory.css`, por token
+   ============================================================================ */
+
+/**
+ * O PAINEL TEM ALTURA FIXA.
+ *
+ * Porque o desenho e um funil de seis degraus com 880px de altura, e um painel
+ * que cresce ate isso cobriria a tela e o jogador perderia o jogo de tras
+ */
+.arb-panel {
+  width: min(700px, calc(100vw - 24px));
+  height: min(700px, calc(100vh - 28px));
+  max-height: calc(100vh - 28px);
+  padding-bottom: 0;
+
+  /**
+   * O MESMO FUNDO DOS OUTROS PAINÉIS.
+   *
+   * Era um `--t-sunken` chapado. O `.inv-panel` — que é a casca que a árvore
+   * herda — usa o gradiente de `#241c14` para `#14100c`, e o menu, o mercado,
+   * a guilda e o encantamento entram pelo mesmo gradiente. Um fundo chapado
+   * aqui deixava a árvore como o único painel do jogo que não tinha o
+   * "brilho" no topo
+   *
+   * E o `border-color` continua, porque é o que dá a borda de 2px: sem ele a
+   * herança da casca compartilhada seria a mesma, e aqui só se confirma
+   */
+  background: linear-gradient(180deg,
+    var(--t-panel) 0%,
+    var(--t-sunken) 100%);
+  border-color: var(--t-line-2);
+}
+
+/* ---------- cabecalho ---------- */
+
+.arb-cabecalho {
+  display: flex;
+  flex: none;
+  align-items: center;
+  gap: 14px;
+  margin: 0;
+  padding: 9px 12px;
+  border-bottom: 2px solid var(--t-abyss);
+
+  /**
+   * O MESMO GRADIENTE DA BARRA DE ABAS DO INVENTARIO.
+   *
+   * Era um `--t-abyss` chapado, que e o fundo da janela — uma barra preta no
+   * topo de um painel marrom. O `.inv-tabs` usa o degrade de `#3b3024` para
+   * `#241c14` com o brilho do `inset`, e e essa a barra que o jogador ja le
+   * como "topo de painel" em todas as outras telas
+   */
+  background: linear-gradient(180deg,
+    #3b3024 0%,
+    var(--t-panel) 100%);
+  box-shadow: inset 0 1px 0 rgba(255,
+    255,
+    255,
+    0.06);
+}
+
+.arb-cabecalho__titulo {
+  font-size: 13px;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--t-text-bright);
+}
+
+.arb-cabecalho__saldo {
+  font-size: 11px;
+  color: var(--t-text-dim);
+}
+
+.arb-cabecalho__saldo strong {
+  font-size: 15px;
+  color: var(--t-text);
+}
+
+.arb-cabecalho__saldo.is-cheio strong {
+  color: var(--t-gold);
+}
+
+.arb-cabecalho__fechar {
+  margin-left: auto;
+  width: 24px;
+  height: 24px;
+  border: 1px solid var(--t-line-2);
+  border-radius: 3px;
+  background: transparent;
+  color: var(--t-text-dim);
+  font-size: 17px;
+  line-height: 1;
+  cursor: pointer;
+}
+
+.arb-cabecalho__fechar:hover {
+  color: var(--t-text-bright);
+  border-color: var(--t-gold);
+}
+
+.arb-nota {
+  flex: none;
+  margin: 7px 12px 3px;
+  font-size: 10px;
+  letter-spacing: 0.06em;
+  color: var(--t-text-faintest);
+}
+
+/* ---------- a caixa que rola ---------- */
+
+/**
+ * O `flex: 1` E O `min-height: 0` VEM JUNTOS, E SAO OBRIGATORIOS.
+ *
+ * O `inv-panel` e `display: flex` na vertical e tem `overflow: hidden`. O
+ * `flex: 1` faz a caixa ocupar o espaco que sobrou; o `min-height: 0` e o que
+ * deixa ela ENCOLHER ate esse espaco. Sem ele, o padrao de item flex (`auto`)
+ * recusa encolher e o `overflow: hidden` do painel CORTA o desenho
+ *
+ * E o `touch-action: none` porque o gesto e nosso nos dois eixos — nao sobra
+ * nenhum para o navegador, e sem isso a pagina rolaria junto com o arraste
+ */
+.arb-arvore {
+  flex: 1;
+  min-height: 0;
+  overflow: auto;
+  overscroll-behavior: contain;
+  touch-action: none;
+  scrollbar-width: none;
+  cursor: grab;
+  user-select: none;
+  -webkit-user-select: none;
+}
+
+.arb-arvore.is-arrastando {
+  cursor: grabbing;
+}
+
+/**
+ * O PALCO: O FUNDO E O BRILHO.
+ *
+ * ## A GRADE SAIU
+ *
+ * Eram dois `linear-gradient` de 1px a cada 46px. Ela foi desenhada para um
+ * palco de 960 de largura, onde 46px era uma divisão que nao brigava com o
+ * hexagono de 76. No palco de 550 ela virou figuracao: onze colunas, e um
+ * hexagono de 54px atravessando tres delas. O que o jogador lia era xadrez,
+ * nao arvore
+ *
+ * ## O BRILHO
+ *
+ * E um radial ancorado no MEIO VERTICAL, e nao no centro: a Fundacao fica
+ * levemente abaixo da metade, e o brilho centrado nela e o que faz o olho ir
+ * la
+ */
+.arb-palco {
+  position: relative;
+  width: var(--arb-largura, 940px);
+  height: var(--arb-altura, 880px);
+  margin: 0 auto;
+
+  /**
+   * O FUNDO DO PALCO E O `--t-sunken`, E NAO O `--t-abyss`.
+   *
+   * O `--t-abyss` e o token mais escuro do tema (#0a0806), e ele e do FUNDO DA
+   * JANELA — a area onde nao ha painel nenhum. Usar ele aqui punha uma placa
+   * preta dentro de um painel marrom, e era a segunda coisa que denunciava a
+   * arvore como um painel de outro jogo
+   *
+   * O `--t-sunken` (#14100c) e a cor de superficie interna dos outros paineis,
+   * e e nela que o fundo do painel termina. Com ele, o palco continua a
+   * descer do gradiente em vez de cortar nele
+   */
+
+  /*
+    SEM A GRADE.
+
+    Eram dois `linear-gradient` de 46px que faziam a malha. Nao era o fundo
+    que atrapalhava — e o desenho embaixo: com o palco em 550 de largura, uma
+    malha de 46px dava onze colunas e o hexagono de 54px caiba atravessando
+    tres delas. O que o jogador lia nao era "arvore sobre grade", e era
+    "hexagonos num xadrez"
+
+Sobrou so o brilho dourado, que nao tem peca de figuracao e so escurece
+    o miolo do palco
+  */
+}
+
+/**
+ * AS LIGACOES: RETAS, FINAS, ATRAS DOS NOS.
+ *
+ * ## POR QUE A COR E TÃO APAGADA
+ *
+ * Porque na referencia a linha e o que DIZ onde va, e nao o que se olha. Um
+ * traco claro competia com o hexagono, e o hexagono e a informacao
+ *
+ * ## E O `is-viva`
+ *
+ * A linha acende so quando o no de baixo foi pago E o de cima tambem. E o que
+ * faz o desenho contar o historico do que o jogador construiu
+ */
+.arb-ligacoes {
+  position: absolute;
+  inset: 0;
+  z-index: 0;
+  overflow: visible;
+  pointer-events: none;
+}
+
+.arb-liga {
+  fill: none;
+  stroke: var(--t-line-3);
+  stroke-width: 1;
+  stroke-linecap: round;
+}
+
+.arb-liga.is-viva {
+  stroke: var(--t-gold-line);
+  stroke-width: 1.4;
+}
+
+/**
+ * O NO: UM BOTAO COM O HEXAGONO DENTRO.
+ *
+ * ## POR QUE `clip-path` EM DOIS BLOCOS
+ *
+ * Porque `clip-path` recorta um preenchimento, e nao desenha uma borda. O
+ * contorno de um pixel do desenho e um hexagono MAIOR na cor da borda
+ * (`.arb-hex__forma`), com o conteudo por cima na cor do fundo. O que sobra
+ * entre os dois e a linha
+ *
+ * E o `clip-path` do CONTEUDO tambem: sem ele, o retangulo interno cobriria os
+ * seis cantos e o hexagono viraria um losango com os picos tampados
+ *
+ * ## E POR QUE O FORMATO E UM POLYGON DE 6 PONTOS
+ *
+ * Porque a referencia tem o topo e a base em PONTA, e nao achata. Sao seis
+ * vertices: o topo, o ombro direito, o quadril direito, a base, e os dois
+ * esquerdo. Com o topo achatado vira um octogono, que e outro desenho
+ */
+.arb-hex {
+  position: absolute;
+  z-index: 1;
+  transform: translate(-50%, -50%);
+  display: block;
+  width: 54px;
+  height: 84px;
+  padding: 0;
+  border: 0;
+  background: none;
+  font: inherit;
+  color: inherit;
+  cursor: pointer;
+}
+
+.arb-hex__forma {
+  position: absolute;
+  inset: 0;
+  display: block;
+  background: var(--t-line-3);
+  clip-path: polygon(50% 0%, 100% 25%, 100% 75%, 50% 100%, 0% 75%, 0% 25%);
+}
+
+.arb-hex__conteudo {
+  position: absolute;
+  inset: 1.5px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 1px;
+  background: var(--t-abyss);
+  clip-path: polygon(50% 0%, 100% 25%, 100% 75%, 50% 100%, 0% 75%, 0% 25%);
+}
+
+.arb-hex__icone {
+    font-size: 12px;
+  line-height: 1;
+}
+
+.arb-hex__nome {
+  font-size: 8px;
+  line-height: 1.05;
+  letter-spacing: 0.02em;
+  color: var(--t-text);
+  text-align: center;
+}
+
+.arb-hex__completo {
+  display: none;
+}
+
+/**
+ * O CUSTO, NO CANTO SUPERIOR DIREITO.
+ *
+ * E um numero solto, como na referencia. E a unica informacao que o jogador
+ * precisa antes de clicar, entao fica onde o olho ja procura o custo de todas
+ * as outras coisas da tela
+ */
+.arb-hex__custo {
+  position: absolute;
+  top: 7px;
+  right: 9px;
+      font-size: 8px;
+  font-weight: 700;
+  color: var(--t-text-dim);
+}
+
+/**
+ * O `comprados/total` DO DEGRAU, DEBAIXO DO HEXAGONO.
+ *
+ * ## POR QUE O MESMO NUMERO EM TODOS OS NOS DO MESMO DEGRAU
+ *
+ * Porque ele responde "quanto deste nivel eu ja construi?", e nao "quanto
+ * este no vale". Sao perguntas diferentes, e a segunda nao tem resposta util
+ * num no de compra unica
+ */
+.arb-hex__progresso {
+  position: absolute;
+  top: calc(100% - 4px);
+  left: 50%;
+  transform: translateX(-50%);
+      font-size: 7px;
+  letter-spacing: 0.04em;
+  color: var(--t-text-faint);
+  white-space: nowrap;
+}
+
+/* ---------- os tres estados ---------- */
+
+/**
+ * O APRENDIDO ACENDE DE VERDE.
+ *
+ * E o inverso do bloqueado, que apaga. Na referencia o no de Fundacao e o unico
+ * aceso, porque e o no que marca ate onde o jogador chegou — e aqui o mesmo
+ * estado se repete em cada no pago
+ */
+.arb-hex.is-aprendido .arb-hex__forma {
+  background: var(--t-gold);
+}
+
+.arb-hex.is-aprendido .arb-hex__conteudo {
+  background: var(--t-sunken);
+}
+
+.arb-hex.is-aprendido .arb-hex__icone {
+  filter: none;
+}
+
+/**
+ * O PRONTO E O BLOQUEADO.
+ *
+ * O bloqueado apaga sem tirar o hexagono do lugar: se o no sumisse, o desenho
+ * teria buracos e o jogador perderia de vista o que ainda da para buscar
+ */
+.arb-hex.is-pronto .arb-hex__forma {
+  background: var(--t-line-3);
+}
+
+.arb-hex.is-pronto:hover .arb-hex__forma {
+  background: var(--t-gold-bright);
+}
+
+.arb-hex.is-bloqueado {
+  opacity: 0.42;
+  cursor: not-allowed;
+}
+
+.arb-hex.is-bloqueado .arb-hex__forma {
+  background: var(--t-line);
+}
+
+.arb-hex:disabled {
+  cursor: not-allowed;
+}
+
+/**
+ * O CADEADO, SO NO BLOQUEADO.
+ *
+ * E o que diz "voce nao chega aqui ainda" sem uma palavra. A razao completa
+ * fica no `data-tip` do botao inteiro
+ */
+.arb-hex__cadeado {
+  position: absolute;
+  bottom: 14px;
+  left: 50%;
+  transform: translateX(-50%);
+  font-size: 10px;
+  filter: grayscale(1);
+  opacity: 0.9;
+}
+
+/**
+ * A FUNDACAO: MAIOR, VERDE, E COM O HEXAGRAMA INTERIOR.
+ *
+ * ## POR QUE MAIOR
+ *
+ * Porque ela e onde o desenho junta, e o olho precisa achar o centro sem ler
+ * nada. Na referencia ela tem um hexagrama dentro do hexagono; aqui o hexagrama
+ * virou a borda verde mais grossa e a barra de progresso, porque um hexagrama
+ * com texto dentro de 96px nao caberia
+ */
+.arb-hex--fundacao {
+  width: 66px;
+  height: 106px;
+}
+
+.arb-hex--fundacao .arb-hex__conteudo {
+  inset: 4px;
+}
+
+.arb-hex--fundacao .arb-hex__icone {
+  font-size: 26px;
+}
+
+.arb-hex--fundacao .arb-hex__nome {
+  font-size: 12px;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--t-gold-bright);
+}
+
+.arb-hex--fundacao .arb-hex__forma {
+  background: var(--t-gold);
+}
+
+/**
+ * A BARRA DE PROGRESSO DA FUNDACAO.
+ *
+ * E o mesmo `comprados/total` dos outros degraus, mas dentro do hexagono e em
+ * vez de fora. E o unico no com barra, porque e o unico que o desenho inteiro
+ * mede
+ */
+.arb-hex--fundacao .arb-hex__progresso {
+  top: auto;
+  bottom: 16px;
+  color: var(--t-gold);
+}
+
+.arb-vazio-detalhe code {
+  color: var(--t-gold);
+}

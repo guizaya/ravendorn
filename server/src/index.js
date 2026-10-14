@@ -3,6 +3,7 @@ import { randomBytes } from "node:crypto";
 import { resolve } from "node:path";
 import express from "express";
 import { WebSocketServer } from "ws";
+import { ligarRedeDeSeguranca } from "./registroDeErros.js";
 import { GameServer } from "./domain/GameServer.js";
 import { Client } from "./domain/Client.js";
 import {
@@ -811,7 +812,16 @@ const BATIMENTO_MS = 30_000;
 
 const vivos = new Set();
 
+/**
+ * O NASCIMENTO DO SOCKET, E A HORA DE ABRIR O RELOGIO DE VIDA.
+ *
+ * Sem isso, um `close` so diz "acabou", e nao ha como distinguir um jogador
+ * que fechou a aba de um processo que morreu no meio do tique
+ */
+const nasceuEm = new WeakMap();
+
 wss.on("connection", (socket) => {
+  nasceuEm.set(socket, Date.now());
   const client = new Client(socket);
 
   /**
@@ -870,14 +880,50 @@ wss.on("connection", (socket) => {
     }
   });
 
-  socket.on("close", () => {
+  /**
+   * POR QUE O SOCKET MORREU.
+   *
+   * ## O QUE O `code` DIZ
+   *
+   * - 1000 / 1001: o jogador saiu, ou a aba fechou. Normal
+   * - 1006: o socket sumiu SEM handshake. E o que acontece quando o processo
+   *   MORRE — nao existe servidor para responder o fechamento
+   * - 1011: erro interno no servidor, e o `catch` acima mandou este
+   * - 1008: o servidor recusou, o que inclui o `REJECTED` de nome ou classe
+   *
+   * ## POR QUE ISTO E LOGADO E O ANTIGO NAO ERA
+   *
+   * Porque sem o `code`, uma queda e uma saida sao indistinguiveis no
+   * terminal. A pista de que o jogo trava vinha do Vite (`ECONNRESET`), que
+   * e o LADO DO CLIENTE do proxy — e nao dizia nada sobre quem derrubou
+   */
+  socket.on("close", (code, motivo) => {
+    const durou = Math.round((Date.now() - (nasceuEm.get(socket) ?? Date.now())) / 1000);
+
     vivos.delete(socket);
     jogo.desconectar(client);
+
+    if (code === 1000 || code === 1001) return;
+
+    console.warn(
+      `[ws] socket fechado com code ${code}` +
+        (motivo ? ` motivo="${motivo}"` : " (sem motivo)") +
+        ` — conexao durou ${durou}s. ` +
+        "Se 1006, o processo morreu; se 1011, ha um erro em [ws] acima.",
+    );
   });
 
-  socket.on("error", () => {
+  socket.on("error", (erro) => {
+    const durou = Math.round((Date.now() - (nasceuEm.get(socket) ?? Date.now())) / 1000);
+
     vivos.delete(socket);
     jogo.desconectar(client);
+
+    console.error(
+      `[ws] erro no socket depois de ${durou}s:`,
+      erro?.message ?? erro,
+      erro,
+    );
   });
 });
 
@@ -902,14 +948,89 @@ const batimento = setInterval(() => {
 
 batimento.unref();
 
+/* ------------------------------------------------------------------ *
+ * A REDE DE SEGURANCA: o erro que NINGUEM TRATA
+ * ------------------------------------------------------------------ */
+
+/**
+ * POR QUE O DIARIO E EM ARQUIVO E NAO SO NO CONSOLE
+ *
+ * Porque o `node --watch` levanta o processo no MESMO terminal. O stack da
+ * excecao passa, a tela rola, e a mensagem de "subindo de novo" cobre a
+ * causa. Quem tenta ver o erro enquanto o jogo esta freezing chega atras
+ *
+ * O arquivo sobrevive ao restart, e um diario com varias quedas mostra se o
+ * erro se repete no mesmo lugar — que e a diferenca entre um bug e um
+ * tropeco
+ *
+ * A implementacao, e o porque de sair depois de registrar, estao em
+ * `server/src/registroDeErros.js`
+ */
+ligarRedeDeSeguranca();
+
+/**
+ * O LACO DE 20Hz COMECA AQUI, E SO AQUI.
+ *
+ * E depois da rede de seguranca de proposito: um erro lancado no primeiro
+ * tique ja tem quem o registre, em vez de virar um `uncaughtException` mudo
+ * no primeiro segundo de vida do servidor
+ */
 jogo.start();
 
-http.listen(SERVER_CONFIG.port, SERVER_CONFIG.host, () => {
-  console.log(
-    `Jogo em http://${SERVER_CONFIG.host}:${SERVER_CONFIG.port} ` +
-      `(ws em /ws, ${SERVER_CONFIG.tickRate} ticks/s)`,
-  );
-});
+/**
+ * SOBE O SERVIDOR, E CAI PARA IPv4 SE O IPv6 NAO EXISTIR NA MAQUINA.
+ *
+ * ## POR QUE ISTO E UM `error` E NAO UM `try/catch`
+ *
+ * Porque `listen` nao lanca. A falha do socket — `EADDRNOTAVAIL` numa maquina
+ * sem IPv6, `EACCES` numa porta reservada — chega como evento `error` depois
+ * que a chamada ja retornou. Um `try/catch` em volta de `listen` nao veria
+ * nada, e o servidor ficaria em silencio sem porta nenhuma
+ *
+ * ## POR QUE O `setImmediate` ENTRE AS TENTATIVAS
+ *
+ * Porque o `http` que falhou ainda esta com o socket meio aberto. Reusar o
+ * mesmo servidor no mesmo tique da `EADDRINUSE` ou `EAFNOSUPPORT`; deixar o
+ * evento do ciclo seguinte ja resolver solta o socket
+ *
+ * ## E POR QUE O PADRAO E `::` E O RESGATE E `0.0.0.0`
+ *
+ * Porque `::` e o socket de duas pilhas: atende `::1` E `127.0.0.1`. E o
+ * `0.0.0.0` e o que existia antes, entao e ele que salvou o servidor numa
+ * maquina onde o resgate e necessario — so que volta a ser IPv4 so
+ */
+function subir(preferido) {
+  const servidor = http.listen(SERVER_CONFIG.port, preferido, () => {
+    const duplo = preferido === "::";
+
+    console.log(
+      `Jogo em http://${preferido}:${SERVER_CONFIG.port} ` +
+        `(ws em /ws, ${SERVER_CONFIG.tickRate} ticks/s)` +
+        (duplo ? " — aceitando IPv6 e IPv4" : " — IPv4 apenas"),
+    );
+  });
+
+  servidor.once("error", (erro) => {
+    const temResgate = preferido !== "0.0.0.0";
+
+    if (!temResgate) {
+      console.error(`[servidor] nao subiu na porta ${SERVER_CONFIG.port}:`, erro.message);
+      process.exit(1);
+    }
+
+    console.warn(
+      `[servidor] nao conseguiu abrir "${preferido}" (${erro.code ?? erro.message}). ` +
+        "Caindo para 0.0.0.0 — o servidor vai responder em IPv4, " +
+        "e o navegador pode recusar em ::1 se ele tentar IPv6 primeiro.",
+    );
+
+    setImmediate(() => subir("0.0.0.0"));
+  });
+
+  return servidor;
+}
+
+subir(SERVER_CONFIG.host);
 
 /**
  * Encerrar o laco de 20 Hz no Ctrl+C.

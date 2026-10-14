@@ -1,4 +1,4 @@
-﻿import { createFileRoute, Link } from '@tanstack/react-router'
+﻿import { createFileRoute, Link, useNavigate } from '@tanstack/react-router'
 import { useState } from 'react'
 import { ArrowRight, ArrowUpRight, BowArrow, ChevronDown, Compass, Crown, Gamepad2, Menu, Monitor, Mountain, Shield, Sparkles, Swords, Users, X, type LucideIcon } from 'lucide-react'
 import { Button } from '@/components/ui/button'
@@ -13,6 +13,7 @@ import { CLASS_STATS, type ClassStat } from '@/lib/class-stats'
 import { DiscordIcon } from '@/components/discord-icon'
 import { DISCORD_INVITE_URL } from '@/lib/community'
 import { NOME_DO_PROJETO, MarcaRavenDorn } from '@/components/marca-projeto'
+import { destinoDaAventura } from '@/lib/comecar'
 
 export const Route = createFileRoute('/')({
  component: Index,
@@ -32,6 +33,47 @@ const heroes: HomeHero[] = [
  { name: 'Mago', role: 'MAGIA & DESTRUIÇÃO', icon: Sparkles, stats: CLASS_STATS.Mago, sprite: { src: sorcererSprite, size: 88 } },
 ]
 const nav = [{ label: 'O jogo', id: 'inicio' }, { label: 'O mundo', id: 'mundo' }, { label: 'Classes', id: 'classes' }, { label: 'Comunidade', id: 'comunidade' }]
+
+/**
+ * O BOTÃO "COMEÇAR AVENTURA", que decide para onde vai.
+ *
+ * ## POR QUE NÃO É UM `<Link to="/auth">` FIXO
+ *
+ * Porque "Começar aventura" é o botão da home, e quem já entrou não deveria
+ * ver a tela de entrar de novo. O destino é resolvido no clique pelo
+ * `destinoDaAventura`: sessão viva e carteira conectada vão para a seleção de
+ * personagem, e o resto vai para o login
+ *
+ * ## POR QUE O `to` CONTINUA SENDO `/auth`
+ *
+ * Porque o `href` é lido antes do clique — pelo Google, pelo botão direito,
+ * pelo leitor de tela e pelo "abrir em nova aba". Um `href` que já diz para
+ * onde o jogador vai quando ele já está logado seria uma mentira em quatro
+ * lugares, e o `onClick` é quem corrige o caminho real da navegação. É o
+ * mesmo motivo de uma rota de pagamento ter `href` e o destino final
+ * depender de quem está logado
+ */
+function BotaoComecar({ className, children, onClick }: { className?: string; children: React.ReactNode; onClick?: () => void }) {
+  const navigate = useNavigate()
+
+  return (
+    <Link
+      to="/auth"
+      className={className}
+      onClick={(event) => {
+        onClick?.()
+
+        event.preventDefault()
+
+        void destinoDaAventura().then((destino) => {
+          navigate({ to: destino })
+        })
+      }}
+    >
+      {children}
+    </Link>
+  )
+}
 function Index() {
  const [menu, setMenu] = useState(false)
  const [dialog, setDialog] = useState<'world' | 'community' | null>(null)
@@ -39,16 +81,16 @@ function Index() {
   <header className="site-header"><div className="page-width header-inner">
    <a href="#inicio" className="wordmark no-underline text-foreground"><MarcaRavenDorn /></a>
    <nav className="desktop-nav" aria-label="Navegação principal">{nav.map((item, i) => <a key={item.id} href={`#${item.id}`} className={i === 0 ? 'active' : ''}>{item.label}</a>)}</nav>
-   <Button variant="game" className="header-cta" asChild><Link to="/auth"><Swords /> Começar aventura <ArrowUpRight /></Link></Button>
+   <Button variant="game" className="header-cta" asChild><BotaoComecar><Swords /> Começar aventura <ArrowUpRight /></BotaoComecar></Button>
    <Button variant="navigation" size="icon" className="mobile-menu-button" aria-label={menu ? 'Fechar menu' : 'Abrir menu'} aria-expanded={menu} onClick={() => setMenu(!menu)}>{menu ? <X /> : <Menu />}</Button>
-  </div>{menu && <nav className="mobile-nav" aria-label="Navegação móvel">{nav.map(item => <a href={`#${item.id}`} key={item.id} onClick={() => setMenu(false)}>{item.label}</a>)}<Button variant="game" asChild onClick={() => setMenu(false)}><Link to="/auth">Começar aventura <ArrowRight /></Link></Button></nav>}</header>
+  </div>{menu && <nav className="mobile-nav" aria-label="Navegação móvel">{nav.map(item => <a href={`#${item.id}`} key={item.id} onClick={() => setMenu(false)}>{item.label}</a>)}<Button variant="game" asChild onClick={() => setMenu(false)}><BotaoComecar>Começar aventura <ArrowRight /></BotaoComecar></Button></nav>}</header>
   <main>
    <section className="hero" id="inicio">
     <img src={world} className="hero-art" alt="Mapa em pixel art das terras de ${NOME_DO_PROJETO}, com florestas, rio, ponte e o castelo no alto da colina sob a lua" width={2176} height={1216} />
     <div className="page-width hero-content"><div className="eyebrow">MMORPG 2D • UM NOVO CAPÍTULO</div>
      <h1>{NOME_DO_PROJETO}</h1><p className="hero-subtitle">Um mundo. A sua lenda.</p>
      <p className="hero-copy">Além das muralhas, o desconhecido espera por você.<br />Explore terras esquecidas, encontre seus aliados e escreva sua história em um mundo que nunca para.</p>
-     <div className="hero-actions"><Button variant="game" asChild><Link to="/auth"><Swords /> Começar aventura <ArrowRight /></Link></Button><Button variant="gameOutline" onClick={() => document.getElementById('mundo')?.scrollIntoView({ block: 'start' })}><Compass /> Explorar o mundo</Button></div>
+     <div className="hero-actions"><Button variant="game" asChild><BotaoComecar><Swords /> Começar aventura <ArrowRight /></BotaoComecar></Button><Button variant="gameOutline" onClick={() => document.getElementById('mundo')?.scrollIntoView({ block: 'start' })}><Compass /> Explorar o mundo</Button></div>
      <div className="platform-note"><Monitor size={13} /> 2D top-down <span className="mx-1">•</span> Fantasia sem limites</div>
     </div>
    </section>

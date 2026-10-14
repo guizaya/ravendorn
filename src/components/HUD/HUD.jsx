@@ -1,12 +1,14 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { Fragment, useCallback, useEffect, useMemo, useState } from "react";
 import SkillSlot from "../Skills/SkillSlot.jsx";
 import HudIcon from "../UI/HudIcon.jsx";
+import IconeMoeda from "../UI/IconeMoeda.jsx";
 import InventoryPanel from "../Inventory/InventoryPanel.jsx";
 import QuestPanel from "../Quests/QuestPanel.jsx";
 import PartyBox from "./PartyBox.jsx";
 import CodexPanel from "../Codex/CodexPanel.jsx";
 import RankingPanel from "../Rank/RankingPanel.jsx";
 import CraftPanel from "../Craft/CraftPanel.jsx";
+import SkillTreePanel from "./SkillTreePanel.jsx";
 import CollectionPanel, {
   StatusPanel,
 } from "../Collection/CollectionPanel.jsx";
@@ -14,6 +16,7 @@ import EnchantPanel, {
   chave,
 } from "../Enchant/EnchantPanel.jsx";
 import MarketModal from "../Market/MarketModal.jsx";
+import CreateListingModal from "../Market/CreateListingModal.jsx";
 import PotionPanel from "../Potions/PotionPanel.jsx";
 import HabilidadesPanel from "../Skills/HabilidadesPanel.jsx";
 import BauPanel from "../Inventory/BauPanel.jsx";
@@ -21,7 +24,7 @@ import ConfigPanel from "../Settings/ConfigPanel.jsx";
 import KeyBindsPanel from "../UI/KeyBindsPanel.jsx";
 import IndicativoTecla, { useTeclaDaAcao } from "../UI/IndicativoTecla.jsx";
 import ItemIcon from "../UI/ItemIcon.jsx";
-import { ROTULO_DO_PAINEL as ROTULO_DO_PAINEL_DA_BOX } from "../Quests/rotuloDoPainel.js";
+import { rotuloDoTutorial } from "../Quests/rotuloDoPainel.js";
 import {
   ICONE_SLOT_DIREITA,
 } from "../../data/cursor/index.js";
@@ -158,6 +161,7 @@ const PAINEL = {
   ENCHANT: "enchant",
   MARKET: "market",
   GUILD: "guild",
+  ARVORE: "arvore",
 
   /**
    * A LOJA DO MERCADOR.
@@ -267,6 +271,29 @@ const ATALHO_PAINEL = {
   KeyQ: PAINEL.MISSOES,
   KeyB: PAINEL.BESTIARIO,
   KeyC: PAINEL.CRAFT,
+
+  /**
+   * A ARVORE FICOU NO `KeyH`, E O `KeyT` CONTINUA SENDO O AUTO-PLAY.
+   *
+   * ## O QUE EU FIZ ERRADO DA PRIMEIRA VEZ
+   *
+   * Peguei o `KeyT` achando que "T" era de "talento". O `KeyT` e o auto-play,
+   * em `keybinds.js` (`ACOES` -> `auto`), e as duas listas escutam o
+   * `keydown` na `window` sem `stopImmediatePropagation` — entao apertar `T`
+   * abria o painel E ligava o auto. Um aperto, duas coisas
+   *
+   * E o aviso estava a DUAS linhas de onde eu escolhi: o comentario do `R`
+   * nesta mesma lista conta exatamente esse bug, de quando o rank e a ultimate
+   * disputaram o `R`. Li o comentario e Choosei a tecla que ele descrevia
+   *
+   * ## E POR QUE `KeyH`
+   *
+   * Porque e "habilidade", que e o que a tela mostra. E esta livre: o
+   * movimento e WASD, o ataque e espaco, o dash e `E`, a ultimate e `R`, o
+   * auto e `T`, os slots sao `1`-`4`, e os paineis ja pegam `I`, `Q`, `B`,
+   * `C`, `L` e `K`
+   */
+  KeyH: PAINEL.ARVORE,
 
   /**
    * O RANK FOI PARA O `L`, E O `R` VOLTOU PARA A ULTIMATE.
@@ -495,6 +522,7 @@ function QuestTracker({
     onOpen,
     onFocus,
     aoAbrirPainelTutorial,
+    onAlternarAutoMissao,
   }) {
   const main = quests?.main?.current ?? null;
   const side = quests?.side?.current ?? null;
@@ -502,6 +530,41 @@ function QuestTracker({
 
   const autoObjectiveId = auto?.objectiveId ?? null;
   const autoOn = Boolean(auto?.enabled);
+
+  /**
+   * O QUE O TUTORIAL FAZ QUANDO VOCE PEDE.
+   *
+   * ## POR QUE UM `useCallback` E NAO DUAS LINHAS NO `onClick`
+   *
+   * Porque a acao do tutorial e usada em DOIS lugares: no clique da linha
+   * inteira e no botao da direita. Sao os dois alvos que o jogador pode
+   * acertar, e eles precisam fazer a mesma coisa — o botao "APRIMORAR" que
+   * mandasse para a aba de encantar seria a segunda metade do mesmo bug
+   *
+   * ## POR QUE O NPC LIGA O AUTO E NAO ABRE UM PAINEL
+   *
+   * Porque o mestre de habilidades nao tem painel: e uma pessoa em pe na
+   * base. O que faz o jogador chegar nele e o `travelPlan`, e ele so anda
+   * com o auto ligado. O botao nao inventa um teleport — ele liga o mesmo
+   * auto que a caixa de missoes ja tem, e o motor vai ate o NPC porque e o
+   * que o `destinoDoObjetivo` devolve para essa missao
+   */
+  const acionarTutorial = useCallback(
+    (missao) => {
+      if (!missao) return;
+
+      if (missao.npc) {
+        if (!autoOn) onAlternarAutoMissao?.();
+
+        return;
+      }
+
+      if (missao.painel) {
+        aoAbrirPainelTutorial?.(missao.painel, missao.aba ?? null);
+      }
+    },
+    [aoAbrirPainelTutorial, autoOn, onAlternarAutoMissao],
+  );
 
   /**
    * A BOX NUNCA SAI.
@@ -608,7 +671,8 @@ return (
             .join(" ")}
           onClick={() => {
             if (main.tutorial) {
-              if (main.painel) aoAbrirPainelTutorial?.(main.painel);
+              acionarTutorial(main);
+
               return;
             }
 
@@ -660,17 +724,21 @@ return (
               fora ja e acionavel pelo teclado e ja anuncia o painel no
               `title` — um segundo alvo seria dois lugares para a mesma aba
             */}
-            {main.tutorial && main.painel && (
+            {main.tutorial && (main.painel || main.npc) && (
               <span
                 className="qst-tracker__abrir"
                 role="button"
                 aria-hidden="true"
                 onClick={(event) => {
                   event.stopPropagation();
-                  aoAbrirPainelTutorial?.(main.painel);
+                  acionarTutorial(main);
                 }}
               >
-                {ROTULO_DO_PAINEL_DA_BOX[main.painel] ?? "ABRIR"}
+                {rotuloDoTutorial({
+                  tipo: main.type,
+                  painel: main.painel,
+                  npc: main.npc,
+                }) ?? "ABRIR"}
               </span>
             )}
           </div>
@@ -1260,7 +1328,21 @@ conviteParty = null,
    * A atribuicao e o que fecha os outros: nao existe um "os outros"
    * para listar, o estado anterior e substituido
    */
-  const alternarPainel = useCallback((id) => {
+  const alternarPainel = useCallback((id, aba = null) => {
+    /**
+     * A ABA E PEDIDA ANTES DO TOGGLE, E PORQUE
+     *
+     * Porque `enchant` e o unico painel com duas abas, e o `EnchantPanel`
+     * so troca de aba quando o `abaInicial` MUDA — o efeito dele tem
+     * `[abaInicial]` na lista de dependencias. Pedir a aba e o que faz a
+     * missao de aprimorar abrir na aba de aprimorar, em vez de abrir na
+     * de encantar que e onde o `useState` comeca
+     *
+     * E o que resolve o toggle: com a aba pedida ANTES, clicar duas vezes
+     * no botao abre e fecha, e quando abre de novo a aba ja e a certa
+     */
+    if (id === "enchant" && aba) setAbaEncantar(aba);
+
     setPainelAberto((atual) => (atual === id ? null : id));
   }, []);
 
@@ -1405,6 +1487,17 @@ conviteParty = null,
    * ter ligado nada
    */
   const [ligandoFarm, setLigandoFarm] = useState(false);
+
+  /**
+   * A MODAL DE ANUNCIAR, e o estado mora AQUI.
+   *
+   * Antes ele vivia no `MarketModal`, que é onde o botão `+ ANUNCIAR` fica.
+   * Mas o `CreateListingModal` também era renderizado lá dentro, e ser filho
+   * da caixa do mercado é o que limitava a altura dele. Abrir é um clique que
+   * sai do mercado — não é estado de como o mercado está — então o estado
+   * também sobe para cá
+   */
+  const [anunciando, setAnunciando] = useState(false);
 
   /**
    * O FARM JA ESTA LIGADO?
@@ -2422,6 +2515,25 @@ const handleReviver = useCallback(
     engineRef.current?.pruneInventory();
   }, [engineRef, intencao]);
 
+  /**
+   * COMPRAR ESPAÇO DE MOCHILA.
+   *
+   * ## POR QUE NÃO TEM CAMINHO OFFLINE
+   *
+   * Porque os slots são um saldo comprado com diamante, e diamante é da conta.
+   * O motor local não tem conta para debitar — o `engineRef` guardaria a
+   * chamada e ela não faria nada, deixando o jogador com um botão que aparenta
+   * funcionar e nunca aumenta a mochila
+   *
+   * E o mesmo motivo pelo qual `podarMochila` tem caminho offline e esta não:
+   * podar move o que já é dele, e isto compra
+   */
+  const handleExpandInventory = useCallback(() => {
+    if (intencao) {
+      intencao.expandirMochila();
+    }
+  }, [intencao]);
+
   const handleAcceptQuest = useCallback(
     (questId) => {
       // online, o `QuestLog` esta no servidor. aceitar pelo motor da
@@ -2487,6 +2599,27 @@ const handleReviver = useCallback(
       }
 
       engineRef.current?.claimQuestReward(questId);
+    },
+    [engineRef, intencao],
+  );
+
+  /**
+   * O "RECEBER TUDO" da aba aberta.
+   *
+   * Mesmo caminho do [RECEBER] e pelo mesmo motivo: quem tem a fila e o
+   * motor. O que viaja e o par `scope`/`mapa` — a aba principal ou a
+   * secundaria, e de qual mapa — e nao a lista de ids, porque quem decide o
+   * que existe na fila e o servidor. Mandar a lista seria o cliente dizendo
+   * o que deve ser pago
+   */
+  const handleClaimAllQuestRewards = useCallback(
+    (scope, mapa) => {
+      if (intencao) {
+        intencao.resgatarTodasMissoes(scope, mapa);
+        return;
+      }
+
+      engineRef.current?.claimQuestRewards(scope, mapa);
     },
     [engineRef, intencao],
   );
@@ -2655,6 +2788,30 @@ const handleDash = useCallback(
 
     engineRef.current?.clearBestiaryAuto();
   }, [engineRef, intencao]);
+
+  const handleComprarNo = useCallback(
+    (noId) => {
+      /**
+       * O RAMO ONLINE, QUE FALTAVA E E O QUE FAZIA O CLIQUE NAO FAZER NADA
+       *
+       * Todo handler deste arquivo tem os dois caminhos: `intencao` quando
+       * existe conexao, e o motor da tela quando nao existe. Este so tinha o
+       * segundo. Em jogo online o clique chegava ao motor local — que nao
+       * manda nada para o servidor — e o ponto ficava na tela sem sair dali
+       *
+       * O sintoma era o pior dos dois: a arvore mostrava o no com
+       * `is-pronto`, o botao nao ficava `disabled`, e o clique sumia sem
+       * mensagem. Nenhum erro, nenhum log, nada
+       */
+      if (intencao) {
+        intencao.aprenderNoArvore(noId);
+        return;
+      }
+
+      engineRef.current?.learnTreeNode(noId);
+    },
+    [engineRef, intencao],
+  );
 
   const handleCraftItem = useCallback(
     (recipeId, rarity) => {
@@ -2911,6 +3068,11 @@ const handleDeliverCollection = useCallback(
           pedido?.uid,
           pedido?.price,
           pedido?.count,
+          {
+            currency: pedido?.currency,
+            modo: pedido?.modo,
+            minBid: pedido?.minBid,
+          },
         );
       }
     },
@@ -2930,6 +3092,19 @@ const handleDeliverCollection = useCallback(
     (listingId) => {
       if (intencao) {
         intencao.cancelarNoMarket(listingId);
+      }
+    },
+    [intencao],
+  );
+
+  /**
+   * DAR LANCE. E um pedido separado da compra porque o efeito nao e o mesmo:
+   * o item continua anunciado e o dinheiro do lance anterior volta
+   */
+  const handleBidItem = useCallback(
+    (listingId, valor) => {
+      if (intencao) {
+        intencao.darLanceNoMarket(listingId, valor);
       }
     },
     [intencao],
@@ -3940,7 +4115,8 @@ const handleDeliverCollection = useCallback(
             bloqueada={foraDaArena}
             onOpen={() => abrirPainel(PAINEL.MISSOES)}
             onFocus={handleFocusQuest}
-            aoAbrirPainelTutorial={(id) => alternarPainel(id)}
+            aoAbrirPainelTutorial={(id, aba) => alternarPainel(id, aba)}
+            onAlternarAutoMissao={handleToggleQuestAuto}
           />
 
       {/*
@@ -4253,8 +4429,7 @@ const handleDeliverCollection = useCallback(
                 className="hud-moedas"
                 aria-label={`Moedas: ${summary.coins}`}
               >
-                <i aria-hidden="true">◉</i>
-
+                <IconeMoeda moeda="coins" />
                 {summary.coins}
               </output>
             )}
@@ -4271,8 +4446,7 @@ const handleDeliverCollection = useCallback(
                   className="hud-steel"
                   aria-label={`Steel: ${summary.steel}`}
                 >
-                  <i aria-hidden="true">◈</i>
-
+                  <IconeMoeda moeda="steel" />
                   {summary.steel}
                 </output>
               )}
@@ -4294,8 +4468,7 @@ const handleDeliverCollection = useCallback(
                   className="hud-diamonds"
                   aria-label={`Diamantes: ${summary.diamonds ?? 0}`}
                 >
-                  <i aria-hidden="true">◇</i>
-
+                  <IconeMoeda moeda="diamonds" />
                   {summary.diamonds ?? 0}
                 </output>
               )}
@@ -4612,7 +4785,32 @@ const handleDeliverCollection = useCallback(
                   : habilidadesAprendidas.has(skill.id);
 
               return (
-                <>
+                /**
+                 * A CHAVE ESTA NO FRAGMENTO, E NAO NO BOTAO DE DENTRO.
+                 *
+                 * ## POR QUE O `<button key="config">` NAO CONTAVA
+                 *
+                 * Porque o React pede a chave no elemento que o `.map`
+                 * DEVOLVE, e o que o `.map` devolve aqui e o `<>` — nao o
+                 * botao que esta dentro dele. Uma chave mais funda fica
+                 * presa ao botao, e o React so avisava sem nunca poder
+                 * corrigir: e o elemento externo que ele usa para comparar de
+                 * um quadro para o outro
+                 *
+                 * ## E POR QUE O FRAGMENTO PRECISA DE NOME
+                 *
+                 * Porque `<>` e a forma curta de `<React.Fragment>`, e a
+                 * forma curta NAO ACEITA props — nao tem lugar para a chave.
+                 * Por isso o import traz `Fragment` em vez de usar `<>`
+                 *
+                 * ## E POR QUE A CHAVE E O ID DA SKILL
+                 *
+                 * Porque `visibleSkills` muda de tamanho e de ordem quando o
+                 * servidor responde, e um indice mudaria junto. O `id` e o
+                 * mesmo que o `useSkillSlot` consulta no servidor, entao a
+                 * identidade da linha bate com a identidade do slot
+                 */
+                <Fragment key={skill.id}>
 {skill.slot === 1 && (
                     <button
                       key="config"
@@ -4648,7 +4846,7 @@ const handleDeliverCollection = useCallback(
                       engineRef.current?.useSkillSlot(skill.slot)
                     }
                   />
-                </>
+                </Fragment>
               );
             })}
 
@@ -4908,7 +5106,12 @@ type="button"
             onFocus={handleFocusQuest}
             onToggleAuto={handleToggleQuestAuto}
             onClaim={handleClaimQuestReward}
-            aoAbrirPainel={(id) => alternarPainel(id)}
+          onClaimAll={handleClaimAllQuestRewards}
+            aoAbrirPainel={(id, aba, npc) =>
+          npc
+            ? handleToggleQuestAuto()
+            : alternarPainel(id, aba)
+        }
           />
       )}
 
@@ -4939,6 +5142,18 @@ type="button"
             equipment={snapshot?.equipment}
           />
       )}
+
+{painelAberto === PAINEL.ARVORE && (
+          <SkillTreePanel
+            classId={snapshot?.player?.classId ?? null}
+            className={snapshot?.player?.className ?? null}
+            level={snapshot?.player?.level ?? 1}
+            pontos={snapshot?.player?.pontosHabilidade ?? 0}
+            nosArvore={snapshot?.player?.nosArvore ?? []}
+            aoComprar={handleComprarNo}
+            onClose={() => alternarPainel(PAINEL.ARVORE)}
+          />
+        )}
 
 {painelAberto === PAINEL.COLECAO && (
   <CollectionPanel
@@ -5082,9 +5297,41 @@ selecaoInicial={alvoEncantar}
           market={market}
           inventory={snapshot?.inventory}
           onBuy={handleBuyItem}
+          onBid={handleBidItem}
           onCancel={handleCancelListing}
           onList={handleListItem}
+          onAbrirAnunciar={() => setAnunciando(true)}
           onClose={() => alternarPainel(PAINEL.MARKET)}
+        />
+      )}
+
+      {/*
+        A MODAL DE ANUNCIAR, IRMÃ DO MERCADO E NÃO FILHA DELE.
+
+        ## POR QUE ESTE LUGAR E NÃO DENTRO DO `MarketModal`
+
+        Porque as duas são `position: absolute; inset: 0`, e a segunda dentro
+        da primeira resolvia o `absolute` contra a CAIXA DO MERCADO em vez de
+        contra a tela. A modal de anunciar nascia limited à altura do mercado,
+        e o formulário — que tem moeda, modo e lance mínimo — aparecia
+        cortado em cima e embaixo
+
+        Renderizando aqui as duas apontam para a MESMA referência, e o
+        `z-index` do `lst-modal` continua acima do `mkt-modal`
+
+        A guarda `painelAberto === PAINEL.MARKET` é o que impede a modal de
+        sobrar sozinha: o `Esc` dela já é `capture` e não fecha o mercado
+        junto, mas qualquer OUTRO caminho que feche o painel deixaria ela
+        flutuando sem mercado atrás
+      */}
+      {anunciando && painelAberto === PAINEL.MARKET && (
+        <CreateListingModal
+          inventory={snapshot?.inventory}
+          onConfirmar={(pedido) => {
+            setAnunciando(false);
+            handleListItem(pedido);
+          }}
+          onClose={() => setAnunciando(false)}
         />
       )}
 
@@ -5159,6 +5406,7 @@ onEnchant={handleOpenEnchant}
             onFilterChange={handleFilterChange}
           onFilterReset={handleFilterReset}
           onFilterPrune={handleFilterPrune}
+      onExpandInventory={handleExpandInventory}
         />
       )}
 

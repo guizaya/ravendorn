@@ -40,3 +40,47 @@ export const ROTULO_DO_PAINEL = {
   collection: "COLEÇÃO",
   loja: "LOJA",
 };
+
+/**
+ * O ROTULO POR TIPO DE TUTORIAL, que tem a palavra do PAINEL acima.
+ *
+ * ## POR QUE PRECISA DOS DOIS
+ *
+ * Porque `enchant` e um painel com duas abas, e os dois tutorials apontam
+ * para o mesmo `painel`. Pelo mapa de painel, a missao de aprimorar
+ * escrevia "ENCANTAR" — e mandava o jogador para a aba errada do painel
+ * certo. O rotulo por tipo e o que resolve os dois de uma vez: ele sabe
+ * qual tutorial esta em jogo, coisa que o painel nao sabe
+ *
+ * ## POR QUE O NPC NAO ENTRA NESTE MAPA
+ *
+ * Porque `npc` nao e painel nenhum: nao existe aba para abrir. O rotulo do
+ * NPC vem do proprio `npc`, porque "IR ATE O NPC" so faz sentido com um NPC
+ * ao lado — e `IR ATE A LOJA" na loja seria mentira
+ */
+export const ROTULO_DO_TUTORIAL = {
+  craft: "ABRIR CRAFT",
+  enchant: "ENCANTAR",
+  enhance: "APRIMORAR",
+  deliver: "COLEÇÃO",
+  buy: "LOJA",
+  learnSkill: "IR ATÉ O NPC",
+};
+
+/**
+ * O ROTULO DE UM TUTORIAL, ja com a palavra do destino pronta.
+ *
+ * A ordem e a do mais especifico para o mais geral: o NPC primeiro, porque
+ * so ele tem destino que nao e aba; depois o tipo, que e o que diferencia
+ * os dois/tutorials do `enchant`; e o painel por ultimo, como rede de
+ * seguranca para um tutorial novo que ainda nao entrou no mapa de tipo
+ */
+export function rotuloDoTutorial({ tipo, painel, npc } = {}) {
+  if (npc) return "IR ATÉ O NPC";
+
+  if (tipo && ROTULO_DO_TUTORIAL[tipo]) return ROTULO_DO_TUTORIAL[tipo];
+
+  if (painel) return ROTULO_DO_PAINEL[painel] ?? "ABRIR";
+
+  return null;
+}

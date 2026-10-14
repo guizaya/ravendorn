@@ -1,3 +1,4 @@
+import IconeMoeda from "../UI/IconeMoeda.jsx";
 /**
  * O PAINEL DA MORTE.
  *
@@ -209,7 +210,7 @@ export default function DeathPanel({
             <span className="dth__btn-label">Reviver</span>
 
             <span className="dth__btn-cost">
-              <i aria-hidden="true">◉</i>
+              <IconeMoeda moeda="coins" />
               {custoReviver}
             </span>
 

@@ -622,6 +622,34 @@ export function getMapIdOfZone(id) {
   return getZoneById(id)?.mapId ?? null;
 }
 
+/**
+ * DE QUE MAPA E ESTA ZONA, com o mesmo nome de mapa que o `MAP_1.id`.
+ *
+ * ## POR QUE ESTE EXISTE E POR QUE O PAINEL PAROU DE TER O DELE
+ *
+ * Porque duas pessoas precisam dessa resposta e uma so pode responder: o
+ * painel de missoes, para saber qual coluna mostrar, e o `QuestLog`, para
+ * saber quais resgates pertencem a aba. O painel tinha uma copia que
+ * respondia por `startsWith("m2_")` — e ler string para descobrir o mapa e
+ * o tipo de coisa que quebra no dia que alguem renomear o prefixo de uma
+ * zona
+ *
+ * Aqui a resposta sai do dado: a zona declara o proprio `mapId`, e ele ja e
+ * `map_1` ou `map_2`, que e exatamente o que o painel compara
+ *
+ * ## POR QUE O DESCONHECIDO VIRA MAPA 1
+ *
+ * Porque e o que o painel ja fazia, e mudar isso aqui esconderia degraus do
+ * painel sem ninguem pedir. Uma missao sem zona — ou de uma zona apagada —
+ * e raro, e quando aparece e melhor ela cair no mapa 1, que e onde o
+ * jogador esta, do que sumir das duas colunas
+ */
+export function mapaDaZona(zoneId) {
+  if (!zoneId) return MAP_1.id;
+
+  return getMapIdOfZone(zoneId) ?? MAP_1.id;
+}
+
 const KEEP_CLEAR = [
   { x: MAP_1_SPAWN.x - 220, y: MAP_1_SPAWN.y - 220, r: 440 },
   ...MAP_1_ZONES.map((zone) => ({
@@ -1277,11 +1305,27 @@ function placeProps(
          * campos a `undefined`: `solidoNaArte` e o opt-in explicito, e o
          * `buildPropSolids` cai no quadrado de sempre quando os campos nao
          * vem
+         *
+         * ## E POR QUE O TIPO PODE DIZER UM SOLIDO MENOR QUE A ARTE
+         *
+         * Porque `drawWidth`/`drawHeight` sao a CAIXA que cerca a arte, e no
+         * cristal essa caixa tem areas vazias enormes: a ultima linha da arte
+         * tem 4px de largura e a mais larga tem 64. Um solido do tamanho da
+         * caixa travava o jogador aonde nao tem cristal nenhum — na ponta de
+         * cima e na rabeira de baixo
+         *
+         * `solidWidth`/`solidHeight` sao o CORPO, medido na arte. E como o
+         * `buildPropSolidos` ancora o solido pelo PE, encurtar a altura tira
+         * a ponta de cima sem mexer na base: o pe continua no chao, e o que
+         * para o jogador e o corpo grosso do cristal
+         *
+         * E o que faz o boneco parecer que BATE na pedra em vez de bater num
+         * retangulo invisivel ao lado dela
          */
         ...(type.solidoNaArte
           ? {
-              solidWidth: type.drawWidth,
-              solidHeight: type.drawHeight,
+              solidWidth: type.solidWidth ?? type.drawWidth,
+              solidHeight: type.solidHeight ?? type.drawHeight,
               base: type.base,
             }
           : {}),
@@ -1476,6 +1520,24 @@ export const MAP_1 = {
    * "cidade" e este declara "grama"
    */
   groundTile: "grama",
+groundTile: "grama",
+
+  /**
+   * O AR DA CAMPINA: um campo aberto, ao meio-dia, com poco no ar.
+   *
+   * E o mapa mais neutro dos cinco, e de proposito: e a referencia contra a
+   * qual os outros se medem. A tint verde e fraca porque o jogo ja tem
+   * quatro mapas coloridos — uma quinta cor aqui seria so mais uma
+   */
+  ambience: {
+    tinta: "#8fbf6a",
+    tintaPeso: 0.09,
+    vinheta: 0.32,
+    vinhetaCor: "#0a1210",
+    particula: "poeira",
+    quantas: 65,
+    nevoa: { topo: 0.2, base: 0.26, cor: "#a8bfa4" },
+  },
 
 spawn: MAP_1_SPAWN,
 
@@ -1625,8 +1687,9 @@ spawn: MAP_1_SPAWN,
 };
 
 export const MAP_1_META = {
-  width: MAP_1_WIDTH,
+width: MAP_1_WIDTH,
   height: MAP_1_HEIGHT,
+
   bounds: MAP_1_BOUNDS,
   spawn: MAP_1_SPAWN,
   zones: MAP_1_ZONES,
@@ -1660,11 +1723,45 @@ export const MAP_2 = {
   width: MAP_1_WIDTH,
   height: MAP_1_HEIGHT,
 
+  /**
+   * O LADO DO TILE, EM 64, COMO O MAPA 1 E A BASE.
+   *
+   * O mapa 2 nao declarava ladrilho nenhum: ele reaproveitava as medidas do
+   * mapa 1 e parava ai. Sem o `tileSize`, o `registroDeTiles` nao tem o que
+   * ler quando um `.tmj` deste mapa for registrado, e a grade nao fecha com o
+   * chao que o mapa desenha
+   *
+   * Medido igual ao do mapa 1 porque e o mesmo ladrilho de chao: `groundTile`
+   * de ambos devolve 64, e um `.tmj` de tile 64 cai certo sem conversao
+   */
+  tileSize: 64,
+
   bounds: MAP_1_BOUNDS,
 
   background: "#17221f",
 
   groundTile: "neve",
+groundTile: "neve",
+
+  /**
+   * O AR DA NEVE: um corpo blanco que esconde o fundo.
+   *
+   * E o unico mapa com tint AZUL e clara, e e o oposto da arena: la o
+   * vermelho pesava, aqui o azul LEVE. A diferenca e a mesma regra dos
+   * dois outros: o peso da tint e o que diz se o lugar e hostile
+   *
+   * A neve cai e some rapido. Poucas particulas e as que caem seriao mais
+   * honestas que poeira subindo
+   */
+  ambience: {
+    tinta: "#8fb8dd",
+    tintaPeso: 0.12,
+    vinheta: 0.4,
+    vinhetaCor: "#0c141c",
+    particula: "neve",
+    quantas: 95,
+    nevoa: { topo: 0.26, base: 0.34, cor: "#cfe0ef" },
+  },
 
   /**
    * A TERRA DAS ZONAS DE MOB.
@@ -1726,10 +1823,39 @@ cameraZoom: 1,
 
   zones: MAP_2_ZONES,
 
-  props,
-  blocking,
-  decorative,
-  solids,
+  /**
+   * AS BARRERAS DESTE MAPA, E ELAS FORAM TIRADAS.
+   *
+   * ## POR QUE ESTE MAPA NAO USA MAIS AS 1231 PROPS DO VALE
+   *
+   * Porque este bloco pegava as `props` que a `createProps` gerou para o
+   * vale — 58 arvores e 1173 arbustos — e as trazia para ca. Todas as 1231
+   * sao `blocking: true`, entao o mapa 2 tinha uma floresta inteira de
+   * obstaculos invisiveis: o jogador batia em arbusto sem ver o que barrava,
+   * e o caminho no meio do mapa virava um labirinto
+   *
+   * ## E POR QUE ESVAZIAR AQUI, E NAO NA `createProps`
+   *
+   * Porque a `createProps` e compartilhada: o `MAP_1_SPAWN_COM_CHEFE`
+   * usa as mesmas `blocking` e `decorative` na linha 1389, e esvaziar la
+   * apagaria a floresta do mapa 1 tambem. Aqui so o mapa 2 muda
+   *
+   * ## E POR QUE `solids` TAMBEM
+   *
+   * Porque e a mesma lista contada de outro jeito: `solids` e o que o
+   * motor usa para barrar o movimento, e `props` e o que o desenho usa.
+   * Esvaziar so `props` deixaria 1231 obstaculos sem uma unica arvore na
+   * tela — o pior dos dois, e o tipo de coisa que so aparece na playteste
+   *
+   * ## O QUE SEGUE BARRANDO O MAPA 2
+   *
+   * A camada de objeto `PAREDES` do `map_2.tmj`, que e a borda da sala. O
+   * jogador nao sai do mapa, ele so anda livre dentro dele
+   */
+  props: [],
+  blocking: [],
+  decorative: [],
+  solids: [],
 
   /**
    * O PORTAL DE ENTRADA, e um so.
@@ -2094,6 +2220,28 @@ export const MAP_TESTE = {
    * `terra_2-voce-consedue-deixar-ela-uma-terra-mais-preta.jpg`
    */
   groundTile: "dark",
+groundTile: "dark",
+
+  /**
+   * O AR DO VALE: cinza descendo em um lugar sem cor.
+   *
+   * E a vinheta mais fechada e a tint mais apagada do jogo. A soma das
+   * duas coisas e o lugar mais escuro, e e de proposito: o Vale 1 e onde
+   * o hulk_val mora, e um lugar onde o jogador so ve o que tem a sua
+   * frente e um lugar de briga
+   *
+   * A tint e cinza-azulada e nao preta: uma tela sem cor nenhuma vira
+   * um retangulo, e nao um lugar
+   */
+  ambience: {
+    tinta: "#5a6673",
+    tintaPeso: 0.16,
+    vinheta: 0.56,
+    vinhetaCor: "#04060a",
+    particula: "cinza",
+    quantas: 80,
+    nevoa: { topo: 0.3, base: 0.38, cor: "#aebac6" },
+  },
 
   /**
    * O NASCIMENTO AFUADO DO CHEFE, e nao o `MAP_1_SPAWN`.

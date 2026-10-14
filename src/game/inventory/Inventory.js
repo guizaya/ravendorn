@@ -3,8 +3,17 @@ import {
   getItem,
   isStackable,
 } from "../../data/items/index.js";
+import { MOCHILA_SLOTS_BASE } from "../../data/inventory/capacidade.js";
 
-export const INVENTORY_CAPACITY = 20;
+/**
+ * A CAPACIDADE DA MOCHILA, e ela CRESCE.
+ *
+ * Este e o valor de partida, e vem do arquivo das regras — o mesmo que o
+ * servidor e a tela de expansao leem. Escrever `20` aqui tambem criaria uma
+ * segunda fonte: a expansao subiria a mochila para 30 enquanto o construtor
+ * ainda nasceria em 20, e o save sobrescreveria a compra na proxima entrada
+ */
+export const INVENTORY_CAPACITY = MOCHILA_SLOTS_BASE;
 
 let instanceSequence = 0;
 

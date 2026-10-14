@@ -9,6 +9,7 @@ import ItemIcon from "../UI/ItemIcon.jsx";
 import ItemTooltip from "../UI/ItemTooltip.jsx";
 import SlotMenuFloat from "../UI/SlotMenuFloat.jsx";
 import InvSlotView from "../UI/InvSlotView.jsx";
+import IconeMoeda from "../UI/IconeMoeda.jsx";
 import { FAMILIAS } from "../../data/materiais/index.js";
 
 /**
@@ -954,7 +955,7 @@ function GoldCost({ coins, haveCoins }) {
       <span className="cft-cost__rotulo">custo em gold</span>
 
       <span className="cft-cost__valor">
-        <i aria-hidden="true">◉</i>
+        <IconeMoeda moeda="coins" />
 
         {numero(coins)}
 

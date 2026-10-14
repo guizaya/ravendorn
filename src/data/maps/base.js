@@ -128,6 +128,40 @@ export const BASE_MAP = {
    */
   groundTile: "cidade",
 
+  /**
+   * O AR DO VILAREJO: uma tarde que esta acabando.
+   *
+   * A base e o unico lugar quente do jogo, e e de proposito que a tint seja
+   * dourada: os outros mapas sao frios ou hostis, e e o contraste que faz o
+   * hub ser o lugar de descanso
+   *
+   * A `faisca` e a unica particula que sobe E pisca forte, e ela existe para
+   * parecer brasa de fogueira e de lanterna. A vinheta e a mais fraca das
+   * cinco: um lugar seguro nao aperta a borda da tela
+   */
+  ambience: {
+    tinta: "#e8a94f",
+    tintaPeso: 0.1,
+    vinheta: 0.26,
+    vinhetaCor: "#120b06",
+    particula: "faisca",
+    quantas: 38,
+
+    /**
+     * O AR E DA VILA INTEIRA, E NAO DA TELA.
+     *
+     * A base cabe num olhar: 1664x1152, e o que a tela mostra sao uns
+     * 992x558. As pontas do lugar estao ali na tela mesmo quando o jogador
+     * esta no meio — e o spawn e sempre no meio
+     *
+     * Seguindo a camera, o ar se amontoava no centro da praca e as bordas da
+     * vila ficavam limpas. Com o campo no mapa, a faisca cobre tambem o
+     * que da para ver sem chegar perto
+     */
+    campo: "mapa",
+    nevoa: { topo: 0.14, base: 0.2, cor: "#c9b89c" },
+  },
+
   spawn: BASE_SPAWN,
 
   /**
@@ -220,7 +254,7 @@ export const BASE_MAP = {
    *
    * Todo mapa que nao declarar isto usa 1
    */
-  escalaSprites: { arbalist: 0.7, sorcerer: 0.644 },
+  escalaSprites: { arbalist: 0.7, sorcerer: 0.644, warrior: 0.7 },
 
 
 /**

@@ -49,6 +49,41 @@ export function carteiraDoNavegador(): CarteiraEthereum | null {
 }
 
 /**
+ * A CONTA CONECTADA NA METAMASK, ou `null`.
+ *
+ * E a funcao que decide se o jogador esta "conectado com a MetaMask no
+ * site". Diferente do `assinarComCarteira`, ela NUNCA abre um pedido de
+ * permissao: se a conta nao estiver autorizada, `eth_accounts` devolve vazio
+ * e a resposta e `null` — que e o que a tela inicial quer saber
+ *
+ * ## POR QUE O `try` ENGOLE O ERRO
+ *
+ * Porque `eth_accounts` RECUSA quando a MetaMask esta travada ou quando o
+ * usuario recusou a permissao. Sem o `catch`, a tela inicial derrubaria num
+ * rejeitado so por causa de um clique num botão — e um botão de navegação
+ * que lanca exceção é um botão quebrado
+ *
+ * ## E POR QUE ELA VIVE AQUI, E NÃO NA TELA
+ *
+ * Porque "tem carteira" e uma pergunta do navegador, igual a assinatura. A
+ * tela inicial é uma das que precisa dela, e ela não deve repetir o
+ * `window.ethereum` — que é um `any` na prática
+ */
+export async function contaConectada(): Promise<string | null> {
+  const ethereum = carteiraDoNavegador()
+
+  if (!ethereum) return null
+
+  try {
+    const contas = (await ethereum.request({ method: 'eth_accounts' })) as string[]
+
+    return contas?.[0] ?? null
+  } catch {
+    return null
+  }
+}
+
+/**
  * Assina `mensagem` com a conta ja conectada.
  *
  * E a funcao que os dois fluxos repassam: a tela de entrada assina a

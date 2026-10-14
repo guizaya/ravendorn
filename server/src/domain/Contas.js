@@ -1,4 +1,5 @@
 import { criarAccountStore, PASTA_CONTAS_PADRAO } from "../persistence/AccountStore.js";
+import { criarCharacterStore } from "../persistence/CharacterStore.js";
 import { nameKey, validateName } from "../../../src/data/characterName.js";
 
 /**
@@ -67,6 +68,7 @@ const DIAMANTES_INICIAIS = 1000;
  */
 export function criarContas({
   pasta = PASTA_CONTAS_PADRAO,
+  pastaPersonagens = undefined,
   origemPermitida = null,
   googleClientId = process.env.GOOGLE_CLIENT_ID ?? null,
   googleClientSecret = process.env.GOOGLE_CLIENT_SECRET ?? null,
@@ -75,6 +77,29 @@ export function criarContas({
   segundosDoToken = 60,
 } = {}) {
   const store = criarAccountStore({ pasta });
+
+  /**
+   * O SAVE DE CADA PERSONAGEM, so para o nivel.
+   *
+   * ## POR QUE A CONTA NAO SABE O NIVEL
+   *
+   * Porque o arquivo da conta guarda so o que a CONTA e: `id`, `nome`,
+   * `classe` e `criadoEm`. O nivel vive no save do personagem, dentro de
+   * `player.level` — sao arquivos diferentes, em pastas diferentes, e o
+   * personagem so e escrito no segundo quando ele entra no mundo
+   *
+   * Sem esta leitura a tela de selecao mostrava "Nivel 1" para todo mundo:
+   * o front lia `personagem.nivel`, que nao existe em lugar nenhum, e caia
+   * no piso do `?? 1`. Um heroi de nivel 8 aparecia como nivel 1 na
+   * unica tela em que o jogador ve os herois antes de escolher
+   *
+   * E o store e o MESMO do `GameServer`: os dois leem `personagens/<nome>.json`
+   * com a mesma regra de chave, e um nivel na tela de selecao que difere do
+   * nivel em jogo seria pior do que nenhum dos dois
+   */
+  const personagensStore = criarCharacterStore(
+    pastaPersonagens === undefined ? {} : { pasta: pastaPersonagens },
+  );
 
   // os tokens de entrada sao de uso unico e vivem pouco. O segredo e
   // obrigatorio: sem ele qualquer um forja um token e entra no jogo como
@@ -183,7 +208,34 @@ export function criarContas({
 
       if (!conta?.personagens?.length) return [];
 
-      return [...conta.personagens].sort((a, b) => b.criadoEm - a.criadoEm);
+      return [...conta.personagens]
+        .sort((a, b) => b.criadoEm - a.criadoEm)
+        .map((personagem) => ({
+          ...personagem,
+
+          /**
+           * O NIVEL, ELE SIM LIDO DO SAVE.
+           *
+           * O `Math.max(1, ...)` nao e por acaso: ha um piso porque o
+           * personagem recem-criado ainda nao tem arquivo em disco, e o front
+           * mostraria "Nivel undefined" ate a primeira partida
+           */
+          nivel: Math.max(1, Math.floor(this.nivelDe(personagem.nome) ?? 1)),
+        }));
+    },
+
+    /**
+     * O NIVEL DE UM PERSONAGEM, ou `null` quando ele nunca entrou no mundo.
+     *
+     * O `carregar` devolve `null` para save ausente, arquivo pela metade ou
+     * JSON quebrado — e nenhum dos tres e erro: o personagem entra como
+     * novo. Por isso o `?.` encadeia ate `player.level`, e o `?? null`
+     * fecha em vez de deixar `undefined` vazar para o JSON
+     */
+    nivelDe(nome) {
+      const save = personagensStore.carregar(nome);
+
+      return save?.player?.level ?? null;
     },
 
     /**

@@ -17,6 +17,9 @@ import { SKILL_PACKS } from "../../data/skills/index.js";
 import InvSlotView from "../UI/InvSlotView.jsx";
 import ItemCard from "../UI/ItemCard.jsx";
 import SlotMenuFloat from "../UI/SlotMenuFloat.jsx";
+import IconeMoeda from "../UI/IconeMoeda.jsx";
+import MochilaExpansaoModal from "./MochilaExpansaoModal.jsx";
+import { MOCHILA_SLOTS_MAX } from "../../data/inventory/capacidade.js";
 import {
   DEFAULT_LOOT_FILTER,
   LOOT_CATEGORIES,
@@ -204,6 +207,7 @@ function buildItemActions(entry, handlers) {
     onEnhance,
     onOpenCollection,
     onOpenCodex,
+    onSelecionar,
     classId = null,
   } = handlers;
 
@@ -426,6 +430,38 @@ run: () => onOpenCollection(entry.itemId),
         id: "enhance",
         label: "Aprimorar",
         run: () => onEnhance(entry),
+      });
+    }
+
+    if (onSelecionar) {
+      /**
+       * SELECIONAR, ANTES DE EXCLUIR E DEPOIS DE APRIMORAR.
+       *
+       * ## O QUE O CLIQUE FAZ
+       *
+       * Marca ESTE item e liga o modo de marcacao. A partir dai, clicar em
+       * qualquer outro item da mochila marca em vez de abrir o menu — que e
+       * a razao de a acao entrar no menu em vez de virar um botao na barra:
+       * o jogador ja esta olhando para o item que quer marcar
+       *
+       * ## POR QUE ANTES DE "EXCLUIR"
+       *
+       * Porque a acao destrutiva e sempre a ultima, e porque marcar e o que
+       * leva a ela. O rotulo e so "Selecionar" e nao "Selecionar para
+       * excluir" porque o item marcado nao vai para o lixo: ele vai para a
+       * fila da barra, e o lixeira la embaixo continua sendo uma decisao
+       * separada, com o numero na frente
+       *
+       * ## E POR QUE O MODO NAO SAI SOZINHO
+       *
+       * Porque ele tem saida propria: o "Concluir" da barra de marcacao, que
+       * so aparece quando ha algo marcado. Um item marcado e esquecido
+       * levaria a proxima exclusive junto sem o jogador querer
+       */
+      actions.push({
+        id: "selecionar",
+        label: "Selecionar",
+        run: () => onSelecionar(entry),
       });
     }
 
@@ -881,6 +917,7 @@ onOpenCodex,
 onFilterChange,
 onFilterReset,
 onFilterPrune,
+  onExpandInventory,
 }) {
   /**
    * A CLASSE DA SESSAO, lida uma vez — e pelo ID, e nao pelo nome.
@@ -914,8 +951,28 @@ onFilterPrune,
   const [category, setCategory] = useState("all");
   const [menu, setMenu] = useState(null);
   const [filterOpen, setFilterOpen] = useState(false);
+
+  /**
+   * A BOX DO CRITERIO DE ORDENACAO, e ela e IRMA DA OUTRA
+   *
+   * Sao dois ajustes que nao cabem na barra: o filtro de coleta e o criterio
+   * de ordenacao. Cada um abre a sua box, e so uma por vez — as duas abertas
+   * empilhariam no mesmo canto e o jogador nao saberia qual estava mexendo
+   */
+  const [raridadeOpen, setRaridadeOpen] = useState(false);
   const [searchTerm, setSearchTerm] = useState("");
   const [sort, setSort] = useState("rarity");
+
+  /**
+   * A MODAL DE EXPANSÃO, e ela é estado do PAINEL e não da modal.
+   *
+   * Porque quem abre é o `+` da barra, que vive aqui. O `Esc` é o ponto
+   * que importa: o `HUD` escuta `Escape` na `window` e chama `alternarPause`,
+   * que fecha a mochila E abre a pausa. A modal escuta em `capture` e para a
+   * propagação, então um aperto fecha só ela — sem a troca do painel inteiro
+   * por um pause que o jogador não pediu
+   */
+  const [expandindo, setExpandindo] = useState(false);
 
   /**
    * A EXCLUSAO EM LOTE.
@@ -982,6 +1039,15 @@ onFilterPrune,
   const hpPercent = Math.min(100, (hp / maxHp) * 100);
 
   const entries = summary.items ?? [];
+
+  /**
+   * A MOCHILA JÁ CHEGOU NO TETO?
+   *
+   * Lido do `capacity` que o servidor mandou, e nao da contagem de compras:
+   * o `capacity` e o que a mochila USA, e e ele que o save e a grade leem.
+   * Uma contagem de compras aqui divergiria do numero de slots da tela
+   */
+  const noLimite = summary.capacity >= MOCHILA_SLOTS_MAX;
 
   const capacityPercent = Math.min(
     100,
@@ -1213,6 +1279,57 @@ onFilterPrune,
 
   const searching = searchTerm.trim() !== "";
 
+  /**
+   * OS SLOTS VAZIOS, E QUANDO ELES DESAPARECEM
+   *
+   * ## POR QUE A MOCHILA DESENHA OS 20 ESPACOS
+   *
+   * Porque a mochila tem 20 e o jogador precisa VER que tem 20. Com a grade
+   * so dos itens, uma mochila com 3 pecas mostrava 3 quadrados e o resto da
+   * tela era um vazio sem informacao: nao dava para saber se havia espaco,
+   * nem quanto, nem onde o proximo item vai cair
+   *
+   * ## E POR QUE SO COM A MOCHILA CHEIA DE NADA
+   *
+   * Porque o padding e da MOCHILA, e nao da busca. Com a busca ligada ou com
+   * uma categoria filtrada, a lista nao e a mochila — e um recorte dela.
+   * Encher o resultado da busca com 17 quadrados vazios faria o jogador
+   * contar buraco em vez de ler o que ele procurou
+   *
+   * ## E POR QUE O `Math.max` COM ZERO
+   *
+   * Porque `cards` pode passar da capacidade quando um filtro devolve mais
+   * linhas que slots — e nesse caso nao existe espaco vazio para desenhar,
+   * e um `length` negativo viraria um numero de buracos
+   */
+  const semFiltro = !searching && category === "all";
+
+  /**
+   * QUANTOS ESPACOS FICAM VAZIOS.
+   *
+   * O `Math.max` com zero e obrigatorio: `cards` pode passar da capacidade
+   * quando um filtro devolve mais linhas que slots, e nesse caso nao existe
+   * espaco vazio para desenhar — um `length` negativo viraria um numero de
+   * buracos
+   */
+  const slotsVazios = semFiltro
+    ? Math.max(0, summary.capacity - cards.length)
+    : 0;
+
+  /**
+   * A LISTA DE ESPACOS VAZIOS, montada aqui e nao dentro do JSX.
+   *
+   * Porque um `{Array.from({ length }, (_, i) => (...))}` no meio da
+   * marcacao e um objeto literal disfarçado de array: o `{ length: n }`
+   * abre um bloco, e qualquer chave escrita ao lado dele vira sintaxe. Fazer
+   * a conta em uma `const` deixa o JSX com um `{vazios.map(...)}` que so
+   * parece o que e
+   */
+  const vazios = useMemo(
+    () => Array.from({ length: slotsVazios }, (_, i) => `vazio-${i}`),
+    [slotsVazios],
+  );
+
   return (
     <section className="inv-panel inv-v2">
       <header className="inv-header">
@@ -1264,6 +1381,77 @@ onFilterPrune,
             data-tip="Configurar filtro de coleta"
           >
             ⚙
+          </button>
+
+          {/*
+            O `+` DE EXPANDIR, AO LADO DO `⚙`.
+
+            ## POR QUE ELE NAO ABRE A MODAL SOZINHO
+
+            Porque expandir a mochila e a unica acao do inventario que tem
+            PRECO. Todo o resto do painel move o que ja e do jogador; este
+            botao tira diamante, e um clique sem confirmacao seria um gasto
+            que o jogador nao pediu
+
+            ## E POR QUE ELE CONTINUA CLICAVEL NO LIMITE
+
+            Porque um botao morto na barra nao diz nada. O `+` no teto abre a
+            modal do mesmo jeito, e e la dentro que o jogador le que a mochila
+            chegou ao maximo — um botao que so fica cinza quando clicado
+            precisa carregar essa informacao
+          */}
+          <button
+            type="button"
+            className="inv-gear inv-gear--expandir"
+            onClick={() => {
+              closeMenu();
+              setFilterOpen(false);
+              setRaridadeOpen(false);
+              setExpandindo(true);
+            }}
+            aria-haspopup="dialog"
+            aria-expanded={expandindo}
+            data-tip="Expandir a mochila"
+          >
+            +
+          </button>
+
+          {/*
+            O BOTAO DO FILTRO DE RARIDADE, AO LADO DO `⚙`
+
+            ## E SO UM BOTAO, COM ICONE
+
+            Sem o `select` dentro. A primeira versao tentou pendurar o
+            dropdown no proprio botao, e o resultado foi um segundo criterio
+            de ordenacao solto na barra, que e exatamente o que o jogador
+            pediu para sair de la
+
+            ## E O QUE ELE ABRE
+
+            Uma BOX, a mesma que o `⚙` abre. As duas sao o mesmo tipo de
+            controle — cada uma esconde um ajuste que nao cabe na barra — e
+            um abre na mao do outro ficaria com dois formatos na mesma linha
+
+            O `aria-expanded` e o que diz para o leitor de tela que o botao
+            tem um painel, e `aria-haspopup` diz que ele abre uma lista
+          */}
+          <button
+            type="button"
+            className={[
+              "inv-gear",
+              raridadeOpen ? "is-active" : "",
+            ]
+              .filter(Boolean)
+              .join(" ")}
+            onClick={() => {
+              closeMenu();
+              setRaridadeOpen((current) => !current);
+            }}
+            aria-haspopup="true"
+            aria-expanded={raridadeOpen}
+            data-tip="Ordenar a mochila"
+          >
+            ▽
           </button>
 
           <button
@@ -1335,75 +1523,15 @@ equipment={equipment}
               })}
             </nav>
 
-{/*
-                O ORDENAR, E A CAPELA SO COM O `select`.
+            {/*
+              A BARRA DE CIMA FICA SO COM AS ABAS.
 
-                O rotulo "Ordenar" saiu porque o `select` ja mostra o
-                criterio escolhido, e duas vezes o mesmo nome na mesma linha
-                era uma palavra nao屏幕上 que o jogador lia duas vezes. O
-                `title` ficou, entao o mouse ainda explica o que e
-
-                E o `flex: 1` vai no rotulo e nao no select: sem ele o select
-                encosta na direita e a fita de marcacao, que aparece logo
-                abaixo, ficaria com o criterio longe da acao
-              */}
-              <label
-                className="inv-sort"
-                data-tip="Ordenar a mochila"
-              >
-                <select
-                  className="inv-sort__select"
-                  value={sort}
-                  onChange={(e) => {
-                    closeMenu();
-                    setSort(e.target.value);
-                  }}
-                >
-                  {SORTS.map((option) => (
-                    <option key={option.id} value={option.id}>
-                      {option.label}
-                    </option>
-                  ))}
-                </select>
-              </label>
-
-              {/*
-                A LIGA DA EXCLUSAO EM LOTE.
-
-                E fica na barra, e nao no menu do item, porque e uma acao que
-                muda o COMO o inventario inteiro se comporta. Se ficasse dentro
-                do menu, o jogador teria que abrir um item para descobrir que
-                da para marcar vários
-
-                E vira "Concluir" enquanto o modo esta ligado, porque e a
-                acao que encerra o que ele começou
-              */}
-              <button
-                type="button"
-                className={[
-                  "inv-mark-btn",
-                  marcando ? "is-on" : "",
-                ]
-                  .filter(Boolean)
-                  .join(" ")}
-                onClick={() => {
-                  closeMenu();
-
-                  if (marcando) {
-                    setMarcando(false);
-                    return;
-                  }
-
-                  setMarcando(true);
-                }}
-                data-tip={
-                  marcando
-                    ? "Sair do modo de seleção"
-                    : "Marcar vários itens para excluir de uma vez"
-                }
-              >
-                {marcando ? "Concluir" : "Selecionar"}
-              </button>
+              O `select` de ordenacao saiu daqui e foi para o botao com
+              simbolo de filtro, ao lado do `⚙` do filtro de coleta. Com ele
+              aqui, a barra tinha tres tipos de controle misturados — aba,
+              criterio e nada mais — e o criterio nao se diferenciava de uma
+              aba por cor, por borda nem por forma
+            */}
             </div>
 
             {/*
@@ -1474,20 +1602,19 @@ onClick={() => {
             )}
 
           <div className="inv-content">
-            {cards.length === 0 ? (
-              <div className="inv-empty-state">
-                <div className="inv-empty-icon">
-                  {searching ? "⌕" : "▣"}
-                </div>
-                <p className="inv-panel__empty">
-                  {searching
-                    ? "Nenhum item encontrado para a busca."
-                    : "Nenhum item nesta categoria."}
-                </p>
-              </div>
-            ) : (
-              <div className="inv-grid-modern">
-                {cards.map(({ entry, item, raridadeId, style }) => {
+            {/**
+             * A GRADE SEMPRE, MESMO VAZIA.
+             *
+             * Antes era `cards.length === 0 ? vazio : grade`, e o estado
+             * vazio escondia a propria mochila. O jogador abria o inventario
+             * de um heroi novo e via um icone e uma frase — sem nenhum dos
+             * 20 quadrados, e sem nenhuma pista de quantos espacos ele tinha
+             *
+             * A frase continua existindo, mas AGORA DEBAIXO da grade: ela
+             * explica a tela em vez de substitui-la
+             */}
+            <div className="inv-grid-modern">
+              {cards.map(({ entry, item, raridadeId, style }) => {
                   /**
                    * AS ACOES DESTE ITEM, montadas aqui e nao no cartao.
                    *
@@ -1505,7 +1632,21 @@ const acoes = buildItemActions(entry, {
         onEnhance: enhanceItem,
         onOpenCollection,
         onOpenCodex,
-classId: classeDaSessao,
+        /**
+         * A MARCA E O MODO, JUNTOS, E NAO EM DOIS PASSOS.
+         *
+         * Porque o menu so aparece quando o modo esta DESLIGADO: com ele
+         * ligado, o clique no item marca e nao abre o menu. Passar so
+         * `alternarMarca` marcaria este item e deixaria o proximo clique
+         * abrindo menu de novo — o jogador marcaria um e teria de repetir o
+         * caminho no segundo
+         */
+        onSelecionar: (alvo) => {
+          closeMenu();
+          alternarMarca(alvo.uid);
+          setMarcando(true);
+        },
+        classId: classeDaSessao,
       });
 
                     const aberto = menu === entry.uid;
@@ -1558,8 +1699,53 @@ return (
                   />
                 );
                 })}
+
+                {/**
+                 * OS ESPACOS VAZIOS: SO O SLOT, E DO TAMANHO DO SLOT DO ITEM
+                 *
+                 * ## SEM CASCA POR FORA
+                 *
+                 * Porque a casca `.inv-item-card` é o que o jogador nao quer
+                 * em volta do vazio: e a moldura que existe para segurar o
+                 * nome e a raridade, e um espaco vazio nao tem nenhum dos
+                 * dois. Com ela, o vazio virava um cartao dentro de outro
+                 *
+                 * ## E O `calc` DE 14px
+                 *
+                 * Porque o slot do item ocupado NAO ocupa a coluna inteira: a
+                 * casca tira 6px de cada lado de `padding` e mais 1px de
+                 * borda de cada lado. Sao 14px. O vazio e filho direto da
+                 * grade e recebe a coluna cheia, entao sem isso ele ficaria
+                 * 14px mais largo que o item ao lado — e e o suficiente para
+                 * a coluna do `auto-fit` inchar e abrir o vao gigante
+                 *
+                 * ## E POR QUE SEM `<button>`
+                 *
+                 * Um espaco vazio clicavel promete equipar, usar ou excluir,
+                 * e nao ha item para nenhuma dessas. Seria o mesmo defeito da
+                 * arvore: uma tela que aceita o clique e nao faz nada
+                 */}
+                {vazios.map((chave) => (
+                  <span
+                    key={chave}
+                    className="inv-slot inv-slot--empty"
+                    aria-hidden="true"
+                  />
+                ))}
               </div>
-            )}
+
+              {cards.length === 0 && (
+                <div className="inv-empty-state">
+                  <div className="inv-empty-icon">
+                    {searching ? "⌕" : "▣"}
+                  </div>
+                  <p className="inv-panel__empty">
+                    {searching
+                      ? "Nenhum item encontrado para a busca."
+                      : "Nenhum item nesta categoria."}
+                  </p>
+                </div>
+              )}
 
             {/*
               OS DOIS NUMEROS: DENTRO DA DIV DOS ITENS, NO CANTO INFERIOR
@@ -1624,18 +1810,18 @@ return (
               */}
 <span className="inv-moedas">
                   <span className="inv-chip inv-chip--gold" data-tip="Moedas">
-                    <i>◉</i>
+                    <IconeMoeda moeda="coins" />
                     <b>{summary.coins}</b>
                   </span>
 
                   <span className="inv-chip inv-chip--steel" data-tip="Steel">
-                    <i>◈</i>
+                    <IconeMoeda moeda="steel" />
                     <b>{summary.steel ?? 0}</b>
                   </span>
 
                   {/* o diamante, no mesmo canto e com o mesmo glifo da HUD */}
                   <span className="inv-chip inv-chip--diamond" data-tip="Diamantes">
-                    <i>◇</i>
+                    <IconeMoeda moeda="diamonds" />
                     <b>{summary.diamonds ?? 0}</b>
                   </span>
                 </span>
@@ -1666,6 +1852,88 @@ return (
             onClose={() => setFilterOpen(false)}
           />
         </div>
+      )}
+
+      {/*
+        A BOX DO CRITERIO, E ELA E A MESMA FORMA DA DO FILTRO DE COLETA
+
+        ## POR QUE A MESMA CAIXA E NAO UM `<select>`
+
+        Porque o `select` e um controle do SO e do TAB: ele abre uma lista do
+        sistema, com a aparencia do sistema, e nao segue nenhum dos botoes do
+        painel. O filtro de coleta ja resolvia esse problema com uma caixa
+        propria, e o criterio de ordenacao tem a mesma forma de problema
+
+        ## E POR QUE O `select` CONTINUA DENTRO DA CAIXA
+
+        Porque dentro dela ele e uma linha da lista, e nao mais um menu
+        solto. O criterio escolhido fica visivel na caixa fechada pelo
+        rotulo do botao, e a lista abre embaixo dele
+      */}
+      {raridadeOpen && (
+        <div className="inv-filter-panel inv-ordem-panel">
+          {/*
+            O `.inv-filter` E A ARTE DO CARTAO, E O `inv-filter-panel` E SO O
+            POSICIONAMENTO
+
+            Sao duas coisas com nomes parecidos e papeis diferentes: o painel
+            de fora so tem `position`, `z-index`, `top` e `right`; a borda, o
+            fundo e o arredondado moram no `.inv-filter` de dentro
+
+            Sem este embrulho o criterio aparecia voando: posicionado certo,
+            sem nenhuma coisa para ele ser. E o erro e do mesmo tipo do
+            comentario orfao que engoliu o CSS do `⚙` — um elemento que
+            depende de uma regra que nao estava no lugar
+          */}
+          <div className="inv-filter">
+            <header className="inv-filter__head">
+              <strong>Ordenar por</strong>
+
+              <button
+                type="button"
+                className="inv-close"
+                onClick={() => setRaridadeOpen(false)}
+                data-tip="Fechar"
+              >
+                ✕
+              </button>
+            </header>
+
+            <div className="inv-ordem-panel__linha">
+              <select
+                className="inv-ordem-panel__select"
+                value={sort}
+                onChange={(e) => setSort(e.target.value)}
+              >
+                {SORTS.map((option) => (
+                  <option key={option.id} value={option.id}>
+                    {option.label}
+                  </option>
+                ))}
+              </select>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/*
+        A MODAL DE EXPANSÃO, e ela fica AQUI dentro do painel.
+
+        E nao no HUD porque quem a abre e o `+` da barra, e quem a fecha e o
+        `Esc` dela: monto-a aqui e o `InventoryPanel` ja sabe que existe uma
+        coisa sobre ela — sem isso, o `Esc` do painel fecharia a mochila
+        embaixo da modal, e o jogador voltaria para o jogo sem estar olhando
+        para nada
+      */}
+      {expandindo && (
+        <MochilaExpansaoModal
+          inventory={summary}
+          onConfirmar={() => {
+            setExpandindo(false);
+            onExpandInventory?.();
+          }}
+          onClose={() => setExpandindo(false)}
+        />
       )}
     </section>
   );

@@ -1,0 +1,23 @@
+{
+  "id": "carteira_0x25941a068252bc533c549e1fdfb50183d1c5cb21",
+  "tipo": "carteira",
+  "email": null,
+  "carteira": "carteira_0x25941a068252bc533c549e1fdfb50183d1c5cb21",
+  "diamantes": 10,
+  "unlockedSlots": 2,
+  "personagens": [
+    {
+      "id": "7b4b0009-89f1-4de7-b4d7-bf2fdeb42664",
+      "nome": "teste",
+      "classe": "arbalist",
+      "criadoEm": 1791956014435
+    },
+    {
+      "id": "6c84e9dc-fece-4619-acbc-b276836b357b",
+      "nome": "tte",
+      "classe": "warrior",
+      "criadoEm": 1791964435221
+    }
+  ],
+  "criadoEm": 1791956009734
+}

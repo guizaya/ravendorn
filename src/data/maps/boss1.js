@@ -191,6 +191,26 @@ export const BOSS_1_MAP = {
 
   groundTile: "boss",
 
+  /**
+   * O AR DA ARENA: brasa subindo em um lugar vermelho.
+   *
+   * E a unica tint quente do jogo que e HOSTIL. O vilarejo tem dourado tambem,
+   * e a diferenca esta no peso: 0.18 contra 0.1. O mesmo dourado, mas pesando
+   * o dobro na tela, e o jogador le a diferenca antes de ler a cor
+   *
+   * A vinheta e a mais fechada das cinco. Uma arena e o lugar onde o jogador
+   * olha para o centro o tempo todo, e a borda apertada reforca isso
+   */
+  ambience: {
+    tinta: "#c0392b",
+    tintaPeso: 0.18,
+    vinheta: 0.5,
+    vinhetaCor: "#1a0505",
+    particula: "brasa",
+    quantas: 85,
+    nevoa: { topo: 0.22, base: 0.32, cor: "#c08462" },
+  },
+
   spawn: BOSS_1_SPAWN,
 
   /**

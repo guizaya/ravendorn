@@ -1,4 +1,4 @@
-﻿import { randomUUID } from "node:crypto";
+import { randomUUID } from "node:crypto";
 import { GameEngine } from "../../../src/game/engine/GameEngine.js";
 import { createPlayerSession } from "../../../src/game/engine/PlayerSession.js";
 import { CHARACTER_CLASSES } from "../../../src/data/characters/index.js";
@@ -45,7 +45,11 @@ import {
 } from "../../../src/data/guild/index.js";
 import {
   ANUNCIOS_MAXIMOS,
+  lanceMinimoAtual,
   MARKET_RESULT,
+  MOEDA,
+  MODO_VENDA,
+  moedaDaConta,
   PRECO_MAXIMO,
   PRECO_MINIMO,
   describeAnuncioItem,
@@ -66,6 +70,10 @@ import {
   MOEDAS_ESPECIAIS,
 } from "../../../src/data/loja/index.js";
 import { getTalent, podeGerenciar } from "../../../src/data/guild/index.js";
+import {
+  MOCHILA_SLOTS_MAX,
+  proximaCompra,
+} from "../../../src/data/inventory/capacidade.js";
 import {
   CLIENT_COMMANDS,
   PANEL_OPS,
@@ -801,62 +809,169 @@ personagensSalvos: () => this.listaDePersonagensSalvos(),
    * lugar que ja roda sem parar
    */
   expirarAnuncios() {
-    const expirados = this.market.expirar();
-
-    for (const anuncio of expirados) {
-      const dono = this.sessaoDoDono(anuncio.sellerKey);
-
-      if (!dono) {
-        // o vendedor saiu e a sessao morreu: o item espera por ele
-        this.pendentesDeDevolucao.push({
-          ownerKey: anuncio.sellerKey,
-          itemId: anuncio.itemId,
-          rarity: anuncio.rarity,
-          count: anuncio.count,
-        });
-
-        continue;
-      }
-
-      const devolvido = dono.inventory.add(
-        anuncio.itemId,
-        anuncio.count,
-        anuncio.rarity,
-      );
-
-      if (devolvido.added < anuncio.count) {
-        // a mochila do dono lotou entre o anuncio e a expiracao
-        this.pendentesDeDevolucao.push({
-          ownerKey: anuncio.sellerKey,
-          itemId: anuncio.itemId,
-          rarity: anuncio.rarity,
-          count: anuncio.count - devolvido.added,
-        });
+    // `expirados()` e a LEITURA; a remocao e de quem trata cada caso. O
+    // `market.expirar()` antigo apagava tudo de uma vez, e um leilao nao
+    // pode ser apagado sem decidir o que acontece com o lance
+    for (const anuncio of this.market.expirados()) {
+      /**
+       * O LEILÃO VENCIDO tem um comprador, e ele muda o desfecho inteiro.
+       *
+       * Sem lance, um leilao que vence e uma devolucao comum — o item volta ao
+       * vendedor. Com lance, o item e do comprador e o dinheiro e do vendedor,
+       * e as duas transferencias nao tem nada a ver com o caminho de baixo
+       */
+      if (anuncio.modo === MODO_VENDA.LEILAO) {
+        this.encerrarLeilao(anuncio);
 
         continue;
       }
 
-      this.marcarMercadoSujo();
-
-      this.avisoDoDono(
-        dono,
-        `Seu anuncio de ${describeAnuncioItem(anuncio)} venceu e o item voltou.`,
-      );
+      this.devolverAnuncioVencido(anuncio);
     }
-
-    /**
-     * algo saiu do ar, com ou sem sessao viva do dono: o disco esta
-     * com uma vitrine que ninguem mais ve. um anuncio que VENCE sem
-     * gravar volta inteiro no proximo boot, e o item nunca acha o
-     * dono
-     */
-    if (expirados.length > 0) this.marcarMercadoSujo();
-
-    return expirados.length;
   }
 
   /**
-   * A sessao de um jogador pelo ID, ou `null`.
+   * UM LEILÃO QUE VENCEU: o item vai para quem lancei, o dinheiro para quem vendeu.
+   *
+   * ## POR QUE NINGUÉM PRECISA ESTAR ONLINE
+   *
+   * Porque as duas pontas podem estar fora, e o dinheiro nao pode depender
+   * disso. Quem nao tem sessao viva entra na fila: `pagamentosPendentes` para
+   * o vendedor e `pendentesDeDevolucao` para o comprador, e as duas sao
+   * resolvidas na proxima entrada. A fila e o que impede um lance de virar
+   * dinheiro sumido no dia seguinte
+   */
+  encerrarLeilao(anuncio) {
+    const resultado = this.market.fecharLeilao(anuncio.id);
+
+    if (!resultado.ok) return;
+
+    this.marcarMercadoSujo();
+
+    // leilao sem lance nenhum: o item volta para o vendedor
+    if (!resultado.comprador) {
+      this.devolverAnuncioVencido(anuncio);
+
+      return;
+    }
+
+    const { comprador, valor, currency } = {
+      comprador: resultado.comprador,
+      valor: resultado.valor,
+      currency: anuncio.currency,
+    };
+
+    /**
+     * O DINHEIRO DO VENDEDOR, e ele vai ANTES do item.
+     *
+     * A ordem e o que mantem a verdade do mercado: se a entrega do item
+     * falhar, o vendedor ja foi pago e o comprador tem a fila. Ao contrario,
+     * o comprador receberia a peca e o vendedor nunca receberia nada
+     */
+    const vendedor = this.sessaoDoDono(anuncio.sellerKey);
+
+    if (vendedor) {
+      this.creditarAoDono(vendedor, currency, valor);
+
+      this.avisoDoDono(
+        vendedor,
+        `Seu leilao de ${describeAnuncioItem(anuncio)} venceu por ${valor}.`,
+      );
+    } else {
+      this.pagamentosPendentes.push({
+        ownerKey: anuncio.sellerKey,
+        coins: valor,
+        currency,
+      });
+    }
+
+    const compradorVivo = this.sessaoDoDono(comprador.key);
+
+    if (!compradorVivo) {
+      this.pendentesDeDevolucao.push({
+        ownerKey: comprador.key,
+        itemId: anuncio.itemId,
+        rarity: anuncio.rarity,
+        count: anuncio.count,
+      });
+
+      return;
+    }
+
+    const entregue = compradorVivo.inventory.add(
+      anuncio.itemId,
+      anuncio.count,
+      anuncio.rarity,
+    );
+
+    if (entregue.added < anuncio.count) {
+      this.pendentesDeDevolucao.push({
+        ownerKey: comprador.key,
+        itemId: anuncio.itemId,
+        rarity: anuncio.rarity,
+        count: anuncio.count - entregue.added,
+      });
+
+      // o que entrou na mochila e que nao coube no `count` fica com ele
+      return;
+    }
+
+    this.avisoDoDono(
+      compradorVivo,
+      `Voce venceu o leilao de ${describeAnuncioItem(anuncio)} por ${valor}.`,
+    );
+  }
+
+  /**
+   * O CAMINHO DE SEMPRE: o item de um anúncio vencido volta ao dono.
+   *
+   * E o que o leilao sem lance usa, e o que usava antes de existir leilao.
+   * Ficar aqui, e nao espalhado em dois `continue`, e o que impede uma
+   * versao de devolver o item e a outra de devolver em ouro
+   */
+  devolverAnuncioVencido(anuncio) {
+    const dono = this.sessaoDoDono(anuncio.sellerKey);
+
+    if (!dono) {
+      // o vendedor saiu e a sessao morreu: o item espera por ele
+      this.pendentesDeDevolucao.push({
+        ownerKey: anuncio.sellerKey,
+        itemId: anuncio.itemId,
+        rarity: anuncio.rarity,
+        count: anuncio.count,
+      });
+
+      return;
+    }
+
+    const devolvido = dono.inventory.add(
+      anuncio.itemId,
+      anuncio.count,
+      anuncio.rarity,
+    );
+
+    if (devolvido.added < anuncio.count) {
+      // a mochila do dono lotou entre o anuncio e a expiracao
+      this.pendentesDeDevolucao.push({
+        ownerKey: anuncio.sellerKey,
+        itemId: anuncio.itemId,
+        rarity: anuncio.rarity,
+        count: anuncio.count - devolvido.added,
+      });
+
+      return;
+    }
+
+    this.marcarMercadoSujo();
+
+    this.avisoDoDono(
+      dono,
+      `Seu anuncio de ${describeAnuncioItem(anuncio)} venceu e o item voltou.`,
+    );
+  }
+
+  /**
+   * A SESSAO DE UM JOGADOR pelo ID, ou `null`.
    *
    * Serve para o MUNDO (quem esta onde, quem atira em quem), onde o
    * id de sessao e a identidade de verdade
@@ -1164,6 +1279,19 @@ personagensSalvos: () => this.listaDePersonagensSalvos(),
       [MARKET_RESULT.PROPRIO]: "Voce nao pode comprar o seu proprio anuncio.",
       [MARKET_RESULT.MOEDAS]: "Moedas insuficientes.",
       [MARKET_RESULT.ESPACO]: "A mochila esta cheia.",
+
+      /**
+       * OS MOTIVOS NOVOS, e cada um com o seu texto.
+       *
+       * "Erro no mercado" num lance recusado e o pior resultado possivel: o
+       * jogador ve o botao que nao funciona e nao descobre se foi o piso, a
+       * moeda ou o saldo. Um motivo por situacao e o que faz o recuso
+       * virar instrucao
+       */
+      [MARKET_RESULT.LANCE]:
+        "Lance invalido. Confira o lance minimo e o maior lance atual.",
+      [MARKET_RESULT.MOEDA]: "Essa moeda nao existe.",
+      [MARKET_RESULT.MODO]: "Esse anuncio nao aceita esse tipo de operacao.",
     };
 
     return textos[reason] ?? "Nao deu para fazer no mercado.";
@@ -1228,6 +1356,9 @@ personagensSalvos: () => this.listaDePersonagensSalvos(),
       sellerName: sessao.name,
       uid: pedido.uid,
       price: pedido.price,
+      currency: pedido.currency,
+      modo: pedido.modo,
+      minBid: pedido.minBid,
     });
 
     if (!resultado.ok) {
@@ -1296,6 +1427,151 @@ personagensSalvos: () => this.listaDePersonagensSalvos(),
    * jogador nao cancela o anuncio de outro. E o `uid` do anuncio e o
    * que devolve a peca ao dono
    */
+  /**
+   * O CAMINHO DE GANHO, e o par exato do `descontarDoAnuncio`.
+   *
+   * ## POR QUE ELE EXISTE EM SEPARADO
+   *
+   * Porque o dinheiro do vendedor chega em tres momentos: na venda direta, na
+   * entrega do leilao, e no estorno do lance ultrapassado. E o diamante ainda
+   * tem o passo a mais de subir para a conta — sem ele, o vendedor ganharia o
+   * valor no personagem e a conta nunca saberia
+   *
+   * @param {object} sessao quem recebe
+   * @param {string} currency a moeda do anuncio
+   * @param {number} valor quanto creditar
+   */
+  creditarAoDono(sessao, currency, valor) {
+    if (currency === MOEDA.STEEL) {
+      sessao.inventory.addSteel(valor);
+
+      return;
+    }
+
+    if (moedaDaConta(currency)) {
+      sessao.inventory.addDiamonds(valor);
+      this.guardarDiamantesNaConta(sessao);
+
+      return;
+    }
+
+    sessao.inventory.addCoins(valor);
+  }
+
+  /**
+   * UM LANCE EM LEILAO: debita, guarda o dinheiro e devolve o do perdedor.
+   *
+   * ## A ORDEM DAS TRES COISAS, E POR QUE IMPORTA
+   *
+   * Saldo, depois espaco de volta para o comprador ultrapassado, e so entao
+   * o lance novo. Se o espaco viesse primeiro, um comprador sem lugar na
+   * mochila cancelaria o lance do outro e ficaria com o dinheiro dos dois
+   *
+   * ## E POR QUE `market.bid` NAO DEVOLVE NADA
+   *
+   * Porque o `MarketStore` nao tem saldo de ninguem. Ele devolve no resultado
+   * QUEM foi ultrapassado, e e este metodo que credita — se os dois fizessem,
+   * o mesmo dinheiro voltaria duas vezes
+   */
+  darLanceNoMarket(sessao, pedido) {
+    /**
+     * O SALDO PRIMEIRO, e o lance so depois.
+     *
+     * E o que evita ter que desfazer: `market.bid` grava o maior lance no
+     * anuncio assim que aceita. Se o debito viesse depois, um jogador sem
+     * saldo deixaria um lance fantasma no piso — e o proximo comprador veria
+     * um valor minimo que ninguem pagou
+     */
+    const anuncio = this.market.get(pedido.listingId);
+
+    if (
+      !anuncio ||
+      !this.podePagarMoeda(sessao, anuncio.currency, pedido.price)
+    ) {
+      this.resultadoDoMarket(
+        sessao,
+        { ok: false, reason: MARKET_RESULT.MOEDAS },
+        null,
+      );
+
+      return;
+    }
+
+    const resultado = this.market.bid(
+      pedido.listingId,
+      sessao.donoKey,
+      sessao.name,
+      pedido.price,
+    );
+
+    if (!resultado.ok) {
+      this.resultadoDoMarket(sessao, resultado, null);
+
+      return;
+    }
+
+    const debitado = this.descontarDoAnuncio(
+      sessao,
+      resultado.listing.currency,
+      pedido.price,
+    );
+
+    if (!debitado) {
+      // o saldo foi conferido acima, entao isto e defensivo: se o debito falhar
+      // mesmo assim, o lance nao pode ficar valendo
+      this.market.desfazerLance(
+        resultado.listing.id,
+        resultado.maiorAnterior,
+        resultado.lances,
+      );
+
+      this.resultadoDoMarket(
+        sessao,
+        { ok: false, reason: MARKET_RESULT.MOEDAS },
+        null,
+      );
+
+      return;
+    }
+
+    /**
+     * O DINHEIRO DO LANCE ANTERIOR VOLTA AGORA.
+     *
+     * Em leilao o dinheiro fica retido enquanto o item esta anunciado, entao
+     * devolver no ato e o unico jeito de o perdedor nao ficar preso ate o fim
+     */
+    if (resultado.devolvido && resultado.maiorAnterior) {
+      const anterior = this.sessaoDoDono(resultado.maiorAnterior.key);
+
+      if (anterior) {
+        this.creditarAoDono(
+          anterior,
+          resultado.listing.currency,
+          resultado.devolvido,
+        );
+
+        this.avisoDoDono(
+          anterior,
+          `Seu lance de ${resultado.devolvido} foi ultrapassado. O valor voltou.`,
+        );
+      } else {
+        this.pagamentosPendentes.push({
+          ownerKey: resultado.maiorAnterior.key,
+          coins: resultado.devolvido,
+          currency: resultado.listing.currency,
+        });
+      }
+    }
+
+    this.marcarMercadoSujo();
+
+    this.resultadoDoMarket(
+      sessao,
+      { ok: true },
+      `Lance de ${pedido.price} em ${describeAnuncioItem(resultado.listing)}.`,
+    );
+  }
+
   cancelarNoMarket(sessao, pedido) {
     const resultado = this.market.cancel(
       pedido.listingId,
@@ -1306,6 +1582,38 @@ personagensSalvos: () => this.listaDePersonagensSalvos(),
       this.resultadoDoMarket(sessao, resultado, null);
 
       return;
+    }
+
+    /**
+     * O LANCE VOLTA PARA QUEM DELE, e antes do item voltar para o vendedor.
+     *
+     * O dinheiro e o que o compradorTEM, e o item e o que o vendedor tem. Um
+     * pedido de cancelamento que devolvesse o item e esquecesse o lance
+     * entregaria a peca E o dinheiro de volta para o mesmo par
+     */
+    const lanceDevolvido = this.market.lanceARetornar(resultado.listing);
+
+    if (lanceDevolvido) {
+      const perdedor = this.sessaoDoDono(lanceDevolvido.key);
+
+      if (perdedor) {
+        this.creditarAoDono(
+          perdedor,
+          lanceDevolvido.currency,
+          lanceDevolvido.valor,
+        );
+
+        this.avisoDoDono(
+          perdedor,
+          `O leilao de ${describeAnuncioItem(resultado.listing)} foi cancelado. Seu lance de ${lanceDevolvido.valor} voltou.`,
+        );
+      } else {
+        this.pagamentosPendentes.push({
+          ownerKey: lanceDevolvido.key,
+          coins: lanceDevolvido.valor,
+          currency: lanceDevolvido.currency,
+        });
+      }
     }
 
     const devolvido = sessao.inventory.add(
@@ -1584,6 +1892,74 @@ this.engine.showMessage(
    * recarregaria e o pacote voltaria a ficar compravel, e ele poderia pagar
    * duas vezes
    */
+  /**
+   * COMPRA ESPACO DE MOCHILA.
+   *
+   * ## POR QUE O PEDIDO NÃO TRAZ NENHUM NÚMERO
+   *
+   * O cliente manda so "quero expandir". Os slots, o preço e quantas compras
+   * ja foram feitas sao lidos DA SESSAO e calculados com `proximaCompra`.
+   * Um pedido com `slots: 999` viraria uma mochila de mil slots de graça, e
+   * um `preco: 1` faria o jogador pagar um diamante pelo dobro
+   *
+   * ## A ORDEM: PREÇO, DIAMANTE, CAPACIDADE
+   *
+   * O preco e lido antes de qualquer coisa, e o diamante e debitado antes da
+   * capacidade crescer. Se a ordem fosse o contrario, um debito que falhasse
+   * deixaria a mochila maior sem cobrar nada — e o jogador teria os slots E o
+   * diamante de volta
+   *
+   * ## E POR QUE O DIAMANTE SOBE PARA A CONTA
+   *
+   * Pelo mesmo motivo da `LOJA`: `spendDiamonds` mexe no espelho do
+   * personagem e o `guardarDiamantesNaConta` e o que a conta sabe. Sem ele, os
+   * dois personagens da mesma conta poderiam gastar o mesmo saldo duas vezes
+   *
+   * @returns {boolean} `true` quando a compra saiu
+   */
+  expandirMochila(sessao) {
+    const compra = proximaCompra(sessao.inventory.capacity);
+
+    if (!compra.pode) {
+      this.engine.showMessage(
+        `A mochila ja esta no limite de ${MOCHILA_SLOTS_MAX} slots.`,
+        true,
+      );
+
+      return false;
+    }
+
+    if (!sessao.inventory.spendDiamonds(compra.preco)) {
+      this.engine.showMessage(
+        `Diamantes insuficientes: ${compra.preco} sao necessarios.`,
+        true,
+      );
+
+      return false;
+    }
+
+    this.guardarDiamantesNaConta(sessao);
+
+    sessao.inventory.capacity = compra.capacity;
+
+    /**
+     * O SAVE AGORA, e nao no proximo `guardar`.
+     *
+     * Porque o debito do diamante ja subiu para a conta neste instante, e a
+     * capacidade ainda esta so na sessao. Um restart entre as duas coisas
+     * devolveria o diamante debitado COM a mochila no tamanho antigo — e o
+     * jogador perderia a compra sem ter ganho nada
+     */
+    this.guardar(sessao);
+
+    this.avisoDoDono(
+      sessao,
+      `Mochila expandida: ${compra.slots} slots a mais, por ${compra.preco} diamantes. Agora sao ${compra.capacity}.`,
+    );
+
+    return true;
+  }
+
   comprarProduto(sessao, pedido) {
     const produto = LOJA_PACOTES.find(
       (p) => p.id === pedido.produtoId,
@@ -1698,14 +2074,40 @@ this.engine.showMessage(
      * A loja do mercador e o unico lugar que ainda usa `spendCoins`, e
      * `comprarLivro` e `comprarPocao` continuam em ouro de proposito
      */
-      if (!sessao.inventory.spendDiamonds(produto.preco)) {
-        this.engine.showMessage(
-          `Diamantes insuficientes: ${produto.preco} sao necessarios.`,
-          true,
-        );
+      /**
+     * A MOEDA DO PACOTE, e nao a DO PAINEL.
+     *
+     * ## POR QUE O CAMPO EXISTE
+     *
+     * Porque a loja inteira era So por diamante, e a aba de ITENS virou ouro:
+     * o diamante nao sai de drop nenhum, e cobrar por pocao e pergaminho
+     * punia o jogo em vez da compra. A aba e o que o jogador esta olhando, e
+     * por isso que a moeda mora no PACOTE — os dois pacotes da mesma aba
+     * podem ser lidos em moedas diferentes sem quebrar a regra
+     *
+     * ## POR QUE O DEBITO CONTINUA SENDO DOIS CAMINHOS
+     *
+     * Porque `spendDiamonds` e `spendCoins` sao metodos diferentes, com
+     * guardas diferentes, e o diamante mora na CONTA enquanto o ouro mora no
+     * PERSONAGEM. O que muda e qual dos dois e chamado — nao o valor, que e
+     * o mesmo `preco` nos dois casos
+     */
+    const emOuro = produto.moeda === "coins";
 
-        return;
-      }
+    if (
+      emOuro
+        ? !sessao.inventory.spendCoins(produto.preco)
+        : !sessao.inventory.spendDiamonds(produto.preco)
+    ) {
+      this.engine.showMessage(
+        emOuro
+          ? `Ouro insuficiente: ${produto.preco} sao necessarios.`
+          : `Diamantes insuficientes: ${produto.preco} sao necessarios.`,
+        true,
+      );
+
+      return;
+    }
 
       /**
        * O DEBITO SOBE PARA A CONTA AGORA, e nao no proximo save.
@@ -1715,8 +2117,15 @@ this.engine.showMessage(
        * jogador com dois personagens na mesma conta podia gastar duas vezes
        * o mesmo saldo: um gastava, o outro entrava antes do save seguinte e
        * ainda via o numero antigo na tela
+       *
+       * E POR QUE SO NO CASO DO DIAMANTE
+       *
+       * Porque o ouro mora no PERSONAGEM, e ele ja foi debitado do
+       * `spendCoins` — o que o jogador carrega e um numero, nao uma conta. A
+       * sincronizar aqui debitaria a conta por uma moeda que a conta nunca
+       * teve
        */
-      this.guardarDiamantesNaConta(sessao);
+      if (!emOuro) this.guardarDiamantesNaConta(sessao);
 
     /**
      * O QUE ENTROU, para o aviso.
@@ -1804,6 +2213,101 @@ this.engine.showMessage(
    * graca, e um `spendCoins` antes do espaco daria o dinheiro sem o
    * item
    */
+  /**
+   * TEM SALDO PARA A MOEDA? E nao desconta.
+   *
+   * ## POR QUE NAO E SO CHAMAR `descontarDoAnuncio`
+   *
+   * Porque o lance valida o SALDO antes de gravar o lance no anuncio, e o
+   * desconto vem DEPOIS do `market.bid`. Se o unico jeito de conferir saldo
+   * fosse descontando, o dinheiro sairia duas vezes: uma na conferencia e
+   * outra no debito
+   *
+   * E o espelho do `descontarDoAnuncio`: os dois leem o mesmo campo de saldo,
+   * ou o lance passaria com dinheiro que o debito depois negaria
+   */
+  podePagarMoeda(sessao, currency, valor) {
+    if (currency === MOEDA.STEEL) {
+      return sessao.inventory.steel >= valor;
+    }
+
+    if (moedaDaConta(currency)) {
+      return sessao.inventory.diamonds >= valor;
+    }
+
+    return sessao.inventory.coins >= valor;
+  }
+
+  /**
+   * DESCONTA A MOEDA DE UM ANUNCIO, E DEVOLVE QUANDO O ITEM NAO CABE.
+   *
+   * ## POR QUE O METODO, E NAO UM `if` NO COMPRAR
+   *
+   * Porque o dinheiro entra em tres lugares diferentes: o pagamento da compra,
+   * o estorno quando a mochila lota, e o credito ao lance ultrapassado. Sao
+   * tres momentos com a MESMA pergunta — "tira isso da moeda do anuncio" — e
+   * tres copias do `switch` divergiriam no primeiro dia que uma moeda nova
+   * entrasse
+   *
+   * ## POR QUE O DIAMANTE PASSA PELA CONTA
+   *
+   * Porque ouro e steel vivem no personagem, e o diamante na conta. Sem este
+   * desvio, `spendCoins` cobraria de um saldo que o jogador nem ve — e o
+   * numero na tela mentiria em 100%
+   *
+   * @param {object} sessao quem paga
+   * @param {string} currency a moeda do anuncio
+   * @param {number} valor quanto tirar
+   * @returns {boolean} `true` quando o desconto saiu
+   */
+  descontarDoAnuncio(sessao, currency, valor) {
+    if (currency === MOEDA.STEEL) {
+      return sessao.inventory.spendSteel(valor);
+    }
+
+    /**
+     * O DEBITO DE DIAMANTE SOBE PARA A CONTA NO MESMO INSTANTE.
+     *
+     * E o mesmo caminho da `LOJA`: `spendDiamonds` mexe no espelho do
+     * personagem, e o `guardarDiamantesNaConta` e o que faz a conta saber. Se
+     * dependesse do proximo save, dois personagens da mesma conta poderiam
+     * gastar o mesmo saldo duas vezes — um gastava, o outro entrava e ainda
+     * via o numero velho na tela
+     */
+    if (moedaDaConta(currency)) {
+      if (!sessao.inventory.spendDiamonds(valor)) return false;
+
+      this.guardarDiamantesNaConta(sessao);
+
+      return true;
+    }
+
+    return sessao.inventory.spendCoins(valor);
+  }
+
+  /**
+   * O CAMINHO INVERSO DE `descontarDoAnuncio`, e ele tem que ser O MESMO.
+   *
+   * Uma devolucao em moeda diferente da que foi cobrada e dinheiro criado do
+   * nada: o jogador pagou em diamante e recebeu ouro de volta
+   */
+  devolverAoAnuncio(sessao, currency, valor) {
+    if (currency === MOEDA.STEEL) {
+      sessao.inventory.addSteel(valor);
+
+      return;
+    }
+
+    if (moedaDaConta(currency)) {
+      sessao.inventory.addDiamonds(valor);
+      this.guardarDiamantesNaConta(sessao);
+
+      return;
+    }
+
+    sessao.inventory.addCoins(valor);
+  }
+
   comprarNoMarket(sessao, pedido) {
     const anuncio = this.market.get(pedido.listingId);
 
@@ -1862,7 +2366,7 @@ this.engine.showMessage(
       return;
     }
 
-    if (!sessao.inventory.spendCoins(preco)) {
+    if (!this.descontarDoAnuncio(sessao, anuncio.currency, preco)) {
       this.resultadoDoMarket(
         sessao,
         { ok: false, reason: MARKET_RESULT.MOEDAS },
@@ -1880,7 +2384,7 @@ this.engine.showMessage(
 
     if (recebido.added < anuncio.count) {
       // a mochila nao comportou: o dinheiro volta, o anuncio continua
-      sessao.inventory.addCoins(preco);
+      this.devolverAoAnuncio(sessao, anuncio.currency, preco);
 
       this.resultadoDoMarket(
         sessao,
@@ -1905,7 +2409,7 @@ this.engine.showMessage(
     const vendedor = this.sessaoDoDono(anuncio.sellerKey);
 
     if (vendedor) {
-      vendedor.inventory.addCoins(preco);
+      this.creditarAoDono(vendedor, anuncio.currency, preco);
 
       this.avisoDoDono(
         vendedor,
@@ -1922,6 +2426,7 @@ this.engine.showMessage(
       this.pagamentosPendentes.push({
         ownerKey: anuncio.sellerKey,
         coins: preco,
+        currency: anuncio.currency,
       });
     }
 
@@ -2213,7 +2718,11 @@ this.engine.showMessage(
       this.pagamentosPendentes.filter((pagamento) => {
         if (pagamento.ownerKey !== donoKey) return true;
 
-        sessao.inventory.addCoins(pagamento.coins);
+        this.creditarAoDono(
+          sessao,
+          pagamento.currency ?? MOEDA.OURO,
+          pagamento.coins,
+        );
         pendentes += 1;
 
         return false;
@@ -4196,6 +4705,10 @@ if (steelDoTique > 0) {
           this.engine.pruneInventory();
           break;
 
+        case PANEL_OPS.EXPAND_INVENTORY:
+          this.expandirMochila(sessao);
+          break;
+
         case PANEL_OPS.FIX_MISPLACED_EQUIPMENT:
           this.engine.fixMisplacedEquipment();
           break;
@@ -4304,6 +4817,42 @@ case PANEL_OPS.DASH:
            * paga duas vezes
            */
           this.engine.claimQuestReward(pedido.questId);
+          break;
+
+        case PANEL_OPS.LEARN_TREE_NODE:
+          /**
+           * O PONTO DA ARVORE DE HABILIDADES.
+           *
+           * O `noId` vem do cliente e nao vale nada: o `learnTreeNode`
+           * procura o no no catalogo da CLASSE DA SESSAO, e recusa quando o
+           * no e de outra, quando o nivel nao alcanca, quando o
+           * pre-requisito falta ou quando o ponto nao paga
+           *
+           * E o `exige` que ele confere, e nao o `requer`: os nos do
+           * catalogo chamam o campo de `exige`, e o motor lia um campo que
+           * nenhum no tem. O `?? []` escondia isso — a conferencia de
+           * pre-requisito nunca rodou, e o servidor aceitava um no de
+           * nivel 3 sem o de nivel 1 estar comprado
+           */
+          this.engine.learnTreeNode(pedido.noId);
+          break;
+
+        case PANEL_OPS.CLAIM_ALL_QUEST_REWARDS:
+          /**
+           * O resgate de tudo que a aba aberta tem na fila.
+           *
+           * O mesmo descarte do resgate de uma: o `scope` e o `mapa` vem
+           * do cliente e nao valem nada. Quem filtra e o
+           * `claimablesDe`, que le a fila do `QuestLog` — e a fila e a
+           * unica coisa que decide o que existe para pagar
+           *
+           * Sem o `mapa` o pagamento vazaria para o outro mapa: as duas
+           * abas existem nos dois, e o botao da principal do vale pagaria
+           * os degraus do mapa 2 junto. E cada pagamento passa pelo
+           * `claim`, que tira a linha da fila, entao repetir o pedido
+           * inteiro nao paga duas vezes
+           */
+          this.engine.claimQuestRewards(pedido.scope, pedido.mapa);
           break;
 
         case PANEL_OPS.CLAIM_PASS_REWARD:
@@ -4585,6 +5134,10 @@ case PANEL_OPS.DASH:
 
         case PANEL_OPS.MARKET_CANCEL:
           this.cancelarNoMarket(sessao, pedido);
+          break;
+
+        case PANEL_OPS.MARKET_BID:
+          this.darLanceNoMarket(sessao, pedido);
           break;
 
         /**
@@ -6818,11 +7371,6 @@ break;
 function chaveDaSessao(sessao) {
   return sessao?.donoKey ?? sessao?.id ?? null;
 }
-
-
-
-
-
 
 
 

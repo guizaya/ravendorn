@@ -51,6 +51,20 @@ export const PANEL_OPS = Object.freeze({
   SET_LOOT_FILTER: "SET_LOOT_FILTER",
   PRUNE_INVENTORY: "PRUNE_INVENTORY",
 
+  /**
+   * COMPRAR ESPACO DE MOCHILA.
+   *
+   * E um pedido e nao um ajuste local, porque a capacidade mora no servidor:
+   * o `Inventory` do cliente e uma copia de tela, e um `capacity` aumenta no
+   * cliente passaria a valer no proximo save — apagando a compra
+   *
+   * O pedido nao leva NENHUM numero. Nem slots, nem preco, nem quantas compras
+   * ja foram feitas: o servidor le a capacidade da sessao e calcula o preco
+   * com `proximaCompra`. Um `slots: 999` num pedido customizado viraria uma
+   * mochila de mil slots de graca
+   */
+  EXPAND_INVENTORY: "EXPAND_INVENTORY",
+
   // Abrir o inventario tira do corpo a peca que esta no slot errado.
   // E um pedido, e nao uma correcao do cliente: o equipamento mora no
   // servidor, e um save antigo pode ter o capuz no peito gravado
@@ -95,6 +109,35 @@ export const PANEL_OPS = Object.freeze({
    * resgate, o segundo clique do mesmo botao nao paga de novo
    */
   CLAIM_QUEST_REWARD: "CLAIM_QUEST_REWARD",
+
+  /**
+   * GASTAR UM PONTO NA ARVORE DE HABILIDADES.
+   *
+   * O pedido leva SO o `noId`. Nem o custo, nem o bonus, nem os
+   * pre-requisitos viajam: o servidor acha o no pelo catalogo da classe e
+   * cobra o que esta la. Um cliente que mandasse `custo: 0` seria ignorado
+   *
+   * E o par do clique: sem este op, `handleComprarNo` do HUD so sabia falar
+   * com o motor da tela, e em jogo online o clique na arvore nao fazia
+   * nada — o ponto ficava na tela e o servidor nunca ouvia falar dele
+   */
+  LEARN_TREE_NODE: "LEARN_TREE_NODE",
+
+  /**
+   * O RESGATE DE TUDO QUE TEM NA ABA ABERTA.
+   *
+   * Pelo mesmo caminho do `CLAIM_QUEST_REWARD`, e com a mesma desconfianca:
+   * o pedido leva SO o `scope` (`main`/`side`) e o `mapa`. Nada de premio
+   * e nada de lista de ids viaja — quem monta a fila e o `QuestLog`, no
+   * servidor
+   *
+   * E por isso que o mapa viaja: as duas abas existem nos dois mapas, e
+   * sem ele o botao da aba principal do vale pagaria tambem os degraus do
+   * mapa 2. O servidor filtra a fila pelo mesmo `location` que usou para
+   * montar o `claimable` do snapshot, e o botao some da tela no mesmo
+   * instante em que a fila esvazia
+   */
+  CLAIM_ALL_QUEST_REWARDS: "CLAIM_ALL_QUEST_REWARDS",
 
   /**
    * O RESGATE DE UM DIA DO PASSE.
@@ -301,6 +344,7 @@ export const PANEL_OPS = Object.freeze({
   MARKET_LIST: "MARKET_LIST",
   MARKET_BUY: "MARKET_BUY",
   MARKET_CANCEL: "MARKET_CANCEL",
+  MARKET_BID: "MARKET_BID",
 
   // A ENTREGA de uma colecao. Pelo mesmo motivo do "ir matar" do
   // bestiario: o botao "Entregar" precisa chegar no servidor, e sem
@@ -752,6 +796,15 @@ export const MARKET_PRECO_MAX = 1_000_000;
 export const MARKET_QUANTIDADE_MAX = 99;
 
 /**
+ * AS MOEDAS E OS MODOS QUE O CLIENTE PODE PEDIR.
+ *
+ * E um `Set` e nao um `includes` em array porque e o mesmo conjunto
+ * revalidado a cada painel, e o `Set` e a forma rapida de perguntar
+ */
+const MARKET_MOEDAS = new Set(["coins", "steel", "diamonds"]);
+const MARKET_MODOS = new Set(["fixo", "leilao"]);
+
+/**
  * O TETO DE MOEDAS NUM PEDIDO DE COFRE.
  *
  * ## POR QUE 1 BILHAO E NAO O SALDO
@@ -908,6 +961,7 @@ guildName,
     guildTag,
     guildId,
     alvoId,
+    noId,
     talentId,
     cofreAcao,
     bauAcao,
@@ -916,6 +970,9 @@ guildName,
     quantidade,
     itemId,
     price,
+    currency,
+    modo,
+    minBid,
     count,
     pocaoItemId,
     pocaoLigado,
@@ -1206,6 +1263,25 @@ guildName,
       /** o membro alvo: quem vai ser aceito, negado ou promovido */
       alvoId: isShortString(alvoId, 64) ? alvoId : null,
 
+      /**
+       * O NÓ DA ÁRVORE QUE O JOGADOR QUER APRENDER.
+       *
+       * ## POR QUE ESTE CAMPO ESTAVA FALTANDO
+       *
+       * O `LEARN_TREE_NODE` foi escrito com o op, o cliente e o handler do
+       * servidor, e o campo `noId` nunca entrou no `parsePanel`. O pedido
+       * saia do navegador com o id e chegava no servidor sem ele: o
+       * `noDaArvore(classe, undefined)` devolvia `null` e TODOS os nós
+       * respondiam "esse no nao existe para a sua classe" — inclusive os de
+       * classe, que não tinham nada a ver com o ramo geral
+       *
+       * O tamanho 40 e folgado de propósito: o id de um nó é
+       * `<prefixo>_g<degrau>_<indice>`, e `geral_g6_3` e `warrior_g6_3` são
+       * ambos curtos. O limite existe para um array gigante não entrar
+       * disfarçado de id
+       */
+      noId: isShortString(noId, 40) ? noId : null,
+
       talentId: isShortString(talentId, 32) ? talentId : null,
 
       /**
@@ -1337,6 +1413,28 @@ guildName,
         Math.floor(price) >= PRECO_MINIMO &&
         Math.floor(price) <= MARKET_PRECO_MAX
           ? Math.floor(price)
+          : null,
+
+      /**
+       * A MOEDA, O MODO E O LANCE MINIMO DO ANUNCIO.
+       *
+       * Os tres entram pela MESMA porta do `price`, e pelo mesmo motivo: sao
+       * regras do mercado, entao quem recusa um valor invalido e este arquivo.
+       * A moeda vem com o teto dela e nao com o `MARKET_PRECO_MAX`, porque o
+       * diamante nao tem lastro de drop — um anuncio de um milhao de diamante
+       * passaria no teto de ouro e seria um numero sem lastro
+       *
+       * O `minBid` e sempre validado, mesmo em venda fixa, porque o campo
+       * vem do mesmo payload; o `market.list` e quem o ignora quando o modo
+       * nao e leilao
+       */
+      currency: MARKET_MOEDAS.has(currency) ? currency : null,
+      modo: MARKET_MODOS.has(modo) ? modo : null,
+      minBid:
+        isFiniteNumber(minBid) &&
+        Math.floor(minBid) >= PRECO_MINIMO &&
+        Math.floor(minBid) <= MARKET_PRECO_MAX
+          ? Math.floor(minBid)
           : null,
 
       /**
