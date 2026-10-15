@@ -2429,7 +2429,18 @@ color:var(--t-text-bright)}
   .hud-btn--craft,
   .hud-btn--guild,
   .hud-btn--teste {
-    --vitals-w: 238px;
+    /*
+      O `--vitals-w` E A LARGURA DA `.hud-vitals`, E 192 E A LARGURA DA PARTY.
+
+      A party mora em `.hud-coluna-mini`, que recebe `width: MINIMAP_WIDTH` do
+      `HUD.jsx`. As duas caixas ficam na MESMA coluna esquerda, uma embaixo da
+      outra, e com larguras diferentes o jogador lia duas caixas que nao
+      conversam — a de cima 46px mais larga que a de baixo
+
+      Este numero e o `width` da `.hud-vitals` na linha 2647. Os dois precisam
+      mudar juntos: e daqui que sai o `left` do botao da mochila
+    */
+    --vitals-w: 192px;
   --btn-h: 32px;
   --btn-gap: 8px;
   position: absolute;
@@ -2648,7 +2659,9 @@ text-transform:uppercase}
   position: absolute;
   top: 12px;
   left: 12px;
-  width: 238px;
+
+  /* 192: a mesma largura da party, que vem do `MINIMAP_WIDTH` */
+  width: 192px;
   padding: 10px 12px 11px;
   border: 1px solid var(--border);
   border-radius: 12px;
@@ -13974,6 +13987,207 @@ transform:translateY(-50%)}
   right: 5px;
 }
 
+/*
+ * AS TRES CAMADAS DE LUZ DO CARD — e porque cada uma esta onde esta.
+ *
+ * ## O QUE MUDA
+ *
+ * O card era um fundo escuro com um gradiente tingido e uma borda pintada:
+ * chapado. Agora tem uma luz que nasce no centro, uma vinheta que apaga a
+ * luz nas bordas, e uma borda iluminada por dentro. As tres leem o
+ * `--rarity`, que o `InvSlotView` ja escreve no elemento
+ *
+ * ## POR QUE PSEUDO-ELEMENTOS, E NAO MAIS CAMADAS NO `background`
+ *
+ * O `.inv-slot` e `display: grid`, entao um pseudo-elemento dele vira item
+ * de grid e entraria no `place-items: center` — numero de colunas errado e
+ * o icone desalinhado. Por isso os dois sao `position: absolute`
+ *
+ * ## E POR QUE O `::after` USA `screen`
+ *
+ * Porque ele pinta ACIMA do icone, e `screen` so soma luz: nao escurece
+ * nada. A raridade passa a iluminar o desenho do item em vez de lavar ele
+ * com um veu cinza
+ *
+ * O `isolation: isolate` no `.cft-card` nao e enfeite e o que segura o
+ * `screen` dentro do card: sem um contexto de empilhamento proprio, o
+ * blend misturaria com o painel inteiro atras e o card iluminaria a tela
+ *
+ * ## POR QUE O COMUM NAO ENTROU NADA
+ *
+ * O `--rarity` do Comum e um cinza (`#c3ccd6`) e ele nao tem
+ * `.inv-slot--common`, so o gradiente escuro da base. A luz aqui sai em um
+ * cinza morno, e o Comum precisa continuar sendo o "sem nada" para a
+ * raridade continuar legivel de relance
+ */
+.cft-card {
+  /* o contexto de empilhamento que segura o `screen` dentro do card */
+  isolation: isolate;
+
+  /*
+   * A BORDA ILUMINADA POR DENTRO.
+   *
+   * Os dois primeiros `inset` sao a novelty: a luz da raridade na aresta
+   * interna, e mais forte no topo, que e de onde a luz vem. Os dois ultimos
+   * sao o chanfro e a sombra de baixo do `.inv-slot` original, mantidos para
+   * nao perder o relevo
+   *
+   * O que se troca pelo `color-mix` sao os dois realces BRANCOS da base
+   * (`inset 0 1px 0` e `inset 1px 0 0`, ambos em `rgba(255,255,255,.05)`):
+   * eles viram a cor da raridade, que e o ponto da troca
+   */
+  box-shadow:
+    inset 0 0 0 1px color-mix(in srgb, var(--rarity, #c3ccd6) 32%, transparent),
+    inset 0 1px 0 color-mix(in srgb, var(--rarity, #c3ccd6) 24%, transparent),
+    inset 0 -2px 6px rgba(0, 0, 0, 0.6);
+}
+
+/* A VINHETA, embaixo do conteudo: transparente no centro, preta na borda.
+ * E o que faz a luz do `::after` parecer luz, e nao uma mancha */
+.cft-card::before {
+  position: absolute;
+  z-index: 0;
+  inset: 0;
+
+  background: radial-gradient(
+    ellipse at 50% 42%,
+    transparent 38%,
+    rgba(0, 0, 0, 0.55) 100%
+  );
+
+  content: "";
+  pointer-events: none;
+}
+
+/* O ICONE ACIMA DA VINHETA, e abaixo da luz. Sem este `z-index` o conteudo
+ * ficaria na ordem natural de pintura e a vinheta passaria por cima dele */
+.cft-card .inv-slot__hit {
+  position: relative;
+  z-index: 1;
+}
+
+/*
+ * O BRILHO ATRAS DO ICONE, e nao no card inteiro.
+ *
+ * A luz do `::after` e uma lavagem no fundo todo; esta e a haloa COLADA no
+ * desenho do item. Sao duas coisas diferentes: a primeira diz a raridade do
+ * card, e a segunda faz o item brilhar na cor dela
+ *
+ * ## POR QUE `filter: drop-shadow`, E NAO `text-shadow` OU `box-shadow`
+ *
+ * Porque o alvo e a arte desenhada (44x44) e nao um texto. O `text-shadow`
+ * da base cuida so do glifo de texto, e um `box-shadow` de 44x46 seria um
+ * quadrado atras do desenho — nas quinas, onde a arte nao tem pixel, o
+ * quadrado apareceria. O `drop-shadow` segue o ALFA do desenho, entao a
+ * haloa sai com o contorno certo em qualquer silhueta
+ *
+ * ## E POR QUE DUAS CAMADAS, E NAO UMA
+ *
+ * A de 7px e o nucleo, colado no item; a de 15px e o halo largo que morre
+ * na vinheta. Uma camada so deixa o brilho com borda dura — duas dao a
+ * queda que faz parecer luz e nao adesivo
+ *
+ * ## E POR QUE NO `.cft-card`, E NAO NO `.inv-slot__icon` GLOBAL
+ *
+ * Porque o pedido e so no painel de craft. No inventario o mesmo filtro em
+ * celula de 3 pixels de diferenca Some, e o custo de render continua
+ */
+.cft-card .inv-slot__icon {
+  filter:
+    drop-shadow(0 0 7px color-mix(in srgb, var(--rarity, #c3ccd6) 60%, transparent))
+    drop-shadow(0 0 15px color-mix(in srgb, var(--rarity, #c3ccd6) 32%, transparent));
+
+  /*
+   * O BRILHO PULSANDO.
+   *
+   * ## O NOME NAO E `cft-pulso`
+   *
+   * Esse ja existe na linha 14274, e e o flash de 0,62s que roda uma vez
+   * quando o jogador manda criar. Dois `@keyframes` com o mesmo nome nao
+   * convivem: o segundo sobrescreve o primeiro e a medalha parou de piscar
+   */
+  animation: cft-brilho-pulso 3.2s ease-in-out infinite;
+}
+
+/*
+ * O `filter` e animado, e nao o `opacity`, entao este e o preco: cada quadro
+ * refaz o drop-shadow de todos os cards da grade — e sao ate 57 receitas
+ * visiveis no painel de craft
+ *
+ * ## POR QUE 3,2s E NAO MAIS RAPIDO
+ *
+ * Porque em 2s o jogador passa a ver o movimento sem perceber, e o card fica
+ * inquieto em vez de vivo. 3,2s e lento o bastante para o olho integrar e
+ * rapido o bastante para nao parecer parado
+ *
+ * ## E POR QUE SO A DISTANCIO MUDA, E NAO A COR
+ *
+ * Animar a cor da halo teria que atravessar o `color-mix` dentro da
+ * animacao, que nao interpola. Animando so o raio do desfoque, a cor
+ * continua vindo do `--rarity` e cada raridade pulsa na sua
+ */
+@keyframes cft-brilho-pulso {
+  0%,
+  100% {
+    filter:
+      drop-shadow(0 0 7px color-mix(in srgb, var(--rarity, #c3ccd6) 60%, transparent))
+      drop-shadow(0 0 15px color-mix(in srgb, var(--rarity, #c3ccd6) 32%, transparent));
+  }
+
+  50% {
+    filter:
+      drop-shadow(0 0 11px color-mix(in srgb, var(--rarity, #c3ccd6) 60%, transparent))
+      drop-shadow(0 0 24px color-mix(in srgb, var(--rarity, #c3ccd6) 32%, transparent));
+  }
+}
+
+/*
+ * QUEM PEDE MENOS MOVIMENTO RECEBE O BRILHO PARADO, E FORTE.
+ *
+ * O `filter` da regra acima e o mesmo do `0%` dos keyframes, entao quem nao
+ * tem a animacao desligada continua vendo o brilho inteiro — so para de
+ * respirar. Nao ha "item sem brilho" no caminho de quem pediu menos
+ * movimento, porque o brilho ainda e a informacao de raridade
+ */
+@media (prefers-reduced-motion: reduce) {
+  .cft-card .inv-slot__icon {
+    animation: none;
+  }
+}
+
+/* A LUZ: nasce no centro, onde esta o icone, e apaga antes da borda */
+.cft-card::after {
+  position: absolute;
+  z-index: 2;
+  inset: 0;
+
+  background: radial-gradient(
+    circle at 50% 40%,
+    color-mix(in srgb, var(--rarity, #c3ccd6) 22%, transparent) 0%,
+    transparent 68%
+  );
+
+  content: "";
+  mix-blend-mode: screen;
+  pointer-events: none;
+}
+
+/*
+ * NO HOVER A BORDA ACENDE MAIS.
+ *
+ * Este bloco precisa existir porque o `.inv-slot:hover` tambem escreve
+ * `box-shadow`, e tem a MESMA especificacao que o `.cft-card` da luz. Entre os
+ * dois quem vence e o ultimo no arquivo, e o `:hover` do `.inv-slot` esta
+ * mil linhas acima — entao sem esta regra o card perderia a borda acesa
+ * justo no momento em que o jogador esta olhando para ele
+ */
+.cft-card:hover {
+  box-shadow:
+    inset 0 0 0 1px color-mix(in srgb, var(--rarity, #c3ccd6) 52%, transparent),
+    inset 0 1px 0 color-mix(in srgb, var(--rarity, #c3ccd6) 40%, transparent),
+    inset 0 -2px 6px rgba(0, 0, 0, 0.5);
+}
+
 /* o numeral romano do tier, embaixo no centro */
 .cft-card__tier {
   position: absolute;
@@ -24543,10 +24757,131 @@ color-scheme:dark;
    ajustes de tamanho do painel
    */
 
+/*
+  A COLUNA DA ESQUERDA: a box do personagem e a fileira de botoes.
+
+  ## POR QUE UM CONTAINER E NAO DOIS `absolute` SOLTOS
+
+  Porque a fileira precisa ficar EMBAIXO da box, e a altura da box depende do
+  que ha dentro dela: o nome do jogador quebra linha, o numero de buffs muda, o
+  nome da classe tem dois tamanhos. Nenhum `top` fixo acompanha isso — era
+  exatamente o que os sete botoes faziam antes, cada um com o seu `top`
+  calculado a mao
+
+  Com o container, a ordem e do fluxo: a box vem primeiro e a fileira desce
+  pelo `gap`, qualquer que seja a altura da box
+
+  ## E A LARGURA VEM DE `--vitals-w`
+
+  Porque sao as duas coisas que o jogador le como uma coluna so. `--vitals-w`
+  e a largura da `.hud-vitals`, e a fileira usa a mesma
+*/
+.hud-esquerda {
+  position: absolute;
+  top: 12px;
+  left: 12px;
+  z-index: 2;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  width: var(--vitals-w, 192px);
+  pointer-events: none;
+}
+
+/* A BOX DEIXA DE SER `absolute`: dentro do container ela e um item do fluxo */
+.hud-esquerda > .hud-vitals {
+  position: static;
+  width: 100%;
+  pointer-events: auto;
+}
+
+/*
+  A FILEIRA, E O `flex-wrap` QUE FAZ A QUEBRA.
+
+  Sao sete botoes. Numa largura de 192 cabem cinco por vez — `5 * 32 + 4 * 8` —
+  e o sexto e o setimo descem sozinhos, sem nenhum numero de coluna escrito no
+  codigo. Um botao novo entra na fileira sem que ninguem mexa em posicao
+*/
+.hud-atalhos {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  pointer-events: auto;
+}
+
+/*
+  OS BOTOES DESFAZEM O POSICIONAMENTO ANTIGO.
+
+  Eles eram `absolute` com `left: calc(12px + var(--vitals-w) + 8px)` e um
+  `top` proprio cada — sete numeros que quebravam juntos. Agora quem controla
+  a posicao e o `flex-wrap` do pai, entao cada botao so precisa de dizer que
+  nao e mais absoluto
+*/
+.hud-esquerda .hud-btn--status,
+.hud-esquerda .hud-btn--test,
+.hud-esquerda .hud-btn--bestiary,
+.hud-esquerda .hud-btn--collection,
+.hud-esquerda .hud-btn--craft,
+.hud-esquerda .hud-btn--guild,
+.hud-esquerda .hud-btn--teste {
+  position: static;
+  left: auto;
+  top: auto;
+}
+
+.hud-esquerda .hud-btn--craft,
+.hud-esquerda .hud-btn--guild,
+.hud-esquerda .hud-btn--teste {
+  left: auto;
+}
+
+.hud-esquerda .hud-btn--craft {
+  top: auto;
+}
+
+.hud-esquerda .hud-btn--guild {
+  top: auto;
+}
+
+/*
+  A PARTY E O AVISO DE LOOT, E ELES TAMBEM VAO NO FLUXO.
+
+  Sao os dois ultimos filhos da coluna esquerda. A party estava com `top: 220`
+  e `left: MINIMAP_LEFT` no `style` inline — dois numeros que apontavam para o
+  minimapa ANTIGO, que morava na esquerda e depois foi para a direita. O `220`
+  sobreviveu a essa mudanca e abriu um buraco entre os botoes e a party
+
+  Aqui eles deixam de ser `absolute` e passam a descer pelo `gap` da coluna,
+  logo abaixo dos botoes. E a unica forma de a party nao ter um vao: a altura
+  da `.hud-vitals` e da fileira mudam com o conteudo, e nenhum `top` fixo
+  acompanha
+*/
+.hud-esquerda .hud-coluna-mini {
+  position: static;
+  left: auto;
+  top: auto;
+  width: 100%;
+}
+
+.hud-esquerda .hud-coluna-mini .game-message {
+  position: static;
+}
+
 /* ---------- a box do personagem ---------- */
 
+/*
+  A LARGURA QUE VALE, E POR QUE ESTA REGRA E A QUE CONTA.
+
+  Existem QUATRO regras `.hud-vitals` neste arquivo: uma na secao do build
+  antigo e tres dentro de `@media`. A de tela estreita so vale no trecho dela,
+  mas a da secao do build antigo e desta sao AMBAS "fora de media query" — e
+  como sao a mesma especificidade, ganha a que vem DEPOIS no arquivo. E esta
+
+  Por isso mudar a de cima (a 2658) nao muda nada: a de 168px vem depois e
+  sobrescreve. O `width` que o jogador ve e o daqui
+ */
 .hud-vitals {
-  width: 168px;
+  width: 192px;
   padding: 6px 8px 6px;
   border-radius: 9px;
 }
@@ -24985,6 +25320,116 @@ color-scheme:dark;
   margin: 0;
   font-size: 12px;
   color: var(--t-gold);
+}
+
+/*
+  O BOTAO DE COMPRAR, EM DOURADO.
+
+  ## POR QUE ELE ESTAVA APAGADO, E A CAUSA NAO ERA O `:disabled`
+
+  A causa era `.lst-btn`. O botao carrega tres classes — `mkt-submit`,
+  `lst-btn` e `lst-btn--primario` — e no `theme-inventory.css` o
+  `.lst-btn` da linha 4278 vem DEPOIS do `.mkt-submit` da linha 467. Sao as
+  duas de especificidade igual (0,1,0), entao a que esta mais abaixo no
+  arquivo vence: o `background: var(--t-sunken)` e o `color:
+  var(--t-text-dim)` do `.lst-btn` apagavam o verde do `.mkt-submit` por
+  completo. O botao ficava cinza escuro com texto fraco com o dinheiro na
+  mao
+
+  Por isso o ouro nao vai em `.lst-btn--primario` (que so mexe em fonte, e
+  e compartilhado com o `CreateListingModal`): vai em
+  `.mch-exp-modal .lst-btn--primario`, que e (0,2,0) e ganha do `.lst-btn`
+  (0,1,0) nao importa a ordem dos arquivos
+
+  ## E POR QUE O DESLIGADO CONTINUA DOURADO, E SO APAGADO
+
+  Porque o botao desligado e um estado legitimo — falta diamante, ou a
+  mochila esta no teto. Deixar ele cinza faz o jogador ler "esse botao nao
+  existe" em vez de "esse botao existe e eu ainda nao posso". Dourado
+  murcho e o estado certo: continua sendo o botao dourado, so apagado
+
+  O `:disabled` daqui e (0,3,0) e ganha do `.mkt-submit:disabled` (0,2,0) da
+  linha 475, que hoje colocaria o cinza plano por cima
+*/
+.mch-exp-modal .lst-btn--primario {
+  border: 1px solid var(--t-gold-deep);
+  color: var(--t-gold-bright);
+
+  /*
+    O BOTAO VIRA FLEX POR CAUSA DO `letter-spacing: 2px` do
+    `.lst-btn--primario`.
+
+    Esse espacamento entra ENTRE os nos de texto, entao o botao em linha
+    normal abriria um vao entre o "COMPRAR" e o "10", e outro entre o
+    diamante e o "SLOTS" — que sao justamente o par que precisa ficar
+    junto. O flex com `gap: 6px` e o que faz a separacao ser uniforme, e o
+    `mch-exp__btn-qtd` e o que cola o "10" no icone
+  */
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+
+  background: linear-gradient(
+    180deg,
+    color-mix(in srgb, var(--t-gold) 26%, var(--t-sunken)) 0%,
+    color-mix(in srgb, var(--t-gold-deep) 14%, var(--t-sunken)) 100%
+  );
+  box-shadow:
+    inset 0 1px 0 color-mix(in srgb, var(--t-gold-bright) 26%, transparent),
+    0 0 12px color-mix(in srgb, var(--t-gold) 18%, transparent);
+}
+
+.mch-exp-modal .lst-btn--primario:hover:not(:disabled) {
+  border-color: var(--t-gold);
+  color: #1a1206;
+  background: linear-gradient(
+    180deg,
+    var(--t-gold-bright) 0%,
+    var(--t-gold) 100%
+  );
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.35),
+    0 0 18px color-mix(in srgb, var(--t-gold) 42%, transparent);
+}
+
+.mch-exp-modal .lst-btn--primario:active:not(:disabled) {
+  background: linear-gradient(180deg, var(--t-gold) 0%, var(--t-gold-deep) 100%);
+}
+
+/* O MESMO DOURADO, MURCHO. Continua sendo o botao dourado, so apagado */
+.mch-exp-modal .lst-btn--primario:disabled {
+  border-color: var(--t-gold-line);
+  color: color-mix(in srgb, var(--t-gold) 55%, var(--t-text-faintest));
+  background: linear-gradient(
+    180deg,
+    color-mix(in srgb, var(--t-gold) 7%, var(--t-sunken)) 0%,
+    color-mix(in srgb, var(--t-gold-deep) 4%, var(--t-sunken)) 100%
+  );
+  box-shadow: none;
+}
+
+/*
+  O "10" E O DIAMANTE, COLADOS.
+
+  O `letter-spacing: 0` dentro deste grupo tira o espacamento de 2px que
+  entraria ENTRE o numero e o icone — e o que os mantem como um parso, em vez
+  de duas palavras soltas na frase do botao
+*/
+.mch-exp__btn-qtd {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  letter-spacing: 0;
+}
+
+.mch-exp__btn-num {
+  font-variant-numeric: tabular-nums;
+}
+
+.mch-exp__btn-qtd .moeda {
+  flex: none;
+  filter: drop-shadow(0 1px 2px rgba(0, 0, 0, 0.7));
 }
 
 /* A ESCADA DE COMPRAS, que mostra que o preco sobe */

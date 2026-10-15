@@ -105,8 +105,33 @@ export class GameClient {
      */
     this.painelOuvintes = new Set();
 
-    this.keys = new Set();
-    this.ponteiro = { x: 0, y: 0, inside: false };
+this.keys = new Set();
+this.ponteiro = { x: 0, y: 0, inside: false };
+
+/**
+ * O VETOR DE ANDAR DA INTENCAO ENVIADA POR ULTIMO.
+ *
+ * ## POR QUE ISTO EXISTE SENDO QUE `keys` JA RESPONDE A PERGUNTA
+ *
+ * Porque a previsao do `NetworkWorld` roda 60 vezes por segundo e o
+ * `moveFromKeys` nao e chamado 60 vezes por segundo: a intencao so
+ * vira pacote quando o vetor MUDA ou passa o intervalo. Ler `keys`
+ * direto no `NetworkWorld` daria o mesmo vetor, entao parece
+ * equivalente — e nao e.
+ *
+ * `keys` e o que o TECLADO esta pressionando agora; este campo e o
+ * que o SERVIDOR foi avisado que o jogador quer. Sao iguais na
+ * pratica, mas o segundo sobrevive a uma tecla que o navegador
+ * engole (perde o foco, `blur`, uma aba em segundo plano): com `keys`,
+ * a previsao continuaria andando para um lugar que o servidor nunca
+ * recebeu e o boneco arrancaria para longe a cada perda de foco.
+ *
+ * O objeto e REATRIBUIDO, nunca modificado: e o mesmo vetor que foi
+ * para o pacote, sem risco de a previsao ler uma conta pela metade.
+ *
+ * @type {{x: number, y: number}}
+ */
+this.ultimaIntencao = { x: 0, y: 0 };
 
     /**
      * ONDE O JOGADOR ESTA DESENHADO NA TELA.
@@ -240,10 +265,25 @@ export class GameClient {
    * desperdicio de banda e nao torna o movimento mais fluido: o
    * servidor simula a 20Hz de qualquer jeito.
    */
-  sincronizarIntencao() {
-    if (!this.jogando()) return;
+sincronizarIntencao() {
+if (!this.jogando()) return;
 
-    const move = moveFromKeys(this.keys);
+const move = moveFromKeys(this.keys);
+
+/**
+ * O VETOR QUE ESTE PACOTE CARREGA, guardado para a previsao.
+ *
+ * E a MESMA conta que vai dentro do `INPUT`, e nao uma segunda
+ * leitura de `keys`: a previsao do `NetworkWorld` usa este valor 60
+ * vezes por quadro, e ela precisa mover o boneco para ONDE o
+ * servidor foi avisado, inclusive no intervalo entre um pacote e o
+ * seguinte.
+ *
+ * A reatribuicao vem antes do `envia` de proposito: se o `envia`
+ * falhar porque o socket acabou de fechar, a previsao nao deve ficar
+ * com um vetor que ninguem recebeu.
+ */
+this.ultimaIntencao = { x: move.x, y: move.y };
 
     // a mira sai do ponto de mira em relacao ao JOGADOR NA TELA, e nao em
     // relacao ao centro da tela. As duas coisas so coincidem enquanto a
@@ -1341,9 +1381,22 @@ irParaTeste() {
    * Passar `null` desregistra — e o que o `GameCanvas` faz ao desmontar,
    * para nao deixar uma funcao morta presa no socket
    */
-  definirLeitorDeJogadorNaTela(ler) {
-    this.leitorDeJogadorNaTela = typeof ler === "function" ? ler : null;
-  }
+definirLeitorDeJogadorNaTela(ler) {
+this.leitorDeJogadorNaTela = typeof ler === "function" ? ler : null;
+}
+
+/**
+ * O VETOR DE ANDAR QUE O SERVIDOR JA FOI AVISADO.
+ *
+ * Quem chama e o `NetworkWorld`, uma vez por quadro, para mover o
+ * boneco antes de o servidor responder. O nome e proposital: devolve o
+ * que foi ENVIADO, e nao o que o teclado esta pressionando.
+ *
+ * @returns {{x: number, y: number}}
+ */
+intencaoAtual() {
+return this.ultimaIntencao;
+}
 
   /**
    * REGISTRA QUEM SABE ONDE A MIRA APONTA.
@@ -1480,7 +1533,23 @@ irParaTeste() {
        */
       mapa: this.mapaAnterior,
 
-      eu: this.mundo.amostrar(this.playerId, t),
+      /**
+* O JOGADOR LOCAL VAI SEM INTERPOLACAO.
+*
+* Todo o resto desta amostra passa por `amostrar(id, t)`, que
+* desenha o PASSADO de proposito: o pacote que acabou de chegar
+* descreve um instante que ja passou, e comecar nele faria todo
+* boneco pular a cada 50ms.
+*
+* Para o jogador local isso seria um atraso somado ao atraso. O
+* cliente ja tem previsao (`NetworkWorld.prever`), e a previsao
+* precisa da posicao mais RECENTE que o servidor mandou — nao de uma
+* media entre dois pacotes. Passar a interpolada aqui custaria ate
+* 50ms de atraso extra em cima do meio RTT, e a `Previsao` passaria
+* a pagar um erro constante que ela nao tem como distinguir de
+* divergencia de verdade.
+*/
+eu: this.mundo.eu(this.playerId),
       outros: this.mundo
         .outros(this.playerId)
         .map((p) => this.mundo.amostrar(p.id, t) ?? p),

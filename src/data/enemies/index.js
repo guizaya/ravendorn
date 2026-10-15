@@ -377,7 +377,53 @@ export const CREATURE_TYPES = {
     speed: 118,
     damage: 22,
     attackRange: 52,
+
+    /**
+     * O GOBLIN NAO PROVOCA NINGUEM SOZINHO.
+     *
+     * `aggroRange: 0` e o que mantem ele passiveiro: o `isAggressive` do
+     * `EnemyAI` compara a distancia do jogador com este numero, e nenhum
+     * jogador entra em zero. Ele so vira agressivo depois de levar pancada —
+     * o `provoke` levanta o `provoked`, e o `isAggressive` do
+     * `SEMI_PASSIVE` e exatamente esse booleano
+     *
+     * O resto do comportamento nao muda: o golpe continua travando no
+     * jogador que atacou, pelas mesmas regras de antes
+     */
     aggroRange: 0,
+
+    /**
+     * OS DOIS GOBLINS MAIS PROXIMOS TAMBEM PEGAM AGRO.
+     *
+     * E o pedido: bater num goblin acorda dois companheiros. O
+     * `EnemyAI.puxarAliados` le estes dois campos pelo `typeId` da criatura,
+     * entao nao ha como um goblin puxar um ghoul por engano
+     *
+     * ## POR QUE UM NUMERO E NAO UMA REGRA GLOBAL
+     *
+     * Porque "dois" e do goblin. Um limo passivo, um rato e um ghoul ficam
+     * como estao: o `alertarAliados` ausente e zero, e a varredura nem
+     * acontece. Se a regra fosse global, largar a lista viraria uma mudanca
+     * em todas as criaturas do jogo
+     */
+    alertarAliados: 2,
+
+    /**
+     * O RAIO DO CHAMADO, em pixel.
+     *
+     * E um numero, e nao o `aggroRange`, porque os dois medem coisas
+     * diferentes: o `aggroRange` e "ate onde este goblin ve o jogador", e o
+     * raio do chamado e "ate onde o barulho do aliado chega". Com o
+     * `aggroRange` em zero, o chamado nao teria alcance nenhum
+     *
+     * `420` e um pouco menor que a `leash` de 620 e bem maior que o
+     * `wanderRadius` de 90: dois goblins que andam por 420px ja estao perto
+     * o bastante para se ouvir, e nao tao longe que o barulho atravessa o
+     * mapa. E a `leash` que segura a perseguicao: um goblin arrastado para
+     * longe pela `leash` nao chega a puxar ninguem
+     */
+    raioDoAlerta: 420,
+
     leash: 620,
     attackCooldown: 1.5,
     spriteScale: 1.25,
@@ -612,8 +658,37 @@ items: poolCompleto([
      * dois no jogo e o nivel — este e o degrau 7 e o outro vai do 8 ao
      * 12 — e nao a aparencia
      */
-    name: "Goblin",
-    behavior: BEHAVIOR.ACTIVE,
+name: "Goblin",
+    /**
+     * O GOBLIN DA TELA E PASSIVO, E ESTE E O GOBLIN QUE O JOGADOR ENCONTRA.
+     *
+     * ## POR QUE ESTE BLOCO E NAO O `goblin` DO CATALOGO
+     *
+     * Porque existem TRES criaturas que o jogador chama de goblin, e so duas
+     * spawnam:
+     *
+     * - `goblin`, o "Goblin Saqueador", e semi-passivo desde o comeco — mas
+     *   NAO esta em nenhum `mix` de zona, entao nunca aparece
+     * - `ogre_da_predeira`, este, que o `id` nao virou `goblin` porque a
+     *   chave ja estava ocupada e porque trocar apagaria o abate de quem ja
+     *   matou
+     * - `ogre`, o outro goblin da tela, e o mesmo caso
+     *
+     * A mudanca de comportamento foi feita no `goblin` primeiro, e ele nunca
+     * apareceu na tela: o goblin que perseguia o jogador era sempre este
+     *
+     * ## POR QUE `SEMI_PASSIVE` E NAO SO `aggroRange: 0`
+     *
+     * Os dois dariam o mesmo resultado, e o `semiPassive` e o explicito: o
+     * `isAggressive` dele devolve `provoked`, que e literalmente "so briga
+     * depois de levar pancada". Um `active` com raio zero ficaria agressivo
+     * por `alerted` tambem, que e um caminho a menos para ler
+     *
+     * E o `updateAlert` do `semiPassive` so roda a regra de corda desde que o
+     * `return` antecipado dele saiu: sem isso, um unico soco acordava o bando
+     * e ele perseguia o jogador ate o fim do mapa
+     */
+    behavior: BEHAVIOR.SEMI_PASSIVE,
 
     /**
      * O NIVEL BASE E 7, e nao 16.
@@ -643,7 +718,20 @@ items: poolCompleto([
      */
     damage: 46,
     attackRange: 84,
-    aggroRange: 430,
+
+    /**
+     * ZERO, e nao os 430 que estava aqui.
+     *
+     * O `aggroRange` e o alcance de VISAO: e a distancia dentro da qual o
+     * mob ve o jogador e ataca sozinho. Com `semiPassive`, o `isAggressive`
+     * ja ignora este numero — ele devolve `provoked` — mas deixar o 430 aqui
+     * seria uma mentira no catalogo que enganaria quem for ler a criatura
+     * depois, e o `max(leash, aggroRange)` da corda usa este valor
+     *
+     * A `leash` de 1000 e o que estica a corda agora: com o raio em zero, o
+     * goblin desiste quando o jogador passa de 1600px
+     */
+    aggroRange: 0,
     leash: 1000,
     attackCooldown: 2.2,
     spriteScale: 1,
@@ -682,7 +770,15 @@ ogre: {
  * idle por direcao e animacao de morte
  */
 name: "Goblin",
-    behavior: BEHAVIOR.ACTIVE,
+    /**
+     * O MESMO GOBLIN PASSIVO DE `ogre_da_predeira`, e pelo mesmo motivo.
+     *
+     * Este e o goblin que o jogador ve na floresta, no acampamento, na
+     * campina, nas ruinas e na cripta — os cinco `mix` de zona que usam
+     * `ogre: 100`. O `id` continua `ogre` por causa do registro de abate, do
+     * bestiario e das cacadas
+     */
+    behavior: BEHAVIOR.SEMI_PASSIVE,
 
     /**
      * O NIVEL BASE E 8, e nao 15 — o mesmo bug do ogre da predeira.
@@ -709,9 +805,17 @@ name: "Goblin",
      * segundos
      */
     damage: 52,
-    attackRange: 78,
-    aggroRange: 400,
-    leash: 1000,
+attackRange: 78,
+
+  /**
+   * ZERO, e nao os 400 que estava aqui.
+   *
+   * O mesmo motivo do `ogre_da_predeira`: com `semiPassive` o `aggroRange`
+   * nao e mais lido pelo `isAggressive`, e a corda do goblin passa a ser a
+   * `leash` de 1000 — o jogador foge para mais de 1600px e o bando acalma
+   */
+  aggroRange: 0,
+  leash: 1000,
     attackCooldown: 2.4,
     spriteScale: 1.9,
     wanderRadius: 50,

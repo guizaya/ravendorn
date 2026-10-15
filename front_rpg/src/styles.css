@@ -115,7 +115,7 @@ tres classes para vencer o `.wordmark .marca` da base e o do rodape, senao
 uma regra de tela estreita abaixo repõe o tamanho velho no header
 */
 .wordmark .marca { height: 40px; width: auto; }
-.site-header .wordmark .marca { height: 56px; width: auto; }
+.site-header .wordmark .marca { height: 68px; width: auto; }
 footer .wordmark .marca { height: 72px; width: auto; }
 
 /*
@@ -203,6 +203,48 @@ para alcancar a regra que ganha
 .faq p { color: var(--muted-foreground); line-height: 1.9; }
 footer { border-top: 1px solid var(--border); padding: 30px 0; }
 .footer-inner { display: flex; align-items: center; justify-content: space-between; gap: 20px; }
+
+/*
+  O LOGO MAIOR NO RODAPE, E O RODAPE DO MESMO TAMANHO.
+
+  ## POR QUE UM `scale` E NAO SO `height: 68px`
+
+  Porque o `height` maior DENTRO do fluxo aumentaria o `footer-inner`, e o
+  rodape e o bloco que o jogador ve no fim da rolagem: uma faixa que cresce
+  sozinha desloca o texto e o copyright a cada ajuste de marca. O pedido e
+  logo maior com o rodape igual
+
+  E o `transform` resolve exatamente isso: ele NAO participa do fluxo. A caixa
+  da imagem continua com 40px de altura — a mesma que o rodape tinha antes de
+  o `style` inline do componente sair — o `footer-inner` continua medindo o
+  que media, e o desenho aparece 68px por cima da caixa
+
+  ## POR QUE `1,7`, E NAO `1,4`
+
+  Porque `40 * 1,7 = 68`, que e exatamente a altura que o header usa. Os dois
+  logoes precisam ter a mesma medida: e a mesma marca em dois lugares, e
+  Anything diferente faz o rodape parecer uma versao menor
+
+  ## E A REGRA `footer .wordmark .marca { height: 72px }` DA LINHA 119
+
+  Ela existe e e mais antiga, e ela QUERIA 72px. Ela nao valia nada ate
+  agora, porque o `style` inline do componente desenhava com 40 e vencia
+  qualquer classe. Hoje ela continua sem valer: esta regra tem tres classes
+  de especificidade contra duas da de la, entao quem manda aqui e este
+  `scale`, e o rodape fica com o desenho de 68px sem a faixa crescer
+
+  ## POR QUE `transform-origin: left center`
+
+  Porque o logo e o primeiro item de um `justify-content: space-between`, e a
+  origem na esquerda mantem ele grudado no canto. Com a origem no centro o
+  desenho cresceria para os dois lados e passaria por cima do texto ao lado
+*/
+.footer-inner .wordmark .marca {
+  height: 40px;
+  width: auto;
+  transform: scale(1.7);
+  transform-origin: left center;
+}
 footer .wordmark { font-size: 19px; }
 footer p { font-size: 10px; color: var(--muted-foreground); }
 .dialog-art { width: 100%; border-radius: 3px; image-rendering: pixelated; }

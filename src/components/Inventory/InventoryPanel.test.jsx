@@ -301,7 +301,20 @@ describe("InventoryPanel", () => {
     const html = render({ inventory: null, equipment: null, player: null });
 
     expect(html).toContain('class="inv-panel"');
-    expect(html).toContain("Nenhum item nesta categoria.");
+
+    /**
+     * O QUE ESTE ARQUIVO NAO AFIRMA MAIS
+     *
+     * Este teste dizia `toContain("Nenhum item nesta categoria.")`. A caixa
+     * foi removida de proposito: a categoria vazia e o estado padrao da
+     * mochila, nao um erro, e o painel nao precisa repetir em texto o que a
+     * grade vazia ja mostra
+     *
+     * O que o teste continua affirming e o que ele AFIRMAVA: que o snapshot
+     * nulo renderiza o painel em vez de estourar. A caixa de busca continua
+     * existindo, e e testada la em cima
+     */
+    expect(html).not.toContain("Nenhum item nesta categoria.");
   });
 });
 

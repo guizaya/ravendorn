@@ -77,14 +77,35 @@ export const BASE_BOUNDS = {
 };
 
 /**
- * O CENTRO do mapa base.
+ * O TILE ONDE O PERSONAGEM NASCE, e nao o pixel.
  *
- * `bounds.x + width / 2` da 840, e `width / 2` do mapa inteiro tambem:
- * a margem e igual dos dois lados, entao os dois centros coincidem
+ * ## POR QUE ESCREVER O TILE
+ *
+ * Porque "nasce no tile 1, 9" e um lugar que o autor enxerga no editor, e
+ * `x: 96, y: 608` nao diz nada. O mapa base tem 26 x 18 tiles, e o spawn
+ * antigo era o CENTRO do mapa — que o Tiled mostra como o tile 13, 9. Mudar
+ * so a coluna e o que o jogador pediu, e deixar isso escrito como tile e o que
+ * faz a proxima mudanca nao precisar de conta
+ *
+ * ## E O CENTRO DO TILE, E NAO O CANTO
+ *
+ * Porque `player.x` e `player.y` sao a posicao dos PES do boneco. No canto do
+ * tile (64, 576) o boneco ficaria em cima da divisao com o tile de cima e o da
+ * esquerda, e o jogador veria o personagem "dentro da parede" por causa de
+ * 32px
+ *
+ * ## POR QUE NAO E O CANTO, E POR QUE TAMBEM NAO E O CENTRO DO MAPA
+ *
+ * O centro era o padrao porque nao ha obstaculo no hub: qualquer ponto do
+ * calcamento serve. O tile 1, 9 e perto da borda esquerda, e por isso vale o
+ * `BASE_BOUNDS` continuar mandando: um spawn perto demais da beira faria o
+ * jogador nascer encostado na parede invisivel dos 40px
  */
+const BASE_SPAWN_TILE = { x: 1, y: 9 };
+
 export const BASE_SPAWN = {
-  x: Math.round(BASE_BOUNDS.x + BASE_BOUNDS.width / 2),
-  y: Math.round(BASE_BOUNDS.y + BASE_BOUNDS.height / 2),
+  x: BASE_SPAWN_TILE.x * BASE_TILE + BASE_TILE / 2,
+  y: BASE_SPAWN_TILE.y * BASE_TILE + BASE_TILE / 2,
 };
 
 /**

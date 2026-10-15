@@ -248,9 +248,33 @@ export default function MochilaExpansaoModal({
                 : "A mochila está no limite"
             }
           >
-            {compra.pode
-              ? `COMPRAR ${compra.slots} SLOTS`
-              : "NO LIMITE"}
+            {/*
+              O BOTAO DIZ "comprar 10 SLOTS", E O 10 VEM COM O DIAMANTE AO LADO.
+
+              ## POR QUE O DIAMANTE FICA NO "10", E NAO NO PRECO
+
+              Porque e o que foi pedido, e funciona: o diamante aqui marca o
+              TIPO de compra, e o preço em diamantes esta logo acima, no
+              `mch-exp__preco`. O botao repete a quantidade porque e a decisao,
+              e a moeda ao lado dela porque e o que o jogador vai gastar
+
+              ## E POR QUE O `IconeMoeda` NAO QUEBRA O NOME DO BOTAO
+
+              Ele sai com `alt=""` e `aria-hidden`, entao o leitor de tela le
+              so o texto: "comprar 10 slots". O icone e ornamento
+            */}
+            {compra.pode ? (
+              <>
+                COMPRAR
+                <span className="mch-exp__btn-qtd">
+                  <span className="mch-exp__btn-num">{compra.slots}</span>
+                  <IconeMoeda moeda={DIAMANTE} lado={13} />
+                </span>
+                SLOTS
+              </>
+            ) : (
+              "NO LIMITE"
+            )}
           </button>
         </footer>
       </div>

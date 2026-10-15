@@ -24,8 +24,30 @@ import { minimapColorFor } from "../../data/terrain/index.js";
  * 0.017%, ainda melhor, mas e maior. O par e o menor que deixa a sobra nos
  * dois eixos abaixo de 0.1px, que e invisivel e centrado
  */
-export const MINIMAP_WIDTH = 168;
-export const MINIMAP_HEIGHT = 118;
+/**
+ * A LARGURA E A ALTURA, E POR QUE ELAS SAO AS DA COLUNA DE MISSOES.
+ *
+ * A coluna da direita da HUD e calculada, nao escolhida: sao cinco botoes de
+ * 32px com quatro vaos de 8px, que dao 192px. A caixa de missoes ocupa essa
+ * largura inteira porque e `width: 100%` da coluna
+ *
+ * ## POR QUE O MINIMAPA PRECISA DA MESMA LARGURA
+ *
+ * Porque o jogador olha para a coluna direita como uma coisa so. Duas caixas
+ * empilhadas com larguras diferentes — o minimapa com 168 e as missoes com
+ * 192 — parecem dois paineis que nao conversam, e o desalinhamento de 24px na
+ * borda e visivel de longe
+ *
+ * ## E A ALTURA VEM DA RAZAO, E NAO DE UM NUMERO NOVO
+ *
+ * O mapa e desenhado com `contain`: `computeMinimapTransform` escala pelos
+ * dois eixos e centraliza. A largura subiu de 168 para 192, um fator de
+ * 1,1429; a altura subiu na mesma razao, de 118 para 135. Escolher 135 a mao
+ * daria a mesma sobra de hoje; escolher outro valor esticaria o mapa ou
+ * deixaria uma tarja — que e o que o `contain` existe para evitar
+ */
+export const MINIMAP_WIDTH = 192;
+export const MINIMAP_HEIGHT = 135;
 
 /**
  * A COR E O TAMANHO DO PONTO DO CHEFE.
@@ -49,15 +71,23 @@ export const CHEFE_NO_MINIMAPA = "#ff3b46";
 export const LADO_DO_CHEFE = 3;
 
 /**
- * A MARGEM DA DIREITA.
+ * A MARGEM DA DIREITA, e ela virou a margem REAL do minimapa.
  *
- * O minimapa mora na coluna ESQUERDA, embaixo da box do personagem, entao
- * quem manda na borda dele agora e `MINIMAP_LEFT`. Esta constante sobrou
- * do layout antigo e o `minimap.test.js` ainda a importa para checar a
- * largura e a borda do painel de alvo — por isso continua exportada,
- * mesmo sem o motor usar
+ * ## O QUE MUDOU
+ *
+ * O minimapa morava na coluna ESQUERDA, embaixo da box do personagem, e a
+ * borda era governada pelo `MINIMAP_LEFT`. Agora ele mora na coluna DIREITA,
+ * acima da caixa de missoes, e e esta margem que o posiciona: o `drawMinimap`
+ * calcula a origem por `width - MINIMAP_RIGHT - MINIMAP_WIDTH`
+ *
+ * ## E POR QUE 12, E NAO OS 20 DE ANTES
+ *
+ * Porque a coluna da direita da HUD esta em `right: 12px`. Com 20 aqui, o
+ * minimapa terminaria 8px mais a esquerda do que a caixa de missoes, e o
+ * desalinhamento reaparecia pela outra porta — em cima, em vez de na largura.
+ * A margem do minimapa e a margem da coluna, e nao um numero solto
  */
-export const MINIMAP_RIGHT = 20;
+export const MINIMAP_RIGHT = 12;
 
 /**
  * A MARGEM DA ESQUERDA, e a margem de baixo.
@@ -99,36 +129,32 @@ export const MINIMAP_LEFT = 12;
 export const MINIMAP_BOTTOM = 32;
 
 /**
- * ONDE O MINIMAPA NASCE, E ONDE ELE FICA.
+ * ONDE O MINIMAPA NASCE: LOGO ABAIXO DO GRUPO DE BOTOES.
  *
- * `84` era o `top` do `.target-panel`, na coluna direita: os dois dividiam
- * o mesmo slot e o minimapa saltava para `190` quando um alvo era
- * selecionado, para o painel de alvo aparecer no lugar dele
+ * ## A CONTA
  *
- * Hoje o minimapa esta na coluna esquerda, embaixo da `.hud-vitals` (que
- * ocupa de `12px` ate perto de `93px`), e o painel de alvo virou o
- * `hud-topo`, no alto central
+ * A coluna direita da HUD comeca em `top: 12px` e traz o menu antes de
+ * qualquer outra coisa. O menu e uma FILEIRA nao uma coluna — o
+ * `justify-content: flex-end` dele e a prova — e cada botao e um
+ * `.hud-btn` de 32x32. Entao a altura do menu e 32px, e nao o produto de
+ * cinco botoes:
  *
- * ## POR QUE 94 E NAO MAIS 105
+ *     12 (top da coluna) + 32 (altura do menu) + 8 (gap) = 52
  *
- * Porque a `.hud-vitals` encolheu duas vezes: o padding, a fonte do nivel,
- * do nome e da classe desceram de tamanho, e a box passou a terminar antes.
- * O `top` do minimapa e a distancia da box de cima, entao ficar em 105
- * abriria um buraco grande entre as duas — e um buraco grande entre a box
- * do personagem e o minimapa e a mesma coisa que um vao pequeno entre o
- * minimapa e o rodape: o jogador le as tres como uma coluna so
+ * ## POR QUE 192 NAO SERIA O `top`
  *
- * Com 94 o minimapa fica colado na box de cima, que e o que as duas caixas
- * de verdade pedem, e o vao que sobra em baixo e o que separa do rodape
+ * Porque 192 e a LARGURA da coluna, que sai de `--menu-n * --btn-h +
+ * (--menu-n - 1) * --btn-gap` com os botoes lado a lado. Usar esse numero
+ * como altura punha o minimapa em `212`, bem dentro da caixa de missoes, e o
+ * minimapa sumia atras dela — que e o sintoma de quando esta constante estava
+ * errada
  *
- * ## E POR QUE ISSO NAO SE CALCULA SOZINHO
+ * ## E POR QUE UM NUMERO E NAO A LEITURA DO DOM
  *
- * Porque o `top` da box esta em CSS e a altura dela depende do que esta
- * dentro: numero de linhas do nome, altura da barra, padding. Ler a caixa de
- * verdade do DOM por quadro seria caro, e um numero fixo com 94 medido e o
- * que o resto da coluna ja faz
+ * Porque a altura da caixa de missoes depende do que ha dentro dela. Ler o
+ * DOM por quadro seria caro, e 32px e a altura fixa do `.hud-btn`
  */
-export const MINIMAP_TOP_IDLE = 94;
+export const MINIMAP_TOP_IDLE = 52;
 
 /**
  * ## SEM USO NO MOTOR — ESTA E A PARTE QUE FALTA
@@ -147,7 +173,7 @@ export const MINIMAP_TOP_IDLE = 94;
  * Apagar estas duas linhas junto com as assercoes de `minimapY` nos tres
  * arquivos e o passo que fecha isso de vez
  */
-export const MINIMAP_TOP_TARGETED = 190;
+export const MINIMAP_TOP_TARGETED = 148;
 
 export const MINIMAP_SLIDE = 0.18;
 

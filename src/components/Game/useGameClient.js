@@ -187,10 +187,28 @@ export default function useGameClient({
    * jogador de alcance atualizada sem precisar mandar um pacote a
    * cada movimento do mouse.
    */
-  const sincronizar = useCallback(
-    () => comCliente((c) => c.sincronizarIntencao()),
-    [comCliente],
-  );
+const sincronizar = useCallback(
+() => comCliente((c) => c.sincronizarIntencao()),
+[comCliente],
+);
+
+/**
+ * O VETOR DE ANDAR QUE O SERVIDOR JA RECEBEU.
+ *
+ * E lido pelo `NetworkWorld` uma vez por quadro para mover o boneco
+ * antes de o servidor responder (previsao). Devolve o vetor do
+ * ultimo `INPUT` enviado, e nao o teclado: sao iguais enquanto a
+ * conexao esta de pe, e diferentes quando ela cai.
+ *
+ * O `{x: 0, y: 0}` do `comCliente` e o que segura o quadro depois
+ * que o socket fecha: sem cliente nao ha previsao, e o boneco para
+ * onde o ultimo pacote o deixou, em vez de continuar andando para o
+ * lugar que ninguem mais vai confirmar.
+ */
+const intencaoAtual = useCallback(
+() => comCliente((c) => c.intencaoAtual()) ?? { x: 0, y: 0 },
+[comCliente],
+);
 
   const mirar = useCallback(
     (alvo) => comCliente((c) => c.mirar(alvo)),
@@ -867,8 +885,9 @@ const mexerNoBau = useCallback(
     ponteiro,
     definirLeitorDeJogadorNaTela,
     definirLeitorDePonteiroDeMira,
-    sincronizar,
-    atacar,
+sincronizar,
+intencaoAtual,
+atacar,
     mirar,
     habilidade,
     ultimate,

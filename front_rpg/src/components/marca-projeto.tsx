@@ -30,20 +30,37 @@ export const NOME_DO_PROJETO = 'RavenDorn'
 /**
  * A MARCA DA CASA.
  *
- * `tamanho` e a ALTURA em pixel de mundo da arte, e ela e a unica coisa que
- * muda entre as quatro telas. O `className` vai no `<a>` de quem chama,
- * porque cada tela tem o seu proprio `className` de wordmark e sobrescrever
- * aqui quebraria o `justify-center` da tela de entrada
+ * ## O TAMANHO E DO CSS, E O `tamanho` E SO UM ESCAPE
+ *
+ * Antes este componente escrevia `style={{ width: tamanho, height: tamanho }}`
+ * com `tamanho` valendo 40 por padrao. `style` inline ganha de qualquer
+ * regra de `.classe`, entao a `.site-header .wordmark .marca { height: 56px }`
+ * do `styles.css` nunca chegava a valer: o logo do header desenhava com 40px
+ * exatamente como os outros, e a regra do header era codigo morto
+ *
+ * Agora o tamanho e do CSS e o componente nao escreve nada no `style`. O
+ * `tamanho` continua existindo para quem precisar de um tamanho explicito
+ * naquele ponto — e so nesse caso ele vira `style` inline de novo
+ *
+ * ## POR QUE ISSO E MELHOR E NAO SO UM `!important`
+ *
+ * Porque a largura e a altura da marca sao uma decisao de cada tela, e tres
+ * telas ja discordam entre si: 40 no rodape, 56 no header. Isso e CSS, e o
+ * CSS ja sabe. Um `!important` resolveria o sintoma e deixaria as duas
+ * medidas em dois lugares — que e como a regra do header morreu
+ *
+ * A arte e um PNG de 1600x1600, entao subir ate 56 ou 72px nao borra: a
+ * resolucao sobraria por uma ordem de grandeza
  */
-export function MarcaRavenDorn({ tamanho = 40, className = '' }: { tamanho?: number; className?: string }) {
+export function MarcaRavenDorn({ tamanho = null, className = '' }: { tamanho?: number | null; className?: string }) {
   return (
     <img
       src={logo}
       alt={NOME_DO_PROJETO}
       className={`marca ${className}`.trim()}
-      width={tamanho}
-      height={tamanho}
-      style={{ width: tamanho, height: tamanho }}
+      width={tamanho ?? undefined}
+      height={tamanho ?? undefined}
+      style={tamanho === null ? undefined : { width: tamanho, height: tamanho }}
     />
   )
 }

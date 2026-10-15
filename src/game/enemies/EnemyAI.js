@@ -1,5 +1,5 @@
 ﻿import { distance, normalize, randomBetween } from "../math.js";
-import { BEHAVIOR } from "../../data/enemies/index.js";
+import { BEHAVIOR, CREATURE_TYPES } from "../../data/enemies/index.js";
 import { habilidadesDe } from "./telegraphSkills.js";
 
 const STUCK_THRESHOLD = 0.45;
@@ -743,6 +743,142 @@ export class EnemyAI {
     if (!enemy.provoked) {
       enemy.provoked = true;
       enemy.alerted = true;
+
+      /**
+       * O CHAMADO DOS COMPANHEIROS, e ele fica AQUI DENTRO.
+       *
+       * ## POR QUE DENTRO DO `if` E NAO DEPOIS
+       *
+       * Porque este bloco so roda na PRIMEIRA vez que a criatura e basicida.
+       * Fora dele, cada soco puxaria dois aliados de novo — e como os ja
+       * provocados sao pulados pela varredura, a segunda pancada acabaria
+       * acordando o bando inteiro, um a um
+       *
+       * ## E POR QUE SO NO `SEMI_PASSIVE`
+       *
+       * Porque um `PASSIVE` nunca luta: o `provoke` dele ja voltou antes de
+       * marcar qualquer coisa. O `SEMI_PASSIVE` e o unico que aceita o
+       * `provoked` e mesmo assim fica parado ate levar pancada — que e
+       * exatamente o bando de goblin
+       */
+      if (enemy.behavior === BEHAVIOR.SEMI_PASSIVE) {
+        this.puxarAliados(enemy);
+      }
+    }
+  }
+
+  /**
+   * ACORDA OS COMPANHEIROS MAIS PROXIMOS, quando a criatura permite.
+   *
+   * ## O QUE ESTE METODO FAZ, E O QUE NAO FAZ
+   *
+   * Ele MARCA os outros como provocados, e nada mais. Ele nao escolhe alvo,
+   * nao teleporta, nao muda posicao e nao mexe em cooldown. O caminho e o
+   * mesmo de levar pancada: um aliado marcado fica agressivo pelo
+   * `isAggressive` do `SEMI_PASSIVE`, que devolve `enemy.provoked`
+   *
+   * E por isso que o alvo dos aliados sai correto sem codigo aqui: eles
+   * seguem a mesma regra de mira que seguiram se tivessem sido acertados
+   *
+   * ## POR QUE OS DOIS CAMPOS SAO LIDOS DO CATALOGO, E NAO DA INSTANCIA
+   *
+   * Porque `alertarAliados` e `raioDoAlerta` sao configuracao de ESPECIE, e
+   * nao estado. O `typeId` da criatura diz de que tipo ela e, e o catalogo
+   * diz o que aquele tipo faz. Ler do catalogo evita a duvida de o campo ter
+   * chegado ou nao na instancia, e mantem uma fonte de verdade so
+   *
+   * ## E POR QUE UM SO `sqrt` POR PAR
+   *
+   * O filtro de distancia e no QUADRADO, que e comparacao de multiplicacao,
+   * e o `sqrt` so acontece para quem ja passou no corte. O laco de separacao
+   * de duas linhas abaixo diz o mesmo coisa e o mesmo motivo: e o laco mais
+   * caro do servidor, e um `Math.hypot` em cada par custa caro demais
+   */
+  puxarAliados(enemy) {
+    const tipo = CREATURE_TYPES[enemy.typeId];
+
+    const quantos = tipo?.alertarAliados ?? 0;
+
+    if (!(quantos > 0)) return;
+
+    const raio = tipo?.raioDoAlerta ?? 0;
+
+    // sem raio nao ha chamado: a lista viraria "todo goblin do mapa"
+    if (!(raio > 0)) return;
+
+    const raioSquared = raio * raio;
+
+    /**
+     * OS CANDIDATOS, e a ordem importa.
+     *
+     * O pedido e "os DOIS mais proximos", entao a distancia decide quem
+     * entra — nao a ordem da lista, que e a de spawn. Guardar so o melhor e
+     * o segundo melhor numa varredura e o que faz isso valer com qualquer
+     * quantidade de goblins em volta
+     */
+    let primeiro = null;
+    let segundo = null;
+    let primeiroDist = Infinity;
+    let segundoDist = Infinity;
+
+    for (const outro of this.world.enemies) {
+      if (outro === enemy) continue;
+      if (outro.alive === false) continue;
+      if (outro.isCreature !== true) continue;
+
+      /**
+       * SO DA MESMA ESPECIE.
+       *
+       * E o que impede um goblin de acordar um ghoul. Sem esta linha um
+       * bando de duas especies acordaria inteiro, e o ghoul — que tambem e
+       * `SEMI_PASSIVE` — entraria na briga sem o jogador ter visto nada
+       */
+      if (outro.typeId !== enemy.typeId) continue;
+
+      // ja estava brigando: conta-lo de novo gastaria uma das duas vagas
+      if (outro.provoked) continue;
+
+      const dx = enemy.x - outro.x;
+      const dy = enemy.y - outro.y;
+
+      const distanciaSquared = dx * dx + dy * dy;
+
+      if (distanciaSquared >= raioSquared) continue;
+
+      if (distanciaSquared < primeiroDist) {
+        segundo = primeiro;
+        segundoDist = primeiroDist;
+
+        primeiro = outro;
+        primeiroDist = distanciaSquared;
+      } else if (distanciaSquared < segundoDist) {
+        segundo = outro;
+        segundoDist = distanciaSquared;
+      }
+    }
+
+    /**
+     * OS ESCOLHIDOS, e o `quantos` cortando a lista.
+     *
+     * E aqui que `alertarAliados: 2` e lido de verdade: a varredura sempre
+     * guarda o melhor e o segundo melhor, e o `slice` e o que faz
+     * `alertarAliados: 1` acordar um so, sem um segundo `if` para cada valor
+     * possivel
+     *
+     * `alerted` alem de `provoked` porque e o par que o `provoke` escreve. Um
+     * aliado marcado so por `provoked` se comportaria diferente do outro em
+     * qualquer codigo que leia os dois
+     *
+     * E o `alerted` e o que segura o chamado em cascata: o `puxarAliados` nao
+     * e chamado por aliado, e so pelo `provoke` de um golpe. Se algum dia ele
+     * passar a ser chamado daqui, um goblin acordaria dois, cada um acordaria
+     * dois, e o mapa inteiro viraria um
+     */
+    const escolhidos = [primeiro, segundo].filter(Boolean).slice(0, quantos);
+
+    for (const aliado of escolhidos) {
+      aliado.provoked = true;
+      aliado.alerted = true;
     }
   }
 
@@ -776,10 +912,30 @@ export class EnemyAI {
       return;
     }
 
-    if (enemy.behavior === BEHAVIOR.SEMI_PASSIVE) {
-      return;
-    }
-
+    /**
+     * O SEMI_PASSIVE CORRE A MESMA REGRA DE CORDA, E ANTES NAO CORRIA.
+     *
+     * Este `return` e o que fazia um goblinersistir agressivo para sempre
+     * depois de levar um unico soco: o `isAggressive` do `SEMI_PASSIVE` devolve
+     * `enemy.provoked`, e nada limpava esse `provoked`. Nao por fuga, nao por
+     * tempo, nao por distancia. O bando inteiro que acordou com o primeiro
+     * golpe ia atras do jogador ate o fim do mapa
+     *
+     * ## POR QUE A CORDA DELE E `max(leash, aggroRange) * 1,6`
+     *
+     * E a mesma conta do mob ativo, e ela e a conta certa aqui: o
+     * `aggroRange` do goblin e ZERO (e por isso ele nunca ve ninguem), entao
+     * o que manda e a `leash` de 620. Com o fator de 1,6 o goblin desiste
+     * quando o jogador passa de 992px — perto o bastante para ele nao
+     * desistir no meio da luta, longe o bastante para uma fuga de verdade
+     * acalmar o bando
+     *
+     * ## E POR QUE O `PASSIVE` CONTINUA SAINDO ANTES
+     *
+     * Porque um passivo nao tem `provoked` para limpar nem corda para
+     * esticar: ele nunca luta. O `alerted = false` e so para nao sobrar
+     * estado de um comportamento que ele nunca assume
+     */
     if (enemy.alerted) {
       enemy.aiTimer += deltaTime;
 

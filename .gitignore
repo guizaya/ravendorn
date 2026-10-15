@@ -6,10 +6,23 @@ npm-debug.log*
 coverage
 .preview
 
-# Os personagens salvos. Ficam DENTRO do projeto por padrao, e nao
-# vao para o git: e o progresso de quem joga, nao codigo, e um
-# `git clean` sem cuidado nao pode levar o nivel de ninguem junto
-server/data/personagens
+# OS DADOS DO JOGO, a pasta inteira.
+#
+# Começou ignorando so `server/data/personagens`, e a de contas ficou de
+# fora. A diferenca importa: cada arquivo de conta se chama
+# `carteira_0x<endereco>.json` e guarda saldo de diamantes e a lista de
+# personagens de uma carteira REAL. Versionar isso nao é só perder
+# progresso — é publicar o endereço e o saldo de quem jogou, num
+# repositorio que qualquer pessoa pode clonar.
+#
+# Aqui e a PASTA, e nao cada arquivo. Os stores gravam tambem `.tmp`
+# durante o save, e listar por extensao deixa um `.tmp` versionado por
+# um segundo — que ja vaza o mesmo conteudo.
+#
+# A pasta e ignorada mesmo sem existir no clone: `AccountStore` e
+# `CharacterStore` fazem `mkdirSync(dir, {recursive:true})` no boot, e
+# `GuildSave` tambem. Nao ha nada a preservar alem dos arquivos.
+server/data/
 *.json.tmp
 
 # Os prompts com que o jogo foi pedido, na raiz. Sao conversa, nao

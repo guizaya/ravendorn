@@ -31,22 +31,58 @@ const REMOTO_ATAQUE = 0.28;
  */
 const MOB_ATAQUE = 0.28;
 
+/**
+ * A LISTA VAZIA DA COLISAO, e nao `undefined`.
+ *
+ * O `CollisionSystem.moveEntity` recebe por ultimo quem pode bloquear
+ * o movimento. Passar `undefined` faria ele iterar uma lista inexistente
+ * — ou, pior, cair num `forEach` de `undefined` dentro do passo de
+ * colisao, e o boneco pararia de andar sem erro nenhum no console.
+ *
+ * E a MESMA conta do `GameEngine` (`EMPTY_LIST`), que faz o jogador
+ * colidir so com solidos. Duplicar a lista aqui e nao importar a
+ * constante do motor porque ela e um detalhe de implementacao dele, e
+ * o que importa e que as DUAS chamadas digam a mesma coisa.
+ */
+const EMPTY_LIST = [];
+
 import { getClassSprite } from "../../data/sprites/index.js";
 import { findMap } from "../../data/maps/index.js";
+import { Previsao } from "./Previsao.js";
 
 export class NetworkWorld {  /**
-   * @param {object} engine  o motor, em modo rede
-   */
-  constructor(engine) {
-    this.engine = engine;
+ * @param {GameEngine} engine
+ */
+constructor(engine) {
+this.engine = engine;
 
-    /** id do inimigo -> entidade, para nao procurar 83 vezes por quadro */
-    this.porId = new Map(
-      engine.world.enemies.map((e) => [e.id, e]),
-    );
+/** id do inimigo -> entidade, para nao procurar 83 vezes por quadro */
+this.porId = new Map(
+engine.world.enemies.map((e) => [e.id, e]),
+);
 
-    this.ultimoEstado = null;
-  }
+this.ultimoEstado = null;
+
+/**
+ * A PREVISAO DO JOGADOR LOCAL.
+ *
+ * Nao e um detalhe do `aplicarJogador`: e o unico lugar do cliente
+ * que tem uma segunda opiniao sobre a posicao do jogador. Ela nasce
+ * aqui porque e aqui que a posicao do servidor chega, e ela e lida no
+ * quadro pelo `prever`, que e chamado pelo motor no ramo de rede.
+ */
+this.previsao = new Previsao();
+
+/**
+ * A INTENCAO LOCAL DO QUADRO ANTERIOR.
+ *
+ * Guarda o que o jogador esta apertando para que o `prever` posso
+ * repetir o mesmo movimento quando nenhum comando novo chegou pelo
+ * teclado. Sem isto, o boneco andaria em soluancos: um passo no
+ * `keydown`, e parado ate a proxima tecla.
+ */
+this.intencao = { x: 0, y: 0 };
+}
 
   /**
    * Aplica um estado vindo do servidor.
@@ -151,13 +187,28 @@ export class NetworkWorld {  /**
    * nunca terminaria e o arqueiro ficaria permanentemente
    * segurando o arco.
    */
-  aplicarJogador(jogador, dado) {
-    if (!jogador || !dado) return;
+aplicarJogador(jogador, dado) {
+if (!jogador || !dado) return;
 
-    jogador.x = dado.x;
-    jogador.y = dado.y;
-    jogador.hp = dado.hp;
-    jogador.isMoving = Boolean(dado.isMoving);
+/**
+ * A POSICAO NAO E MAIS COPIADA.
+ *
+ * Era `jogador.x = dado.x` aqui, e essa uma linha era a causa do
+ * travamento e do rubber band: a 20Hz, o boneco andava em 50ms de
+ * passo e ainda voltava para tras, porque a posicao do servidor
+ * descreve um instante que ja passou (a interpolacao do
+ * `WorldState.amostrar` desenha o passado de proposito).
+ *
+ * Agora a posicao autoritativa vira uma CORRECAO, e quem decide onde
+ * o boneco fica neste quadro e o `prever`. Um estalo continua
+ * existindo para o caso de o servidor ter razao de sobra — parede,
+ * teleporte, empurrao de mob — e e ai que o cliente aceita perder o
+ * dedo.
+ */
+this.previsao.reconciliar(jogador, dado);
+
+jogador.hp = dado.hp;
+jogador.isMoving = Boolean(dado.isMoving);
 
     /**
      * A reacao ao dano, no seu proprio jogador.
@@ -218,8 +269,151 @@ export class NetworkWorld {  /**
      * Sem este campo o arquiro nunca socaria: no modo rede o cliente nao
      * roda a `runMineracao`, entao ninguem escreveria o `isMining` dele
      */
-    jogador.isMining = dado.mining === true;
-  }
+jogador.isMining = dado.mining === true;
+}
+
+/**
+ * O QUADRO DO JOGADOR LOCAL, e o unico ponto onde o cliente simula.
+ *
+ * ## POR QUE ISTO EXISTE
+ *
+ * O `GameEngine` sai antes de qualquer logica de jogo quando o modo
+ * rede esta ligado: a posicao de todo mundo vem do servidor. Para o
+ * JOGADOR LOCAL isso dava travamento (20Hz, entao o boneco parava
+ * entre os pacotes) e atraso (a posicao do servidor ja tem meio RTT
+ * quando chega).
+ *
+ * Aqui o cliente move o boneco IMEDIATAMENTE, como se nao houvesse
+ * rede, e deixa a `Previsao` cuidar do resto: o servidor continua
+ * mandando onde ele acha que o jogador esta, e cada pacote vira uma
+ * correcao.
+ *
+ * ## POR QUE A MESMA VELOCIDADE DO `updatePlayer`
+ *
+ * A previsao que discorda da velocidade real faz o boneco correr
+ * para frente e ser puxado para tras, duas vezes por segundo. O
+ * codigo abaixo e a MESMA conta do `updatePlayer`: a mesma
+ * `player.speed`, o mesmo `statuses.getMultiplier`, o mesmo
+ * `moveEntity`. Se um dos tres mudar, os dois lados tem de mudar
+ * juntos, e por isso o comentario aponta o ponto exato.
+ *
+ * ## O QUE NAO ENTRA AQUI
+ *
+ * Nada de jogo. Sem empurrao de mob, sem dash, sem mineracao, sem
+ * colisao com inimigo: o motor nao roda `updatePlayer` no cliente, e
+ * quem decide essas coisas e o servidor. A previsao cobre SO o
+ * deslocamento que o jogador mandou pelo teclado — que e a unica parte
+ * que o jogador ve na hora e precisa de resposta imediata.
+ *
+ * @param {number} deltaTime
+ */
+prever(deltaTime) {
+const jogador = this.engine?.world?.player;
+
+/**
+ * O jogador morto nao anda nem por previsao.
+ *
+ * O `updatePlayer` tem o mesmo `return` no topo. Sem ele aqui, o
+ * boneco sairia do caixao andando enquanto o servidor ja o tinha
+ * registrado como morto.
+ */
+if (!jogador || jogador.hp <= 0) {
+this.intencao.x = 0;
+this.intencao.y = 0;
+return;
+}
+
+/**
+ * A CORRECAO VEM ANTES DO DEDO.
+ *
+ * Se o dedo viesse antes, a previsao andaria com a posicao velha e
+ * so no quadro seguinte a correcao puxaria de volta — e o boneco
+ * tremeria em volta da posicao certa. Pagando a correcao primeiro, o
+ * movimento deste quadro sai de onde o jogador JÁ ESTÁ, e o dedo tem
+ * a ultima palavra sobre para onde vai.
+ */
+this.previsao.avancar(jogador, deltaTime);
+
+if (deltaTime <= 0) return;
+
+const magnitude = Math.hypot(this.intencao.x, this.intencao.y);
+
+/**
+ * NORMALIZAR AQUI, E NAO NO ENVIO DO PACOTE.
+ *
+ * O `moveFromKeys` do cliente devolve um vetor ja normalizado, mas
+ * essa normalizacao acontece no `keydown`, e entre um `keydown` e o
+ * outro este metodo roda 60 vezes. Refazer a conta aqui e o que
+ * garante que segurar W e W nao andem diferente de segurar W e D.
+ */
+const dirX = magnitude > 0 ? this.intencao.x / magnitude : 0;
+const dirY = magnitude > 0 ? this.intencao.y / magnitude : 0;
+
+/**
+ * O STATUS E O MESMO DO `updatePlayer`.
+ *
+ * `canMove` e `cast` entram porque uma previsao que ignora o stun
+ * andaria com o boneco parado na tela, que e pior do que o atraso
+ * que a previsao veio tirar.
+ */
+const podeAndar = this.engine.statuses.canMove(jogador);
+
+if (magnitude > 0 && podeAndar) {
+/**
+* `EMPTY_LIST` como quarto argumento e o que o `updatePlayer` faz.
+*
+* Sem ele, a previsao passaria a colidir com inimigos, e o servidor
+* nao colide com eles — os dois lados divergiriam no primeiro
+* aglomerado, e o boneco pararia na borda da horda enquanto o
+* servidor deixava passar.
+*/
+const statusMultiplier = this.engine.statuses.getMultiplier(
+jogador,
+"movementSpeed",
+);
+
+/**
+* O `0.55` E O MESMO DO `updatePlayer`, E IMPORTANTE.
+*
+* Carregando uma habilidade o jogador continua andando, so que mais
+* devagar. Escrever aqui "nao anda enquanto carrega" seria uma regra
+* diferente da do servidor: durante um `ultimate` de 1,2s o cliente
+* pararia, o servidor andaria, e ao fim do carregamento a previsao
+* receberia um erro de quase um metro de distancia — um estalo, que
+* e exatamente o que a previsao existe para nao acontecer.
+*/
+const castMultiplier = jogador.cast ? 0.55 : 1;
+
+const velocidade =
+jogador.speed * statusMultiplier * castMultiplier;
+
+this.engine.world.collision.moveEntity(
+jogador,
+dirX * velocidade * deltaTime,
+dirY * velocidade * deltaTime,
+EMPTY_LIST,
+);
+
+jogador.moveDirection = { x: dirX, y: dirY };
+}
+}
+
+/**
+ * A INTENCAO QUE O JOGADOR ESTA APERTANDO AGORA.
+ *
+ * O `GameClient` e quem le o teclado, e ele ja calcula esse vetor
+ * para mandar no `INPUT`. Passar o mesmo vetor para ca, em vez de o
+ * motor tambem escutar o teclado, e o que garante que o boneco ande
+ * para ONDE o pacote diz que esta andando. Se os dois lessem o
+ * teclado sozinhos, um `keydown` perdido deixaria os dois andando
+ * para lados diferentes ate o proximo pacote.
+ *
+ * @param {{x: number, y: number}} intencao
+ */
+definirIntencao(intencao) {
+this.intencao.x = intencao?.x ?? 0;
+this.intencao.y = intencao?.y ?? 0;
+}
 
   /**
    * As flechas e os outros projeteis que o SERVIDOR esta simulando.

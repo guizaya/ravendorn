@@ -258,10 +258,52 @@ export default function GameCanvas({
 
     engine.setNetworked(online);
 
-    if (online && !mundoRef.current) {
-      mundoRef.current = new NetworkWorld(engine);
-    }
-  }, [estado, engineRef]);
+if (online && !mundoRef.current) {
+mundoRef.current = new NetworkWorld(engine);
+}
+}, [estado, engineRef]);
+
+/**
+ * A PREVISAO, LIGADA AO MOTOR.
+ *
+ * ## POR QUE O MOTOR NAO SABE NADA DISSO
+ *
+ * Porque ele roda igual no navegador e no Node do servidor, e a
+ * previsao so existe no cliente. `hookDePrevisao` e a costura: o
+ * motor chama, o `NetworkWorld` decide.
+ *
+ * ## POR QUE UM EFEITO SEPARADO
+ *
+ * Porque o efeito acima sai cedo quando `engine.networked === online`
+ * ja esta resolvido: ele existe para VIRAR o modo uma unica vez, e
+ * nao roda nos quadros em que nada mudou. Ligar a previsao ali
+ * deixaria a costura ausente justamente nos quadros que interessam.
+ *
+ * ## POR QUE O `onIntentRef` NAO E DEPENDENCIA
+ *
+ * Porque ele muda de identidade a cada render do pai. Religar a
+ * costura a cada render seria trabalho jogado fora; o que importa e
+ * que, dentro da funcao, ela aponte para o cliente ATUAL — e a ref
+ * garante isso, porque e reescrita a cada render.
+ */
+useEffect(() => {
+const engine = engineRef.current;
+
+if (!engine) return;
+
+engine.hookDePrevisao = (deltaTime) => {
+const intencao = onIntentRef.current?.intencaoAtual?.();
+
+if (!intencao) return;
+
+mundoRef.current?.definirIntencao(intencao);
+mundoRef.current?.prever(deltaTime);
+};
+
+return () => {
+engine.hookDePrevisao = null;
+};
+}, [engineRef]);
 
   // Cada snapshot vira posicao nas entidades do motor
   useEffect(() => {

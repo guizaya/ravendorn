@@ -208,6 +208,7 @@ function buildItemActions(entry, handlers) {
     onOpenCollection,
     onOpenCodex,
     onSelecionar,
+    onVenderNoMercado,
     classId = null,
   } = handlers;
 
@@ -465,6 +466,37 @@ run: () => onOpenCollection(entry.itemId),
       });
     }
 
+    /**
+     * VENDER NO MERCADO ENTRE JOGADORES.
+     *
+     * ## SO PARA PECA COMERCIALIZAVEL, E O QUE ESSE `=== true` FAZ
+     *
+     * O `comercializavel` e sorteado na hora do drop e do craft, e mora na
+     * PILHA — nao no catalogo. Dois arcos `+0` sao o mesmo item do catalogo e
+     * mesmo assim so um deles pode ser anunciado. E o filtro `=== true`, e
+     * nao um truthy: a regra em `regrasDoItem.js` e que este item SO pode
+     * ser negociado, e um `undefined` que passasse por truthy viraria uma
+     * peca anunciavel que o servidor recusa
+     *
+     * E a MESMA lista que o `ListingItemPicker` filtra para montar a grade de
+     * anuncios. Se as duas divergissem, o jogador veria "Vender" num item que
+     * o formulario de anunciar nao mostraria — e ele perderia o item do
+     * anuncio, nao o item da mochila, entao ainda daria para recuperar
+     *
+     * ## E POR QUE FICA ANTES DE "EXCLUIR"
+     *
+     * Porque a acao destrutiva e sempre a ultima, e porque vender e a ultima
+     * chance do item de voltar a ser util para alguem. O `Excluir` nao tem
+     * volta
+     */
+    if (entry.comercializavel === true && onVenderNoMercado) {
+      actions.push({
+        id: "vender",
+        label: "Vender no mercado",
+        run: () => onVenderNoMercado(entry),
+      });
+    }
+
     if (onDiscardItem) {
       actions.push({
         id: "discard",
@@ -489,6 +521,7 @@ export function ItemSlot({
   onEnhance,
   onOpenCollection,
   onOpenCodex,
+  onVenderNoMercado,
   classId = null,
   compact = false,
   area,
@@ -551,6 +584,7 @@ export function ItemSlot({
     onEnhance,
     onOpenCollection,
     onOpenCodex,
+    onVenderNoMercado,
   });
 
   const abrirMenu = (clicado, event) => {
@@ -914,6 +948,7 @@ onEnchant,
 onEnhance,
 onOpenCollection,
 onOpenCodex,
+onVenderNoMercado,
 onFilterChange,
 onFilterReset,
 onFilterPrune,
@@ -1055,6 +1090,28 @@ onFilterPrune,
   );
 
   const closeMenu = () => setMenu(null);
+
+  /**
+   * VENDER ESTE ITEM NO MERCADO ENTRE JOGADORES.
+   *
+   * ## POR QUE FECHA O MENU ANTES DE CHAMAR O DONO
+   *
+   * Porque o dono (`HUD`) abre um PAINEL — e `painelAberto` guarda um valor
+   * so, entao abrir o mercado desmonta este painel inteiro. Deixar a caixa de
+   * opcoes aberta nao faria nada alem de sumir com ela, e o `Esc` da modal
+   * de anunciar capturaria a tecla antes que o painel recebesse
+   *
+   * ## E POR QUE O ITEM E PASSADO INTEIRO, E NAO SO O `uid`
+   *
+   * Porque o dono precisa do `uid` para achar a entrada em
+   * `inventory.items`, e o resto da entrada ja esta la. Passar o objeto
+   * inteiro evita que o HUDaccurate para a mesma informacao em dois lugares
+   */
+  const venderNoMercado = (entry) => {
+    closeMenu();
+
+    onVenderNoMercado?.(entry);
+  };
 
   const toggleMenu = (entry) =>
     setMenu((current) => {
@@ -1646,6 +1703,7 @@ const acoes = buildItemActions(entry, {
           alternarMarca(alvo.uid);
           setMarcando(true);
         },
+        onVenderNoMercado: venderNoMercado,
         classId: classeDaSessao,
       });
 
@@ -1734,15 +1792,29 @@ return (
                 ))}
               </div>
 
-              {cards.length === 0 && (
+              {/*
+                O ESTADO VAZIO SO EXISTE PARA A BUSCA.
+
+                ## O "nenhum item nesta categoria" FOI REMOVIDO
+
+                Porque a categoria vazia nao e um estado que o jogador
+                provocou: ele nao digitou nada, nao clicou em nada, e a
+                mochila dele simplesmente nao tem item daquele tipo. A caixa
+                ocupava o miolo do painel para repetir em texto o que a grade
+                ja mostrava — que nao ha cards
+
+                ## E POR QUE A BUSCA CONTINUA COM CAIXA
+
+                Porque na busca o jogador FEZ alguma coisa e o resultado foi
+                nulo. Sem a caixa, uma busca sem resultado e uma busca que
+                ainda nao rolou tem a mesma aparencia, e o jogador nao sabe se
+                errou a palavra ou se o filtro ainda esta trabalhando
+              */}
+              {cards.length === 0 && searching && (
                 <div className="inv-empty-state">
-                  <div className="inv-empty-icon">
-                    {searching ? "⌕" : "▣"}
-                  </div>
+                  <div className="inv-empty-icon">⌕</div>
                   <p className="inv-panel__empty">
-                    {searching
-                      ? "Nenhum item encontrado para a busca."
-                      : "Nenhum item nesta categoria."}
+                    Nenhum item encontrado para a busca.
                   </p>
                 </div>
               )}

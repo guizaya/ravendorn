@@ -293,6 +293,7 @@ import {
   MINIMAP_BOTTOM,
   MINIMAP_HEIGHT,
   MINIMAP_LEFT,
+  MINIMAP_RIGHT,
   MINIMAP_TOP_IDLE,
   MINIMAP_WIDTH,
   CHEFE_NO_MINIMAPA,
@@ -1380,6 +1381,31 @@ export class GameEngine {
     // que muda e que nada here e SIMULADO, porque quem simula e o
     // servidor. Ligado por `setNetworked`.
     this.networked = false;
+
+/**
+ * QUEM PREVE O JOGADOR LOCAL, no modo rede.
+ *
+ * ## POR QUE E UM CAMPO E NAO UM CHAMADO DIRETO
+ *
+ * Porque o motor nao conhece a camada de rede — e nao deve conhecer.
+ * Quem sabe ler o teclado do cliente online e o `GameClient`, e quem
+ * sabe aplicar a correcao do servidor e o `NetworkWorld`. Ligar os
+ * dois no motor puxaria `WebSocket`, `INPUT` e reconciliacao para
+ * dentro da simulacao, que hoje roda igual no navegador e no Node do
+ * servidor.
+ *
+ * ## POR QUE SO UM PARAMETRO
+ *
+ * `deltaTime` e o que o `NetworkWorld` precisa para paguar a
+ * correcao na velocidade certa, e e o mesmo que o motor acabou de
+ * calcular. Passar `performance.now()` de novo aqui introduziria uma
+ * segunda medicao de tempo no mesmo quadro, e as duas divergiriam
+ * sempre que o `boundLoop` recebesse um timestamp diferente do relogio
+ * do navegador.
+ *
+ * @type {((deltaTime: number) => void) | null}
+ */
+this.hookDePrevisao = null;
 
     // Quem receber o clique no modo rede. O motor descobre o alvo
     // sob o cursor (ele sabe converter tela para mundo) e
@@ -3537,11 +3563,18 @@ screenToWorld(clientX, clientY) {
    *
    * Porque e o unico lugar que ve os DOIS jeitos de andar:
    *
-   * - OFFLINE, o motor le `input.keys` e o `handleKeyDown` popula o set
-   * - ONLINE, o `keys` do motor fica VAZIO de proposito. Quem manda e o
-   *   pacote `INPUT`, que chega como `moveX`/`moveY` e sobrescreve o
-   *   que o teclado calculou
-   *
+* - OFFLINE, o motor le `input.keys` e o `handleKeyDown` popula o set
+     * - ONLINE, o `keys` do motor continua VAZIO. Quem manda e o
+     *   pacote `INPUT`, e a previsao local (`NetworkWorld.prever`)
+     *   repete o MESMO vetor que foi enviado
+     *
+     * Continua vazio, e de proposito. A previsao nao pode ler o
+     * teclado porque `tecla()` e quem avisa o servidor, e um `blur`
+     * que o navegador engole deixaria o `keys` local cheio e o
+     * pacote avisando parado: os dois lados andariam para lugares
+     * diferentes. A previsao recebe o vetor JA ENVIADO, e por isso
+     * os dois lados concordam por construcao, e nao por coincidencia.
+     *
    * Se a regra ficasse no `handleKeyDown`, o auto so pararia no modo
    * offline, e o jogador online seguraria o W vendo o boneco do piloto
    * continuar andando
@@ -7162,6 +7195,57 @@ return {
     );
   }
 
+  /**
+   * O ALVO DO GOLPE EM LOOP, ou `null`.
+   *
+   * E o trio que define estar em combate com alguma coisa: alvo FOCADO, alvo
+   * VIVO e alvo DENTRO do alcance da classe. Faltando um dos tres, o
+   * personagem volta a walk/idle
+   *
+   * ## POR QUE O ALCANCE E O DO ATAQUE BASICO DA CLASSE, E NAO UM NUMERO FIXO
+   *
+   * Porque o alcance ja existe, por classe, e ele e o que o `SkillSystem`
+   * usa para decidir se o golpe conecta: 115 do guerreiro, 180 do lanceiro,
+   * 430 do conjurador, 550 do arqueiro. Um numero escrito aqui seria uma
+   * segunda fonte da verdade, e o dia que a classe ganhasse um alcance novo
+   * a animacao ficaria em loop num inimigo que o golpe nao alcanca — o
+   * boneco atacando o ar
+   *
+   * ## E POR QUE O `+ enemy.radius`
+   *
+   * E a mesma conta do teste de acerto do `SkillSystem`, que compara
+   * `enemyDistance <= action.range + enemy.radius`. Sem o raio, um golem
+   * grande pararia de ficar sem animacao bem na beira do alcance dele: o
+   * boneco parado de frente para um monstro que ainda nao entrou na lanca
+   *
+   * ## E POR QUE NAO HA TESTE DE ANGULO AQUI
+   *
+   * Porque o angulo decide se o GOLPE acerta, e quem decide isso e o
+   * `SkillSystem` no instante do ataque. Aqui oCriteria e so "da para
+   * continuar no combate com essa coisa". A pose de ataque ja aparece hoje em
+   * um golpe que erra, entao loopar com o alvo um pouco de lado e o mesmo
+   * que ja acontece, sem virar regra nova
+   *
+   * E o `findEnemyById` que ja devolve so inimigos VIVOS, entao nao ha uma
+   * quarta condicao de "morto" espalhada aqui
+   */
+  alvoDoGolpeEmLoop() {
+    const alvo = this.findEnemyById(this.selectedTargetId);
+
+    if (!alvo) return null;
+
+    const alcance = this.classDefinition?.basicAttack?.range;
+
+    // Sem classe carregada nao ha alcance: um numero indefinido comparando
+    // com distancia vira `NaN`, e `NaN <= x` e `false` — o loop nunca
+    // ligaria, silenciosamente
+    if (!(alcance > 0)) return null;
+
+    return distance(this.world.player, alvo) <= alcance + (alvo.radius ?? 0)
+      ? alvo
+      : null;
+  }
+
   getQuestObjective() {
     return this.world.quests.objective();
   }
@@ -9292,9 +9376,28 @@ travelPlanParaObjetivo() {
     // segunda copia do mundo divergindo da do servidor, que e
     // exatamente o problema que a autoridade do servidor veio
     // resolver.
-    if (this.networked) {
-      this.spriteTime += deltaTime;
-      this.updatePresentation(deltaTime);
+if (this.networked) {
+this.spriteTime += deltaTime;
+this.updatePresentation(deltaTime);
+
+/**
+ * A PREVISAO DO JOGADOR LOCAL, e a unica simulacao no cliente.
+ *
+ * ## POR QUE FICA AQUI, E NAO DENTRO DO `updatePresentation`
+ *
+ * O `updatePresentation` e so relogio de DESENHO — animacao de
+ * sprite, barra de vida, telegraph. A previsao mexe em `player.x/y`,
+ * que e posicao de SIMULACAO, e meter as duas coisas na mesma
+ * funcao apagaria a fronteira que separa "o que o cliente mediu" de
+ * "o que o cliente mais ou menos decide".
+ *
+ * ## POR QUE ANTES DO `return` DA RAMO DE REDE
+ *
+ * Porque e a unica linha do motor que roda no cliente com poder de
+ * mexer em posicao. Tudo o mais abaixo deste ponto e servidor, e o
+ * cliente aceita.
+ */
+this.hookDePrevisao?.(deltaTime);
 
       /**
        * O RELOGIO DO TELEGRAPH, e ele e o `spriteTime`, nao o `world.time`.
@@ -9874,20 +9977,45 @@ this.autoMoveDirection = null;
       player.aimDirection = aimDirection;
     }
 
-    // atirando com foco num inimigo, o arqueiro vira para o alvo:
-    // a arte de tiro e por direcao e precisa casar com a mira.
-    // fora da janela do tiro o facing continua sendo o do
-    // movimento, como manda a regra de andar.
-    if (player.attackAnimation > 0 && player.firingTargetId) {
-      const aimed = this.findEnemyById(player.firingTargetId);
+// o golpe em loop: com alvo focado, vivo e dentro do alcance,
+// a pose de ataque fica em vez de cair para walk/idle.
+const alvoDoLoop = this.alvoDoGolpeEmLoop();
 
-      if (aimed) {
-        player.facing = normalize(
-          aimed.x - player.x,
-          aimed.y - player.y,
-        );
-      }
-    }
+player.attackLoop = alvoDoLoop !== null;
+
+// atirando com foco num inimigo, o arqueiro vira para o alvo:
+// a arte de tiro e por direcao e precisa casar com a mira.
+// fora da janela do tiro o facing continua sendo o do
+// movimento, como manda a regra de andar.
+if (player.attackAnimation > 0 && player.firingTargetId) {
+  const aimed = this.findEnemyById(player.firingTargetId);
+
+  if (aimed) {
+    player.facing = normalize(
+      aimed.x - player.x,
+      aimed.y - player.y,
+    );
+  }
+}
+
+/**
+ * O MESMO VIRAR PARA O ALVO, AGORA TAMBEM NO LOOP.
+ *
+ * E a mesma regra da linha de cima, e nao uma nova: o jogo ja vira o
+ * personagem para o alvo durante a pose de ataque de TODAS as classes, e nao
+ * so das que atiram. Sem esta repeticao o guerreiro ficaria golpeando para a
+ * parede enquanto a arte dizia "ataque" — o loop deixaria a pose solta no ar
+ *
+ * Nao ha medo de isso virar acerto pelas costas: o teste de alvo do
+ * `SkillSystem` continua lendo o `facing` no instante do golpe, e ele ja
+ * convivia com o giro automatico da pose
+ */
+if (alvoDoLoop) {
+  player.facing = normalize(
+    alvoDoLoop.x - player.x,
+    alvoDoLoop.y - player.y,
+  );
+}
 
     const resourceRegen =
       player.definition.stats.resourceRegen *
@@ -13224,7 +13352,7 @@ guildaSnapshot() {
 
     const panelWidth = Math.min(
       MINIMAP_WIDTH,
-      width - MINIMAP_LEFT - MINIMAP_BOTTOM,
+      width - MINIMAP_RIGHT - MINIMAP_BOTTOM,
     );
 
     const panelHeight = Math.min(
@@ -13259,7 +13387,21 @@ guildaSnapshot() {
      * `MINIMAP_TOP_IDLE` direto diz a mesma coisa sem estado que o
      * motor precisa manter
      */
-    const originX = MINIMAP_LEFT;
+    /**
+     * A COLUNA DIREITA, ACIMA DA CAIXA DE MISSOES.
+     *
+     * ## POR QUE A ORIGEM CALCULA A DIREITA E NAO A ESQUERDA
+     *
+     * Porque o minimapa foi para a coluna direita, e ele e do mesmo tamanho
+     * da caixa de missoes. Ancorar pela esquerda o deixaria encostado na
+     * borda da tela, a 12px, enquanto as missoes terminariam a 12px da
+     * direita: dois paineis do mesmo tamanho em lados opostos da tela
+     *
+     * A conta e a mesma que o `minimap.test.js` faz: `width - MINIMAP_RIGHT -
+     * MINIMAP_WIDTH`. O `MINIMAP_LEFT` continua importado e continua sendo a
+     * margem de quem ancora pela esquerda — ele nao e mais esta posicao
+     */
+    const originX = width - MINIMAP_RIGHT - MINIMAP_WIDTH;
     const originY = MINIMAP_TOP_IDLE;
 
 drawMinimap(context, {

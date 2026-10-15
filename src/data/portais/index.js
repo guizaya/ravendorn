@@ -71,8 +71,26 @@ export const PORTAL_SHEETS = {
    * borda — o aro de pedra e fechado, entao o branco de dentro nao e
    * alcancado — e so o arquivo de 192px entra no bundle
    */
-  hub: new URL(
-    "../../assets/portais/portal_hub_base.png",
+hub: new URL(
+  "../../assets/portais/portal_hub_base.png",
+  import.meta.url,
+).href,
+
+  /**
+   * O VORTICE NOVO, da base.
+   *
+   * A diferenca das outras tres folhas e que este arquivo JA VEIO com canal
+   * alpha: `new_portal.png` e um PNG de 256x256 em `Format32bppArgb`, e o
+   * fundo e transparente de verdade — nao um branco pintado, como o
+   * `base.png` do hub foi. Por isso ele nao passou pelo
+   * `tools/gerar-portal.mjs`, que existe justamente para cortar o fundo
+   * pintado das folhas de entrada
+   *
+   * E por isso ele entra aqui na medida em que esta, sem o corte: um 256 que
+   * o `PortalRenderer` desenha no tamanho do `PORTAL_SIZE`
+   */
+  novo: new URL(
+    "../../assets/portais/new_portal.png",
     import.meta.url,
   ).href,
 };
@@ -314,6 +332,50 @@ export const BASE_PORTALS = [
      */
     chegada: "portal_pantano",
   },
+
+  /**
+   * O VORTICE NOVO, no tile (15, 0) da base.
+   *
+   * ## A CONTA DA POSICAO
+   *
+   * A base tem tile de 64px e 26x18 de grade, e o `PortalRenderer` trata `x` e
+   * `y` como o CENTRO do portal — ele desenha a partir de `x - size / 2`. O
+   * tile (15, 0) e a terceira faixa da coluna, na linha de cima, entao o
+   * centro dele e:
+   *
+   *     x = 15 * 64 + 32 = 992      y = 0 * 64 + 32 = 32
+   *
+   * ## E A LINHA 0 DEIXA METADE DO PORTAL FORA DO MAPA
+   *
+   * Com 192px de lado centrados em `y = 32`, o portal ocupa de `-64` ate
+   * `128`: 96px acima da borda. Isso nao e bug, e o que o pedido descreve —
+   * o tile (15, 0) e a primeira linha. Se a intention era o portal inteiro
+   * dentro da base, o `y` precisa de 96 ou mais, que e a linha 1
+   *
+   * ## O TAMANHO E O `PORTAL_SIZE`, E NAO OS 256 DA ARTE
+   *
+   * A arte e um PNG de 256x256, mas o que aparece na tela e o `size`. Os
+   * outros dois portais do vale usam o `PORTAL_SIZE` de 192, e um portal de
+   * 256 ao lado deles seria o dobro do vortice de guerra. Se a intention era
+   * a arte no tamanho nativo, e so trocar `size` por `256`
+   *
+   * ## E O `chegada` REAPROVEITA O PORTAL DO PANTANO
+   *
+   * Porque este portal vai para `map_1`, o mesmo destino do `portal_hub`, e
+   * `chegada` e o `id` de um portal do mapa de destino. Reaproveitar o
+   * `portal_pantano` faz os dois portais da base desembarcarem no mesmo
+   * lugar. Um `chegada` novo aqui exigiria criar o portal de chegada no vale
+   * tambem, e nenhum foi pedido
+   */
+  // {
+  //   id: "portal_novo",
+  //   x: 992,
+  //   y: 40,
+  //   size: PORTAL_SIZE,
+  //   sheet: "novo",
+  //   destino: "map_1",
+  //   chegada: "portal_pantano",
+  // },
 ];
 
 /**

@@ -31,13 +31,54 @@ import {
  * Porque ele fica empilhado sobre o `MarketModal`. O `capture: true` e o que
  * segura: o `MarketModal` tambem escuta o `keydown` na `window`, e sem o
  * captura ele receberia o mesmo ESC e fecharia os dois de uma vez
+ *
+ * ## POR QUE O `uidInicial` EXISTE
+ *
+ * Porque o jogador pode chegar aqui por dois caminhos, e eles tem de terminar
+ * igual: o `+ ANUNCIAR` do mercado, que abre sem nada escolhido, e o `Vender`
+ * do menu da mochila, que ja sabe qual item e. Sem o `uidInicial` o segundo
+ * caminho abriria o formulario vazio e obrigaria o jogador a caçar o item de
+ * novo numa lista que pode ter trinta entrada
  */
 export default function CreateListingModal({
   inventory,
+  uidInicial = null,
   onConfirmar,
   onClose,
 }) {
-  const [selecionada, setSelecionada] = useState(null);
+  /**
+   * O ITEM QUE CHEGA PRONTO, E POR QUE ELE E A ENTRADA INTEIRA
+   *
+   * E o `uid` que vem do menu da mochila, mas o estado guarda a ENTRADA, e
+   * nao o id: o `ListingPriceForm` ja recebe `entrada` e le dela o teto de
+   * preco e a quantidade maxima. Guardar so o uid obrigaria o formulario a
+   * procurar a entrada de novo, e os dois arquivos poderiam acabar olhando
+   * listas diferentes
+   *
+   * ## POR QUE ISSO E UM INICIALIZADOR E NAO UM EFEITO
+   *
+   * Porque o `HUD` so renderiza esta modal quando `anunciando` e verdadeiro,
+   * entao ela nasce e morre a cada abertura: o inicializador roda uma vez, no
+   * instante certo. Um `useEffect` que ajustasse `selecionada` rodaria DEPOIS
+   * do primeiro desenho, e o jogador veria um quadro com o formulario vazio
+   * antes da selecao aparecer
+   *
+   * ## E POR QUE O ACHO E DEFENSIVO
+   *
+   * Porque o `uid` pode ter virado obsoleto entre o clique e a abertura: o
+   * item pode ter sido vendido, excluido ou empilhado com outro no caminho. Um
+   * `uid` que nao acha nada devolve `null`, que e exatamente o estado padrao
+   * do modal — o jogador abre o anuncio sem selecao, como se tivesse clicado
+   * no `+ ANUNCIAR` do mercado. Um `throw` aqui tiraria o mercado da tela
+   * inteira por causa de uma pilha que mudou
+   */
+  const [selecionada, setSelecionada] = useState(() => {
+    if (!uidInicial) return null;
+
+    const itens = inventory?.items ?? [];
+
+    return itens.find((entrada) => entrada.uid === uidInicial) ?? null;
+  });
   const [preco, setPreco] = useState(0);
   const [quantidade, setQuantidade] = useState(1);
 

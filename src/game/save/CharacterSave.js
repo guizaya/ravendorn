@@ -1198,6 +1198,20 @@ export function refillVitals(sessao) {
   player.cast = null;
   player.attackAnimation = 0;
   player.firingTargetId = null;
+
+  /**
+   * O GOLPE EM LOOP TAMBEM NAO E PROGRESSO.
+   *
+   * E a mesma razao das duas linhas acima: `attackAnimation` e
+   * `firingTargetId` sao "o que estava acontecendo no ultimo instante", e o
+   * `attackLoop` e a terceira face da mesma coisa
+   *
+   * Sem esta linha o jogador abriria o jogo ja com o personagem em pose de
+   * ataque, parado no meio de um combate que nao existe mais — e o motor so
+   * reescreve o booleano no primeiro update, o que deixaria um quadro errado
+   * no primeiro paint
+   */
+  player.attackLoop = false;
   player.hitFlash = 0;
 }
 

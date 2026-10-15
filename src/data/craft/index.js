@@ -286,12 +286,12 @@ const EQUIPAMENTOS = [
     ],
   },
 
-  /* ---- guerreiro: as cinco pecas ----
+  /* ---- guerreiro: as cinco de armadura ----
      O desenho lista sete pecas, todas do arquiro. Sem estas o Guerreiro
      ficaria sem nenhuma armadura craftavel, entao entram com as MESMAS
      familias de material do arquiro e a mesma escala — e o que mantem o
      Guerreiro no mesmo ritmo de progressao, e nao atrasado por causa de
-     uma lista que nao o citava */
+     uma lista que nao o citava. As duas armas dele vem logo abaixo */
 
   {
     itemId: "peito_warrior",
@@ -345,6 +345,160 @@ const EQUIPAMENTOS = [
       [m("tendao_ressecado", "resistente", 3), m("couro_goblin", "resistente", 3), m("tecido_militar", "resistente", 2)],
       [m("tendao_ressecado", "refinado", 3), m("couro_goblin", "refinado", 3), m("tecido_militar", "refinado", 2)],
       [m("tendao_ressecado", "lendario", 3), m("couro_goblin", "lendario", 3), m("tecido_militar", "lendario", 2)],
+    ],
+  },
+
+  /* ---- guerreiro: as duas armas ----
+     A ESPADA e a arma principal, e o ESCUDO a secundaria. Nenhum dos dois
+     declara `allowedClasses` na receita: a restricao vem do proprio item,
+     em `classesOfItem` — a espada pelo `kind` (`sword`, que so o Guerreiro
+     tem em `CLASS_WEAPON_KINDS`) e o escudo pelo `classes`. Escrever a classe
+     aqui seria uma terceira fonte de verdade para a mesma regra, e a que
+     mais cedo mentira: trocar a familia da espada no catalogo mudaria o
+     `kind` e a receita continuaria permitindo o Guerreiro */
+
+  {
+    itemId: "espada_warrior",
+    /**
+     * As tres familias da espada: o ferro da lamina, o aco do fio e o osso
+     * do cabo. As tres aceitam os cinco graus, entao a subida de preco e
+     * so no grau do material — e nao numa troca de familia no meio, como o
+     * peito faz
+     */
+    linhas: [
+      [m("fragmento_de_ferro", null, 8), m("aco_temperado", null, 4), m("osso_quebrado", null, 3)],
+      [m("fragmento_de_ferro", "reforcado", 3), m("aco_temperado", "reforcado", 3), m("osso_quebrado", "reforcado", 2)],
+      [m("fragmento_de_ferro", "resistente", 3), m("aco_temperado", "resistente", 3), m("osso_quebrado", "resistente", 2)],
+      [m("fragmento_de_ferro", "refinado", 3), m("aco_temperado", "refinado", 3), m("osso_quebrado", "refinado", 2)],
+      [m("fragmento_de_ferro", "lendario", 3), m("aco_temperado", "lendario", 3), m("osso_quebrado", "lendario", 2)],
+    ],
+  },
+
+  {
+    itemId: "escudo_warrior",
+    /**
+     * Madeira na tampa, couro na face e ferro no aro.
+     *
+     * As tres familias sao as mesmas do resto da armadura do Guerreiro, e nao
+     * por coquetel: `madeira_de_lanca`, `couro_goblin` e `fragmento_de_ferro`
+     * ja sao o eixo das pecas dele, e um escudo com outra materia puxaria o
+     * Guerreiro para uma curva de custo diferente da do resto do conjunto
+     *
+     * O `escudo_warrior` e `type: WEAPON` no `slot` `weapon2`, e nao ARMOR:
+     * o slot `weapon2` so aceita `WEAPON`, entao um escudo com o outro type
+     * simplesmente nao entraria em lugar nenhum
+     */
+    linhas: [
+      [m("madeira_de_lanca", null, 6), m("couro_goblin", null, 5), m("fragmento_de_ferro", null, 2)],
+      [m("madeira_de_lanca", "reforcado", 3), m("couro_goblin", "reforcado", 3), m("fragmento_de_ferro", "reforcado", 2)],
+      [m("madeira_de_lanca", "resistente", 3), m("couro_goblin", "resistente", 3), m("fragmento_de_ferro", "resistente", 2)],
+      [m("madeira_de_lanca", "refinado", 3), m("couro_goblin", "refinado", 3), m("fragmento_de_ferro", "refinado", 2)],
+      [m("madeira_de_lanca", "lendario", 3), m("couro_goblin", "lendario", 3), m("fragmento_de_ferro", "lendario", 2)],
+    ],
+  },
+
+  /* ---- sorcerer: as sete pecas ----
+     O Sorcerer nao tinha NENHUMA receita: `CLASS_WEAPON_KINDS` ja apontava
+     para `staff`, mas nao havia item, arte nem linha de craft da classe. Sao
+     sete pecas entao, e nao cinco como o Guerreiro
+
+     ## AS FAMILIES NAO SAO AS DO GUERREIRO, E E DE PROPONITO
+
+     O Guerreiro e o Arqueiro compartilham couro, tecido e madeira porque
+     vestem o corpo. O conjureiro manipula essencia e cristal, entao entra
+     `essencia_necrotica` e `pedra_verde_bruta` — duas familias que nenhum
+     outro conjunto usa. Sem isso o Sorcerer seria o Guerreiro com nome
+     diferente, e o jogador nao sentiria a classe no craft, so na arte
+
+     ## E AS TRES QUE ELE COMPARTILHA
+
+     `tecido_militar`, `couro_goblin`, `madeira_de_lanca`, `fragmento_de_ferro`
+     e `aco_temperado` aparecem aqui tambem, nas pecas que sao roupa de
+     verdade (calca, peito, botas, luvas). E o que mantem o custo por peca
+     parecido entre as classes, mesmo com a identidade trocada */
+
+  {
+    itemId: "cajado_sorcerer",
+    /**
+     * Madeira na haste, essencia no canal e cristal na ponta. As tres
+     * familias aceitam os cinco graus, entao a subida e so no grau
+     */
+    linhas: [
+      [m("madeira_de_lanca", null, 8), m("essencia_necrotica", null, 5), m("pedra_verde_bruta", null, 3)],
+      [m("madeira_de_lanca", "reforcado", 3), m("essencia_necrotica", "reforcado", 3), m("pedra_verde_bruta", "reforcado", 2)],
+      [m("madeira_de_lanca", "resistente", 3), m("essencia_necrotica", "resistente", 3), m("pedra_verde_bruta", "resistente", 2)],
+      [m("madeira_de_lanca", "refinado", 3), m("essencia_necrotica", "refinado", 3), m("pedra_verde_bruta", "refinado", 2)],
+      [m("madeira_de_lanca", "lendario", 3), m("essencia_necrotica", "lendario", 3), m("pedra_verde_bruta", "lendario", 2)],
+    ],
+  },
+
+  {
+    itemId: "livro_habilidade_sorcerer",
+    /**
+     * Tecido na encadernacao, essencia na tinta e cristal na pedra de
+     * guarda. Nao usa couro: e a unica peca da classe sem couro nem metal
+     */
+    linhas: [
+      [m("tecido_militar", null, 6), m("essencia_necrotica", null, 4), m("pedra_verde_bruta", null, 3)],
+      [m("tecido_militar", "reforcado", 3), m("essencia_necrotica", "reforcado", 3), m("pedra_verde_bruta", "reforcado", 2)],
+      [m("tecido_militar", "resistente", 3), m("essencia_necrotica", "resistente", 3), m("pedra_verde_bruta", "resistente", 2)],
+      [m("tecido_militar", "refinado", 3), m("essencia_necrotica", "refinado", 3), m("pedra_verde_bruta", "refinado", 2)],
+      [m("tecido_militar", "lendario", 3), m("essencia_necrotica", "lendario", 3), m("pedra_verde_bruta", "lendario", 2)],
+    ],
+  },
+
+  {
+    itemId: "peito_sorcerer",
+    linhas: [
+      [m("tecido_militar", null, 8), m("couro_goblin", null, 5), m("essencia_necrotica", null, 3)],
+      [m("tecido_militar", "reforcado", 3), m("couro_goblin", "reforcado", 3), m("essencia_necrotica", "reforcado", 3)],
+      [m("tecido_militar", "resistente", 3), m("couro_goblin", "resistente", 3), m("essencia_necrotica", "resistente", 2)],
+      [m("tecido_militar", "refinado", 3), m("couro_goblin", "refinado", 3), m("essencia_necrotica", "refinado", 2)],
+      [m("tecido_militar", "lendario", 3), m("couro_goblin", "lendario", 3), m("essencia_necrotica", "lendario", 2)],
+    ],
+  },
+
+  {
+    itemId: "capuz_sorcerer",
+    linhas: [
+      [m("tecido_militar", null, 6), m("couro_goblin", null, 4), m("pedra_verde_bruta", null, 3)],
+      [m("tecido_militar", "reforcado", 3), m("couro_goblin", "reforcado", 3), m("pedra_verde_bruta", "reforcado", 2)],
+      [m("tecido_militar", "resistente", 3), m("couro_goblin", "resistente", 3), m("pedra_verde_bruta", "resistente", 2)],
+      [m("tecido_militar", "refinado", 3), m("couro_goblin", "refinado", 3), m("pedra_verde_bruta", "refinado", 2)],
+      [m("tecido_militar", "lendario", 3), m("couro_goblin", "lendario", 3), m("pedra_verde_bruta", "lendario", 2)],
+    ],
+  },
+
+  {
+    itemId: "calca_sorcerer",
+    linhas: [
+      [m("tecido_militar", null, 6), m("couro_goblin", null, 4), m("madeira_de_lanca", null, 3)],
+      [m("tecido_militar", "reforcado", 3), m("couro_goblin", "reforcado", 3), m("madeira_de_lanca", "reforcado", 2)],
+      [m("tecido_militar", "resistente", 3), m("couro_goblin", "resistente", 3), m("madeira_de_lanca", "resistente", 2)],
+      [m("tecido_militar", "refinado", 3), m("couro_goblin", "refinado", 3), m("madeira_de_lanca", "refinado", 2)],
+      [m("tecido_militar", "lendario", 3), m("couro_goblin", "lendario", 3), m("madeira_de_lanca", "lendario", 2)],
+    ],
+  },
+
+  {
+    itemId: "botas_sorcerer",
+    linhas: [
+      [m("couro_goblin", null, 5), m("madeira_de_lanca", null, 3), m("pedra_verde_bruta", null, 2)],
+      [m("couro_goblin", "reforcado", 3), m("madeira_de_lanca", "reforcado", 2), m("pedra_verde_bruta", "reforcado", 2)],
+      [m("couro_goblin", "resistente", 3), m("madeira_de_lanca", "resistente", 2), m("pedra_verde_bruta", "resistente", 2)],
+      [m("couro_goblin", "refinado", 3), m("madeira_de_lanca", "refinado", 2), m("pedra_verde_bruta", "refinado", 2)],
+      [m("couro_goblin", "lendario", 3), m("madeira_de_lanca", "lendario", 2), m("pedra_verde_bruta", "lendario", 2)],
+    ],
+  },
+
+  {
+    itemId: "luvas_sorcerer",
+    linhas: [
+      [m("couro_goblin", null, 5), m("tecido_militar", null, 3), m("essencia_necrotica", null, 2)],
+      [m("couro_goblin", "reforcado", 3), m("tecido_militar", "reforcado", 2), m("essencia_necrotica", "reforcado", 2)],
+      [m("couro_goblin", "resistente", 3), m("tecido_militar", "resistente", 2), m("essencia_necrotica", "resistente", 2)],
+      [m("couro_goblin", "refinado", 3), m("tecido_militar", "refinado", 2), m("essencia_necrotica", "refinado", 2)],
+      [m("couro_goblin", "lendario", 3), m("tecido_militar", "lendario", 2), m("essencia_necrotica", "lendario", 2)],
     ],
   },
 ];

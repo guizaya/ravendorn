@@ -121,6 +121,36 @@ isMoving: false,
        */
       isMining: false,
 
+      /**
+       * O GOLPE EM LOOP: alvo focado, vivo e dentro do alcance.
+       *
+       * ## POR QUE ISTO EXISTE E O `attackAnimation` NAO DARIA
+       *
+       * O `attackAnimation` e um RELOGIO de 0,22s que o `SkillSystem` levanta
+       * a cada ataque, e o ataque basico dispara de 0,71s a 1,18s atras. Sao
+       * tempos que nao conversam: a pose durava 0,22s e o personagem passava
+       * o resto do intervalo em walk ou idle. Era o "para e volta" que o
+       * jogador via
+       *
+       * ## POR QUE NAO DA PARA DEIXAR O `attackAnimation` CORRER SOZINHO
+       *
+       * Porque ele e lido pelo `SkillSystem` para decidir QUANDO a flecha
+       * sai (`restante = this.player.attackAnimation`). Trava-lo em loop
+       * presa o tiro dentro da primeira animacao de 0,22s, e o arqueiro passa
+       * a atirar sem parar, com o cooldown virando decoracao
+       *
+       * Por isso e um booleano SEPARADO: o `resolveAnimation` le este, e o
+       * `SkillSystem` continua lendo o relogio. Nenhum dos dois muda o que o
+       * outro faz
+       *
+       * ## E A MESMA FORMA DO `isMining`
+       *
+       * Booleano e nao relogio, pelo mesmo motivo: o que segura o ciclo e uma
+       * CONDICAO que continua verdadeira — alvo focado e dentro do alcance —
+       * e nao um tempo que corra. Quem escreve e o motor, no update
+       */
+      attackLoop: false,
+
     /**
      * A folha de stats, montada a partir do jogador RECEM-CRIADO.
      *

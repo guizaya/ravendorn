@@ -6401,6 +6401,37 @@ case PANEL_OPS.DASH:
         level: Math.max(1, Math.floor(p.level ?? 1)),
         x: Math.round(p.x),
         y: Math.round(p.y),
+
+        /**
+         * O `ackSeq` E O ULTIMO INPUT QUE ESTA POSICAO REFLETE.
+         *
+         * ## POR QUE O SERVIDOR PRECISA DEVOLVER ISSO
+         *
+         * A posicao acima e a que o servidor tinha quando ele a
+         * calculou, e ele nao tinha os ultimos inputs do cliente: a
+         * posicao viaja com um atraso de meio RTT. Sem o `ackSeq`, o
+         * cliente nao tem como saber QUANTO dessa posicao e uma
+         * resposta a ele e quanto e so a viagem, e qualquer correcao
+         * que ele faca vira um rubber band — o boneco sendo puxado
+         * para tras duas vezes por segundo.
+         *
+         * ## POR QUE SO O JOGADOR LOCAL PRECISA
+         *
+         * Os outros nao sao reconciliados: eles sao interpolados por
+         * `WorldState.amostrar`, que so depende de dois pacotes e nao
+         * de um_ack_. Mandar o campo para todo mundo custaria banda
+         * a 20Hz para ninguem. Por isso ele vale zero para os remotos,
+         * e o cliente so le o campo do `eu`.
+         *
+         * A comparacao e pelo id do jogador, e nao pelo objeto da
+         * sessao: `world.players` guarda a mesma sessao que
+         * `client.session`, mas isso e detalhe de implementacao. O id
+         * do jogador e a identidade que os dois lados concordam.
+         */
+        ackSeq:
+          p.id === client?.session?.player?.id
+            ? sessao.intent?.seq ?? 0
+            : 0,
         hp: Math.ceil(p.hp),
         maxHp: p.maxHp,
         isMoving: Boolean(p.isMoving),

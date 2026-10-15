@@ -191,6 +191,105 @@ export const ITEM_ICON_SIMPLES = {
     ).href,
 
     /**
+     * A ESPADA E O ESCUDO DO GUERREIRO.
+     *
+     * Sao os dois arquivos que faltavam da pasta `warrior_armadura_1`, e eles
+     * entram aqui pelo mesmo caminho das seis pecas: uma arte so, e a cor da
+     * raridade e o fundo do slot
+     *
+     * Os nomes sao os do arquivo (`arma.png`, `arma_secundaria.png`) porque
+     * eles descrevem o PAPEL da peca na pasta, e nao o item. O `id` do item e
+     * que diz o que a peca e
+     */
+    espada_warrior: new URL(
+      "../../assets/Items/warrior_armadura_1/arma.png",
+      import.meta.url,
+    ).href,
+    escudo_warrior: new URL(
+      "../../assets/Items/warrior_armadura_1/arma_secundaria.png",
+      import.meta.url,
+    ).href,
+
+    /**
+     * AS SEIS PECAS DE ARMADURA DO GUERREIRO, a pasta `warrior_armadura_1`.
+     *
+     * ## O MESMO TRATAMENTO DA DO ARBALIST, E PELO MESMO MOTIVO
+     *
+     * Uma arte so para as cinco raridades: a cor da raridade e o fundo do
+     * slot, e o desenho do item e o mesmo
+     *
+     * ## E POR QUE O `capacete.png` VIRA `elmo_warrior`
+     *
+     * Porque o id do item e `elmo_warrior` e o arquivo e `capacete.png`, e os
+     * dois nomes vem de geradores diferentes. O projeto aceita essa excecao
+     * quando ela ja existe, e nao vale renomear arte pronta para casar com
+     * codigo
+     */
+    botas_warrior: new URL(
+      "../../assets/Items/warrior_armadura_1/botas.png",
+      import.meta.url,
+    ).href,
+    calca_warrior: new URL(
+      "../../assets/Items/warrior_armadura_1/calca.png",
+      import.meta.url,
+    ).href,
+    elmo_warrior: new URL(
+      "../../assets/Items/warrior_armadura_1/capacete.png",
+      import.meta.url,
+    ).href,
+    luvas_warrior: new URL(
+      "../../assets/Items/warrior_armadura_1/luvas.png",
+      import.meta.url,
+    ).href,
+    peito_warrior: new URL(
+      "../../assets/Items/warrior_armadura_1/peito.png",
+      import.meta.url,
+    ).href,
+
+    /**
+     * AS SETE PECAS DO SORCERER, a pasta `sorcerer_armadura_1`.
+     *
+     * ## MESMO TRATAMENTO DAS DO GUERREIRO, E MESMO MOTIVO
+     *
+     * Uma arte so para as cinco raridades. O `capacete.png` do Guerreiro
+     * virou `elmo_warrior` porque os dois nomes vinham de geradores
+     * diferentes; aqui `capuz.png` casa com `capuz_sorcerer` e nao houve
+     * nem que traduzir
+     *
+     * As duas armas mantem o nome do PAPEL que o arquivo tem: `arma.png` e o
+     * cajado, `arma_secundaria.png` e o livro. O `id` do item e que diz o que
+     * a peca e
+     */
+    botas_sorcerer: new URL(
+      "../../assets/Items/sorcerer_armadura_1/botas.png",
+      import.meta.url,
+    ).href,
+    calca_sorcerer: new URL(
+      "../../assets/Items/sorcerer_armadura_1/calca.png",
+      import.meta.url,
+    ).href,
+    capuz_sorcerer: new URL(
+      "../../assets/Items/sorcerer_armadura_1/capuz.png",
+      import.meta.url,
+    ).href,
+    luvas_sorcerer: new URL(
+      "../../assets/Items/sorcerer_armadura_1/luvas.png",
+      import.meta.url,
+    ).href,
+    peito_sorcerer: new URL(
+      "../../assets/Items/sorcerer_armadura_1/peito.png",
+      import.meta.url,
+    ).href,
+    cajado_sorcerer: new URL(
+      "../../assets/Items/sorcerer_armadura_1/arma.png",
+      import.meta.url,
+    ).href,
+    livro_habilidade_sorcerer: new URL(
+      "../../assets/Items/sorcerer_armadura_1/arma_secundaria.png",
+      import.meta.url,
+    ).href,
+
+    /**
      * O ARCO, e ele saiu dos cinco arquivos de raridade.
      *
      * O `drops/arqueiro_armadura_1/` tem o arco junto com as seis pecas de

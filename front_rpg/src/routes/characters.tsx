@@ -1,6 +1,7 @@
-﻿import { createFileRoute, Link, useNavigate } from '@tanstack/react-router'
+import { createFileRoute, Link, useNavigate } from '@tanstack/react-router'
 import { useEffect, useState } from 'react'
-import { Plus, Trash2, Play, LogOut, Swords, Sparkles, Crosshair, Gem, Lock } from 'lucide-react'
+import { Plus, Trash2, Play, LogOut, Swords, Sparkles, Crosshair, Lock } from 'lucide-react'
+import { IconeDiamante } from '@/components/icone-diamante'
 import { Button } from '@/components/ui/button'
 import { Dialog, DialogContent, DialogTitle, DialogDescription } from '@/components/ui/dialog'
 import world from '@/assets/world-map.png'
@@ -287,7 +288,7 @@ try {
       <div className="chars-shell">
         <header className="chars-header">
           <Link to="/" className="wordmark no-underline text-foreground"><MarcaRavenDorn /></Link>
-          <span className="chars-diamonds" title="Seus diamantes"><Gem size={14} /> {diamantes}</span>
+          <span className="chars-diamonds" title="Seus diamantes"><IconeDiamante tamanho={14} /> {diamantes}</span>
           <div className="chars-header-right">
             <span className="chars-count">Heróis · {list.length}/{vagas}</span>
             <button className="chars-signout" onClick={() => { limparSessao(); navigate({ to: '/auth' }) }}>
@@ -369,7 +370,7 @@ try {
                     <button key={`locked-${i}`} onClick={() => setPending(i)} className="chars-slot chars-slot-locked">
                       <Lock size={22} />
                       <span>Vaga bloqueada</span>
-                      <small><Gem size={11} /> {CUSTO_DAS_VAGAS[i] ?? 0} diamantes para desbloquear</small>
+                      <small><IconeDiamante tamanho={11} /> {CUSTO_DAS_VAGAS[i] ?? 0} diamantes para desbloquear</small>
                     </button>
                   )
                   return (
@@ -426,9 +427,9 @@ try {
           </div>
 
           <div className="unlock-cost">
-            <div><span>Custa</span><b><Gem size={13} /> {pendingCost}</b></div>
-<div><span>Seu saldo</span><b><Gem size={13} /> {diamantes}</b></div>
-            {canPay && <div className="is-after"><span>Depois</span><b><Gem size={13} /> {diamantes - pendingCost}</b></div>}
+            <div><span>Custa</span><b><IconeDiamante tamanho={13} /> {pendingCost}</b></div>
+<div><span>Seu saldo</span><b><IconeDiamante tamanho={13} /> {diamantes}</b></div>
+            {canPay && <div className="is-after"><span>Depois</span><b><IconeDiamante tamanho={13} /> {diamantes - pendingCost}</b></div>}
           </div>
 
           {!canPay && (
@@ -438,7 +439,7 @@ try {
           <div className="unlock-actions">
             <Button variant="gameOutline" onClick={() => setPending(null)}>Agora não</Button>
             <Button variant="game" disabled={!canPay} onClick={confirmUnlock}>
-              <Gem size={15} /> Desbloquear
+              <IconeDiamante tamanho={15} /> Desbloquear
             </Button>
           </div>
         </DialogContent>

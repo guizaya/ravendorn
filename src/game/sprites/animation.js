@@ -77,7 +77,30 @@ export function resolveAnimation(player, definition) {
     return "hurt";
   }
 
-  if (player.attackAnimation > 0) {
+  /**
+ * O GOLPE EM LOOP, e por que ele nao precisa de nada aqui.
+ *
+ * A arte de ataque JA loopeia: o `resolveFrame` faz `tempo % cycle` em tudo
+ * que nao tem `holdLast`, e o ataque nao tem. Bastava o estado continuar
+ * sendo "attack" para o ciclo recomecar sozinho
+ *
+ * ## POR QUE ISTO E UM BOOLEANO SEPARADO E NAO O `attackAnimation`
+ *
+ * Porque o `SkillSystem` le o `attackAnimation` para decidir QUANDO a flecha
+ * sai. Deixa-lo correndo em loop prenderia o tiro dentro da primeira animacao
+ * de 0,22s e o arqueiro atiraria sem parar. Aqui so muda QUAL POSE e desenhada
+ *
+ * ## E POR QUE O LOOP ABRE O `needsTarget` DAS DUAS CLASSES DE TIRO
+ *
+ * Porque o portao existe para a arte de tiro "nao bater no ar" quando o
+ * jogador usa um buff. No loop o alvo e garantido — ele vem do
+ * `alvoDoGolpeEmLoop`, que ja devolveu um inimigo vivo e dentro do alcance.
+ * Sem abrir o portao, o conjurador e o arqueiro ficariam parados em idle
+ * durante o loop, que e exatamente o sintoma que o jogador viu
+ */
+const emLoop = player.attackLoop === true;
+
+if (player.attackAnimation > 0 || emLoop) {
     if (!animations) return "attack";
 
     const attack = animations.attack;
@@ -86,7 +109,7 @@ export function resolveAnimation(player, definition) {
     // alvo de verdade. um buff proprio passa por aqui tambem, e
     // nesse caso o personagem tem de ficar em walk/idle. sem arte
     // de ataque propria, cai para walk/idle do mesmo jeito.
-    if (attack && (!attack.needsTarget || player.firingTargetId)) {
+    if (attack && (!attack.needsTarget || player.firingTargetId || emLoop)) {
       return "attack";
     }
   }

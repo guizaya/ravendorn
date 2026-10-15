@@ -941,6 +941,229 @@ export const ITEMS = {
     stats: { defense: 11, maxHp: 45 },
   }),
 
+  /**
+   * A ESPADA DO GUERREIRO, que e a arma principal dele.
+   *
+   * ## POR QUE ELA NAO DECLARA `classes`
+   *
+   * Porque o `kind` ja faz isso: `canClassUseItem` cai em
+   * `weaponKindsOfClass(classe).includes(item.kind)`, e o `CLASS_WEAPON_KINDS`
+   * do guerreiro e so `[SWORD]`. E o mesmo mecanismo do arco do arqueiro, que
+   * tambem nao declara `classes` e mesmo assim so aparece para o arbalist
+   *
+   * Declarar `classes` aqui daria o mesmo resultado com uma segunda fonte de
+   * verdade — e o dia que o guerreiro ganhasse uma segunda familia de arma,
+   * o `classes` continuaria trancando a espada antiga
+   */
+  espada_warrior: createItem({
+    id: "espada_warrior",
+    name: "Espada de Guerreiro",
+    icon: "⚔",
+    rarity: RARITY.COMMON,
+    type: ITEM_TYPE.WEAPON,
+    kind: WEAPON_KIND.SWORD,
+
+    // sem `slot`: a espada e a arma principal, e o `slotNameFor` acha o
+    // primeiro slot livre que aceita `WEAPON` — que e o `weapon`
+    tier: 1,
+    value: 52,
+    stats: { attack: 9, attackSpeed: 0.02 },
+  }),
+
+  /**
+   * O ESCUDO DO GUERREIRO, e a `arma_secundaria.png` da pasta.
+   *
+   * ## ELE NAO TEM `kind`, E ISSO E DE PROPONITO
+   *
+   * Nenhuma das quatro familias de `WEAPON_KIND` e "escudo", e adicionar uma
+   * quinta so por causa de uma peca seria um `WEAPON_KIND_LABEL` a mais no
+   * catalogo para um item so
+   *
+   * O que segura a restricao de classe e o `classes`, e ele e checado
+   * ANTES do `kind` no `canClassUseItem`: um item com `classes` resolvido
+   * nunca chega a olhar familia. Sem `kind` o `kindLabel` do craft ja cai em
+   * `null` sozinho, que e o display correto para um escudo
+   *
+   * ## E O `slot` ESTA EXPLICITO, AO CONTRARIO DA ESPADA
+   *
+   * Porque sem ele o `slotNameFor` devolveria o primeiro slot livre que aceita
+   * `WEAPON` — e se o jogador ja estiver com a espada equipada, o escudo
+   * entraria no `weapon` e o painel diria "Arma" para as duas
+   */
+  escudo_warrior: createItem({
+    id: "escudo_warrior",
+    classes: [CLASS_IDS.WARRIOR],
+    name: "Escudo de Guerreiro",
+    icon: "🛡",
+    rarity: RARITY.COMMON,
+    type: ITEM_TYPE.WEAPON,
+    slot: "weapon2",
+    tier: 1,
+    value: 46,
+    stats: { defense: 8, maxHp: 20 },
+  }),
+
+  /* ------------------------------------------------------------------
+     SORCERER: as sete pecas da pasta `sorcerer_armadura_1`.
+     Nao existia NENHUM item do Sorcerer no catalogo antes deste bloco: a
+     classe tinha `CLASS_WEAPON_KINDS` e o slot `weapon2`, e nada mais
+     ------------------------------------------------------------------ */
+
+  /**
+   * As BOOTAS do sorcerer.
+   *
+   * DEF mais baixo que o das botas do Guerreiro (4 contra 6) e `speed` no
+   * lugar do `maxHp` dele. E o par inverso ao do Guerreiro de proposito: o
+   * Guerreiro troca `speed` por `maxHp` para segurar o golpe de frente, e o
+   * Sorcerer troca `maxHp` por `speed` para nao estar no mesmo lugar do
+   * golpe. As duas classes pesam o mesmo numero de pecas e mesmo assim nao
+   * jogam igual
+   */
+  botas_sorcerer: createItem({
+    id: "botas_sorcerer",
+    classes: [CLASS_IDS.SORCERER],
+    name: "Botas de Sorcerer",
+    icon: "🥾",
+    rarity: RARITY.COMMON,
+    type: ITEM_TYPE.ARMOR,
+    slot: "boots",
+    tier: 1,
+    value: 36,
+    stats: { defense: 4, speed: 5 },
+  }),
+
+  /**
+   * As CALCAS do sorcerer.
+   *
+   * `maxHp` abaixo do das calcas do Guerreiro (20 contra 30) pelo mesmo
+   * motivo das botas: o Sorcerer nao e feito para o corpo a corpo
+   */
+  calca_sorcerer: createItem({
+    id: "calca_sorcerer",
+    classes: [CLASS_IDS.SORCERER],
+    name: "Calças de Sorcerer",
+    icon: "👖",
+    rarity: RARITY.COMMON,
+    type: ITEM_TYPE.ARMOR,
+    slot: "legs",
+    tier: 1,
+    value: 40,
+    stats: { defense: 5, maxHp: 20 },
+  }),
+
+  /**
+   * O CAPUZ do sorcerer.
+   *
+   * O `attackSpeed` mais alto do catalogo (0,05): e a peca que define a
+   * identidade do conjureiro, que troca o golpe bruto pela frequencia
+   */
+  capuz_sorcerer: createItem({
+    id: "capuz_sorcerer",
+    classes: [CLASS_IDS.SORCERER],
+    name: "Capuz de Sorcerer",
+    icon: "🎩",
+    rarity: RARITY.COMMON,
+    type: ITEM_TYPE.ARMOR,
+    slot: "head",
+    tier: 1,
+    value: 38,
+    stats: { defense: 4, attackSpeed: 0.05 },
+  }),
+
+  /**
+   * As LUVAS do sorcerer.
+   *
+   * O `attack` mais alto das duas classes de mao (5 contra as 4 do Guerreiro):
+   * a mao e por onde o conjureiro canaliza
+   */
+  luvas_sorcerer: createItem({
+    id: "luvas_sorcerer",
+    classes: [CLASS_IDS.SORCERER],
+    name: "Luvas de Sorcerer",
+    icon: "🧤",
+    rarity: RARITY.COMMON,
+    type: ITEM_TYPE.ARMOR,
+    slot: "gloves",
+    tier: 1,
+    value: 34,
+    stats: { defense: 3, attack: 5 },
+  }),
+
+  /**
+   * O PEITO do sorcerer.
+   *
+   * O menor DEF do catalogo (7 contra 8 do Arqueiro e 11 do Guerreiro). A
+   * peca mais cara em DEF do guerreiro e a mais barata aqui, e e o que faz
+   * as duas Classes nao terem o mesmo teto de sobrevivencia
+   */
+  peito_sorcerer: createItem({
+    id: "peito_sorcerer",
+    classes: [CLASS_IDS.SORCERER],
+    name: "Peito de Sorcerer",
+    icon: "⛊",
+    rarity: RARITY.COMMON,
+    type: ITEM_TYPE.ARMOR,
+    slot: "chest",
+    tier: 1,
+    value: 52,
+    stats: { defense: 7, maxHp: 28 },
+  }),
+
+  /**
+   * O CAJADO, a arma principal do sorcerer.
+   *
+   * ## POR QUE ELE NAO DECLARA `classes`
+   *
+   * Pelo mesmo motivo da espada do Guerreiro: o `kind` resolve. O
+   * `CLASS_WEAPON_KINDS.sorcerer` e so `[STAFF]`, entao `canClassUseItem` cai
+   * em `weaponKindsOfClass(classe).includes(item.kind)` e so o Sorcerer
+   * passa. Declarar `classes` aqui seria uma segunda fonte de verdade para
+   * a mesma regra
+   */
+  cajado_sorcerer: createItem({
+    id: "cajado_sorcerer",
+    name: "Cajado de Sorcerer",
+    icon: "🔮",
+    rarity: RARITY.COMMON,
+    type: ITEM_TYPE.WEAPON,
+    kind: WEAPON_KIND.STAFF,
+
+    // sem `slot`: e a arma principal, e o `slotNameFor` acha o primeiro
+    // slot livre que aceita `WEAPON`
+    tier: 1,
+    value: 60,
+    stats: { attack: 11, attackSpeed: 0.03 },
+  }),
+
+  /**
+   * O LIVRO DE HABILIDADE, a arma SECUNDARIA do sorcerer.
+   *
+   * ## O NOME NAO SEGUE O PADRAO `<PECA> de <CLASSE>`
+   *
+   * "Botas de Guerreiro" e "Aljava de Arqueiro" tiram o nome da classe de
+   * tras da peca. Aqui seria "Livro de Habilidade de Sorcerer", que e longo
+   * demais para o painel de inventario. O item ja e exclusivo do Sorcerer
+   * pelo `classes`, entao o nome nao precisa carregar esse fardo
+   *
+   * ## E O `slot` ESTA EXPLICITO
+   *
+   * Pelo mesmo motivo do escudo: sem ele o `slotNameFor` devolveria o
+   * primeiro slot livre que aceita `WEAPON`, e com o cajado equipado o livro
+   * entraria no `weapon`
+   */
+  livro_habilidade_sorcerer: createItem({
+    id: "livro_habilidade_sorcerer",
+    classes: [CLASS_IDS.SORCERER],
+    name: "Livro de Habilidade",
+    icon: "📖",
+    rarity: RARITY.COMMON,
+    type: ITEM_TYPE.WEAPON,
+    slot: "weapon2",
+    tier: 1,
+    value: 48,
+    stats: { attack: 4, defense: 2, maxHp: 15 },
+  }),
+
 
 
 

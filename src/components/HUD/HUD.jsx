@@ -1379,8 +1379,35 @@ conviteParty = null,
    * Zera o filtro anterior antes de abrir, porque o filtro e do item clicado e
    * nao pode vazar de uma abertura para a seguinte
    */
-  const abrirColecaoNoItem = useCallback((itemId) => {
-    setFocoItem(itemId);
+  /**
+ * ABRE A COLECAO JA FILTRADA NO ITEM.
+ *
+ * ## O `setFocoItem` GUARDA UM OBJETO, E ANTES GUARDAVA A STRING
+ *
+ * Este e o bug que fazia o atalho nao filtrar nada. A linha que entrega o
+ * filtro ao painel e `filtroItemId={focoItem?.itemId ?? null}` — ela le
+ * `.itemId`, que so existe se `focoItem` for um OBJETO
+ *
+ * Aqui estava `setFocoItem(itemId)`, uma string. Numa string, `.itemId` e
+ * `undefined`, o `?? null` transformava em `null`, e o `CollectionPanel`
+ * recebia "sem filtro" em TODA abertura pelo menu do item. O painel abria
+ * certo e a lista vinha inteira, sem nenhum aviso — que e exatamente o
+ * sintoma de "o item foi clicado e a colecao nao veio filtrada"
+ *
+ * O `abrirCodexNoItem` logo abaixo ja guardava objeto, e por isso o atalho do
+ * CODEX filtrava. Os dois atalhos iam para o mesmo estado com formatos
+ * diferentes, e so um dos dois funcionava
+ *
+ * ## E POR QUE UM OBJETO COM `criaturas` AUSENTE, E NAO A STRING CRUA
+ *
+ * Porque `focoItem` tem duas formas de uso e uma so de dado. O codex le
+ * `focoItem?.criaturas` e a colecao le `focoItem?.itemId`; os dois com `?? null`
+ * porque a forma que nao existe para aquele painel tem de cair em `null`, e nao
+ * em `undefined` — que passaria como filtro valido
+ */
+const abrirColecaoNoItem = useCallback((itemId) => {
+    setFocoItem({ itemId, criaturas: null });
+
     setPainelAberto(PAINEL.COLECAO);
   }, []);
 
@@ -1498,6 +1525,31 @@ conviteParty = null,
    * também sobe para cá
    */
   const [anunciando, setAnunciando] = useState(false);
+
+  /**
+   * O ITEM QUE ABRE A MODAL DE ANUNCIAR JA ESCOLHIDO.
+   *
+   * E `null` no caminho normal — o `+ ANUNCIAR` do mercado abre o formulario
+   * vazio, como sempre. O valor so aparece quando o `Vender` do menu da
+   * mochila foi clicado, e ele e o `uid` da pilha
+   *
+   * ## POR QUE UM ESTADO SO COM ESCOLHER, E NAO UM ITEM INTEIRO
+   *
+   * Porque o `CreateListingModal` acha a entrada por `uid` em
+   * `inventory.items`, e o `inventory` que ele recebe e o do snapshot mais
+   * recente. Passar a entrada inteira aqui correria o risco de o HUD mostrar
+   * uma versao velha da pilha — a de quando o clique aconteceu — enquanto o
+   * formulario calcula o teto de preco pela outra
+   *
+   * ## E POR QUE ELE PRECISA SER LIMPO AO FECHAR
+   *
+   * Porque o estado do `HUD` sobrevive ao fechar da modal. Sem a limpeza, o
+   * proximo `+ ANUNCIAR` — aberto dez minutos depois, para um item
+   * completamente diferente — abriria com a selecao velha, e o jogador
+   * anunciaria a peca errada sem nenhum aviso: o item errado esta selecionado,
+   * a lista esta la embaixo, e ele so nota se rolar a tela
+   */
+  const [uidParaAnunciar, setUidParaAnunciar] = useState(null);
 
   /**
    * O FARM JA ESTA LIGADO?
@@ -3007,6 +3059,67 @@ const handleDeliverCollection = useCallback(
   }, []);
 
   /**
+   * O "VENDER" DO MENU DA MOCHILA.
+   *
+   * Abre o mercado JA COM a modal de anunciar por cima e o item escolhido.
+   * E o mesmo `setPainelAberto` de `handleOpenEnhance` que faz metade do
+   * trabalho: um painel so pode estar aberto por vez, entao trocar o
+   * INVENTARIO pelo MERCADO e o que desmonta o painel de onde o clique saiu
+   *
+   * ## E POR QUE `abrirPainel`, E NAO `alternarPainel`
+   *
+   * Porque `alternarPainel` e um TOGGLE: com o inventario aberto ele trocaria
+   * para o mercado, mas com o mercado JA aberto ele fecharia. O
+   * `InventoryPanel` so existe com `painelAberto === INVENTARIO`, entao o
+   * mercado nunca esta aberto neste caminho — mas a dependencia nao deve
+   * depender disso. `abrirPainel` e o "va para", que e o que o pedido diz
+   *
+   * ## A ORDEM DAS TRES COISAS NAO IMPORTA
+   *
+   * As duas sao `setState` e o React agrupa num render so, entao nao ha risco
+   * de a modal de anunciar aparecer antes do mercado e ficar sozinha na tela.
+   * O que importa e que as DUAS acontecem no mesmo render: a guarda
+   * `anunciando && painelAberto === PAINEL.MARKET` da modal exige as duas
+   */
+  const handleVenderNoMercado = useCallback(
+    (entry) => {
+      setUidParaAnunciar(entry?.uid ?? null);
+
+      abrirPainel(PAINEL.MARKET);
+
+      setAnunciando(true);
+    },
+    [abrirPainel],
+  );
+
+  /**
+   * FECHAR A MODAL DE ANUNCIAR, SEM DEIXAR ESCOLHIMENTO PARA TRAS.
+   *
+   * Os dois lados do botao de fechar, do `Esc` e da confirmacao usam este
+   * metodo, e nao `setAnunciando(false)` solto. O `uidParaAnunciar` precisa
+   * cair junto: e o que impede o `+ ANUNCIAR` da proxima vez de abrir com a
+   * peca do ultimo anuncio
+   */
+  const fecharAnuncio = useCallback(() => {
+    setAnunciando(false);
+    setUidParaAnunciar(null);
+  }, []);
+
+  /**
+   * O `+ ANUNCIAR` DO MERCADO: ABRE SEM NADA ESCOLHIDO.
+   *
+   * Passa pelo `setUidParaAnunciar(null)` explicito, e nao so pelo
+   * `fecharAnuncio`, porque este e o caminho que NAO fecha nada: ele apenas
+   * abre. Sem o `null` aqui, um `Vender` da mochila que foi aberto e fechado
+   * por outro meio deixaria o item marcado e este botao o pegaria de volta
+   */
+  const abrirAnuncioLimpo = useCallback(() => {
+    setUidParaAnunciar(null);
+
+    setAnunciando(true);
+  }, []);
+
+  /**
    * O BOTAO DO PAINEL DE ENCANTAR, e o X DELE.
    *
    * ## UM SO METODO PARA OS DOIS, E ELE ALTERNA
@@ -3357,6 +3470,26 @@ const handleDeliverCollection = useCallback(
 
   return (
     <div className="hud">
+      {/*
+        A COLUNA DA ESQUERDA: A BOX DO PERSONAGEM E OS BOTOES DELE.
+
+        ## POR QUE EXISTE UM CONTAINER E NAO DOIS `absolute` SOLTOS
+
+        Porque a fileira de botoes precisa ficar EMBAIXO da `.hud-vitals`, e
+        embaixo de uma caixa cuja altura depende do que ha dentro dela: o nome
+        do jogador quebra linha, o numero de buffs muda, a classe pode ter um
+        nome maior. Nenhum `top` fixo acompanha isso
+
+        Com o container, a ordem e do fluxo: a box vem primeiro e a fileira
+        desce sozinha pelo `gap`, qualquer que seja a altura da box
+
+        ## E POR QUE A LARGURA VEM DE `--vitals-w`
+
+        Porque sao as duas coisas que o jogador le como uma coluna so, e o
+        `--vitals-w` e a largura da box. A fileira cabe cinco botoes por vez
+        nessa largura — e cinco e o maximo que o jogador pediu
+      */}
+      <div className="hud-esquerda">
       <section className="hud-vitals">
         <header className="hud-vitals__head">
           <span className="hud-lv">
@@ -3517,6 +3650,17 @@ const handleDeliverCollection = useCallback(
           `hudIcons.js` sem PNG faria o teste de catalogo ler um arquivo que
           nao existe
         */}
+        <nav
+          className="hud-atalhos"
+          /*
+            A FILEIRA DE BOTOES, e o `flex-wrap` e o que faz a quebra.
+
+            Sao sete botoes. Numa largura de 192 cabem cinco por vez — `5 * 32
+            + 4 * 8` — e o sexto e o setimo descem para a linha de baixo sozinhos,
+            sem nenhum numero de coluna escrito no codigo. Um botao novo entra
+            na fileira sem que ninguem mexa em posicao nenhuma
+          */
+        >
         <button
           type="button"
           className={[
@@ -3809,6 +3953,99 @@ const handleDeliverCollection = useCallback(
                     <i className="hud-btn__dot" />
                   )}
             </button>
+        </nav>
+      <div
+        className="hud-coluna-mini"
+        /*
+          SEM `style` NENHUM, E ESSA E A MUDANCA.
+
+          ## O QUE TROCOU
+
+          Antes esta caixa era `absolute` com `top: 220` e `left: MINIMAP_LEFT`
+          — dois numeros que apontavam para o minimapa antigo, que morava na
+          esquerda. O minimapa foi para a direita e a `.hud-vitals` ganhou a
+          fileira de botoes embaixo, entao o `220` passou a deixar um buraco
+          entre os botoes e a party
+
+          ## POR QUE ELES SUMIRAM EM VEZ DE SER CORRIGIDOS
+
+          Porque nenhum numero corrige isto. A posicao da party depende da
+          ALTURA da `.hud-vitals` — que muda com o nome do jogador, com o
+          numero de buffs e com o tamanho do nome da classe — e da ALTURA da
+          fileira, que depende de quantos botoes quebraram linha. Um `top`
+          fixo erra em pelo menos um desses casos, e erra em silencio
+
+          Dentro da `.hud-esquerda` a posicao e do FLUXO: a box, os botoes e
+          a party descem um depois do outro pelo `gap`, e o espaco entre eles
+          e sempre o mesmo `8px`, qualquer que seja o conteudo
+
+          ## E A LARGURA
+
+          Vem do `--vitals-w` da `.hud-esquerda`, que e a largura da
+          `.hud-vitals`. As tres caixas da coluna esquerda fecham na mesma
+          linha, e nao em tres larguras diferentes
+        */
+      >
+        {!naArena && (
+          <PartyBox
+            party={snapshot?.party}
+            /**
+             * O CONVITE CHEGOU PELO EVENTO, e nao pelo painel.
+             *
+             * O servidor manda `PARTY_INVITE_RECEIVED` na hora, e o painel
+             * so no proximo pacote — que pode levar segundos. A caixa de
+             * cinco segundos esperando o painel perderia a maior parte do
+             * prazo, e o jogador nunca veria o convite
+             */
+            convite={conviteParty}
+            /**
+             * O ID DE QUEM ESTA OLHANDO.
+             *
+             * Sem ele a caixa nao sabe se quem ve e o lider, e o botao de
+             * expulsar apareceria para todo mundo
+             */
+            meuId={player?.id ?? null}
+            onCreate={handlePartyCreate}
+            onInvite={handlePartyInvite}
+            onAcceptInvite={handlePartyAccept}
+            onKick={handlePartyKick}
+            onFollow={handlePartyFollow}
+            onFocus={handlePartyFocus}
+            onTransfer={handlePartyTransfer}
+            onLeave={handlePartyLeave}
+          />
+        )}
+
+        {/*
+          O AVISO DE COLETA, DEPOIS DA PARTY.
+
+          ## POR QUE SAIU DA PILHA CENTRAL
+
+          A `.hud-topo` era o par do alvo: alvo em cima, aviso embaixo. O
+          alvo continua no alto central, e o aviso foi para baixo do
+          minimapa — assim o loot aparece onde o jogador estava olhando
+          quando matou o bicho, e a barra de vida do alvo fica com a tela
+          inteira para ela
+
+          E ele e o ULTIMO filho do container, e nao o primeiro: o loot e o
+          que some depois de alguns segundos, e a party e o que fica. Se o
+          aviso viesse primeiro, cada loot empurraria a party para baixo
+          durante o tempo que ele fica na tela
+        */}
+        {snapshot?.message && (
+          <div
+            className={[
+              "game-message",
+              snapshot.message.bad ? "is-error" : "",
+            ]
+              .filter(Boolean)
+              .join(" ")}
+          >
+            {snapshot.message.text}
+          </div>
+        )}
+      </div>
+      </div>
 
         {/*
           A COLUNA DA DIREITA COMECA AQUI.
@@ -4082,6 +4319,30 @@ const handleDeliverCollection = useCallback(
         Dentro do `hud-stack`, a ordem e a de leitura: missoes, party, e
         so depois o que o jogador pode fazer com o lugar onde ele esta
       */}
+      {/*
+          O ESPAÇO DO MINIMAPA, e o que empurra as missões para baixo.
+
+          ## POR QUE PRECISA DE UM RESERVADO E NÃO SÓ O `top` DA PARTI
+
+          Porque o minimapa é CANVAS, desenhado pelo `GameEngine.drawMinimap`.
+          Ele não é um elemento da coluna, e o fluxo do CSS não o conhece: sem
+          um bloco de altura igual à dele aqui, a caixa de missões continuaria
+          nascendo em `212` — exatamente onde o minimapa é pintado, e os dois
+          se sobreporiam
+
+          ## E POR QUE A ALTURA VAI MAIS O `gap`
+
+          Porque o espaço entre o minimapa e a primeira caixa da coluna e o
+          mesmo `8px` que separa o menu das missoes. Sem ele as duas caixas
+          encostariam, e uma coluna sem respiro entre os blocos parece uma
+          caixa só
+
+          Não tem conteúdo, não tem borda e não recebe clique: por isso é um
+          `div` vazio com altura, e não um `position: absolute` — que tiraria a
+          party e a mineração do lugar
+        */}
+        <div style={{ height: MINIMAP_HEIGHT + 8, flex: 'none' }} />
+
       <div className="hud-stack">
           {/*
             A BOX DE MISSOES: DESABILITADA DENTRO DA ARENA, nao escondida.
@@ -4521,73 +4782,6 @@ const handleDeliverCollection = useCallback(
         informacao que o jogador mais precisa e menos consegue usar. O grupo
         continua existindo — e so a caixa que some
       */}
-      <div
-        className="hud-coluna-mini"
-        style={{
-          top: MINIMAP_TOP_IDLE + MINIMAP_HEIGHT + 8,
-          left: MINIMAP_LEFT,
-          width: MINIMAP_WIDTH,
-        }}
-      >
-        {!naArena && (
-          <PartyBox
-            party={snapshot?.party}
-            /**
-             * O CONVITE CHEGOU PELO EVENTO, e nao pelo painel.
-             *
-             * O servidor manda `PARTY_INVITE_RECEIVED` na hora, e o painel
-             * so no proximo pacote — que pode levar segundos. A caixa de
-             * cinco segundos esperando o painel perderia a maior parte do
-             * prazo, e o jogador nunca veria o convite
-             */
-            convite={conviteParty}
-            /**
-             * O ID DE QUEM ESTA OLHANDO.
-             *
-             * Sem ele a caixa nao sabe se quem ve e o lider, e o botao de
-             * expulsar apareceria para todo mundo
-             */
-            meuId={player?.id ?? null}
-            onCreate={handlePartyCreate}
-            onInvite={handlePartyInvite}
-            onAcceptInvite={handlePartyAccept}
-            onKick={handlePartyKick}
-            onFollow={handlePartyFollow}
-            onFocus={handlePartyFocus}
-            onTransfer={handlePartyTransfer}
-            onLeave={handlePartyLeave}
-          />
-        )}
-
-        {/*
-          O AVISO DE COLETA, DEPOIS DA PARTY.
-
-          ## POR QUE SAIU DA PILHA CENTRAL
-
-          A `.hud-topo` era o par do alvo: alvo em cima, aviso embaixo. O
-          alvo continua no alto central, e o aviso foi para baixo do
-          minimapa — assim o loot aparece onde o jogador estava olhando
-          quando matou o bicho, e a barra de vida do alvo fica com a tela
-          inteira para ela
-
-          E ele e o ULTIMO filho do container, e nao o primeiro: o loot e o
-          que some depois de alguns segundos, e a party e o que fica. Se o
-          aviso viesse primeiro, cada loot empurraria a party para baixo
-          durante o tempo que ele fica na tela
-        */}
-        {snapshot?.message && (
-          <div
-            className={[
-              "game-message",
-              snapshot.message.bad ? "is-error" : "",
-            ]
-              .filter(Boolean)
-              .join(" ")}
-          >
-            {snapshot.message.text}
-          </div>
-        )}
-      </div>
 
       {/*
         A BARRA DE BAIXO, em tres PECAS: as skills, a coluna com o auto
@@ -5300,7 +5494,7 @@ selecaoInicial={alvoEncantar}
           onBid={handleBidItem}
           onCancel={handleCancelListing}
           onList={handleListItem}
-          onAbrirAnunciar={() => setAnunciando(true)}
+          onAbrirAnunciar={abrirAnuncioLimpo}
           onClose={() => alternarPainel(PAINEL.MARKET)}
         />
       )}
@@ -5327,11 +5521,12 @@ selecaoInicial={alvoEncantar}
       {anunciando && painelAberto === PAINEL.MARKET && (
         <CreateListingModal
           inventory={snapshot?.inventory}
+          uidInicial={uidParaAnunciar}
           onConfirmar={(pedido) => {
-            setAnunciando(false);
+            fecharAnuncio();
             handleListItem(pedido);
           }}
-          onClose={() => setAnunciando(false)}
+          onClose={fecharAnuncio}
         />
       )}
 
@@ -5403,6 +5598,7 @@ onEnchant={handleOpenEnchant}
             onEnhance={handleOpenEnhance}
             onOpenCollection={abrirColecaoNoItem}
             onOpenCodex={abrirCodexNoItem}
+            onVenderNoMercado={handleVenderNoMercado}
             onFilterChange={handleFilterChange}
           onFilterReset={handleFilterReset}
           onFilterPrune={handleFilterPrune}

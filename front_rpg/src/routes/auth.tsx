@@ -6,6 +6,7 @@ import { entrarComCarteira, limparSessao } from '@/lib/api'
 import { destinoDaAventura } from '@/lib/comecar'
 import { assinarComCarteira } from '@/lib/carteira'
 import world from '@/assets/world-map.png'
+import metamaskLogo from '@/assets/metamask.png'
 import { NOME_DO_PROJETO, MarcaRavenDorn } from '@/components/marca-projeto'
 
 export const Route = createFileRoute('/auth')({
@@ -23,21 +24,36 @@ export const Route = createFileRoute('/auth')({
 /**
  * O LOGO DA METAMASK.
  *
- * Era o icone do Google, que nao e mais usado: o login por conta Google
- * dependia de um provedor de identidade de terceiro e saiu junto com ele. A
- * carteira e a identidade agora, e e verificada pelo servidor
+ * Era um SVG embutido aqui, e o desenho da raposa em low-poly passou a vir de
+ * arquivo. O arquivo mora em `front_rpg/src/assets/` e nao em
+ * `src/assets/icons/` da RAIZ: os dois sao apps Vite separados, e o `@/`
+ * deste aponta para o proprio `front_rpg/src`. Importar pelo caminho da raiz
+ * dariaria "module not found" no build
+ *
+ * ## POR QUE `alt=""` E `aria-hidden` AO MESMO TEMPO
+ *
+ * Porque o botao ao lado ja diz "Conectar MetaMask". Um `alt` com o nome do
+ * icone faria o leitor de tela anunciar o nome duas vezes seguidas — a regra
+ * de ouro do `alt` em imagem decorativa: ela descreve a IMAGEM, e aqui a
+ * imagem nao acrescenta nada ao texto que ja esta do lado
+ *
+ * ## E POR QUE O `display: block`
+ *
+ * Porque o `img` e inline por padrao e reserva o espaco da linha de base
+ * abaixo dele. Num botao `inline-flex` isso vira um descasamento de 3 ou 4px
+ * entre o logo e o texto. O `flex` do botao transformaria o `img` em item de
+ * bloco sozinho, mas o componente nao pode depender de estar dentro dele
  */
 function MetaMaskIcon({ size = 18 }: { size?: number }) {
   return (
-    <svg width={size} height={size} viewBox="0 0 32 32" aria-hidden="true">
-      <path fill="#E2761B" d="M29.3 4.6 18.1 14.8l2.5-6.1 8.7-4.1z" />
-      <path fill="#E4761B" d="M2.7 4.6 13.8 14.8l-2.4-6.1L2.7 4.6z" />
-      <path fill="#F6851B" d="m23.9 22.6-3.2 4.9 6.8 1.9 2-6.7-5.6-.1zM8.1 22.7l-5.6 0 2 6.7 6.8-1.9-3.2-5z" />
-      <path fill="#E4761B" d="M9.6 11.4 7.8 14l6.1.3-.2-6.2-4.1 3.3zM22.4 11.4 18.3 8.1l-.2 6.2 6.1-.3-1.8-2.6z" />
-      <path fill="#F6851B" d="M18.1 14.8h-6.2l-.1 3.5 2.1 1.6-.1-.1 4.3 3.2v-4.7l-6.2-.2 6.2-.3z" />
-      <path fill="#C0AC9D" d="m17.9 20.3-4.3-3.2.1.1-2.7 2v.1l6.9 5.1v-4.1zM21.9 14.6l-3.8-.2v4.7l6.9-5.1-3.1 2.4z" />
-      <path fill="#161616" d="M13.9 11.1 17.8 7.3l-.2-.1-3.4 3.4-.1 3.4 2.4-2.5-2.6.6zM18.1 14.8h-6.2l.1 3.6 2.2 1.6 4.3-3.2v-4.7l-6.2.2 5.8.5z" />
-    </svg>
+    <img
+      src={metamaskLogo}
+      alt=""
+      aria-hidden="true"
+      width={size}
+      height={size}
+      style={{ display: 'block', flex: 'none' }}
+    />
   )
 }
 
