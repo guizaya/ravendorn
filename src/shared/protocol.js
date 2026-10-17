@@ -96,6 +96,25 @@ export const PANEL_OPS = Object.freeze({
   ABANDON_SIDE_QUEST: "ABANDON_SIDE_QUEST",
 
   /**
+   * AS QUATRO AÇÕES DE EXPEDIÇÃO DO CHEFE.
+   *
+   * São quatro ops e não um `op: "expedicao", acao: "..."` porque cada uma
+   * muda o estado de outra forma: `criar` cria um registro, `dissolver` apaga
+   * um registro e as outras duas mexem só na lista de membros. Um `op` só com
+   * `acao` dentro obrigaria o servidor a abrir um `switch` dentro do `case`,
+   * e um `acao` desconhecida passaria pelo `parsePanel` — que é exatamente o
+   * buraco que a lista de ops fechadas existe para tapar
+   *
+   * E a expedição é estado do MUNDO, não da sessão, que é por isso que vai pelo
+   * mesmo caminho do resto e o dado entra pelo `guildStore`: uma expedição
+   * criada por um jogador precisa aparecer para os outros
+   */
+  CREATE_EXPEDITION: "CREATE_EXPEDITION",
+  JOIN_EXPEDITION: "JOIN_EXPEDITION",
+  LEAVE_EXPEDITION: "LEAVE_EXPEDITION",
+  DISBAND_EXPEDITION: "DISBAND_EXPEDITION",
+
+  /**
    * O resgate da recompensa de uma missao concluida.
    *
    * Pelo mesmo caminho do aceite: o botao [RECEBER] e um ato do
@@ -499,6 +518,27 @@ ENHANCE: "ENHANCE",
    * pediu
    */
   TELEPORTAR: "TELEPORTAR",
+
+  /**
+   * ANDA ATÉ O NPC, para abrir o painel dele.
+   *
+   * ## POR QUE SÓ O `npcId`, E NENHUMA COORDENADA
+   *
+   * Pelo mesmo motivo do `TELEPORTAR`, e com mais força ainda: se o pedido
+   * levasse `x`/`y`, qualquer jogador mandaria o dele para o canto do mapa e
+   * o servidor obedeceria. Quem resolve o destino é o SERVIDOR, e ele resolve
+   * procurando o NPC no mundo dele — um `npcId` que não existe nesse mapa
+   * simplesmente não acha ninguém, e o pedido morre ali
+   *
+   * ## E POR QUE UM COMANDO, E NÃO UM FUNDO NO PAINEL
+   *
+   * Porque o movimento é do servidor. O cliente não simula: o `INPUT` é o que
+   * manda a intenção de andar, e o motor do cliente nunca aplica nada no
+   * mundo. "Chegar perto" e "chegar no alcance do NPC" precisam da mesma
+   * autoridade do movimento, ou o painel abriria numa posição que o servidor
+   * nunca aceitou
+   */
+  IR_ATE_NPC: "IR_ATE_NPC",
 
   /**
    * LIGA O FARM OFFLINE, e nao leva nada no payload.
@@ -944,6 +984,17 @@ function parsePanel(payload) {
     filter,
     skillId,
     ativo,
+    /**
+     * A EXPEDIÇÃO DO CHEFE, e os dois campos dos quatro pedidos.
+     *
+     * `expedicaoId` e o alvo, e `dificuldadeChefe` é a escolha da dificuldade.
+     * O `chefeId` NÃO entra por aqui: ele vem do contexto do painel, que é o
+     * chefe que o jogador está olhando, e mandá-lo no pedido abriria espaço
+     * para o jogador pedir a expedição de um chefe que não está na tela
+     */
+    expedicaoId,
+    expedicaoChefe,
+    expedicaoDificuldade,
     questId,
     passId,
     dia,
@@ -957,6 +1008,7 @@ function parsePanel(payload) {
     listingId,
       portalId,
       propId,
+    npcId,
 guildName,
     guildTag,
     guildId,
@@ -1024,6 +1076,39 @@ guildName,
 
       skillId: isShortString(skillId, 64) ? skillId : null,
       ativo: typeof ativo === "boolean" ? ativo : null,
+
+      /**
+       * O ID DA EXPEDIÇÃO, E O ÍNDICE DA DIFICULDADE.
+       *
+       * O `expedicaoId` é um número que o SERVIDOR inventou, e ele volta como
+       * `Date.now() + contador` — que cabe em 13 dígitos. O `isFiniteNumber`
+       * sozinho aceitaria um `1e308` e o `Map` procuraria uma chave que nunca
+       * existiu; e um id como texto ("NaN") faria toda linha de expedição
+       * apontar para o mesmo grupo
+       *
+       * A dificuldade é índice de 0 a 2, e o store valida de novo. Aqui o
+       * parse só garante que é número inteiro: o store precisa saber a
+       * diferença entre "não mandou" e "mandou 7"
+       */
+      expedicaoId: isFiniteNumber(expedicaoId)
+        ? Math.trunc(expedicaoId)
+        : null,
+      expedicaoDificuldade: isFiniteNumber(expedicaoDificuldade)
+        ? Math.trunc(expedicaoDificuldade)
+        : null,
+
+      /**
+       * O ID DO CHEFE DA EXPEDIÇÃO.
+       *
+       * Entra como texto CURTO e não validado contra o catálogo aqui: o
+       * `parsePanel` não importa o catálogo de chefes, e essa importação
+       * puxaria arte — `new URL` de GIF — para dentro do módulo de protocolo,
+       * que é lido pelo servidor em cada pacote. O `GameServer` confere contra
+       * `chefePorId` no `case`, que é onde o catálogo já está
+       */
+      expedicaoChefe: isShortString(expedicaoChefe, 32)
+        ? expedicaoChefe
+        : null,
 
       /**
        * A CONFIGURACAO DO USO AUTOMATICO DA POCAO.
@@ -1243,6 +1328,28 @@ guildName,
        * — e 32 cortaria pela metade o id de uma pedra de raridade alta
        */
       propId: isShortString(propId, 64) ? propId : null,
+
+      /**
+       * O NPC QUE O JOGADOR PEDIU PARA IR ATÉ, ou `null`.
+       *
+       * ## POR QUE ESTE CAMPO ESTAVA NESTA LISTA DESDE O COMEÇO
+       *
+       * Porque o `parsePanel` reconstroi o payload com uma lista FIXA de
+       * campos, e um campo fora dela chega ao servidor como `undefined` — o
+       * painel pareceria funcionar e o estado nunca mudaria. Foi exatamente o
+       * que aconteceu: o `IR_ATE_NPC` era um `op` válido e mesmo assim nada
+       * acontecia, porque o `npcId` sumia na travessia
+       *
+       * ## E MESMO TRATAMENTO DO `portalId` E DO `propId`
+       *
+       * Vem do cliente e nao e confiavel: o servidor procura esse NPC no mapa
+       * em que o jogador esta, e recusa se nao achar. Sem coordenada nenhuma no
+       * pedido, nenhum cliente se manda para o ponto que quiser
+       *
+       * O limite e 64 pelo mesmo motivo do `propId`: id de NPC pode vir com
+       * prefixo de mapa
+       */
+      npcId: isShortString(npcId, 64) ? npcId : null,
 
       /**
        * A GUILDA, em tudo que o pedido dela carrega.

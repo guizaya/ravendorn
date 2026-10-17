@@ -306,28 +306,47 @@ export const ITEM_ICON_SIMPLES = {
     ).href,
 
     /**
-     * OS DOIS ACESSORIOS, com o nome dos arquivos NOVOS.
+     * OS SEIS ACESSORIOS, um `new URL` por peca.
      *
-     * Antes eles saiam de `drops/otimizado/`, por `ARQUIVO_DA_FAMILIA`:
-     * `anel.png` e `amuleto_arqueiro.png`. Os arquivos novos tem outro nome —
-     * `anel_1.png` e `amuleto_do_arqueiro.png` — e e para eles que o item
-     * aponta agora
+     * ## POR QUE UM MAPA COM CHAVE IGUAL AO `id` DO ITEM
      *
-     * ## POR QUE SAIRAM DO `ARQUIVO_DA_FAMILIA`
+     * Porque e a unica forma de o Vite ver o arquivo: o caminho escrito por
+     * extenso no codigo e o que entra no build. Um caminho montado com
+     * template string nao e seguido, e o pacote sairia sem as seis artes —
+     * sem erro nenhum, so o glifo de reserva na tela
      *
-     * Porque aquele mapa resolve para `drops/otimizado/` E acrescenta o sufixo
-     * de grau do material. Os dois acessorios nao tem grau: sao resultado de
-     * craft, e um anel comum e um anel lendario sao o mesmo anel
+     * E o `id` coincide com o nome do arquivo porque sao seis pecas com
+     * nomes que ja dizem tudo: `anel_de_forca.png` e o Anel de Força. Nao ha
+     * traducao para fazer aqui nem no catalogo: o id e o arquivo
      *
-     * Manter os dois nos dois lugares faria o antigo continuar respondendo
-     * primeiro, e o item mostraria a arte velha sem nenhum erro
+     * ## POR QUE SAIRAM DE `drops/`
+     *
+     * A arte antiga vivia em `drops/`, ao lado dos materiais, e isso obrigava
+     * o comentario de 20 linhas sobre `ARQUIVO_DA_FAMILIA` e o sufixo de grau
+     * para dizer que acessorio nao tem grau. Agora eles tem pasta propria
      */
-    anel: new URL(
-      "../../assets/Items/drops/anel_1.png",
+    anel_de_forca: new URL(
+      "../../assets/Items/acessorios/anel_de_forca.png",
       import.meta.url,
     ).href,
-    amuleto_arqueiro: new URL(
-      "../../assets/Items/drops/amuleto_do_arqueiro.png",
+    anel_de_mana: new URL(
+      "../../assets/Items/acessorios/anel_de_mana.png",
+      import.meta.url,
+    ).href,
+    anel_de_vigor: new URL(
+      "../../assets/Items/acessorios/anel_de_vigor.png",
+      import.meta.url,
+    ).href,
+    amuleto_de_forca: new URL(
+      "../../assets/Items/acessorios/amuleto_de_forca.png",
+      import.meta.url,
+    ).href,
+    amuleto_de_mana: new URL(
+      "../../assets/Items/acessorios/amuleto_de_mana.png",
+      import.meta.url,
+    ).href,
+    amuleto_de_vigor: new URL(
+      "../../assets/Items/acessorios/amuleto_de_vigor.png",
       import.meta.url,
     ).href,
 
@@ -409,13 +428,13 @@ aco_temperado: "aco_temperado.png",
 };
 
 /*
- * O ANEL E O AMULETO SAIRAM DESTE MAPA.
+ * OS ACESSORIOS NAO ESTAO AQUI.
  *
- * Eles apontam agora para os arquivos novos em `ITEM_ICON_SIMPLES`:
- * `drops/anel_1.png` e `drops/amuleto_do_arqueiro.png`. Aqui eles pediam
- * `drops/otimizado/anel.png` e `amuleto_arqueiro.png`, que e a arte antiga
+ * Eles apontam para os seis arquivos em `assets/Items/acessorios`, um
+ * `new URL` por peca em `ITEM_ICON_SIMPLES`. Antes eram dois, e viviam em
+ * `drops/otimizado/` resolvidos por `ARQUIVO_DA_FAMILIA`
  *
- * Este mapa e das FAMILIAS DE MATERIAL, e os dois sao resultado de craft e
+ * Este mapa e das FAMILIAS DE MATERIAL, e os seis sao resultado de craft e
  * nao ingrediente: nao tem grau, e por isso nao tem por que estar aqui
  */
 

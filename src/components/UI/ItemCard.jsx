@@ -145,7 +145,16 @@ mostrarTexto = true,
             <span className="inv-item-name">{item.name}</span>
 
             <span className="inv-item-meta">
-              <span className="inv-item-rarity">{style?.label}</span>
+              {/*
+                A RARIDADE EM TEXTO SAIU, E A LINHA FICOU.
+
+                ## POR QUE A LINHA CONTINUA AI
+                Porque `inv-item-meta` e um `flex`, e um flex sem filhos
+                colapsa para altura zero: o nome do item subiria um palmo
+                quando o anuncio for de peca unica, e desceria de volta quando
+                o mesmo card ganhasse "x3". A altura da linha e o que segura
+                o preco e o botao na mesma posicao em qualquer anuncio
+              */}
 
               {entry.count > 1 && (
                 <span className="inv-item-count">x{entry.count}</span>

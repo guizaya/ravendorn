@@ -51,6 +51,67 @@ export default class TileMapRenderer {
      * para sempre. O erro de arte e um erro de arte: nao ha recuperacao
      */
     this.falhou = new Set();
+
+    /**
+     * QUEM JA ESTA BAIXANDO.
+     *
+     * ## O QUE ESTE SET EVITA
+     *
+     * Sem ele, `precarregar()` chamado duas vezes no mesmo mapa criaria DUAS
+     * `Image` para a mesma URL: o download happening em segundo plano e o do
+     * preload, disputando a mesma conexao. O navegador so cacheia depois
+     * que a primeira termina, entao a segunda esperaria a fila e o preload
+     * que existia para adiantar acabaria atrasando.
+     *
+     * E `imagens` nao serve para isto: ele so recebe a imagem no `onload`,
+     * e a janela que importa aqui e a que vai do `new Image()` ate ele.
+     */
+    this.baixando = new Set();
+  }
+
+  /**
+   * COMECA A BAIXAR AS FOLHAS DE UM MAPA, SEM ESPERAR.
+   *
+   * ## POR QUE ISTO EXISTE
+   *
+   * O `load()` so era chamado de dentro do `drawMap`, e o `drawMap` so roda
+   * quando o mapa JA esta em cena. Ou seja: o download dos tiles comecava no
+   * mesmo quadro em que o jogador ja via o mapa novo — o que produz o
+   * defeito de o chao aparecer depois, com o mapa vazio por um instante.
+   *
+   * Chamando isto na travessia, o download comeca antes do `setMap`, e a
+   * janela entre o comando e a chegada da arte ja passa com a folha no
+   * cache do navegador.
+   *
+   * ## POR QUE NAO E `await`
+   *
+   * Porque o preload nao pode travar a travessia. Um `await` aqui seguraria
+   * o portal ate a imagem chegar, e uma folha que da 404 — ou uma conexao
+   * lenta — prenderia o jogador em frente ao portal sem nenhuma saida.
+   * O preload e uma promessa de que vai ajudar, nao uma condicao.
+   *
+   * @returns {boolean} `true` se o mapa inteiro ja estava pronto
+   */
+  precarregar(mapa) {
+    this.load(mapa);
+
+    return this.pronto(mapa);
+  }
+
+  /**
+   * ESTA FOLHA JA ESTA EM CACHE, EM DOWNLOAD, OU JA FALHOU?
+   *
+   * E o filtro que `load()` usa para nao pedir a mesma imagem duas vezes.
+   * Estao os tres estados juntos porque so `imagens` (o `onload`) e um
+   * deles: uma imagem que esta baixando agora nao esta em `imagens` ainda,
+   * e sem este `Set` ela seria pedida de novo a cada chamada.
+   */
+  jaConhecida(url) {
+    return (
+      this.imagens.has(url) ||
+      this.baixando.has(url) ||
+      this.falhou.has(url)
+    );
   }
 
   /**
@@ -104,15 +165,49 @@ export default class TileMapRenderer {
   load(mapa) {
     let alguma = false;
 
+    /**
+     * SEM DOM, `Image` NAO EXISTE.
+     *
+     * E o caso do servidor (que importa este arquivo pelo `data/maps`) e de
+     * qualquer teste em Node puro. O `load` antes era chamado SO de dentro do
+     * `drawMap`, que nao roda sem canvas — entao o `new Image()` ficava
+     * inalcancavel nesses ambientes.
+     *
+     * O `precarregar` quebrou isso: ele e chamado da travessia de portal e
+     * do `NetworkWorld`, e nenhum dos dois e caminho de desenho. Sem este
+     * `return`, toda suite que instancia o motor e atravessa um portal
+     * quebraria com `Image is not defined` — e por um motivo que nao tem
+     * nada a ver com o que o teste quer verificar.
+     *
+     * Devolver `false` e o certo: em Node nao existe arte para carregar, e
+     * quem chamou so usa este valor como diagnostico
+     */
+    if (typeof Image === "undefined") return false;
+
     for (const folha of this.folhasDe(mapa)) {
       if (!folha?.url) continue;
 
       alguma = true;
 
-      if (this.imagens.has(folha.url)) continue;
+      /**
+       * JA CONHECIDA EM QUALQUER UM DOS TRES ESTADOS.
+       *
+       * O `jaConhecida` cobre os tres de uma vez. O que mudou em relacao
+       * ao codigo anterior e a ordem: antes a janela de "baixando" nao
+       * existia, entao um `precarregar` seguido de um `load` no mesmo
+       * quadro criaria uma segunda `Image` para a mesma URL
+       */
+      if (this.jaConhecida(folha.url)) continue;
 
-      // ja deu 404 uma vez: nao tenta de novo
-      if (this.falhou.has(folha.url)) continue;
+      /**
+       * A FOLHA ESTA BAIXANDO AGORA.
+       *
+       * Sai do `onload` e do `onerror`. Sem o `delete` no `onload`, a
+       * entrada ficaria no `Set` para sempre e a imagem — que agora esta
+       * em `imagens` — seria tratada como "ainda baixando" por um estado
+       * que nao existe mais
+       */
+      this.baixando.add(folha.url);
 
       const imagem = new Image();
 
@@ -122,10 +217,12 @@ export default class TileMapRenderer {
       imagem.decoding = "async";
 
       imagem.onload = () => {
+        this.baixando.delete(folha.url);
         this.imagens.set(folha.url, imagem);
       };
 
       imagem.onerror = () => {
+        this.baixando.delete(folha.url);
         this.falhou.add(folha.url);
       };
 
@@ -136,13 +233,48 @@ export default class TileMapRenderer {
   }
 
   /**
+   * O MAPA ESTA INTEIRO NA TELA?
+   *
+   * ## POR QUE ISTO E DIFERENTE DO `isReady`
+   *
+   * Porque `isReady` responde "o jogador ve ALGUMA coisa?", e ele precisa
+   * responder isso para o primeiro quadro: negar o desenho inteiro enquanto
+   * uma folha falta mostraria um buraco preto, e e melhor mostrar o
+   * terreno sem os tiles do que nada.
+   *
+   * Esta e a pergunta do PRELOAD: "da para trocar de mapa agora?". Aqui a
+   * resposta e sim-so-com-tudo: uma folha a caminho significa que o mapa
+   * destino ainda nao esta pronto, e e com base nesta conta que o motor
+   * decide entre segurar a travessia ou deixar o jogo mostrar o vazio
+   * por um instante.
+   *
+   * ## POR QUE UMA FOLHA SEM URL NAO IMPEDE
+   *
+   * Porque `url: null` e "o autor nao registrou a imagem" — um erro de
+   * declaracao, nao um download pendente. Contar como "pronto" e o que o
+   * `isReady` ja faz, e inverter isso aqui prenderia o jogador para sempre
+   * num mapa cujo arte nunca vai chegar
+   */
+  pronto(mapa) {
+    for (const folha of this.folhasDe(mapa)) {
+      if (!folha?.url) continue;
+
+      const imagem = this.imagens.get(folha.url);
+
+      if (!imagem?.complete || !imagem.naturalWidth) return false;
+    }
+
+    return true;
+  }
+
+  /**
    * DESENHA AS CAMADAS VISIVEIS.
    *
    * @param {CanvasRenderingContext2D} context
    * @param {object} mapa o que `lerMapaTiled` devolveu
    * @param {object} view a janela visivel, em coordenada de mundo
    */
-  draw(context, mapa, view) {
+  draw(context, mapa, view, alinhamento = { dpr: 1, escala: 1 }) {
     if (!mapa?.layers?.length) return;
 
     const folhas = this.folhasDe(mapa);
@@ -174,8 +306,32 @@ export default class TileMapRenderer {
     if (maiorW === 0) return;
 
     for (const camada of mapa.layers) {
-      this.drawCamada(context, folhas, camada, maiorW, maiorH, view);
+      this.drawCamada(context, folhas, camada, maiorW, maiorH, view, alinhamento);
     }
+  }
+
+  /**
+   * O QUE O MOTOR SABE DA CAMERA PARA ALINHAR OS TILES.
+   *
+   * ## POR QUE ISTO EXISTE
+   *
+   * Para a fresta de 1px sumir, o `drawImage` de cada tile precisa receber
+   * um destino em pixel INTEIRO de dispositivo. O motor e quem sabe o `dpr` e
+   * o `zoom`, e quem tem a transform da camera aplicada — o renderizador so
+   * ve coordenadas de mundo.
+   *
+   * Sem estes dois numeros, o renderizador arredonda o destino em MUNDO, e o
+   * `zoom` e o `dpr` vem DEPOIS desse arredondamento na hora do desenho. E ai
+   * que a fracao que abre a fresta nasce.
+   *
+   * @param {number} dpr
+   * @param {number} zoom
+   */
+  alinhamentoDeDispositivo(dpr = 1, zoom = 1) {
+    const d = dpr > 0 ? dpr : 1;
+    const z = zoom > 0 ? zoom : 1;
+
+    return { dpr: d, escala: d * z };
   }
 
   /**
@@ -188,7 +344,7 @@ export default class TileMapRenderer {
    * pular a faixa inteira que esta fora. O retangulo de celulas e a conta, e
    * o laco interno ja sabe que esta dentro
    */
-  drawCamada(context, folhas, camada, maiorW, maiorH, view) {
+  drawCamada(context, folhas, camada, maiorW, maiorH, view, alinhamento) {
     /**
      * A CELULA DA GRADE, E NAO O TAMANHO DO TILE.
      *
@@ -263,8 +419,72 @@ export default class TileMapRenderer {
         const centroX = cx * cellW + cellW / 2;
         const centroY = cy * cellH + cellH / 2;
 
-        const destinoX = Math.round(centroX - folha.tileWidth / 2);
-        const destinoY = Math.round(centroY - folha.tileHeight / 2);
+        /**
+         * O DESTINO EM PIXEL DE DISPOSITIVO, E O QUE MATA A FRESTA.
+         *
+         * ## A CAUSA
+         *
+         * Com `imageSmoothingEnabled = false` o navegador nao suaviza a
+         * imagem, mas ainda precisa decidir em que pixel de dispositivo cada
+         * tile comeca e termina — e essa decisao e por arredondamento. Quando
+         * o canto do tile cai em `x.4`, o tile da esquerda termina no pixel
+         * `X` e o da direita comeca no `X+1`: sobra um pixel de vao.
+         *
+         * Como todos os tiles da linha compartilham a mesma fracao (a do
+         * camera), a fresta e continua ao longo da linha inteira, e ela anda
+         * junto com a camera. E o sintoma de "linhas que aparecem entre os
+         * tiles enquanto o personagem anda".
+         *
+         * ## POR QUE O ARREDONDAMENTO PRECISA SER AQUI, EM DISPOSITIVO
+         *
+         * O codigo arredondava o destino em coordenada de MUNDO. Isso nao
+         * funciona: entre este `Math.round` e o pixel na tela ainda passam o
+         * `zoom` e o `dpr` da camera, e um destino inteiro em mundo vira
+         * fracionario em dispositivo assim que o zoom e diferente de 1 — que
+         * e o caso da base (1/0.62) e do chefe (1/0.7).
+         *
+         * Aqui o destino e convertido para dispositivo ANTES do arredondamento,
+         * e o valor que sobra e convertido de volta. O tile que estava em
+         * `x.4` vai para o pixel `X`, e o vizinho tambem — os dois fecham.
+         *
+         * ## POR QUE ISTO NAO QUEBRA A CONTINUIDADE DA ARTE
+         *
+         *e o tamanho real da arte. O que muda e so de ONDE o tile comeca, e
+         * esse deslocamento e de menos de meio pixel de dispositivo; o
+         * cenario, o `.tmj` e as colisoes nao sabem que ele aconteceu
+         */
+        const escala = alinhamento?.escala ?? 1;
+
+        /**
+         * O DESTINO, ALINHADO NA GRADE ACUMULATIVA DO DISPOSITIVO.
+         *
+         * ## POR QUE A POSICAO E ARREDONDADA E O TAMANHO NAO
+         *
+         * Porque a fresta e uma diferenca entre o fim de um tile e o
+         * comeco do vizinho. Se as DUAS pontas sao arredondadas na mesma
+         * grade, a emenda fecha. Arredondar tambem o tamanho, como fez uma
+         * versao anterior deste bloco, faz o pior: a largura arredondada e
+         * um valor CONSTANTE, e a posicao e cumulativa — os dois discordam a
+         * cada tres tiles e sobra um vao de 1px. Era a grade visivel que
+         * apareceu depois da correcao.
+         *
+         * ## POR QUE A GRADE E CUMULATIVA
+         *
+         * Porque o device de um tile nao e `arredonda(tile * escala)`: e
+         * `arredonda(tile * escala) / escala`, e o proximo tile continua da
+         * borda arredondada ANTERIOR. Arredondar cada origem de forma
+         * independente faz o erro de cada tile apontar para um lado diferente
+         * e a fresta nao fecha nunca
+         */
+        const destinoX = arredondarEmDispositivo(
+          centroX - folha.tileWidth / 2,
+          escala,
+        );
+
+        const destinoY = arredondarEmDispositivo(
+          centroY - folha.tileHeight / 2,
+          escala,
+        );
 
         /**
          * QUANDO O TILE E MENOR QUE A CELULA, DESENHA DO TAMANHO DA ARTE.
@@ -273,6 +493,10 @@ export default class TileMapRenderer {
          * volta se fosse esticado ate a celula — e o mapa da base encolheria
          * inteiro. E por isso que o destino usa `tileWidth`/`tileHeight`, e
          * nao o tamanho da celula
+         *
+         * O TAMANHO aqui e o de MUNDO, sem arredondar: e a escala da camera
+         * que o converte, e as duas bordas do tile ja caem na mesma grade
+         * porque as POSICOES sao cumulativas
          */
         this.drawTile(
           context,
@@ -341,4 +565,41 @@ export default class TileMapRenderer {
 
     context.restore();
   }
+}
+
+/**
+ * ARREDONDA UM DESTINO DE MUNDO PARA CAIR NA GRADE DE PIXEL DE DISPOSITIVO.
+ *
+ * ## POR QUE ESTA FUNCAO E NAO UM `Math.round` NO LUGAR
+ *
+ * Porque o `Math.round` simples arredonda a coordenada de MUNDO, e o que
+ * precisa cair no pixel inteiro e a coordenada de DISPOSITIVO — que e a de
+ * mundo depois do `zoom` e do `dpr` da camera. Arredondar antes desfaz a
+ * conta: um destino inteiro em mundo vira fracionario em dispositivo assim
+ * que o zoom e diferente de 1, que e o caso da base (1/0.62) e do chefe
+ * (1/0.7).
+ *
+ * ## POR QUE O RESULTADO PRECISA SER DIVIDIDO DE VOLTA POR `escala`
+ *
+ * Porque o `drawImage` recebe coordenadas de MUNDO, e o canvas multiplica
+ * por `escala` na hora de desenhar. Devolver o valor em dispositivo faria o
+ * canvas multiplicar de novo, e o tile cairia `escala` vezes longe do lugar.
+ * A divisao desfaz a conta e devolve a MESMA posicao de mundo que agora cai
+ * exatamente num pixel de dispositivo.
+ *
+ * ## E POR QUE ISSO FECHA A FRESTA ENTRE VIZINHOS
+ *
+ * Porque todos os tiles passam pelo mesmo arredondamento e nao ha
+ * arredondamento de tamanho. O fim de um tile e o comeco do vizinho sao a
+ * mesma conta, entao as duas bordas caem no mesmo pixel de dispositivo — e
+ * a emenda fica selada em qualquer posicao da camera.
+ *
+ * @param {number} mundo a coordenada de mundo
+ * @param {number} escala `dpr * zoom` — quantos pixels de dispositivo ha
+ *   por pixel de mundo
+ */
+function arredondarEmDispositivo(mundo, escala) {
+  if (escala === 1) return Math.round(mundo);
+
+  return Math.round(mundo * escala) / escala;
 }

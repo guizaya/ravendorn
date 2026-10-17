@@ -162,6 +162,8 @@ export class QuestLog {
 
     if (this.autoEnabled) {
       this.objectiveId ??= this.currentMain?.id;
+    } else {
+      this.objectiveId = null;
     }
 
     return this.autoEnabled;

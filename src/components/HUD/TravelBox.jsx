@@ -152,11 +152,6 @@ export default function TravelBox({
 
         Sobrou so o que o botao nao diz: o preco e onde conseguir
       */}
-      <p className="prt-box__lock" role="status">
-        {temPergaminho
-          ? "Gasta 1 pergaminho."
-          : "O mercador vende."}
-      </p>
 
       <button
         type="button"

@@ -153,11 +153,35 @@ const warrior = {
   ...SKILL_PACKS.warrior,
 };
 
+/**
+ * O LANCER SEM COR.
+ *
+ * ## POR QUE A `accent` SUMIU
+ *
+ * Porque a classe foi descontinuada: ela saiu da seleção de classe e dos
+ * chips do mercado faz tempo, e o que sobrou no catálogo existe só para um save
+ * antigo ainda carregar o id. Uma cor aqui seria uma quarta cor de classe
+ * aparecendo em lugar nenhum, e pior: ela era azul — o mesmo azul que o
+ * Sorcerer passou a usar — então qualquer coisa que lesse o `accent` por
+ * atributo pintaria o Lancer da cor do mago
+ *
+ * ## POR QUE A CLASSE CONTINUA AQUI
+ *
+ * Porque `CHARACTER_CLASSES` e lido pelo motor para abrir save. Apagar a
+ * entrada faria um save de Lancer quebrar na hora de carregar, e um jogador que
+ * jogou dias daquela classe perderia a conta. A classe fica inerte: sem cor,
+ * fora dos chips e fora do filtro
+ *
+ * ## E O QUE ACONTECE QUANDO ALGO LE O `accent` DELE
+ *
+ * Nada. O `ClassFilterChips` filtra o Lancer antes de renderizar, e o
+ * `ListingCard` so recebe classe de item — nenhum dos dois tem como ver esta
+ * entrada. Onde o token cairia vazio, o CSS usa o cinza de reserva
+ */
 const lancer = {
   id: "lancer",
   name: "Lancer",
   icon: "\u{2694}\u{FE0F}",
-  accent: "#52c7ff",
   tagline: "Entrar, controlar e reposicionar",
   description:
     "Bruiser mÃ³vel que combina estocadas longas, investidas e ataques de Ã¡rea para entrar e sair do combate.",
@@ -234,7 +258,7 @@ const sorcerer = {
   id: "sorcerer",
   name: "Sorcerer",
   icon: "\u{1F52E}",
-  accent: "#ad70ff",
+  accent: "#52c7ff",
   tagline: "Dano elemental Ã  distÃ¢ncia",
   description:
     "Mage de alto dano mÃ¡gico, Ã¡reas elementais e controle, especialmente perigosa quando mantÃ©m distÃ¢ncia.",

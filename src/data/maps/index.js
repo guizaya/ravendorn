@@ -2,7 +2,7 @@ import {
   PROP_TYPES,
   propVariantCount,
 } from "../props/index.js";
-import { PORTALS, MAP_2_PORTALS } from "../portais/index.js";
+import { PORTALS, MAP_2_PORTALS, VALE_PORTALS } from "../portais/index.js";
 import { BASE_MAP } from "./base.js";
 import { BOSS_1_ID, BOSS_1_MAP } from "./boss1.js";
 import {
@@ -2302,8 +2302,18 @@ groundTile: "dark",
   decorative: decorativeDoVale,
   solids: solidsDoVale,
 
-  /** sem portal: quem volta para o mapa anterior e o botao da HUD */
-  portals: [],
+  /**
+   * A VOLTA PARA O MAPA 1, E A PASSAGEM NA PAREDE DIREITA.
+   *
+   * A lista estava vazia com o comentario "sem portal: quem volta e o botao
+   * da HUD". Isso valia para um mapa de teste sem saida, e parou de valer
+   * quando a passagem do `portal_vale` passou a apontar para ca
+   *
+   * O par mora em `VALE_PORTALS` e nao aqui dentro, como os outros dois: o
+   * portal sabe das coordenadas de chegada dos OUTROS mapas, e um portal
+   * escrito dentro do mapa so veria a si mesmo
+   */
+  portals: VALE_PORTALS,
 
   /**
    * A LINHA CINZA DA BORDA NAO DESENTA NESTE MAPA.

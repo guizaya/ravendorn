@@ -1,4 +1,35 @@
-@import url("https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=Montserrat:wght@600;700;800&display=swap");
+/**
+ * A FONTE INTER E MOUNTADA, E A IMPORTACAO FOI TIRADA DAQUI.
+ *
+ * ## POR QUE O `@import` NO COMECO DO CSS ERA O PIOR LUGAR POSSIVEL
+ *
+ * Um `@import` no topo de uma folha de estilo obriga o navegador a uma
+ * cascata inteira antes de pintar qualquer coisa:
+ *
+ * 1. o navegador baixa este arquivo de 270 KB
+ * 2. ele le ate a primeira linha e descobre que precisa de OUTRO arquivo
+ * 3. ele resolve `fonts.googleapis.com` e abre conexao
+ * 4. aquele host responde com outro CSS, que aponta para `fonts.gstatic.com`
+ * 5. ele abre a segunda conexao e baixa os arquivos de fonte
+ *
+ * Sao tres pedidos e duas conexoes novas ANTES do primeiro pixel. E o pior:
+ * nada disso pode comecar antes do CSS terminar de baixar, entao o tempo de
+ * carga da fonte se soma inteiro ao da folha de estilo
+ *
+ * ## O QUE TROQUEI
+ *
+ * A fonte continua a mesma, com o mesmo `display=swap`. O que mudou e ONDE ela
+ * e pedida: agora e o `index.html` e o `jogo.html` que fazem, com
+ * `preconnect` para as conexoes ja ficarem prontas e `media="print"` com
+ * `onload`, que e o padrao de carregamento nao bloqueante
+ *
+ * ## E POR QUE NAO SAI UM POUCO DIFERENTE DO QUE ESTAVA
+ *
+ * Porque o `display=swap` ja estava ligado. Ele diz ao navegador para desenhar
+ * o texto com a fonte de sistema enquanto a Inter nao chega, e trocar de
+ * lugar nao muda o desenho: a troca continua acontecendo, so deixa de esperar
+ * o CSS inteiro para comecar
+ */
 :root {
   color-scheme: dark;
   font-family: Inter, system-ui, sans-serif;
@@ -16,8 +47,57 @@
     255,
     255,
     0.11);
-    --muted: #9ba7b7;
-    --gold: #e5bb68;
+--muted: #9ba7b7;
+  --gold: #e5bb68;
+
+  /**
+   * O `--icon-w` E O LADO DA CAIXA DO ICONE DENTRO DO BOTAO DA PRATELEIRA.
+   *
+   * ## POR QUE NO `:root`, E NAO EM `.hud-coluna`
+   *
+   * Porque a prateleira e dividida em DOIS containers: a coluna da esquerda,
+   * com os sete botoes posicionados por `top: calc(...)`, e a `.hud-coluna-dir`,
+   * com os cinco da direita. Um token so na coluna da esquerda nao chega nos
+   * cinco da direita, e `width: var(--icon-w)` sem definicao cai para `auto` —
+   * que e a caixa do icone perdendo a medida, e o desenho deixando de ficar
+   * centralizado
+   *
+   * ## POR QUE 25, E NAO O 22 DE ANTES
+   *
+   * Porque o botao foi de 32 para 36. O icone guarda a MESMA proporcao do
+   * circulo: 22 de 32 e 0.69, e 25 de 36 e o mesmo 0.69. Se o icone
+   * ficasse em 22 dentro de um circulo de 36, sobrariam 7px de borda de cada
+   * lado contra os 5px de antes, e os doze icones passariam a parecer
+   * pequenos dentro do botao
+   *
+   * O respiro entre a arte e a borda e o que faz o circulo parecer circulo em
+   * vez de cheio, entao ele precisa andar junto com o `--btn-h`
+   */
+  --icon-w: 25px;
+
+  /**
+   * O `--btn-h` E O LADO DO BOTAO CIRCULAR, E O `--btn-gap` E O VAO ENTRE ELEIS.
+   *
+   * ## POR QUE 36 E 3, E NAO 32 E 8
+   *
+   * Porque a fileira de cinco botoes tem que continuar medindo 192px, que e o
+   * que a `.hud-coluna-dir` reserva. A conta e `5 * --btn-h + 4 * --btn-gap`:
+   *
+   *   antes:  5 x 32 + 4 x 8 = 160 + 32 = 192px
+   *   agora:  5 x 36 + 4 x 3 = 180 + 12 = 192px
+   *
+   * O botao cresce 4px e o vao perde 5px. E o que o jogador pediu: circulo
+   * maior, botoes mais juntos, e a coluna do tamanho dela
+   *
+   * ## POR QUE NO `:root`
+   *
+   * Pelo mesmo motivo do `--icon-w`: o grupo que declara `--btn-h` na coluna
+   * da esquerda lista `.hud-btn--teste`, que nao existe mais na prateleira, e
+   * nao lista `.hud-btn--arvore`, que existe. Com o token so ali, o botao da
+   * arvore ficaria sem medida. No `:root` os doze resolvem o mesmo valor
+   */
+  --btn-h: 36px;
+  --btn-gap: 3px;
 }
 * {
   box-sizing: border-box;
@@ -825,7 +905,7 @@ border-radius:50%;
 background:#788698;
 content:""}
 .bullet-list--positive li:before {
-background:#6cc889}
+background:#c2a772}
 .bullet-list--negative li:before {
 background:#df6969}
 
@@ -840,7 +920,7 @@ background:#df6969}
   content: "";
 }
 .bullet-list--positive li::before {
-  background: #6cc889;
+  background: #c2a772;
 }
 .bullet-list--negative li::before {
   background: #df6969;
@@ -2093,11 +2173,20 @@ color:var(--t-gold-bright)}
    Porque sao artes de pixel. Sem isso o navegador interpola a imagem e
    * desfoca a moeda na tela inteira, que e o mesmo defeito que o
    * AGENTS.md do front ja proibe nas contas ampliadas
+   *
+   * ## POR QUE 1.9em, E 1.05
+   *
+   * Porque 1.05 x 1.8. O `em` e o que mantem a moeda presa ao texto ao
+   * lado: ela cresce com a fonte do container, e nao com um numero fixo —
+   * e e o que faz a mesma regra servir para ouro, steel e diamante nos
+   * quinze lugares onde aparecem
+   *
+   * O `front_rpg` tem CSS proprio e nao e afetado
    */
 .moeda {
   display: block;
-  width: 1.05em;
-  height: 1.05em;
+  width: 1.9em;
+  height: 1.9em;
   flex: none;
   object-fit: contain;
   image-rendering: pixelated;
@@ -2105,8 +2194,26 @@ color:var(--t-gold-bright)}
 
 /* o glifo era do mesmo tamanho da fonte menor do container */
 .dth__btn-cost .moeda {
-  width: 0.95em;
-  height: 0.95em;
+  width: 1.7em;
+  height: 1.7em;
+}
+
+/**
+ * O STEEL, UM POUCO MENOR QUE AS OUTRAS DUAS.
+ *
+ * ## POR QUE SO ELE
+ *
+ * Porque a arte do steel tem mais respiro dentro do quadro que a do ouro e
+ * a do diamante. No mesmo `em`, o desenho dele fica visualmente maior — o
+ * mesmo efeito que a arte de um personagem maior tem numa caixa do mesmo
+ * tamanho
+ *
+ * E o `em` continua sendo o da fonte do container, entao a diferenca
+ * acompanha o texto ao lado em todos os quinze lugares
+ */
+.moeda[data-moeda="steel"] {
+  width: 1.6em;
+  height: 1.6em;
 }
 
 .dth__btn-cost {
@@ -2182,8 +2289,15 @@ color:var(--t-text-bright)}
  */
 .hud-btn {
   display: grid;
-  width: 32px;
-  height: 32px;
+  /*
+   * O LADO VEM DO `--btn-h`, E NAO DE UM `32px` AQUI.
+   *
+   * Porque o circulo e a fileira que andam juntos: se o vao mudar sem o
+   * botao, ou o botao sem o vao, a conta de 192px da `.hud-coluna-dir` nao
+   * fecha mais e a fileira transborda ou fica com sobra
+   */
+  width: var(--btn-h);
+  height: var(--btn-h);
   place-items: center;
   border: 1px solid rgba(255,
     255,
@@ -2297,11 +2411,28 @@ color:var(--t-text-bright)}
  * respiro que o `--btn-gap` usa entre um botao e outro. O desenho fica
  * centrado pela `place-items` acima, entao aqui so importa o tamanho
  */
+/**
+ * A CAIXA DO ICONE.
+ *
+ * ## POR QUE O `flex: 0 0 var(--icon-w)`
+ *
+ * Porque a coluna da prateleira e um `flex` vertical, e o padrao do
+ * `flex-shrink: 1` deixaria o icone espremido abaixo do `--icon-w` quando a
+ * coluna aperta. O `0 0` diz que a caixa nem encolhe nem cresce: ela mede o
+ * que o token manda, sempre
+ *
+ * ## POR QUE O COMENTARIO FICA AQUI E NAO DENTRO DA REGRA
+ *
+ * Porque o `conferir-margem-icones.mjs` le o corpo da regra cortando do
+ * seletor ate o primeiro `}`. Um comentario com `}` dentro da regra faz ele
+ * ler o comentario como se fosse o valor da propriedade
+ */
 .hud-icon {
   display: grid;
-  width: 22px;
-  height: 22px;
+  width: var(--icon-w);
+  height: var(--icon-w);
   place-items: center;
+  flex: 0 0 var(--icon-w);
   pointer-events: none;
 }
 
@@ -2314,39 +2445,25 @@ color:var(--t-text-bright)}
 }
 
 /**
- * O ICONE DO ENCANTAR, MAIS BAIXO QUE OS OUTROS.
+ * ## POR QUE NAO HAI MAIS NENHUMA REGUA POR ICONE
  *
- * ## POR QUE SO ESTE
+ * Havia uma para o encantar, em 20x19, porque a arte antiga dele era um
+ * retrato de 232x284 e enchia a altura dos 22px enquanto as outras de
+ * paisagem so enchiam a largura. A arte de hoje e 159x161 — quase quadrada —
+ * e o recorte removeu a margem morta, entao ela ja ocupa a caixa como as
+ * outras onze
  *
- * Porque a arte dele e a mais ALTA do lote: `encantar.png` e 232x284, um
- * retrato, enquanto o `stats` (o escudo) e 273x310 e o `loja` e 266x264. Com
- * `object-fit: contain` numa caixa quadrada, cada arte se limita pela maior
- * dimensao â€” e a do encantar e a unica que preenche a altura INTEIRA dos
- * 22px, enquanto as outras de paisagem enchem a largura e sobram 3 a 4px
- * acima e abaixo
+ * E o `conferir-margem-icones.mjs` proibe expressamente `translate` e
+ * `scale` por icone: ajuste que empurra o desenho sem devolver o espaco da
+ * margem e o que faz a prateleira parecer torta em vez de alinhada
  *
- * Na prateleira, lado a lado, o cristal ficava visualmente mais alto que os
- * vizinhos de uma coluna em que todo o resto tem a mesma altura de borda
+ * ## E ONDE A CENTRALIZACAO ACONTECE AGORA
  *
- * ## POR QUE 19 E NAO 16
- *
- * Porque 19 deixa 1px de folga contra os 22px dos vizinhos â€” o cristal ainda
- * e o mais alto da coluna, mas so um pouco, como a proporcao da arte pede. A
- * 16 ele passaria a ser o mais BAIXO, e o desenho de cristal (estreito) ficaria
- * com area pequena demais dentro do circulo
- *
- * ## E POR QUE A LARGURA TAMBEM CAI
- *
- * Porque o `contain` se limita pela menor dimensao disponivel: com a caixa em
- * 20x19, a arte do encantar e limitada pela ALTURA e desenhada em 15.5px de
- * largura. Se so a altura mudasse, a largura continuaria 22 e a arte
- * encolheria sozinha â€” que e o mesmo resultado, com um numero a mais
- * confusingo
+ * No `place-items: center` do `.hud-btn` e do `.hud-icon`, mais o
+ * `object-fit: contain` do `img`, que centraliza pelo `object-position` de
+ * 50% 50%. Como as doze artes foram recortadas no limite, o centro do
+ * arquivo e o centro do desenho, e sobra nada para puxar
  */
-.hud-icon--encantar {
-  width: 20px;
-  height: 19px;
-}
 
 /*
    O glifo de reserva, quando a arte nao veio.
@@ -2354,11 +2471,12 @@ color:var(--t-text-bright)}
    O `line-height: 0` e o mesmo do `.item-icon`: sem ele, a linha de
    texto do glifo ganha o espacamento de descida da fonte e o icone
    fica alguns pixels abaixo do centro do circulo. O `font-size`
-   volta ao do botao, porque o `24px` acima e o tamanho da arte
+   volta ao do botao, porque o `22px` acima e o tamanho da arte
  */
-.hud-icon--glyph {
+.hud-btn .hud-icon--glyph {
   width: auto;
   height: auto;
+  flex: 0 0 auto;
   font-size: 15px;
   line-height: 0;
 }
@@ -2441,8 +2559,8 @@ color:var(--t-text-bright)}
       mudar juntos: e daqui que sai o `left` do botao da mochila
     */
     --vitals-w: 192px;
-  --btn-h: 32px;
-  --btn-gap: 8px;
+  --btn-h: 36px;
+  --btn-gap: 3px;
   position: absolute;
   left: calc(12px + var(--vitals-w) + 8px);
   z-index: 2;
@@ -3086,8 +3204,8 @@ border-radius:var(--t-radius-sm)}
  */
 .hud-coluna-dir {
   --menu-n: 5;
-  --btn-h: 32px;
-  --btn-gap: 8px;
+  --btn-h: 36px;
+  --btn-gap: 3px;
   position: absolute;
   top: 12px;
   right: 12px;
@@ -3133,7 +3251,15 @@ border-radius:var(--t-radius-sm)}
   display: flex;
   align-items: stretch;
   flex-direction: column;
-  gap: 8px;
+
+  /**
+   * O VAO ENTRE AS CAIXAS E O `--btn-gap`, E NAO UM `8px` AQUI.
+   *
+   * Porque este `gap` e o do eixo VERTICAL da coluna — entre as caixas de
+   * baixo, nao entre os botoes. Os botoes estao no `.hud-menu`, que tem o
+   * seu proprio `gap`, tambem pelo token
+   */
+  gap: var(--btn-gap);
   pointer-events: none;
 }
 /* ---- recuperado do build (1 regras) ---- */
@@ -3589,8 +3715,22 @@ background:var(--t-sunken)}
    ========================================================================== */
 
 .gld-panel {
-  width: min(560px, calc(100vw - 24px));
-  max-height: min(600px, calc(100vh - 28px));
+  /*
+   * OS 680px, E A CONTA QUE CHEGA NELES.
+   *
+   * O painel de guilda e largo porque o cofre ocupa a largura inteira dele: os
+   * itens ficavam numa faixa estreita no meio de uma caixa vazia, e o painel
+   * curto era o que permitia a faixa ser curta
+   *
+   * A grade usa `minmax(58px, 1fr)`, entao o numero de colunas NAO e fixo —
+   * ele sai da largura. Com 660px util saem dez colunas de 62px, e sobram 0px:
+   * e a `1fr` que faz a ultima coluna esticar ate a borda
+   *
+   * E o `max-height` subiu junto (600 para 720), porque a grade tem celulas
+   * maiores: manter 600 esmagaria o rodape da guilda
+   */
+  width: min(680px, calc(100vw - 24px));
+  max-height: min(720px, calc(100vh - 28px));
 }
 /* ---- recuperado do build (1 regras) ---- */
 .gld-panel__tag {
@@ -5438,7 +5578,7 @@ color:var(--t-gold-bright)}
 }
 /* ---- recuperado do build (6 regras) ---- */
 .gld-no.is-ready .gld-no__barra i {
-background:linear-gradient(180deg,var(--t-positive) 0%,#3f9a6c 100%)}
+background:linear-gradient(180deg,var(--t-positive) 0%,#947a45 100%)}
 .gld-no.is-ready .gld-no__pct {
 color:var(--t-positive)}
 .gld-no.is-max {
@@ -5797,65 +5937,92 @@ outline-offset:1px}
 /**
  * A GRADE dos itens do cofre.
  *
- * ## POR QUE ELA PRECISA DO SEU `--slot` E DA SUA CONTAGEM
+ * ## POR QUE O SELETOR TEM `.gld-cofre` NA FRENTE
  *
- * Porque a `inv-grid` do jogo e `repeat(5, var(--slot))` com `--slot` de
- * 68px: cinco colunas fixas de 68px, uns 360px. Com os dois paineis lado a
- * lado cada um tinha 270px, o grid de 360px nao cabia em 270 e os itens
- * apareciam enormes e cortados Ã¢â‚¬â€ nao era o icone grande, era o grid
- * estourando o painel
+ * Porque sem ele esta regra era PERDIDA, e nenhuma das anteriores valia.
+ * `.gld-cofre__grade`, `.inv-panel` e `.inv-grid` tem todas especificidade
+ * `(0,1,0)` — uma classe — e quem vence e a que esta MAIS ABAIXO no arquivo.
+ * Como `.inv-panel` (L9933) e `.inv-grid` (L11829) vem depois desta (L5918),
+ * o resultado era:
  *
- * ## POR QUE 46px E NAO O `--slot` DO INVENTARIO
+ *   --slot                  = 68px, do `.inv-panel`, e nao o nosso
+ *   grid-template-columns   = repeat(5, ...), do `.inv-grid`, e nao o nosso
  *
- * Porque o cofre guarda quarenta slots e agora tem a largura inteira do
- * painel: a 68px cabem sete por linha e o jogador teria de rolar oito
- * linhas para achar um item. Com 46px sao onze por linha, e o nome do item
- * Ã¢â‚¬â€ que fica DEBAIXO de cada celula Ã¢â‚¬â€ continua legivel, que era o limite
- * real: abaixo de 44px o nome vira duas letras
+ * Cinco colunas de 68px sao 361px dentro de uma grade de 660px — a lista
+ * ocupava "metade da div", que era exatamente o sintoma. E trocar o `--slot`
+ * aqui nao mudava nada, porque o valor nunca era lido
  *
- * ## E POR QUE `auto-fill` E NAO UM NUMERO FIXO
+ * Com o `.gld-cofre` na frente a especificidade vira `(0,2,0)` e a regra
+ * vence sem depender de posicao no arquivo
  *
- * Porque o painel encolhe em tela estreita. Com `repeat(9, 46px)` fixo, os
- * 414px nao caberiam nos 320px de um celular e o grid estouraria de novo Ã¢â‚¬â€
- * o mesmo defeito, so que em vez da janela larga. `auto-fill` encolhe as
- * colunas em vez de estourar
+ * ## POR QUE 58px
+ *
+ * Porque e o `--slot` MENOR que o jogador pediu. E o menor funciona melhor
+ * aqui: com o vao apenas, `auto-fill` encolhe as colunas, e uma coluna de 58px
+ * com nome de duas linhas ainda e mais facil de ler do que 69px
+ *
+ * ## E POR QUE `minmax(..., 1fr)`, E NAO UM `repeat(N, ...)`
+ *
+ * Porque `repeat(auto-fill, 58px)` cria trilhas de 58px CHEIAS e o resto da
+ * largura sobra vazia no fim da linha — era o outro metade do defeito. Com
+ * `minmax(58px, 1fr)` as trilhas nascem com o minimo e CRESCEM para fechar a
+ * largura: a linha chega na borda, e a coluna so encolhe quando a janela
+ * estreita demais para o minimo
  */
-.gld-cofre__grade {
-  --slot: 46px;
-  grid-template-columns: repeat(auto-fill, var(--slot));
-  max-height: 232px;
+.gld-cofre .gld-cofre__grade {
+  --slot: 58px;
+  grid-template-columns: repeat(auto-fill, minmax(var(--slot), 1fr));
+
+  /*
+   * AS TRES LINHAS, E O QUE ELAS MEDEM.
+   *
+   * A celula do cofre e o slot (quadrado) mais o nome de duas linhas:
+   *
+   *   slot   ~62px   (a coluna estica um pouco acima do minimo de 58)
+   *   vao     2px    (o `gap: 2px` da celula)
+   *   nome   ~20px   (duas linhas de 8px)
+   *   --------------
+   *   linha ~84px
+   *   3 linhas      = 252px
+   *
+   * E por que o numero e do vao e nao da coluna: as trilhas sao `1fr`, entao
+   * a largura — e a altura do slot, que e `aspect-ratio: 1` — sao decididas
+   * na hora. Nenhuma conta em `--slot` daria tres linhas exatas
+   *
+   * O resto dos slots rola: `overflow-y: auto` logo abaixo. E sao 100 na aba
+   * de retirar e a capacidade da mochila na de depositar, entao sobram linhas
+   * para rolar nas duas
+   */
+  max-height: 252px;
   overflow-y: auto;
   scrollbar-width: thin;
 }
 
 /**
- * A CELA DO COFRE, com o nome em duas linhas.
+ * A CELA DO COFRE, e A BOX DO NOME DELE DESLIGADA.
  *
- * O nome do inventario ja corta em uma linha com reticencias, e numa grade
- * de 46px "Pergaminho de Teleporte" seria "Pergaminh...". Aqui ele quebra
- * em duas: o jogador precisa ler o nome inteiro para saber o que esta
- * guardando, e sao duas linhas de 8px, que ainda cabem em 46px
+ * ## O QUE O COFRE TEM NO HOVER
+ *
+ * Dois baloes: um so com o NOME da peca (o `.inv-cell__name`) e um com os
+ * DETALHES (o `ItemTooltip` do `InvSlotView`). O jogador pediu so o segundo
+ *
+ * ## POR QUE A REGUA VELHA DO NOME SUMIU INTEIRA
+ *
+ * Porque ela reactivava o balao: tinha `display: -webkit-box`, e como as
+ * DUAS regras tem a mesma especificidade `(0,2,0)`, a que estivesse mais
+ * abaixo no arquivo ganharia. O `display: none` de uma e o `-webkit-box` da
+ * outra sao o mesmo combate, e so uma delas pode valer
+ *
+ * E nao e perda deixar a regra velha fora: todas as propriedades dela —
+ * `font-size`, `line-height`, `white-space`, `overflow` — existem para dar
+ * forma a um texto que agora nao e desenhado
  */
 .gld-cofre__grade .inv-cell {
   gap: 2px;
 }
 
 .gld-cofre__grade .inv-cell__name {
-  overflow: visible;
-  font-size: 8px;
-  line-height: 1.15;
-  text-overflow: clip;
-  white-space: normal;
-
-  /**
-   * O `-webkit-line-clamp` e o que segura a terceira linha.
-   *
-   * Sem ele, um nome de tres palavras numa celula de 46px esticaria a linha
-   * de base da celula vizinha e a grade inteira ficaria desalinhada
-   */
-  display: -webkit-box;
-  -webkit-box-orient: vertical;
-  -webkit-line-clamp: 2;
+  display: none;
 }
 
 .qst-tracker {
@@ -6504,12 +6671,9 @@ opacity:1}
   align-items: center;
   gap: 4px;
   padding: 1px 6px;
-  border: 1px solid rgba(131,
-    239,
-    155,
-    0.35);
+  border: 1px solid rgba(222, 168, 61, 0.35);
   border-radius: 999px;
-  color: #83ef9b;
+  color: #e7c88b;
   background: rgba(12,
     15,
     20,
@@ -6530,6 +6694,21 @@ opacity:1}
    * aqui nao rouba nada
    */
   pointer-events: auto;
+
+  /**
+   * O MESMO RITMO DE PULSO DO RESTO DO AUTO.
+   *
+   * `qst-auto-pulse` e o keyframe que o auto da missao e o do bestiario ja
+   * usam, a 1.6s. Reusar ele em vez de criar um proprio mantem o "algo esta
+   * acontecendo sozinho" batendo junto em todas as caixas da tela: quando
+   * duas pulsam em tempos diferentes, o jogador le como dois eventos, e nao
+   * como um estado
+   *
+   * O `box-shadow` e o que faz o anel crescer e sumir. A borda sozinha e um
+   * pixel fixo e some no fundo escuro do rodape: ela precisa do brilho para
+   * aparecer na primeira vez que o auto bebe a pocao
+   */
+  animation: qst-auto-pulse 1.6s ease-in-out infinite;
 }
 
 .rodape__cura-glyph {
@@ -6542,9 +6721,9 @@ position:absolute;
 bottom:calc(100% + 7px);
 left:50%;
 padding:4px 8px;
-border:1px solid rgba(131,239,155,.45);
+border:1px solid rgba(222, 168, 61, .45);
 border-radius:3px;
-color:#b6f5c6;
+color:#f1dfba;
 background:#0c0f14f0;
 box-shadow:0 3px 10px #0009;
 content:attr(data-nome);
@@ -6565,12 +6744,9 @@ opacity:1}
   bottom: calc(100% + 7px);
   left: 50%;
   padding: 4px 8px;
-  border: 1px solid rgba(131,
-    239,
-    155,
-    0.45);
+  border: 1px solid rgba(222, 168, 61, 0.45);
   border-radius: 3px;
-  color: #b6f5c6;
+  color: #f1dfba;
   background: rgba(12,
     15,
     20,
@@ -7002,27 +7178,27 @@ color:var(--t-text-faint)}
     text-align: left;
 }
 .qst-tracker__row.is-auto {
-  border-color: rgba(126,
-    240,
-    176,
+  border-color: rgba(229,
+    187,
+    104,
     0.6);
-    background: rgba(20,
-    48,
-    38,
+  background: rgba(40,
+    33,
+    16,
     0.6);
-    animation: qst-auto-pulse 1.6s ease-in-out infinite;
+  animation: qst-auto-pulse 1.6s ease-in-out infinite;
 }
 @keyframes qst-auto-pulse {
 0%,  100% {
-  box-shadow: 0 0 0 0 rgba(126,
-    240,
-    176,
+  box-shadow: 0 0 0 0 rgba(229,
+    187,
+    104,
     0.45);
 }
 50% {
-  box-shadow: 0 0 0 4px rgba(126,
-    240,
-    176,
+  box-shadow: 0 0 0 4px rgba(229,
+    187,
+    104,
     0);
 }
 }
@@ -7032,8 +7208,8 @@ color:var(--t-text-faint)}
   right: 5px;
   padding: 1px 4px;
   border-radius: 3px;
-  color: #06121a;
-  background: #7ef0b0;
+  color: #1a1208;
+  background: #e5bb68;
   font-size: 6px;
   font-weight: 900;
   letter-spacing: 0.06em;
@@ -7090,25 +7266,25 @@ border-radius:var(--t-radius-sm)}
     0.5);
 }
 .qst-row.is-auto {
-  border-color: rgba(126,
-    240,
-    176,
+  border-color: rgba(229,
+    187,
+    104,
     0.45);
-    border-left-color: #7ef0b0;
-    background: rgba(18,
-    40,
-    32,
-    0.6);
+    border-left-color: #e5bb68;
+    background: rgba(40,
+      33,
+      16,
+      0.6);
 }
 .qst-row__accept.is-on {
-  border-color: rgba(126,
-    240,
-    176,
+  border-color: rgba(229,
+    187,
+    104,
     0.6);
-    color: #7ef0b0;
-    background: rgba(20,
-    48,
-    38,
+  color: #e5bb68;
+  background: rgba(40,
+    33,
+    16,
     0.7);
 }
 .qst-auto {
@@ -7130,14 +7306,23 @@ border-radius:var(--t-radius-sm)}
     letter-spacing: 0.05em;
 }
 .qst-auto.is-on {
-  border-color: rgba(126,
-    240,
-    176,
+  /*
+   * O DOURADO, E O MESMO DO BOTAO DE DESLIGADO.
+   *
+   * O estado ligado usava o verde `#e5bb68`, que e a cor de "isto aqui ja
+   * esta feito" — a mesma da `.qst-action--done`. O auto ligado nao e uma
+   * missao concluida: e o piloto trabalhando. E o dourado `#e5bb68` e o que o
+   * proprio `.qst-auto` ja usava desligado, e o que o resto do painel chama
+   * quando algo esta em acao
+   */
+  border-color: rgba(229,
+    187,
+    104,
     0.6);
-    color: #7ef0b0;
-    background: rgba(20,
-    48,
-    38,
+  color: #e5bb68;
+  background: rgba(40,
+    33,
+    16,
     0.75);
 }
 .qst-autoinfo {
@@ -7146,21 +7331,21 @@ border-radius:var(--t-radius-sm)}
   gap: 1px;
   margin-bottom: 14px;
   padding: 10px 12px;
-  border: 1px solid rgba(126,
-    240,
-    176,
+  border: 1px solid rgba(229,
+    187,
+    104,
     0.35);
     border-radius: 6px;
-    background: rgba(18,
-    40,
-    32,
-    0.55);
+    background: rgba(40,
+      33,
+      16,
+      0.55);
 }
 .qst-autoinfo__tag {
   padding: 3px 7px;
   border-radius: 4px;
-  color: #06121a;
-  background: #7ef0b0;
+  color: #1a1208;
+  background: #e5bb68;
   font-size: 8px;
   font-weight: 900;
   letter-spacing: 0.08em;
@@ -7451,9 +7636,7 @@ color:var(--t-gold-bright)}
     0.6);
 }
 .qst-row.is-done {
-  border-left-color: rgba(126,
-    240,
-    176,
+  border-left-color: rgba(229$1187$2104,
     0.5);
     opacity: 0.62;
 }
@@ -7557,7 +7740,7 @@ color:var(--t-text)}
 .qst-row__done {
   display: block;
   margin-top: 6px;
-  color: #7ef0b0;
+  color: #e5bb68;
   font-size: 9px;
   font-weight: 700;
 }
@@ -7802,9 +7985,9 @@ color:var(--t-text)}
   background: linear-gradient(180deg, #ffeec4 0%, #e5bb68 100%);
 }
 .qst-action--auto.is-on {
-  border-color: rgba(126, 240, 176, 0.6);
-  color: #7ef0b0;
-  background: rgba(20, 48, 38, 0.75);
+  border-color: rgba(229, 187, 104, 0.6);
+  color: #e5bb68;
+  background: rgba(40, 33, 16, 0.75);
 }
 .qst-action--abandon {
   border-color: rgba(235, 99, 99, 0.35);
@@ -7822,10 +8005,10 @@ color:var(--t-text)}
  */
 .qst-action--done {
   padding: 5px 9px;
-  border: 1px solid rgba(126, 240, 176, 0.35);
+  border: 1px solid rgba(229$1187$2104, 0.35);
   border-radius: 4px;
-  color: #7ef0b0;
-  background: rgba(18, 40, 32, 0.55);
+  color: #e5bb68;
+  background: rgba(40$133$116, 0.55);
   font-size: 8px;
   font-weight: 900;
   letter-spacing: 0.06em;
@@ -7889,13 +8072,13 @@ color:var(--t-text)}
  * painel do personagem leria como outra aba de acao
  */
 .hud-btn--status {
-  border-color: rgba(140, 200, 170, 0.34);
-  color: #9fd8bd;
+  border-color: rgba(220, 164, 53, 0.34);
+  color: #d4c4a3;
 }
 
 .hud-btn--status:hover {
-  border-color: rgba(160, 225, 190, 0.7);
-  color: #c6ecd9;
+  border-color: rgba(222, 169, 63, 0.7);
+  color: #e9dec9;
 }
 /* ---- recuperado do build (2 regras) ---- */
 .hud-btn--status.is-active {
@@ -7951,18 +8134,70 @@ background:linear-gradient(180deg,var(--t-active) 0%,var(--t-active-deep) 100%)}
  * aqui tem algo para voce"
  */
 .hud-btn--collection {
-  border-color: rgba(120, 190, 150, 0.3);
-  color: #8fd6b0;
+  border-color: rgba(220, 163, 50, 0.3);
+  color: #d1bd94;
 }
 
 .hud-btn--collection:hover {
-  border-color: rgba(140, 220, 170, 0.7);
-  color: #b6ecd0;
+  border-color: rgba(221, 167, 58, 0.7);
+  color: #e8d9ba;
 }
 
 .hud-btn--collection.is-active {
   border-color: var(--gold);
   color: var(--gold);
+}
+
+/**
+ * A ARVORE DE HABILIDADE.
+ *
+ * O verde e o da colecao de proposito: os dois botoes sao progresso
+ * acumulado, e a cor e o que diz "aqui tem coisa guardada" contra o
+ * dourado do `is-active`, que e "voce esta dentro".
+ *
+ * E um passo a mais na cor em relacao a colecao, porque a arvore muda o
+ * personagem de verdade e a colecao so entrega material
+ */
+.hud-btn--arvore {
+  border-color: rgba(220, 164, 51, 0.36);
+  color: #dac7a0;
+}
+
+.hud-btn--arvore:hover {
+  border-color: rgba(221, 167, 59, 0.75);
+  color: #efe2c7;
+}
+
+.hud-btn--arvore.is-active {
+  border-color: var(--gold);
+  color: var(--gold);
+}
+
+/**
+ * O CHEFE: BORDA CARMESIM, E A MESMA CONTA DE TAMANHO DOS OUTROS.
+ *
+ * ## POR QUE CARMESIM E NAO DOURADO
+ *
+ * Porque o dourado da prateleira e "esta ligado" — o `is-active` de todo
+ * botao. Um contorno dourado aqui seria lido como painel aberto. O carmesim
+ * aponta a luta, e e a unica cor da barra que nao e dourado nem neutro
+ *
+ * ## E POR QUE NAO HÁ NADA DE TAMANHO AQUI
+ *
+ * Porque a medida ja vem do token. O `boss.png` tem 239x253 — retrato — e e o
+ * unico icone que chega perto do topo e da base do quadro, mas o `.hud-icon` e
+ * um quadrado de `--icon-w` com `object-fit: contain` e `place-items: center`:
+ * a arte entra inteira, reduzida pela altura, e sobra largura dos dois lados
+ * por igual. Escrever um `width` aqui seria um segundo lugar com o mesmo numero
+ */
+.hud-btn--boss {
+  border-color: rgba(196, 64, 64, 0.42);
+  color: #e0a3a3;
+}
+
+.hud-btn--boss:hover {
+  border-color: rgba(214, 82, 82, 0.8);
+  color: #f2cccc;
 }
 
 .hud-btn__badge {
@@ -9428,7 +9663,7 @@ onde uma delas e uma instrucao
 
 .perm-bonus__linha-valor {
   flex: none;
-  color: #7ef0b0;
+  color: #e5bb68;
   font-size: 11px;
   font-variant-numeric: tabular-nums;
   font-weight: 800;
@@ -9599,7 +9834,7 @@ color:var(--need, var(--t-text-dim))}
 }
 .bst-hunt__reward {
   overflow: hidden;
-  color: #7ef0b0;
+  color: #e5bb68;
   font-weight: 700;
   text-align: right;
   text-overflow: ellipsis;
@@ -9628,17 +9863,11 @@ color:var(--need, var(--t-text-dim))}
 color:var(--t-text-dim)}
 
 .bst-entry.is-hunting {
-  border-color: rgba(126,
-    240,
-    176,
+  border-color: rgba(229$1187$2104,
     0.6);
-    box-shadow: 0 0 0 1px rgba(126,
-    240,
-    176,
+    box-shadow: 0 0 0 1px rgba(229$1187$2104,
     0.25),
-    0 0 18px rgba(126,
-    240,
-    176,
+    0 0 18px rgba(229$1187$2104,
     0.18);
 }
 .bst-entry__go {
@@ -9685,12 +9914,10 @@ color:var(--t-text-dim)}
     cursor: not-allowed;
 }
 .bst-entry.is-hunting .bst-entry__go {
-  border-color: rgba(126,
-    240,
-    176,
+  border-color: rgba(229$1187$2104,
     0.7);
-    color: #06121a;
-    background: #7ef0b0;
+    color: #1a1208;
+    background: #e5bb68;
 }
 /* =========================================================
    Auto do bestiario - box clicavel abaixo das misoes
@@ -9702,16 +9929,12 @@ color:var(--t-text-dim)}
   align-items: center;
   gap: 8px;
   padding: 8px 10px;
-  border: 1px solid rgba(126,
-    240,
-    176,
+  border: 1px solid rgba(229$1187$2104,
     0.55);
     border-radius: 10px;
     color: #d6dde5;
     background: linear-gradient(180deg,
-    rgba(14,
-      30,
-      24,
+    rgba(152, 123, 65,
       0.9),
     rgba(8,
       16,
@@ -9727,9 +9950,7 @@ color:var(--t-text-dim)}
     animation: bst-auto-pulse 1.6s ease-in-out infinite;
 }
 .bst-auto:hover {
-  border-color: rgba(126,
-    240,
-    176,
+  border-color: rgba(229$1187$2104,
     0.9);
 }
 @keyframes bst-auto-pulse {
@@ -9738,9 +9959,7 @@ color:var(--t-text-dim)}
     0,
     0,
     0.4),
-      0 0 0 0 rgba(126,
-    240,
-    176,
+      0 0 0 0 rgba(229$1187$2104,
     0.45);
 }
 50% {
@@ -9748,9 +9967,7 @@ color:var(--t-text-dim)}
     0,
     0,
     0.4),
-      0 0 0 4px rgba(126,
-    240,
-    176,
+      0 0 0 4px rgba(229$1187$2104,
     0);
 }
 }
@@ -9769,15 +9986,15 @@ color:var(--t-text-dim)}
   justify-self: start;
   padding: 0 4px;
   border-radius: 3px;
-  color: #06121a;
-  background: #7ef0b0;
+  color: #1a1208;
+  background: #e5bb68;
   font-size: 7px;
   font-weight: 900;
   letter-spacing: 0.08em;
 }
 .bst-auto__text strong {
   overflow: hidden;
-  color: #eaf3ee;
+  color: #f2f0eb;
   font-size: 11px;
   font-weight: 700;
   text-overflow: ellipsis;
@@ -9793,12 +10010,10 @@ color:var(--t-text-dim)}
 .bst-auto__stop {
   flex: none;
   padding: 3px 7px;
-  border: 1px solid rgba(126,
-    240,
-    176,
+  border: 1px solid rgba(229$1187$2104,
     0.5);
     border-radius: 5px;
-    color: #7ef0b0;
+    color: #e5bb68;
     font-size: 8px;
     font-weight: 900;
     letter-spacing: 0.05em;
@@ -10140,12 +10355,12 @@ color:var(--t-text-dim)}
     #35291c 100%);
 }
 .inv-gear.is-filtering {
-  border-color: #4d7a3a;
-  color: #a8e08a;
+  border-color: #76633e;
+  color: #dac190;
 }
 .inv-gear.is-filtering.is-active {
-  border-color: #6b9a52;
-  color: #c8f0a8;
+  border-color: #958057;
+  color: #ebd6ad;
 }
 /* ---------- popover do filtro ---------- */
 
@@ -11029,7 +11244,7 @@ color:var(--t-text-faint)}
 .mkt-time__bar {
   position: absolute;
   inset: 0 auto 0 0;
-  background: var(--mkt, #8fd6b0);
+  background: var(--mkt, #d1bd94);
   opacity: 0.34;
 }
 
@@ -11048,16 +11263,16 @@ color:var(--t-text-faint)}
 .mkt-submit {
   flex: none;
   padding: 6px 12px;
-  border: 1px solid rgba(143, 214, 112, 0.55);
+  border: 1px solid rgba(221, 166, 56, 0.55);
   border-radius: 4px;
-  color: #cdeeb8;
-  background: rgba(143, 214, 112, 0.14);
+  color: #eadbbc;
+  background: rgba(221, 166, 56, 0.14);
   font-size: 11px;
   font-weight: 700;
 }
 
 .mkt-item__buy:hover:not(:disabled) {
-  background: rgba(143, 214, 112, 0.28);
+  background: rgba(221, 166, 56, 0.28);
 }
 
 .mkt-item__buy:disabled {
@@ -11429,16 +11644,16 @@ font-size:8px}
 .loj-pacote__comprar {
 flex:none;
 padding:6px 12px;
-border:1px solid rgba(127,216,143,.6);
+border:1px solid rgba(220, 165, 54, .6);
 border-radius:4px;
-color:#d8f5dc;
-background:linear-gradient(180deg,#2d5c34,#1a3a20);
+color:#f3ebda;
+background:linear-gradient(180deg,#594b30,#382f1c);
 cursor:pointer;
 font-size:10px;
 font-weight:800}
 .loj-pacote__comprar:hover:not(:disabled) {
 border-color:#7fd88f;
-background:linear-gradient(180deg,#3d7a46,#24502c)}
+background:linear-gradient(180deg,#766441,#4d4027)}
 .loj-pacote__comprar:disabled {
   border-color:#3a2f24;
   color:#6f6152;
@@ -11681,7 +11896,7 @@ grid-template-columns:minmax(0,1fr) 42px 46px 50px;
 }
 
 .sts-row__bonus.is-plus {
-  color:#7ef0b0;
+  color:#e5bb68;
 }
 
 .sts-row__bonus.is-minus {
@@ -11858,6 +12073,162 @@ transform:translate(0)}
     #0f1f12 0%,
     #060d07 100%);
 }
+
+/**
+ * A LUZ DE RARIDADE DO CRAFT, NA MOCHILA.
+ *
+ * E a mesma coisa que o `.cft-card` faz na coluna do meio do craft: a luz
+ * da raridade dentro do card, com a vinheta que a faz parecer luz, e o
+ * halo colado no desenho do item.
+ *
+ * ## O QUE COPIAMOS DO `.cft-card`, E POR QUE
+ *
+ * As cinco pecas, todas: o `isolation`, os dois `inset` na cor da
+ * raridade no lugar dos realces brancos, a vinheta do `::before`, o
+ * `z-index: 1` no botao, e os dois `drop-shadow` no icone
+ *
+ * ## POR QUE A AURA ENCOLHEU, E O SLOT NAO
+ *
+ * Porque o slot e quase do mesmo tamanho: o craft usa `repeat(4, 68px)` e
+ * a mochila usa `minmax(74px, 66px)`. Tres pixels, e o comentario do
+ * proprio craft ja dizia que tres pixels nao mudam o desenho
+ *
+ * O que muda e o GAP: 8px no craft, 3px na mochila. Metade. Uma aura de
+ * 15px de halo aqui invadiria o card vizinho, e o que se quer e uma luz
+ * DENTRO do card — e o `drop-shadow` de 7px/15px vira 6px/12px
+ *
+ * ## POR QUE SO A MOCHILA
+ *
+ * Porque `inv-grid-modern` dentro de `inv-v2` e a grade da mochila. O
+ * `.inv-slot` e o mesmo slot no mercado, na guilda, no bau, no craft e no
+ * encantar, e nenhum deles pediu
+ */
+:is(.inv-v2, .enc-panel) :is(.inv-grid-modern, .inv-illus, .bau-lado__grade, .gld-cofre__grade) .inv-slot:not(.inv-slot--empty):not(.inv-slot--common) {
+  /* o contexto de empilhamento que segura o `screen` dentro do card */
+  isolation: isolate;
+
+  /*
+   * A BORDA ILUMINADA POR DENTRO.
+   *
+   * Os dois primeiros `inset` sao o que o craft trocou: a luz da raridade
+   * na aresta interna, mais forte no topo, que e de onde a luz vem. O
+   * ultimo e o chanfro da base, mantido para nao perder o relevo
+   */
+  box-shadow:
+    inset 0 0 0 1px color-mix(in srgb, var(--rarity, #c3ccd6) 32%, transparent),
+    inset 0 1px 0 color-mix(in srgb, var(--rarity, #c3ccd6) 24%, transparent),
+    inset 0 -2px 6px rgba(0, 0, 0, 0.6);
+}
+
+/**
+ * A VINHETA: transparente no centro, preta na borda.
+ *
+ * E o que faz a luz do `::after` parecer LUZ, e nao uma mancha. O slot
+ * nao usava pseudo-elemento nenhum, entao o `::before` esta livre
+ */
+:is(.inv-v2, .enc-panel) :is(.inv-grid-modern, .inv-illus, .bau-lado__grade, .gld-cofre__grade) .inv-slot:not(.inv-slot--empty):not(.inv-slot--common)::before {
+  position: absolute;
+  z-index: 0;
+  border-radius: inherit;
+  background: radial-gradient(
+    ellipse at 50% 42%,
+    transparent 38%,
+    rgba(0, 0, 0, 0.55) 100%
+  );
+  content: "";
+  pointer-events: none;
+  inset: 0;
+}
+
+/**
+ * A MESMA LUZ, E A AURA ENCOLHIDA PARA O BAU E O COFRE.
+ *
+ * ## POR QUE SO ESSES DOIS
+ *
+ * Porque a grade deles usa `--slot: 46px`, e a da mochila usa
+ * `minmax(74px, 66px)`. O slot do bau e quase metade: a aura de 6px/12px
+ * da mochila daria 68px de diâmetro dentro de um slot de 46, e invadiria o
+ * vizinho
+ *
+ * E o `--slot` do bau E do cofre e o mesmo numero de proposito: os dois
+ * sao listas de deposito, com a mesma densidade e a mesma rolagem
+ *
+ * ## E POR QUE NAO ESTA NO `__icon` DE CIMA
+ *
+ * Porque a regra de cima e a que vale para a mochila, e ela nao e
+ * pequena. Aqui a de baixo entra DEPOIS e e mais especifica, entao ganha
+ * sem repetir a lista inteira de seletores
+ */
+:is(.bau-lado__grade, .gld-cofre__grade) .inv-slot:not(.inv-slot--empty):not(.inv-slot--common) .inv-slot__icon {
+  filter:
+    drop-shadow(0 0 4px color-mix(in srgb, var(--rarity, #c3ccd6) 60%, transparent))
+    drop-shadow(0 0 8px color-mix(in srgb, var(--rarity, #c3ccd6) 32%, transparent));
+}
+
+/**
+ * A MESMA LUZ DO CRAFT, E ATRAS DO ICONE.
+ *
+ * A mochila tinha só a vinheta (`::before`). Esta e a lavagem de luz do
+ * `cft-card::after`, com o mesmo `mix-blend-mode: screen` e o mesmo
+ * `z-index: 0` que o craft usa agora
+ *
+ * ## POR QUE 0 E NAO 2, COMO ESTAVA NO CRAFT
+ *
+ * Porque o `2` punha a luz ACIMA do desenho do item. Com `0` ela divide o
+ * nivel da vinheta, e entre os dois `::` com o mesmo `z-index` ganha o
+ * que vem depois: a luz fica acima da vinheta e abaixo do botao, que e a
+ * ordem que faz a vinheta parecer luz
+ */
+:is(.inv-v2, .enc-panel) :is(.inv-grid-modern, .inv-illus, .bau-lado__grade, .gld-cofre__grade) .inv-slot:not(.inv-slot--empty):not(.inv-slot--common)::after {
+  position: absolute;
+  z-index: 0;
+  border-radius: inherit;
+  background: radial-gradient(
+    circle at 50% 40%,
+    color-mix(in srgb, var(--rarity, #c3ccd6) 22%, transparent) 0%,
+    transparent 68%
+  );
+  content: "";
+  mix-blend-mode: screen;
+  pointer-events: none;
+  inset: 0;
+}
+
+/** o conteudo acima da vinheta */
+:is(.inv-v2, .enc-panel) :is(.inv-grid-modern, .inv-illus, .bau-lado__grade, .gld-cofre__grade) .inv-slot:not(.inv-slot--empty):not(.inv-slot--common) .inv-slot__hit {
+  position: relative;
+  z-index: 1;
+}
+
+/**
+ * O HALO COLADO NO DESENHO DO ITEM.
+ *
+ * ## POR QUE `drop-shadow`, E NAO `text-shadow` OU `box-shadow`
+ *
+ * Porque o alvo e a arte desenhada, e nao um texto. O `text-shadow` da
+ * base cuida so do glifo, e um `box-shadow` seria um quadrado atras do
+ * desenho — nas quinas, onde a arte nao tem pixel, o quadrado apareceria.
+ * O `drop-shadow` segue o ALFA da arte, entao a halo sai com o contorno
+ * certo em qualquer silhueta
+ *
+ * ## E POR QUE DUAS CAMADAS
+ *
+ * A de 6px e o nucleo, colado no item; a de 12px e o halo largo que morre
+ * na vinheta. Uma camada so deixa o brilho com borda dura
+ *
+ * ## E O PULSO
+ *
+ * O mesmo `cft-brilho-pulso` de 3,2s. E o preco: o `filter` e animado, e
+ * nao o `opacity`, entao cada quadro refaz o `drop-shadow` de todos os
+ * cards visiveis — e a mochila chega a cem slots
+ */
+:is(.inv-v2, .enc-panel) :is(.inv-grid-modern, .inv-illus, .bau-lado__grade, .gld-cofre__grade) .inv-slot:not(.inv-slot--empty):not(.inv-slot--common) .inv-slot__icon {
+  filter:
+    drop-shadow(0 0 6px color-mix(in srgb, var(--rarity, #c3ccd6) 60%, transparent))
+    drop-shadow(0 0 12px color-mix(in srgb, var(--rarity, #c3ccd6) 32%, transparent));
+  animation: cft-brilho-pulso 3.2s ease-in-out infinite;
+}
+
 .inv-slot.is-equipped {
   border-color: #c9a227;
   box-shadow:
@@ -12001,7 +12372,15 @@ transform:translate(0)}
 .item-icon--glyph {
   display: block;
 }
+/*
+ * OS BADGES ACIMA DA LUZ DE RARIDADE.
+ *
+ * Sem `z-index` eles entram no mesmo grupo de pintura da vinheta e da
+ * luz (ambos em `z-index: 0`) e, como o `::after` vem depois no desenho,
+ * passava por cima deles
+ */
 .inv-slot__badge {
+  z-index: 2;
   position: absolute;
   padding: 0 2px;
   border-radius: 2px;
@@ -12010,9 +12389,26 @@ transform:translate(0)}
   line-height: 1.4;
   pointer-events: none;
 }
+/*
+ * O "E" DE EQUIPADO, NO CANTO INFERIOR DIREITO.
+ *
+ * ## POR QUE DESCEU
+ *
+ * Porque o canto superior esquerdo era da marca de negociavel, e as duas
+ * se sobrepunham nos slots equipados — que e justamente onde as duas
+ * aparecem juntas
+ *
+ * ## POR QUE ESSE E NAO OUTRO CANTO
+ *
+ * Porque a esquerda de baixo e o canto mais escuro do card, com a vinheta
+ * apertando. O de cima a direita ja e do nivel de aprimoramento, e a
+ * direita de baixo e da marca de negociavel — 14px acima, entao os dois
+ * nao se tocam
+ */
 .inv-slot__badge--equipped {
-  top: 1px;
-  left: 1px;
+  z-index: 2;
+  bottom: 1px;
+  right: 1px;
   color: #14100a;
   background: #c9a227;
 }
@@ -12073,8 +12469,27 @@ transform:translate(0)}
     0,
     0.8);
 }
+/*
+ * SEM A BOLINHA DE "ITEM UNICO" NA MOCHILA.
+ *
+ * A marca fica no `InvSlotView` e continua valendo nos outros paineis —
+ * e escondida aqui em vez de apagada do JSX, porque o
+ * `InvSlotView` e o mesmo slot em oito telas
+ */
+:is(.inv-v2, .enc-panel) :is(.inv-grid-modern, .inv-illus, .bau-lado__grade, .gld-cofre__grade) .inv-slot__mark {
+  display: none;
+}
+
+/**
+ * A MARCA DE "ITEM UNICO", no canto INFERIOR ESQUERDO.
+ *
+ * Este NAO e o icone de negociavel: e a marca de peca unica
+ * (`data-tip="Item unico"`). O negociavel e o `badge--negociavel`, mais
+ * abaixo. Elas ocupam cantos diferentes de proposito
+ */
 .inv-slot__mark {
   position: absolute;
+  z-index: 2;
   bottom: 2px;
   left: 2px;
   width: 4px;
@@ -12288,7 +12703,7 @@ transform:translate(0)}
   font-weight: 700;
 }
 .inv-equip__bonus li span {
-  color: #7ef0b0;
+  color: #e5bb68;
   font-weight: 800;
   font-variant-numeric: tabular-nums;
 }
@@ -12434,10 +12849,10 @@ transform:translate(0)}
   align-items: center;
   gap: 4px;
   padding: 2px 7px;
-  border: 1px solid #4d7a3a;
+  border: 1px solid #76633e;
   border-radius: 2px;
-  color: #a8e08a;
-  background: #1d2a14;
+  color: #dac190;
+  background: #282216;
   font-size: 9px;
   font-weight: 800;
   letter-spacing: 0.04em;
@@ -12458,6 +12873,24 @@ transform:translate(0)}
   font-size: 12px;
   font-style: normal;
   text-shadow: 0 1px 2px #000;
+}
+
+/**
+ * O MESMO 1PX COLADO, ABERTO PARA O ENCANTAR.
+ *
+ * O rodape do encantar (`EnchantPanel.jsx`, `<footer className="inv-status">`)
+ * tinha `gap: 1px`, como o wrapper de moedas do inventario. Com a arte em
+ * 1.9em, ouro e steel viravam um bloco so, e o jogador lia um numero em
+ * vez de dois saldos
+ *
+ * ## POR QUE SO NO ENCANTAR
+ *
+ * Porque o `.inv-status` e o mesmo rodape em outras telas, e so o encantar
+ * tem ouro E steel lado a lado nessa ordem. A regra base continua com
+ * 1px para as demais
+ */
+.enc-panel .inv-status {
+  gap: 10px;
 }
 /* ---------- craft ---------- */
 
@@ -13332,18 +13765,18 @@ transform:translate(0)}
  * precisa parecer o que o jogador vai ganhar, nao o que ele vai gastar
  */
 .pss-day__claim {
-  border: 1px solid rgba(127, 216, 143, 0.6);
-  color: #d8f5dc;
+  border: 1px solid rgba(220, 165, 54, 0.6);
+  color: #f3ebda;
   background: linear-gradient(180deg,
-    #2d5c34 0%,
-    #1a3a20 100%);
+    #594b30 0%,
+    #382f1c 100%);
   cursor: pointer;
 }
 .pss-day__claim:hover {
   border-color: #7fd88f;
   background: linear-gradient(180deg,
-    #3d7a46 0%,
-    #24502c 100%);
+    #766441 0%,
+    #4d4027 100%);
 }
 
 /**
@@ -13366,11 +13799,11 @@ transform:translate(0)}
     * ninguem
     */
 .pss-day.is-disponivel {
-  border-color: rgba(127, 216, 143, 0.7);
+  border-color: rgba(220, 165, 54, 0.7);
   box-shadow:
     inset 0 1px 0 rgba(255, 255, 255, 0.08),
-    0 0 0 1px rgba(127, 216, 143, 0.28),
-    0 0 5px rgba(127, 216, 143, 0.22),
+    0 0 0 1px rgba(220, 165, 54, 0.28),
+    0 0 5px rgba(220, 165, 54, 0.22),
     0 2px 6px rgba(0, 0, 0, 0.5);
   }
 
@@ -14020,7 +14453,7 @@ transform:translateY(-50%)}
  * cinza morno, e o Comum precisa continuar sendo o "sem nada" para a
  * raridade continuar legivel de relance
  */
-.cft-card {
+.cft-card:not(.inv-slot--common) {
   /* o contexto de empilhamento que segura o `screen` dentro do card */
   isolation: isolate;
 
@@ -14044,7 +14477,7 @@ transform:translateY(-50%)}
 
 /* A VINHETA, embaixo do conteudo: transparente no centro, preta na borda.
  * E o que faz a luz do `::after` parecer luz, e nao uma mancha */
-.cft-card::before {
+.cft-card:not(.inv-slot--common)::before {
   position: absolute;
   z-index: 0;
   inset: 0;
@@ -14061,7 +14494,7 @@ transform:translateY(-50%)}
 
 /* O ICONE ACIMA DA VINHETA, e abaixo da luz. Sem este `z-index` o conteudo
  * ficaria na ordem natural de pintura e a vinheta passaria por cima dele */
-.cft-card .inv-slot__hit {
+.cft-card:not(.inv-slot--common) .inv-slot__hit {
   position: relative;
   z-index: 1;
 }
@@ -14092,7 +14525,7 @@ transform:translateY(-50%)}
  * Porque o pedido e so no painel de craft. No inventario o mesmo filtro em
  * celula de 3 pixels de diferenca Some, e o custo de render continua
  */
-.cft-card .inv-slot__icon {
+.cft-card:not(.inv-slot--common) .inv-slot__icon {
   filter:
     drop-shadow(0 0 7px color-mix(in srgb, var(--rarity, #c3ccd6) 60%, transparent))
     drop-shadow(0 0 15px color-mix(in srgb, var(--rarity, #c3ccd6) 32%, transparent));
@@ -14156,9 +14589,33 @@ transform:translateY(-50%)}
 }
 
 /* A LUZ: nasce no centro, onde esta o icone, e apaga antes da borda */
-.cft-card::after {
+.cft-card:not(.inv-slot--common)::after {
   position: absolute;
-  z-index: 2;
+
+  /**
+   * ATRAS DO ICONE, E NAO NA FRENTE.
+   *
+   * ## O QUE MUDOU
+   *
+   * Este `z-index` era 2, e o `.inv-slot__hit` do card e 1. O efeito
+   * ficava entao ACIMA do desenho do item, e a lavagem de luz passava por
+   * cima da arte
+   *
+   * ## POR QUE ATRAS
+   *
+   * Porque o que se quer iluminar e o FUNDO do card, e nao a peca. Com a
+   * luz atras, o item fica com o desenho limpo em cima de um fundo que
+   * guarda a cor da raridade — e o `screen` so soma luz, entao o desenho
+   * nunca e escurecido por baixo
+   *
+   * ## POR QUE 0 E NAO 1
+   *
+   * Porque 0 e o nivel da vinheta do `::before`, e entre dois `::` com o
+   * mesmo `z-index` ganha o que vem depois no desenho. A luz fica
+   * ACIMA da vinheta e ABAIXO do botao, que e a ordem que faz a vinheta
+   * parecer luz em vez de mancha
+   */
+  z-index: 0;
   inset: 0;
 
   background: radial-gradient(
@@ -14947,10 +15404,7 @@ transform:translateY(-50%)}
     0.6);
 }
 .hud-buff--poison {
-  border-color: rgba(131,
-    214,
-    91,
-    0.6);
+  border-color: rgba(220, 164, 53, 0.6);
 }
 .hud-buff--stun,.hud-buff--attackSpeed {
   border-color: rgba(255,
@@ -14983,10 +15437,7 @@ transform:translateY(-50%)}
     0.6);
 }
 .hud-buff--regeneration,.hud-buff--lifesteal {
-  border-color: rgba(131,
-    239,
-    155,
-    0.6);
+  border-color: rgba(222, 168, 61, 0.6);
 }
 .hud-buff--cloak,.hud-buff--slow {
   border-color: rgba(190,
@@ -14995,16 +15446,23 @@ transform:translateY(-50%)}
     0.5);
 }
 .hud-buff--elementalAffinity {
-  border-color: rgba(112,
-    230,
-    207,
+  border-color: rgba(221, 186, 116,
     0.7);
 }
 /* ---------- top-right menu ---------- */
 
 .hud-menu {
   display: flex;
-  gap: 8px;
+
+  /**
+   * O VAO ENTRE OS CINCO BOTOES E O `--btn-gap`, E NAO UM `8px` AQUI.
+   *
+   * Porque o `8px` estava escrito duas vezes — aqui e no `gap` da
+   * `.hud-coluna-dir` — e nenhuma das duas vezes lia o token. Mudar so o
+   * `--btn-gap` alargava a coluna sem juntar os botoes, e a conta de 192px
+   * fechava no numero errado
+   */
+  gap: var(--btn-gap);
 
   /**
    * A FILEIRA E ANCORADA PELA DIREITA, e nao pela esquerda.
@@ -15220,9 +15678,9 @@ background:linear-gradient(90deg,#8c2328,#c8403a)}
 .target-panel small {
 color:var(--t-text-dim)}
 .game-message {
-border:1px solid rgba(126,240,176,.35);
+border:1px solid rgba(229$1187$2104,.35);
 color:var(--t-positive);
-background:linear-gradient(180deg,#16281e,#0f1c15);
+background:linear-gradient(180deg,#272217,#1b1710);
 box-shadow:var(--t-bevel),var(--t-drop-sm)}
 .game-message.is-error {
 border-color:var(--t-danger);
@@ -15394,6 +15852,92 @@ background:linear-gradient(180deg,#2a1414,#1a0d0d)}
 }
 
 /**
+ * O AVISO DA PASSAGEM, DEPOIS DA BOX DE MOEDA.
+ *
+ * ## POR QUE FICA DEBAIXO DAS MOEDAS
+ *
+ * Porque as moedas estao sempre no mesmo lugar da tela, entao o aviso tem um
+ * endereco fixo e o jogador aprende onde olhar. E por isso que ele NAO foi
+ * para onde a caixa do portal estava: a caixa sumiu, e um aviso que aparecesse
+ * num lugar que nunca mais vai ter conteudo seria procurado no vazio
+ *
+ * ## POR QUE UM TRACO A DIREITA DO NOME
+ *
+ * Porque o texto e um destino ("Sair para") e o nome e o lugar. Sem a
+ * separacao o jogador le "sair para Pantano Profundo" como uma frase, e nao
+ * como o par pergunta/resposta
+ */
+.hud-aviso-passagem {
+  display: flex;
+  align-items: baseline;
+  justify-content: center;
+  gap: 8px;
+  margin: 8px 0 0;
+  padding: 5px 12px;
+  border: 1px solid color-mix(in oklab, var(--gold) 40%, transparent);
+  border-radius: 3px;
+  background: rgba(9, 13, 18, .72);
+  font-size: 11px;
+  white-space: nowrap;
+}
+
+/**
+ * A AVISO DE COLETA, DEBAIXO DO "IR PARA", E COMO TEXTO PURO.
+ *
+ * ## POR QUE DEBAIXO DELE E NÃO EM OUTRO LUGAR DO HUD
+ *
+ * Porque os dois avisos dizem a mesma coisa — "você vai para outro lugar" — e
+ * o jogo já tem um lugar fixo que o jogador aprendeu a vigiar. A notificação
+ * morava embaixo da party, do lado do minimapa, e o aviso da passagem na pilha
+ * das moedas: dois lugares de tela para a mesma informação, e o jogador não
+ * tinha como saber qual respondia
+ *
+ * ## POR QUE A POSIÇÃO NÃO DEPENDE DO "IR PARA" ESTAR NA TELHA
+ *
+ * Porque um aviso que muda de lugar conforme o outro aparece não tem lugar
+ * fixo — o jogador teria de varrer a tela atrás de cada frase. As duas linhas
+ * dividem o MESMO bloco: sem o "Ir para" a notificação sobe para o topo, e
+ * nunca fica longe de onde ela estava
+ *
+ * E o aviso some rápido, então a linha não empurra nada: ela ocupa o espaço
+ * vazio que o "Ir para" deixa quando não está
+ *
+ * ## E POR QUE SEM BOX
+ *
+ * Porque a borda de 2px competia com o HUD inteiro por atenção, e a notificação
+ * é a MENOS importante das duas mensagens da tela. O que garante a leitura é a
+ * sombra do texto sobre o mapa — e é o que o resto do HUD já usa para texto
+ * flutuante
+ */
+.hud-notificacao {
+  margin: 6px 0 0;
+  padding: 4px 10px;
+  border: 0;
+  background: none;
+  color: var(--t-text-bright);
+  font-size: 11px;
+  line-height: 1.45;
+  text-align: center;
+  text-shadow:
+    0 1px 3px rgba(0, 0, 0, 0.95),
+    0 0 8px rgba(0, 0, 0, 0.8);
+  overflow-wrap: anywhere;
+}
+
+.hud-aviso-passagem span {
+  color: var(--muted-foreground);
+  text-transform: uppercase;
+  letter-spacing: .06em;
+  font-weight: 700;
+}
+
+.hud-aviso-passagem strong {
+  color: var(--gold);
+  font-family: var(--font-display);
+  font-size: 13px;
+}
+
+/**
  * O STEEL, AO LADO DO GOLD.
  *
  * ## POR QUE A COR E ESTA, E NAO O DO DARK
@@ -15531,15 +16075,10 @@ background:linear-gradient(180deg,#2a1414,#1a0d0d)}
 .hud-coluna-mini .game-message {
   width: 100%;
   padding: 7px 12px;
-  border: 1px solid rgba(118,
-    215,
-    157,
-    0.3);
+  border: 1px solid rgba(220, 164, 52, 0.3);
   border-radius: 6px;
-  color: #a4edbd;
-  background: rgba(17,
-    38,
-    28,
+  color: #e8d3a9;
+  background: rgba(155, 126, 67,
     0.9);
   font-size: 10px;
   font-weight: 700;
@@ -15642,8 +16181,8 @@ background:linear-gradient(180deg,#2a1414,#1a0d0d)}
   margin-left: auto;
   font-variant-numeric: tabular-nums;
   font-weight: 800;
-  color: #7de08d;
-  text-shadow: 0 0 8px rgba(125, 224, 141, 0.6);
+  color: #d9bd84;
+  text-shadow: 0 0 8px rgba(221, 167, 58, 0.6);
   animation: mineracao-ganho 200ms ease-out;
 }
 
@@ -16037,18 +16576,59 @@ background:linear-gradient(180deg,#2a1414,#1a0d0d)}
 /**
  * COM O AUTOMATICO LIGADO, e o anel de fora.
  *
- * A mesma borda verde dos efeitos de cura que ja existem no jogo. O slot
- * fica verde por causa do que ele FAZ, e nao porque o jogador ligou um
- * interruptor em algum lugar: o anel e a informacao de que a regra esta
- * valendo agora, e o jogador ve isso sem abrir o painel
+ * ## POR QUE DOURADO, E NAO O VERDE DE CURA
  *
- * E um `box-shadow` e nao uma borda a mais: a borda muda a largura do
- * circulo e o slot saltaria de tamanho a cada uso da pocao
+ * Porque `--t-positive` e a cor de "o efeito de cura ACONTECEU", e o
+ * jogador ve ela nos numeros e no flash do HP. O slot de pocao nao e o
+ * efeito: ele e o INTERRUPTOR que decide quando o efeito vai acontecer
+ *
+ * Sao duas mensagens diferentes e elas estavam na MESMA cor: o jogador via
+ * o verde e nao sabia se tinha acabado de curar ou se tinha ligado a regra.
+ * O dourado e a cor de "configurado" no jogo inteiro — e a mesma dos
+ * `is-active` da barra de paineis, que tambem sao interruptor ligado
+ *
+ * ## POR QUE UM `box-shadow` E NAO UMA BORDA A MAIS
+ *
+ * Porque a borda muda a largura do circulo, e o slot saltaria de tamanho
+ * a cada uso da pocao
  */
 .hud-vaga.is-ligada {
   box-shadow:
-    0 0 0 2px color-mix(in srgb, var(--t-positive) 55%, transparent),
-    0 0 10px color-mix(in srgb, var(--t-positive) 28%, transparent);
+    0 0 0 2px color-mix(in srgb, var(--gold) 55%, transparent),
+    0 0 10px color-mix(in srgb, var(--gold) 28%, transparent);
+
+  /**
+   * POR QUE UM KEYFRAME PROPRIO, E NAO O `qst-auto-pulse`.
+   *
+   * O `qst-auto-pulse` anima `box-shadow` INTEIRO, e este slot tem DUAS
+   * camadas: o anel de 2px que marca a borda e o brilho difuso de 10px. Reusar
+   * aquele keyframe faria o segundo frame do pulso apagar as duas e deixar
+   * um circulo de 4px sem o halo — o slot perderia a profundidade que a
+   * regra de cima existe para dar
+   *
+   * Por isso o keyframe repete as duas camadas em todo frame, como o
+   * `bst-auto-pulse` faz com a sombra projetada dele
+   *
+   * E o `1.6s` e o mesmo ritmo do resto da HUD em estado automatico: auto da
+   * missao, do bestiario e agora este. Dois tempos diferentes na mesma tela
+   * leem como dois eventos, e nao como um estado
+   */
+  animation: hud-vaga-pulso 1.6s ease-in-out infinite;
+}
+
+@keyframes hud-vaga-pulso {
+  0%,
+  100% {
+    box-shadow:
+      0 0 0 2px rgba(229, 187, 104, 0.55),
+      0 0 10px rgba(229, 187, 104, 0.28);
+  }
+
+  50% {
+    box-shadow:
+      0 0 0 5px rgba(229, 187, 104, 0.22),
+      0 0 16px rgba(229, 187, 104, 0.48);
+  }
 }
 
 .hud-vaga__icone {
@@ -17325,13 +17905,13 @@ background:var(--t-positive)}
   transition: none;
 }
 .skill-slot.is-drag-on {
-  border-color: #7ef0b0;
+  border-color: #e5bb68;
 }
 .skill-slot.is-drag-off {
   border-color: #8b96a3;
 }
 .skill-slot.is-drag-on .skill-slot__drag-hint {
-  color: #7ef0b0;
+  color: #e5bb68;
 }
 /**
  * A SKILL QUE ESTA EM AUTOMATICO.
@@ -19567,7 +20147,7 @@ background:var(--t-gold)}
 }
 
 .enc-chance .is-good {
-  color: #86c98a;
+  color: #c4b18b;
 }
 
 /*
@@ -20045,10 +20625,10 @@ outline-offset:1px}
 
 .pty-btn--accept {
   flex: 1;
-  border-color: #6fbf8a;
+  border-color: #b9a275;
   color: #0e1014;
   font-weight: 700;
-  background: #6fbf8a;
+  background: #b9a275;
 }
 /* ---- recuperado do build (5 regras) ---- */
 .pty-btn--decline,.pty-btn--cancel,.pty-btn--close,.pty-btn--leave {
@@ -20101,8 +20681,8 @@ color:var(--t-text-faintest)}
 }
 
 .pty-btn--invite-target {
-  border-color: #6fbf8a;
-  color: #6fbf8a;
+  border-color: #b9a275;
+  color: #b9a275;
 }
 /* -------------------------------------------------------------------
    A LINHA DE UM MEMBRO
@@ -20188,7 +20768,7 @@ color:var(--t-text-faintest)}
   display: block;
   height: 100%;
   border-radius: 2px;
-  background: #6fbf8a;
+  background: #b9a275;
   transition: width 0.18s ease-out;
 }
 
@@ -20254,7 +20834,7 @@ color:var(--t-text-faintest)}
  */
 .pty-member.is-me {
   background: rgba(255, 255, 255, 0.07);
-  box-shadow: inset 2px 0 0 rgba(111, 191, 138, 0.7);
+  box-shadow: inset 2px 0 0 rgba(219, 163, 49, 0.7);
 }
 
 /**
@@ -20319,12 +20899,12 @@ color:var(--t-text-faintest)}
  * esta em cima dele
  */
 .pty-member__follow {
-  color: #6b8f78;
+  color: #8c826e;
 }
 
 .pty-member__follow:hover {
-  color: #6fbf8a;
-  background: rgba(111, 191, 138, 0.14);
+  color: #b9a275;
+  background: rgba(219, 163, 49, 0.14);
 }
 
 /**
@@ -20335,8 +20915,8 @@ color:var(--t-text-faintest)}
  * pedido saiu, ja que o Auto nao responde com nada visivel
  */
 .pty-member__follow.is-on {
-  color: #6fbf8a;
-  background: rgba(111, 191, 138, 0.2);
+  color: #b9a275;
+  background: rgba(219, 163, 49, 0.2);
 }
 
 /**
@@ -20394,8 +20974,8 @@ color:var(--t-text-faintest)}
 }
 
 .pty-btn--focus.is-on {
-  color: #6fbf8a;
-  background: rgba(111, 191, 138, 0.16);
+  color: #b9a275;
+  background: rgba(219, 163, 49, 0.16);
 }
 /**
  * A ETIQUETA DE QUEM TEM O FOCO LIGADO.
@@ -20404,8 +20984,8 @@ color:var(--t-text-faintest)}
  * diferentes sobre a mesma pessoa, e um jogador pode ser as duas coisas
  */
 .pty-member__tag--foco {
-  color: #6fbf8a;
-  border-color: rgba(111, 191, 138, 0.35);
+  color: #b9a275;
+  border-color: rgba(219, 163, 49, 0.35);
 }
 
 /* ===================================================================
@@ -20676,14 +21256,23 @@ color:var(--t-text-faintest)}
  * tres para as tres pontas Ã¢â‚¬â€ espaco, ouro, steel Ã¢â‚¬â€ com o steel no meio da
  * tela
  *
- * E o wrapper e o que mantem as duas moedas COLADAS, que e o que o
- * jogador espera: gold e steel sao a mesma pergunta ("quanto eu tenho"),
- * e o espaco da mochila e outra pergunta
+ * ## POR QUE 8px, E NAO MAIS COLADAS
+ *
+ * Era 1px, e o comentario dizia que as moedas deviam ficar COLADAS porque
+ * ouro e steel respondem a mesma pergunta. Isso valia com a arte de
+ * 1.05em: a 1px as duas moedas pareciam uma so
+ *
+ * A arte foi para 1.9em, e o 1px virou um fio. Agora sao tres caixas com
+ * borda, e coladas elas viram um bloco unico sem separação — o que faz o
+ * jogador ler "um numero" em vez de "tres saldos"
+ *
+ * Continua sendo a mesma pergunta, so que agora cada saldo tem a caixa
+ * dele
  */
 .inv-v2 .inv-moedas {
   display: flex;
   align-items: center;
-  gap: 1px;
+  gap: 8px;
 }
 
 /* a barra e a mesma do `.pty-member__track`: 4px, canto 2px */
@@ -20700,7 +21289,7 @@ color:var(--t-text-faintest)}
   display: block;
   height: 100%;
   border-radius: 2px;
-  background: #6fbf8a;
+  background: #b9a275;
   transition: width 0.18s ease-out;
 }
 
@@ -21263,7 +21852,7 @@ color:var(--t-text-faintest)}
  *
  * A raridade entra por DUAS vias, e as duas precisam concordar: a
  * borda e a barrinha de cima usam `--rarity`, que o `InventoryPanel`
- * poe inline. O cartao NAO ganha fundo colorido nem brilho Ã¢â‚¬â€ um cartao
+ * poe inline. O cartao NAO ganha fundo colorido nem brilho — um cartao
  * de 88px com brilho de raridade vira um semaforo, e o que separa o
  * raro do comum e a borda e o nome, que ja bastam
  */
@@ -21387,6 +21976,16 @@ opacity:1}
   display: flex;
   align-items: center;
   gap: 4px;
+
+  /*
+   * O `min-height` segura a linha vazia.
+   *
+   * A raridade em texto saiu do card, e com ela o ultimo filho quase sempre:
+   * o flex ficava sem conteudo e colapsava para zero, fazendo o nome do item
+   * pular para cima num anuncio de peca unica e descer de volta no anuncio
+   * seguinte, que tem "x3". Os 10px sao a altura que o texto de 8px ocupava
+   */
+  min-height: 10px;
 }
 
 .inv-v2 .inv-item-rarity,
@@ -21514,7 +22113,7 @@ opacity:1}
 }
 
 .inv-v2 .inv-stat b {
-  color: #6fbf8a;
+  color: #b9a275;
   font-size: 10px;
   font-weight: 700;
   font-variant-numeric: tabular-nums;
@@ -21768,7 +22367,24 @@ opacity:1}
   a mochila usa
 */
 .bau {
-  --slot: 68px;
+  /*
+   * O `--slot` DE 62px, E O QUE FAZ CABEREM SEIS POR LINHA.
+   *
+   * O painel tem 420px, e a grade tem 12px de padding de cada lado: sobram
+   * 396px. Com o slot de 68px eram cinco por linha, e sobravam 40px vazios na
+   * direita — a grade ficava mais estreita que o painel e o baú parecia
+   * encolhido dentro dele
+   *
+   * Com seis, a conta e `6 * 62 + 5 * 4 = 372 + 20 = 392px`, que preenche
+   * 392 dos 396: sobram 4px, que é o respiro que impede a ultima coluna de
+   * encostar na borda
+   *
+   * E 62 e o MAIOR slot que cabe em seis. Com 63 a conta daria 398 e a sexta
+   * coluna quebraria para a linha de baixo, que é a pior falha possível num
+   * grade com numero fixo de colunas: o jogador contaria 5 e o painel
+   * mostraria 24
+   */
+  --slot: 62px;
   width: min(420px, calc(100vw - 24px));
 }
 
@@ -21904,8 +22520,43 @@ opacity:1}
   `.inv-cell__name` desenha ACIMA do slot: sem essa folga, a rolagem
   cortaria o nome do primeiro item da coluna
 */
+/**
+ * A GRADE DO BAÚ: CINCO COLUNAS, QUATRO LINHAS NA TELA.
+ *
+ * ## POR QUE 6 E NÃO `auto-fill`
+ *
+ * Porque `repeat(auto-fill, var(--slot))` deixava a quantidade de colunas
+ * sobrar da largura do painel: o número de colunas dependia da conta. Num
+ * painel mais estreito caíam cinco, e o mesmo baú mudava de formato conforme
+ * a janela — com o item na linha 3 na tela larga e na linha 4 na estreita
+ *
+ * Com `repeat(6, ...)`, a posição do slot é a mesma em qualquer largura, e o
+ * grade ocupa 392 dos 396px disponíveis em vez de deixar 40px vazios na direita
+ *
+ * ## POR QUE 50 SLOTS E NÃO 24
+ *
+ * Porque o pedido são 50 slots com 4 linhas visíveis. A grade rola: as 50
+ * células existem todas, e o `max-height` corta na quarta linha. Com 6 por
+ * linha, o que se vê são 24 slots por tela, e sobram 26 para rolar — é o que o
+ * baú de um RPG costuma fazer, e o que cabe num painel de 420px sem espremer
+ * o slot até ficar irreconhecível
+ *
+ * ## E POR QUE O `max-height` É A CONTA DAS LINHAS, E NÃO UM NÚMERO
+ *
+ * Porque 4 linhas de `--slot` com os vãos são `4 * --slot + 3 * --osrs-gap`.
+ * Escrever `284px` fixo quebraria no dia que o `--slot` mudasse de 68 para
+ * outro valor, e a grade mostraria 3 linhas ou 5 sem ninguém mexer no número
+ *
+ * ## E O `overflow-y: auto` JÁ ESTAVA AQUI
+ *
+ * Porque a rolagem é o que faz as 50 células caberem em 20 visíveis. O que
+ * faltava era o limite: sem o `max-height`, o `flex: 1` esticava a grade até o
+ * rodapé e as 10 linhas apareciam todas
+ */
 .bau-lado__grade {
-  grid-template-columns: repeat(auto-fill, var(--slot));
+  grid-template-columns: repeat(6, var(--slot));
+  grid-auto-rows: var(--slot);
+  max-height: calc(4 * var(--slot) + 3 * var(--osrs-gap));
   min-height: 0;
   flex: 1;
   align-content: start;
@@ -22385,7 +23036,7 @@ opacity:1}
   place-items: center;
   border: 1px solid var(--t-line-3);
   border-radius: 2px;
-  color: #10240f;
+  color: #231d10;
   font-size: 10px;
   font-weight: 800;
 }
@@ -22516,7 +23167,7 @@ opacity:1}
 .cdx-ir.is-on {
   border-color: var(--t-positive);
   color: var(--t-positive);
-  background: rgba(126, 240, 176, 0.12);
+  background: rgba(229$1187$2104, 0.12);
 }
 
 /* ============================================================
@@ -23042,40 +23693,187 @@ color:var(--t-text)}
 }
 
 /* O CARD */
-.mkt-listing {
-  height: 100%;
+/**
+ * O ITEM DENTRO DO CARD DO ANUNCIO.
+ *
+ * ## O TAMANHO ANTES
+ *
+ * O `.inv-slot` e fluido: `width: 100%; aspect-ratio: 1`. Dentro do `.mkt-grade`,
+ * que sao quatro colunas `1fr` com `gap: 16px`, a coluna dava mais de 140px de
+ * largura util — e o slot herdava tudo isso, com um icone de 140px em cima do
+ * nome do item
+ *
+ * ## POR QUE 135px, E NAO OS 48 DE ANTES
+ *
+ * Porque 48 x 2.8. Os 48px eram o tamanho do slot de deposito, e nesse lugar
+ * eles deixavam o anuncio com cara de lista de inventario: o icone virava um
+ * quadrado pequeno no alto de um card largo, e a arte do item — que e o que o
+ * jogador procura no mercado — ficava pequena demais para comparar dois anuncios
+ *
+ * ## POR QUE UM PX SO, E NAO UM TOKEN
+ *
+ * Porque o `--slot` do projeto e usado pela grade, que mede a coluna. Aqui quem
+ * manda e o CARD, e o card e fluido — um token fixo seria um numero a mais para
+ * lembrar sem ganho nenhum
+ *
+ * ## E POR QUE NAO PRECISA DE `margin: auto`
+ *
+ * Porque o `.inv-item-card` ja e `flex-direction: column` com `align-items: center`.
+ * O slot deixa de esticar e o pai ja o centraliza no eixo transversal
+ */
+.mkt-listing .inv-slot {
+  width: 135px;
 }
 
-.mkt-listing__restricao {
-  display: block;
-  margin: 8px 0 2px;
-  padding: 3px 6px;
-  border: 1px solid var(--t-line-2);
-  border-radius: 2px;
-  font-size: 10px;
-  font-weight: 700;
-  text-align: center;
+/**
+ * O CARD MEDE O QUE O ITEM MEDE.
+ *
+ * ## POR QUE 149 E NAO 135
+ *
+ * Porque o `.inv-item-card` tem `padding: 7px 6px 6px` e `border: 1px`: sao
+ * 6px de cada lado mais 1px de borda, 14px de moldura. Um card de 135px
+ * deixaria o item estourar 7px de cada lado, por baixo do padding
+ *
+ * Com 149px, o item de 135px encosta na borda interna do card, e a linha do
+ * anuncio tem a mesma largura em todas as its — que e o que faz a vitrine
+ * parecer uma prateleira e nao um monte de caixas com um quadrado dentro
+ *
+ * ## E POR QUE O `margin-inline: auto`
+ *
+ * Porque o item da grade nao e o card: e um `<div role="listitem">` que involve
+ * o `ListingCard` inteiro. Esse wrapper e que estica na coluna, e sem o auto o
+ * card ficaria grudado na esquerda de um espaco vazio a direita
+ */
+/**
+ * A COR DO BOTAO DE COMPRAR E A DA MOEDA DO ANUNCIO.
+ *
+ * ## AS TRES CORES NAO SAO ESCOLHIDAS AQUI
+ *
+ * Vem do `MOEDAS_ESPECIAIS` de `data/loja/index.js`, que ja fixa ouro
+ * `#e6c47a`, steel `#c9a0ff` e diamante `#8fd6f2`. O botao so le o token
+ * `--moeda`, e a classe que o `ListingCard` põe nele decide qual dos tres e
+ *
+ * ## POR QUE O `--moeda` E NAO TRES REGRAS INTEIRAS
+ *
+ * Porque o botao tem borda, fundo e texto, e tres cores multiplicadas por
+ * tres propriedades sao nove regras que precisam sair iguais. O token deixa
+ * a cor num lugar so, e trocar a paleta da moeda e mexer em tres linhas
+ * em vez de nove
+ *
+ * E o ouro e o PADRAO, declarado na regra base sem modificador: e a moeda que
+ * o jogo usa em quase todo anuncio, e um anuncio sem modificador nao pode
+ * ficar sem cor
+ */
+.mkt-listing__comprar {
+  --moeda: #e6c47a;
 }
 
-.mkt-listing__preco {
-  display: flex;
-  margin-top: 8px;
+.mkt-listing__comprar--steel {
+  --moeda: #c9a0ff;
+}
+
+.mkt-listing__comprar--diamonds {
+  --moeda: #8fd6f2;
+}
+
+.mkt-listing__comprar:not(:disabled) {
+  display: inline-flex;
   align-items: center;
   justify-content: center;
   gap: 5px;
+  border-color: var(--moeda);
+  color: var(--moeda);
+  background: color-mix(in srgb,
+      var(--moeda) 14%,
+      var(--t-sunken));
 }
 
-/*
-  O ICONE DA MOEDA no preco do anuncio.
-
-  O `baseline` de antes descia o numero e a arte ficava torta: o `img` tem
-  `vertical-align` por padrao e o flex o alinhava pela linha de base do texto,
-  que nao e a base da imagem. `center` e o que faz o ouro, o steel e o
-  diamante ficarem na mesma altura do numero, seja qual for a moeda
-*/
-.mkt-listing__preco .moeda {
-  display: block;
+/**
+ * A ARTE DA MOEDA DENTRO DO BOTAO.
+ *
+ * ## POR QUE UM TAMANHO PRÓPRIO
+ *
+ * Porque o `.moeda` global e `1.9em`, dimensao de saldo na HUD e no rodape da
+ * mochila. Dentro do botao, com a fonte de 11px do `.mkt-item__buy`, esse
+ * `1.9em` daria um icone de 21px ao lado de um numero de 11px — o desenho
+ * ficaria maior que o valor que ele qualifica
+ *
+ * E por que `flex: none`: sem isso o `img` cede espaco na compressao do flex
+ * e a arte distorce no botao estreito
+ */
+.mkt-listing__comprar .moeda {
+  width: 14px;
+  height: 14px;
   flex: none;
+}
+
+.mkt-listing {
+  height: 100%;
+  width: 149px;
+  margin-inline: auto;
+}
+
+/**
+ * A BOLINHA DE "ITEM ÚNICO" some no mercado.
+ *
+ * ## POR QUE SO AQUI
+ *
+ * Porque ela responde a uma pergunta da MOCHILA — "esta peça é única?" — e a
+ * vitrine é outra pergunta. Num anúncio, o que é único ou empilhável já está no
+ * botão: o `podeComprar` do `VitrineAba` recusa o anúncio quando a peça não cabe
+ * na mochila. A bolinha repetia isso no canto do slot, em cima da arte do item
+ *
+ * E some por CSS, e não removendo o elemento do `InvSlotView`: o slot é
+ * compartilhado com a mochila, o encantar, o baú e o cofre, e é lá que a
+ * bolinha ainda vale
+ */
+.mkt-listing .inv-slot__mark {
+  display: none;
+}
+
+/**
+ * A ETIQUETA DA CLASSE, NO CANTO SUPERIOR ESQUERDO DO SLOT.
+ *
+ * ## POR QUE ABSOLUTA, E NAO NO FLUXO
+ *
+ * Porque o `ItemCard` joga os `children` DEPOIS do `InvSlotView` — o bloco de
+ * texto, ou o que sobrar dele. No fluxo, a etiqueta descia para baixo da arte e
+ * empurrava o preço e o botão junto. Absoluta, ela vira um selo sobre o slot
+ *
+ * ## POR QUE 9 E 10, E NAO 4 E 4
+ *
+ * Porque o canto do slot nao e o canto do card. O `.inv-item-card` tem
+ * `border: 1px`, `padding: 7px 6px 6px` e o slot tem mais 1px de borda: o
+ * canto do slot fica a 7px da esquerda e a 8px de cima da borda do card. Somando
+ * mais 2px de folga, a etiqueta encosta no canto do slot sem tocar na arte
+ *
+ * ## E A COR VEM DO `--classe`
+ *
+ * Que o `ListingCard` preenche com o `accent` do `CHARACTER_CLASSES` — o mesmo
+ * do chip do filtro de classe. Uma cor escrita aqui seria uma quarta cor do
+ * Arbalist no projeto, e as duas iam divergir na primeira vez que alguém
+ * mudasse o acento
+ */
+.mkt-listing__classe {
+  position: absolute;
+  top: 10px;
+  left: 9px;
+  z-index: 2;
+  display: block;
+  max-width: calc(100% - 20px);
+  padding: 1px 5px;
+  border: 1px solid color-mix(in srgb,
+      var(--classe, #9ba7b7) 55%,
+      transparent);
+  border-radius: 2px;
+  background: color-mix(in srgb,
+      var(--classe, #9ba7b7) 20%,
+      rgba(0, 0, 0, 0.7));
+  color: var(--classe, #b6bec8);
+  font-size: 9px;
+  font-weight: 700;
+  line-height: 1.3;
+  text-align: left;
 }
 
 /* A ETIQUETA DO LEILAO */
@@ -23120,14 +23918,7 @@ color:var(--t-text)}
   font-size: 11px;
 }
 
-.mkt-listing__preco strong {
-  font-size: 15px;
-  font-variant-numeric: tabular-nums;
-  font-weight: 700;
-}
 /* ---- recuperado do build (3 regras) ---- */
-.mkt-listing__preco small,.mkt-listing__rodape {
-color:var(--t-text-faintest)}
 .mkt-chip--limpar {
 color:var(--t-text-faint);
 border-style:dashed}
@@ -23136,25 +23927,6 @@ color:var(--t-danger-text);
 border-color:color-mix(in srgb,var(--t-danger) 50%,transparent);
 background:color-mix(in srgb,var(--t-danger) 12%,transparent)}
 
-
-.mkt-listing__preco small {
-  font-size: 9px;
-}
-
-.mkt-listing__rodape {
-  display: flex;
-  margin-top: 6px;
-  align-items: center;
-  justify-content: space-between;
-  gap: 8px;
-  font-size: 11px;
-}
-
-.mkt-listing__vendedor {
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
 
 .mkt-listing__comprar {
   width: 100%;
@@ -23847,7 +24619,7 @@ color-scheme:dark;
 --t-gold-deep: #c9a227;
 --t-gold-bright: #f0d9a8;
 --t-gold-line: #8a7250;
---t-positive: #7ef0b0;
+--t-positive: #e5bb68;
 --t-danger: #a03434;
 --t-danger-text: #ff9d9d;
 --t-magic: #6f8fc4;
@@ -24101,8 +24873,8 @@ color-scheme:dark;
    ser claro ou escuro Ã¢â‚¬â€ sem a caixa, o icone sumiria em metade dos itens
  */
 .inv-slot__badge--negociavel {
-  right: 2px;
-  bottom: 14px;
+  top: 2px;
+  left: 2px;
   display: grid;
   width: 13px;
   height: 13px;
@@ -24795,17 +25567,36 @@ color-scheme:dark;
   pointer-events: auto;
 }
 
-/*
-  A FILEIRA, E O `flex-wrap` QUE FAZ A QUEBRA.
-
-  Sao sete botoes. Numa largura de 192 cabem cinco por vez — `5 * 32 + 4 * 8` —
-  e o sexto e o setimo descem sozinhos, sem nenhum numero de coluna escrito no
-  codigo. Um botao novo entra na fileira sem que ninguem mexa em posicao
-*/
+/**
+ * A FILEIRA, E O `flex-wrap` QUE FAZ A QUEBRA.
+ *
+ * Sao sete botoes numa largura de `--vitals-w` de 192px, e quantos cabem por
+ * linha e consequencia, nao numero escrito: o `flex-wrap` quebra quando o
+ * proximo botao nao cabe. Um botao novo entra na fileira sem que ninguem mexa
+ * em posicao nenhuma
+ *
+ * ## A CONTA, E POR QUE O `gap` E O `--btn-gap`
+ *
+ * Com o vao no token, a conta que fecha cinco por linha e:
+ *
+ *   antes:  5 x 32 + 4 x 8 = 160 + 32 = 192px  (cabe 5 em 192)
+ *   agora:  5 x 36 + 4 x 3 = 180 + 12 = 192px  (cabe 5 em 192)
+ *
+ * O `gap` estava em `8px` escritos aqui, sem ler o token, enquanto o botao
+ * tinha crescido para 36px. A conta virou `5 x 36 + 4 x 8 = 212px`, passou
+ * da largura, e a fileira passou a quebrar em QUATRO — que e o que o jogador
+ * viu. Com o vao no token, a conta volta a fechar em 192
+ *
+ * ## POR QUE NAO UM NUMERO DE COLUNA ESCRETO
+ *
+ * Porque em 176px, 168px e 148px — as medidas das media queries — cabem menos
+ * botoes por linha, e o `flex-wrap` e quem responde por isso. Fixar cinco
+ * forçaria o sexto a invadir a coluna vizinha nas telas estreitas
+ */
 .hud-atalhos {
   display: flex;
   flex-wrap: wrap;
-  gap: 8px;
+  gap: var(--btn-gap);
   pointer-events: auto;
 }
 

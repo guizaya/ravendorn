@@ -50,21 +50,37 @@
 export const HUD_ICON_IDS = [
   "stats",
   "bestiario",
-  "arena",
   "market",
+  "loja",
   "collection",
   "craft",
+  "encantar",
   "rank",
   "guild",
+  "arvore",
+"passe",
   "settings",
   /**
    * `ataque`, `defesa` e `velocidade` NAO entram nesta lista.
    *
    * A lista e o que o `hudIcons.test.js` percorre, e ele le o arquivo de
    * cada id do disco: um id aqui sem PNG faz o teste falhar. Os tres
-   * atributos do rodape usam so o GLIFO, ate que a arte seja desenhada —
-   * quando ela existir, eles entram aqui e no `HUD_ICON_URL` junto
+   * atributos do rodape usam so o GLIFO, ate que a arte seja desenhada
+   *
+   * E `arena` saiu. Ele estava na lista sem ter PNG, e era ele que quebrava o
+   * `URL == IDS` do teste: nenhum botao da barra pede `arena`, e a arte
+   * dele nunca foi feita
+   *
+   * ## E O `boss`, A PRIMEIRA ARTE VERTICAL DA BARRA
+   *
+   * O `boss.png` tem 239x253 — retrato — enquanto os outros andam em torno de
+   * 170x160. E o unico icone em que a arte chega perto do topo e da base do
+   * quadro, entao o `object-fit: contain` sem limite de altura a faria estourar
+   * a barra na vertical. Quem resolve e o `max-height` em `.hud-btn--boss`,
+   * e nao um recorte do arquivo: cortar a arte do chefe e pior que deixa-la
+   * pequena
    */
+  "boss",
 ];
 
 /**
@@ -125,6 +141,20 @@ const HUD_ICON_GLYPH = {
    */
   arena: "☠",
 
+  /**
+   * O CHEFE, com `⚔` e nao com o `☠` do bestiario.
+   *
+   * O `hudIcons.test.js` exige glifo UNICO por icone, e o `☠` ja e do
+   * bestiario — e da arena, que nao esta na lista. As duas entradas da barra
+   * apontariam para o mesmo desenho de reserva, e a reserva e justamente o
+   * que aparece quando a arte falha: duas imagens iguais significando coisas
+   * diferentes e o pior estado em que um botao pode estar
+   *
+   * As espadas cruzadas dizem a mesma coisa que a caveira — luta — sem
+   * repetir o desenho de nenhum outro botao
+   */
+  boss: "⚔",
+
   market: "⇄",
 
   /**
@@ -164,6 +194,28 @@ const HUD_ICON_GLYPH = {
    * propria antes mesmo de a arte entrar
    */
   encantar: "✦",
+
+  /**
+   * A ARVORE DE HABILIDADE, que ate aqui so tinha a tecla H.
+   *
+   * ## POR QUE SO O GLIFO
+   *
+   * Porque nao ha arte de arvore em `assets/icons`. O `HudIcon` cai no
+   * glifo quando `hudIconUrl` devolve `null`, entao o botao funciona hoje e
+   * passa a usar imagem no dia que o desenho existir — sem trocar uma linha
+   * no `HUD.jsx`
+   *
+   * E o `HUD_ICON_IDS` fica sem ele de proposito: aquela lista e o que o
+   * `hudIcons.test.js` percorre lendo arquivo do disco, e um id la sem PNG
+   * faz o teste falhar. O `encantar` esta no mesmo caso
+   *
+   * ## POR QUE `⑂`
+   *
+   * Porque e o unico glifo da lista que desenha um GALHO, e a arvore de
+   * talento e a unica coisa do jogo que ramifica. Os outros descrevem o
+   * que o painel CONTE ou o que ele FAZ, e nenhum dos dois serve aqui
+   */
+  arvore: "⑂",
 
   rank: "♛",
 
@@ -216,157 +268,148 @@ const HUD_ICON_GLYPH = {
 /**
  * Id do icone -> nome do arquivo.
  *
- * Quatro ids batem com o arquivo. Dois NAO batem: `collection` segue o
- * `PAINEL.COLECAO` do `HUD.jsx` e o arquivo e `colecao.png`, e o id
- * `settings` vira `gear_pixel_icon.png`. Sao dois dicionarios
- * diferentes, e este mapa e o unico lugar onde eles se encontram
+ * ## QUATRO IDS NAO BATEM COM O NOME DO ARQUIVO
  *
- * O caminho continua escrito por extenso no `HUD_ICON_URL` logo abaixo,
- * porque e o Vite que so enxerga o `new URL` de caminho literal. Este
- * mapa nao monta caminho nenhum: ele existe para o teste saber qual
- * arquivo cada id deve estar apontando, e para o erro de nome ficar
- * visivel em vez de silencioso
+ * `collection` segue o `PAINEL.COLECAO` do `HUD.jsx` e o arquivo e
+ * `colecao.png`. `settings` vira `configuracao.png`, `guild` vira
+ * `guilda.png` e `market` vira `market_palyers.png` — este ultimo com o
+ * `palyers` trocado, que e o nome que o arquivo traz
+ *
+ * Sao dois dicionarios diferentes, e este mapa e o unico lugar onde eles
+ * se encontram. O caminho continua escrito por extenso no `HUD_ICON_URL`
+ * logo abaixo, porque e o Vite que so enxerga o `new URL` de caminho
+ * literal. Este mapa nao monta caminho nenhum: ele existe para o teste
+ * saber qual arquivo cada id deve estar apontando, e para o erro de nome
+ * ficar visivel em vez de silencioso
  */
 export const HUD_ICON_FILE = {
   stats: "stats",
   bestiario: "bestiario",
-
-  /**
-   * A arte da arena AINDA NAO EXISTE.
-   *
-   * A entrada fica declarada com o nome do arquivo que DEVERIA estar la,
-   * pelo mesmo motivo da guilda logo abaixo: e o `hudIcons.test.js` que
-   * compara as duas listas e falha dizendo o que falta. Sem esta linha
-   * o icone cairia no glifo `☠` para sempre, e o botao da arena
-   * pareceria igual ao do bestiario
-   */
-  arena: "arena",
-  market: "market",
+  market: "market_palyers",
+  loja: "loja",
   craft: "craft",
+  encantar: "encantar",
   collection: "colecao",
   rank: "rank",
-
-  /**
-   * A arte da guilda ainda nao existe.
-   *
-   * A entrada fica declarada com o nome do arquivo que DEVERIA estar
-   * la: e o `hudIcons.test.js` que compara as duas listas e falha
-   * dizendo o que falta. Sem esta linha o teste passaria e o icone
-   * cairia no glifo para sempre
-   */
-  guild: "guild",
-  settings: "gear_pixel_icon",
-
-  /**
-   * Os tres atributos NAO tem arte ainda.
-   *
-   * Eles ficam declarados aqui com o nome do arquivo que DEVERIA estar
-   * la, pelo mesmo motivo da arena e da guilda: e o `hudIcons.test.js`
-   * que compara as duas listas e falha dizendo o que falta
-   *
-   * Sem esta linha eles entrariam na `HUD_ICON_IDS` sem arquivo, o teste
-   * passaria sem ver o problema, e o rodape ficaria com glifo para
-   * sempre
-   */
-  ataque: "ataque",
-  defesa: "defesa",
-  velocidade: "velocidade",
+  guild: "guilda",
+  arvore: "arvore_de_habilidades",
+  passe: "passe",
+  settings: "configuracao",
+  boss: "boss",
 };
 
+/**
+ * As DOZE artes da barra, todas em `assets/icons/hud`.
+ *
+ * ## POR QUE A PASTA NOVA
+ *
+ * Porque as artes antigas viviam soltas em `assets/icons`, misturadas com
+ * as que o jogo usa fora da barra — `left`, `right`, `auto`,
+ * `metamask`. Doze PNGs de 30 a 80kb que so a barra consome tinham um
+ * lugar proprio, e e para la que os botoes apontam agora
+ *
+ * ## POR QUE O CAMINHO ESTA POR EXTENSO, LINHA POR LINHA
+ *
+ * Porque e a regra do Vite: ele so empacota o arquivo quando o caminho do
+ * `new URL` e um literal escrito no codigo. Um caminho montado com
+ * template string nao e seguido, e o pacote sairia sem as doze artes — sem
+ * erro nenhum, so o glifo de reserva aparecendo no lugar dos botoes
+ */
 const HUD_ICON_URL = {
   stats: new URL(
-    "../assets/icons/stats.png",
+    "../assets/icons/hud/stats.png",
     import.meta.url,
   ).href,
 
   bestiario: new URL(
-    "../assets/icons/bestiario.png",
-    import.meta.url,
-  ).href,
-
-  market: new URL(
-    "../assets/icons/market.png",
+    "../assets/icons/hud/bestiario.png",
     import.meta.url,
   ).href,
 
   /**
-   * A LOJA, que ate aqui so tinha glifo.
+   * O `market` e a LOJA sao botoes diferentes.
    *
-   * O `market` e a loja sao coisas diferentes: `market` e a troca entre
-   * jogadores e `loja` e o estoque do jogo. Entraram as duas artes no mesmo
-   * lote e cada uma foi para o seu botao — e o id ja era `loja`, pelo glifo
-   * `⚿`, entao a arte entrou nele e nao num id novo
+   * `market` e a troca entre jogadores e `loja` e o estoque do jogo. Os
+   * dois glifos ja eram distintos (`⇄` e `⚿`), e o id ja era `loja`, entao
+   * cada arte foi para o seu botao e nao entrou um id novo
    */
+  market: new URL(
+    "../assets/icons/hud/market_palyers.png",
+    import.meta.url,
+  ).href,
+
   loja: new URL(
-    "../assets/icons/loja.png",
+    "../assets/icons/hud/loja.png",
     import.meta.url,
   ).href,
 
   /**
-   * O ENCANTAR.
+   * O ENCANTAR e o CRAFT sao vizinhos e nao podem parecer iguais.
    *
-   * ## POR QUE `✦` E NAO O `⚒` DA FORJA
-   *
-   * Porque os dois botoes ficam vizinhos e sao coisas diferentes: `craft`
-   * monta a peca, e `encantar` e o que se faz depois de montada. O `⚒` e
-   * martelo e bigorna, que e a oficina; o `✦` e a estrela de brilho, que e
-   * o efeito que a peça recebe
+   * `craft` monta a peca e `encantar` e o que se faz depois de montada. O
+   * `⚒` e martelo e bigorna, que e a oficina; o `✦` e a estrela de brilho,
+   * que e o efeito que a peca recebe
    *
    * Sao tres verbos da oficina em botao, e cada um precisa de uma leitura
-   * propria antes de a arte entrar
+   * propria antes mesmo de a arte entrar
    */
   encantar: new URL(
-    "../assets/icons/encantar.png",
+    "../assets/icons/hud/encantar.png",
     import.meta.url,
   ).href,
 
   craft: new URL(
-    "../assets/icons/craft.png",
+    "../assets/icons/hud/craft.png",
     import.meta.url,
   ).href,
 
   collection: new URL(
-    "../assets/icons/colecao.png",
+    "../assets/icons/hud/colecao.png",
     import.meta.url,
   ).href,
 
   rank: new URL(
-    "../assets/icons/rank.png",
+    "../assets/icons/hud/rank.png",
     import.meta.url,
   ).href,
 
-  /**
-   * A arte da guilda: um escudo com o ramo da arvore de talento.
-   *
-   * Desenhada por codigo em `tools/gerar-icone-guild.mjs`, e nao
-   * importada de uma pasta de arte. Os outros sete icones existem como
-   * arquivo feito fora; nao havia arte de guilda no projeto, e um
-   * espaco em branco na barra seria pior do que um escudo honesto
-   */
   guild: new URL(
-    "../assets/icons/guild.png",
-    import.meta.url,
-  ).href,
-
-  // o nome do arquivo nao segue o id, e o `HUD_ICON_FILE` e quem
-  // declara isso: o id e o que o botao pede, e o arquivo e o que a arte
-  // se chama
-  settings: new URL(
-    "../assets/icons/gear_pixel_icon.png",
+    "../assets/icons/hud/guilda.png",
     import.meta.url,
   ).href,
 
   /**
-   * O PASSE, que ate aqui so tinha glifo.
+   * A ARVORE DE HABILIDADE, que ate o botao novo so tinha o glifo `⑂`.
    *
-   * A arte entrou com o resto do lote novo, e como os outros o caminho fica
-   * escrito por extenso: e a regra do Vite, que so empacota o `new URL`
-   * quando o caminho e um literal
+   * O glifo continua no `HUD_ICON_GLYPH` como reserva: e ele que aparece
+   * se a imagem nao carregar, e e o que o `hudIcons.test.js` exige de
+   * todo id da lista
    */
-  passe: new URL(
-    "../assets/icons/passe.png",
+  arvore: new URL(
+    "../assets/icons/hud/arvore_de_habilidades.png",
     import.meta.url,
   ).href,
+
+  passe: new URL(
+    "../assets/icons/hud/passe.png",
+    import.meta.url,
+  ).href,
+
+  // o nome do arquivo nao segue o id, e o `HUD_ICON_FILE` e quem declara
+  // isso: o id e o que o botao pede, e o arquivo e o que a arte se chama
+  settings: new URL(
+    "../assets/icons/hud/configuracao.png",
+    import.meta.url,
+  ).href,
+
+  /**
+   * O CHEFE. O id segue o arquivo, que nao foi exceção nenhuma aqui.
+   *
+   * O glifo de reserva e o `☠`, o mesmo do bestiario de proposito: os dois
+   * botoes sao sobre criatura de combate, e um sinal de caveira na barra
+   * concorda com a arte dos dois
+   */
+  boss: new URL("../assets/icons/hud/boss.png", import.meta.url).href,
 };
 
 /**

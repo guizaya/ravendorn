@@ -12,6 +12,29 @@ import InvSlotView from "../UI/InvSlotView.jsx";
 import { getItem } from "../../data/items/index.js";
 
 /**
+ * OS 50 SLOTS DO BAÚ DO NPC, na aba de Retirar.
+ *
+ * ## POR QUE UM NÚMERO AQUI, E NÃO O `bau.capacity` DO SERVIDOR
+ *
+ * Porque o painel precisa desenhar a grade ANTES de saber o que tem dentro
+ * dela — e a grade dos 50 slots é o que o jogador ve, não o quanto está
+ * ocupado. Se o número viesse do servidor, um baú quase vazio mostraria uma
+ * grade de 3 slots, e o layout pularia a cada peça guardada
+ *
+ * ## E ESTE 50 TEM QUE SER O MESMO DO `BAU_CAPACITY`
+ *
+ * Que vive no `PlayerSession.js` e vale 50 depois da mudança. Dois números que
+ * precisam concordar e não conversam é como o painel passa a oferecer slots
+ * que o servidor recusa. Se um mudar, os dois mudam
+ *
+ * ## E A ABA DE GUARDAR NÃO USA ESTE NÚMERO
+ *
+ * Porque ali os slots são os da MOCHILA (`inventory.capacity`), que cresce
+ * quando o jogador compra espaço. Um baú de 50 não vira uma mochila de 50
+ */
+const BAU_SLOTS = 50;
+
+/**
  * O PAINEL DO BAU DA BASE.
  *
  * ## UM LADO POR VEZ, COMO O COFRE DA GUILDA
@@ -67,9 +90,9 @@ function Transferencia({
   titulo,
   dica,
   itens,
+  slots,
   conta,
   cheio,
-  vazio,
   onMover,
 
   /**
@@ -171,10 +194,16 @@ function Transferencia({
 
       <p className="bau-lado__dica">{dica}</p>
 
-      {itens.length === 0 ? (
-        <p className="inv-panel__empty">{vazio}</p>
-      ) : (
-        <div className="inv-grid bau-lado__grade">
+      {/*
+        A GRADE SEMPRE, NUNCA O TEXTO DE VAZIO.
+
+        Antes havia `{itens.length === 0 ? <p>{vazio}</p> : <grade>}`: um baú
+        vazio mostrava um aviso no lugar dos slots. Com as 50 células fixas, o
+        baú vazio É uma grade de 50 quadrados vazios — e é isso que o jogador
+        precisa ver: que existe espaço, e quanto. O aviso dizia o contrario, que
+        não havia lugar
+      */}
+      <div className="inv-grid bau-lado__grade">
           {itens.map((entrada) => {
             const id = entrada.uid;
 
@@ -195,15 +224,50 @@ function Transferencia({
                     setQuantidade("");
                   }}
                 />
-
-                <span className="inv-cell__name">
-                  {getItem(entrada.itemId)?.name ?? entrada.itemId}
-                </span>
               </div>
             );
           })}
-        </div>
-      )}
+
+{/*
+            OS VAZIOS ATÉ 50, E NÃO UM MAP SOBRE UM ARRAY DE 50.
+            *
+            * ## POR QUE O BAÚ TEM 50 E O COFRE DA GUILDA NÃO
+            *
+            * Porque o cofre da guilda é collective e compartilhado, e a
+            * capacidade dele é decided pelo servidor. O baú do NPC é um
+            * baú de NPC: um número fixo, escrito aqui, que o painel pode
+            * desenhar sem perguntar a ninguém
+            *
+            * ## POR QUE SEMPRE 50, E NÃO SÓ OS CHEIOS
+            *
+            * Porque a grade que encolhe com o conteudo faz o layout pular a
+            * cada peça que entra e sai. Com 50 células sempre, a aba Retirar
+            * e a aba Guardar mostram a MESMA grade, e o jogador aprende onde
+            * a peça vai estar antes de rolar
+            *
+            * ## E POR QUE UM DIV, E NÃO O `InvSlotView`
+            *
+            * Porque o `InvSlotView` faz `getItem(entry.itemId)` e devolve
+            * `null` quando o item não existe — o slot nem chega a ser
+            * desenhado. Passar `entry={null}` aqui renderizaria 50 células
+            * invisíveis: o espaço da grade viria certo, mas o jogador não
+            * veria o baú
+            *
+            * O div segue a mesma marca que a mochila usa no slot vazio dela
+            * (`InventoryPanel.jsx:753`), para que o desenho dos dois grades
+            * seja o mesmo
+            */}
+          {Array.from(
+            { length: Math.max(0, slots - itens.length) },
+            (_, i) => (
+              <div
+                key={`vazio-${i}`}
+                className="inv-slot inv-slot--empty"
+                aria-hidden="true"
+              />
+            ),
+          )}
+      </div>
 
       {/*
         A BARRA DE ACAO, que so existe com uma peca escolhida.
@@ -360,6 +424,19 @@ export default function BauPanel({
         abas, e a peca marcada em "Guardar" continuaria marcada em
         "Retirar" — inclusive com o campo de quantidade preenchido
       */}
+      {/*
+        `slots` e QUANTOS quadradinhos cada aba desenha, e as duas nao
+        desenham o mesmo numero.
+
+        Na aba "Guardar" vale a capacidade da MOCHA: 20 slots para quem tem 20,
+        30 para quem comprou mais 10 espaco. Desenhar ali os 50 do baú seria
+        mentira — o jogador escolheria um slot que a mochila dele não tem, e o
+        servidor recusaria a peca depois que ela já entrou no slot
+
+        Na aba "Retirar" vale a capacidade do BAÚ, que e o `BAU_CAPACITY` do
+        `PlayerSession.js`. Os dois 50 precisam ser o mesmo numero: se um mudar
+        sozinho, o painel passa a oferecer slots que o servidor nega
+      */}
       <Transferencia
         key={lado}
         lado={lado}
@@ -370,16 +447,12 @@ export default function BauPanel({
             : "Do baú para a mochila"
         }
         itens={lado === "depositar" ? (inventory?.items ?? []) : (bau?.items ?? [])}
+        slots={lado === "depositar" ? (inventory?.capacity ?? 0) : BAU_SLOTS}
         conta={lado === "depositar" ? contaMochila : contaBau}
         cheio={
           lado === "depositar"
             ? Boolean(inventory?.isFull)
             : Boolean(bau?.isFull)
-        }
-        vazio={
-          lado === "depositar"
-            ? "A mochila está vazia."
-            : "Nada guardado ainda."
         }
         onMover={onMover}
         montarItem={montarItem}

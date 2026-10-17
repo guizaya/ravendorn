@@ -130,8 +130,8 @@ export class PortalRenderer {
   }
 
   collectVisible(portals, view) {
-    return portals.filter((portal) =>
-      this.visible(portal, view),
+    return portals.filter(
+      (portal) => !portal.oculto && this.visible(portal, view),
     );
   }
 
@@ -140,4 +140,16 @@ export class PortalRenderer {
       this.drawPortal(context, portal);
     }
   }
+
+  /**
+   * AS PASSAGENS SEM ARTE NAO DESENHAM NADA.
+   *
+   * ## POR QUE O CAMPO VEM DO DADO E NAO DE UMA LISTA AQUI
+   *
+   * Porque "esta passagem nao tem imagem" e uma propriedade DA PASSAGEM, e
+   * nao uma excecao deste renderer. O portal da base virou uma passagem com
+   * arte substituida pela luz na borda do mapa: se a lista de "nao desenha"
+   * vivesse aqui, o proximo que inventasse uma passagem com arte teria que
+   * vir arrumar este arquivo
+   */
 }

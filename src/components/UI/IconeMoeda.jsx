@@ -46,6 +46,15 @@ export default function IconeMoeda({ moeda, lado = null, className = "" }) {
       src={src}
       alt=""
       aria-hidden="true"
+      /**
+       * A MOEDA COMO ATRIBUTO.
+       *
+       * Porque as tres artes vivem sob a mesma classe `moeda`, e so o
+       * `src` as distinguia — o que nao da para estilizar. O atributo
+       * deixa o CSS falar do steel sem dar uma classe nova para cada
+       * chamador
+       */
+      data-moeda={moeda}
       width={lado ?? undefined}
       height={lado ?? undefined}
     />

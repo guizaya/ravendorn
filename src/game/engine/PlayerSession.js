@@ -16,24 +16,27 @@ import { estadoInativo } from "../progression/OfflineFarm.js";
 /**
  * QUANTOS SLOTS o bau da base tem.
  *
- * ## POR QUE 60, E NAO O MESMO 20 DA MOCHILA
+ * ## POR QUE 50, E NAO O MESMO 20 DA MOCHILA
  *
  * Porque o bau e para o que NAO cabe na mochila. Com o mesmo tamanho, o
  * jogador nao teria para onde levar o excesso: ele esbarraria no limite
  * nos dois lugares ao mesmo tempo, e o bau seria um segundo lugar onde a
  * coisa nao cabe
  *
- * Tres vezes a mochila faz o baU ler como "espaco de sobra" e nao como
- * "outra mochila". E 60 continua cabendo em um painel de duas colunas sem
- * a coluna do bau virar uma lista sem fim
+ * ## POR QUE 50 E NAO 60
  *
- * ## POR QUE FICA AQUI E NAO NO `Inventory`
+ * Porque a grade do painel e de CINCO colunas, e o que se ve sao QUATRO
+ * linhas: 5 x 4 = 20 slots por tela. Com 60 slots seriam 12 linhas, e a
+ * quinta linha em diante so apareceria rolando — sem o painel ganhar nada
+ * com a diferenca, que o jogador pagaria apenas porque o numero subiu
  *
- * Porque e o bau que e 60. O `INVENTORY_CAPACITY` e a mochila, e mudar o
+ * ## E POR QUE FICA AQUI E NAO NO `Inventory`
+ *
+ * Porque e o bau que e 50. O `INVENTORY_CAPACITY` e a mochila, e mudar o
  * numero la mudaria a mochila junto — que e o lugar onde um numero
  * solto estraga mais coisa
  */
-export const BAU_CAPACITY = 60;
+export const BAU_CAPACITY = 50;
 
 
 /**

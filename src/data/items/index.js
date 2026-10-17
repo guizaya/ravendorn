@@ -571,53 +571,106 @@ export const ITEMS = {
      de Reliquia do craft aparecia vazia e os dois slots `trinket1` e
      `trinket2` ficavam sem nada que ocupasse. */
 
+  /* ---- os acessorios ----
+     Seis pecas em vez de duas: tres aneis e tres amuletos, um por atributo.
+     O `id` de cada uma e o nome do arquivo da arte em
+     `assets/Items/acessorios`, sem mudanca — e o que faz `anel_de_forca`
+     responder pela imagem `anel_de_forca.png` sem nenhum mapa no meio. */
+
   /**
-   * O ANEL, e a reliquia de qualquer classe.
+   * OS ANEIS: FORCA, MANA E VIGOR.
    *
-   * ## POR QUE ELE NAO TEM `classes`
+   * ## POR QUE TRES E NAO UM
+   *
+   * Porque o anel antigo era um item so, e o jogador nao tinha escolha a
+   * nao ser nenhuma. Tres aneis dao tres nomes, tres statistics e tres
+   * momentos de jogo diferentes: quem quer bater mais forte, quem quer
+   * segurar a magia, e quem quer aguentar mais
+   *
+   * ## POR QUE NAO TEM `classes`
    *
    * Porque a trava de classe do craft e a FAMILIA da arma, e reliquia nao
    * tem familia: um anel que so o arqueiro pudesse usar seria uma restricao
-   * sem motivo, e o desenho do texto de criacao pede ele "para qualquer
-   * classe"
+   * sem motivo
    *
-   * ## POR QUE ELE NAO TEM `slot`
+   * ## POR QUE NAO TEM `slot`
    *
    * Porque sao DOIS slots de reliquia (`trinket1` e `trinket2`) e o
-   * `slotForItem` entrega o primeiro que aceita o tipo. Com `slot: null`
-   * o jogador escolhe em qual dos dois equipar, e com um `slot` fixo o
-   * segundo ficaria sempre vazio
+   * `slotForItem` entrega o primeiro que aceita o tipo. Com `slot: null` o
+   * jogador escolhe em qual dos dois equipar, e com um `slot` fixo o segundo
+   * ficaria sempre vazio
    */
-  anel: createItem({
-    id: "anel",
-    name: "Anel",
+  anel_de_forca: createItem({
+    id: "anel_de_forca",
+    name: "Anel de Força",
     icon: "?",
     rarity: RARITY.COMMON,
     type: ITEM_TYPE.TRINKET,
     value: 90,
-    stats: { attack: 2, defense: 1 },
+    stats: { attack: 3 },
+  }),
+
+  anel_de_mana: createItem({
+    id: "anel_de_mana",
+    name: "Anel de Mana",
+    icon: "?",
+    rarity: RARITY.COMMON,
+    type: ITEM_TYPE.TRINKET,
+    value: 90,
+    stats: { maxResource: 8, resourceRegen: 1 },
+  }),
+
+  anel_de_vigor: createItem({
+    id: "anel_de_vigor",
+    name: "Anel de Vigor",
+    icon: "?",
+    rarity: RARITY.COMMON,
+    type: ITEM_TYPE.TRINKET,
+    value: 90,
+    stats: { maxHp: 14, hpRegen: 1 },
   }),
 
   /**
-   * O AMULETO do arqueiro.
+   * OS AMULETOS: A MESMA ESCALA, MAIS FORTE.
    *
-   * E a peca mais cara do conjunto: a receita dele e a unica que gasta
-   * Essencia Necrotica desde o grau raro, e e a unica em que a pedra
-   * verde entra nas cinco raridades
+   * ## POR QUE O AMULETO SEMPRE BATE MAIS QUE O ANEL
    *
-   * Diferente do anel, este NAO trava a classe pelo `classes`: como
-   * reliquia ele nao tem familia, e o campo so existe para pecas que
-   * precisam de um dono. Um amuleto declarado "do arqueiro" e desenhado
-   * como generico seria contradicao na tela
+   * Porque sao dois slots, e a unica forma de uma escolha de equipar fazer
+   * sentido e os dois lados terem valor. Com o mesmo numero nos dois, a
+   * segunda aba seria sempre a errada
+   *
+   * O amuleto antigo era a peca mais cara do conjunto — a unica receita que
+   * gastava Essencia Necrotica desde o grau raro. As tres receitas de amuleto
+   * continuam sendo as mais caras das acessorios
    */
-  amuleto_arqueiro: createItem({
-    id: "amuleto_arqueiro",
-    name: "Amuleto do Arqueiro",
+  amuleto_de_forca: createItem({
+    id: "amuleto_de_forca",
+    name: "Amuleto de Força",
     icon: "?",
     rarity: RARITY.COMMON,
     type: ITEM_TYPE.TRINKET,
     value: 120,
-    stats: { attack: 3, defense: 2, accuracy: 2 },
+    stats: { attack: 5, defense: 2 },
+  }),
+
+  amuleto_de_mana: createItem({
+    id: "amuleto_de_mana",
+    name: "Amuleto de Mana",
+    icon: "?",
+    rarity: RARITY.COMMON,
+    type: ITEM_TYPE.TRINKET,
+    value: 120,
+    stats: { maxResource: 14, resourceRegen: 2, magicAttack: 3 },
+  }),
+
+  amuleto_de_vigor: createItem({
+    id: "amuleto_de_vigor",
+    name: "Amuleto de Vigor",
+    icon: "?",
+    rarity: RARITY.COMMON,
+    type: ITEM_TYPE.TRINKET,
+    value: 120,
+    stats: { maxHp: 24, hpRegen: 2, defense: 3 },
   }),
 
   /* ---- armas por classe ----

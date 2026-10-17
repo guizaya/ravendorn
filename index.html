@@ -6,10 +6,54 @@
       name="viewport"
       content="width=device-width, initial-scale=1.0"
     />
-    <meta
+<meta
       name="theme-color"
       content="#090d12"
     />
+
+    <!--
+      A FONTE, PEDIDA AQUI E NAO NO CSS.
+
+      ## POR QUE DUAS LINHAS DE PRECONNECT
+
+      Porque `fonts.googleapis.com` e `fonts.gstatic.com` sao dominios
+      diferentes, e cada um exige uma resolucao de nome e uma conexao nova. O
+      `preconnect` faz as duas ANTES do navegador descobrir que precisa delas,
+      o que apaga a espera por DNS e TLS da primeira visita
+
+      ## E POR QUE `media="print"` COM `onload`
+
+      Porque e o jeito de carregar folha de estilo sem travar a pintura. Com
+      `media="print"` o navegador baixa o arquivo mas nao o aplica, entao ele
+      nao entra na fila que bloqueia a tela; o `onload` devolve para `all` e a
+      fonte entra no lugar. O `display=swap` continua garantindo que o texto
+      aparece na hora, com a fonte de sistema ate a Inter chegar
+
+      O `noscript` cobre o caso sem JavaScript, que e o unico jeito de a
+      troca ficar para sempre em `print`
+    -->
+    <link
+      rel="preconnect"
+      href="https://fonts.googleapis.com"
+    />
+    <link
+      rel="preconnect"
+      href="https://fonts.gstatic.com"
+      crossorigin
+    />
+    <link
+      rel="stylesheet"
+      href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=Montserrat:wght@600;700;800&display=swap"
+      media="print"
+      onload="this.media='all'"
+    />
+    <noscript>
+      <link
+        rel="stylesheet"
+        href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=Montserrat:wght@600;700;800&display=swap"
+      />
+    </noscript>
+
     <title>Project Ashen — RPG 2D</title>
   </head>
 

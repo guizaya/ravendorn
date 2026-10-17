@@ -129,7 +129,7 @@ function Walkthrough({ passos, atual, aoAbrirPainel }) {
 }
 import ItemIcon from "../UI/ItemIcon.jsx";
 import { getItem } from "../../data/items/index.js";
-import { QUEST_SCOPE } from "../../data/quests/index.js";
+import { QUEST_SCOPE, numeroDaMissao } from "../../data/quests/index.js";
 import { MAP_1, MAP_1_META, MAP_2, MAP_2_ZONES, mapaDaZona } from "../../data/maps/index.js";
 
 /**
@@ -155,12 +155,12 @@ const MAPAS_RAIL = [
   {
     id: MAP_1.id,
     name: MAP_1.name,
-    cor: MAP_1_META.zones?.[0]?.terrain === "grass" ? "#5f8f4a" : "#6fbf8a",
+    cor: MAP_1_META.zones?.[0]?.terrain === "grass" ? "#8a764f" : "#b9a275",
   },
   {
     id: MAP_2.id,
     name: MAP_2.name,
-    cor: MAP_2_ZONES?.[0]?.terrain === "grass" ? "#5f8f4a" : "#6fbf8a",
+    cor: MAP_2_ZONES?.[0]?.terrain === "grass" ? "#8a764f" : "#b9a275",
   },
 ];
 
@@ -297,99 +297,18 @@ const TYPE_LABEL = {
 /**
  * O NUMERO DA MISSAO, como `mapa.missao`.
  *
- * ## DE ONDE SAI OS DOIS NUMEROS
+ * ## POR QUE AGORA E IMPORTADO, E NAO DEFINIDO AQUI
  *
- * Do id, que ja tem os dois: `map1_main_1_limo_pantano` e
- * `map2_main_3_lanca_vale01`. O primeiro pedaco e o mapa, o terceiro e o
- * indice do degrau dentro da escada daquele mapa
+ * Era uma copia local desta mesma conta, e as duas divergiram: o painel
+ * mostrava `1.19` e a trava do portal escrevia "O Hulk" para a mesma degrau.
+ * O jogador lia um numero na campanha e um nome no portal, sem caminho para
+ * ligar um no outro
  *
- * ## POR QUE LER O ID E NAO PASSAR OS DOIS COMO PROP
- *
- * Porque o id e a unica coisa que os DOIS lados tem: o painel recebe a missao
- * ja montada pelo servidor, e o servidor nao manda `mapa` nem `degrau` como
- * campos. Passar os dois como prop seria criar um segundo lugar para o mesmo
- * numero, e o primeiro lugar a divergir quando o save for antigo
- *
- * ## POR QUE VOLTA `null` E NAO UM NUMERO CHUTADO
- *
- * Porque um id fora do padrao e um save de outra versao, nao uma missao. O
- * `null` some o numero e deixa o nome sozinho, que e o que o jogador ainda
- * consegue ler. Um "0.0" no lugar seria pior que nada
+ * A funcao mora em `data/quests` porque a trava do portal tambem precisa
+ * dela, e a trava e um dado — nao uma tela. Copiar a conta de volta para
+ * este arquivo resolveria a tela e devolveria a divergencia no proximo
+ * passo
  */
-function numeroDaMissao(id) {
-    const partes = String(id ?? "").split("_");
-
-    /**
-     * O MAPA ESTA PARTIDO EM DUAS PARTES, e nao em uma.
-     *
-     * O `id` e `map_1_main_1_limo_pantano`, e dividir por underscore da
-     * `["map", "1", "main", "1", "limo", "pantano"]`. A expressao testava a
-     * PRIMEIRA parte esperando `map_1` inteiro, e ela e so `map` — o `1` foi
-     * junto com o separador
-     *
-     * A forma antiga do id era `map1_main_1`, que nao tinha separador entre
-     * o mapa e o numero
-     */
-    const temSeparador = partes[0] === "map";
-
-    const mapa = temSeparador
-      ? (/^\d+$/.test(partes[1] ?? "") ? partes[1] : null)
-      : (/^map(\d+)$/.exec(partes[0] ?? "")?.[1] ?? null);
-
-    /**
-     * O INDICE E REINICIADO A CADA MAPA, e nao lido do `id`.
-     *
-     * ## O QUE ESTAVA ERRADO
-     *
-     * O numero do `id` e a POSICAO GLOBAL na campanha: o mapa 1 tem 18
-     * passos, `1` a `18`, e o mapa 2 comeca em `19`. Ler o `id` direto
-     * mostrava `2.19` no primeiro passo do mapa 2
-     *
-     *## POR QUE ISSO E ERRADO PARA O JOGADOR
-     *
-     * Porque o numero na tela tem que responder "onde eu to", e nao "quantas
-     * coisas eu ja fiz". Quem abre o mapa 2 espera 2.1 — e `2.19` faz o
-     * jogador achar que pulou dezenove degraus, ou que o mapa tem capitulo
-     * anterior. O prefixo `2.` ja diz que e o segundo mapa; repetir dezenove
-     * vezes o primeiro digito so polui
-     *
-     * ## POR QUE NAO BASTAVA DESCONTAR OS DEGRAUS DO MAPA 1
-     *
-     * Porque os ids sao usados como CHAVE DE SAVE. Reescrever o `id` do mapa
-     * 2 para `main_1` faria todo save que guardou `map_2_main_19_...` deixar
-     * de achar a missao — e o jogador perderia o progresso sem nenhum erro
-     *
-     * Entao o `id` continua global e inalterado. O numero da tela e calculado
-     * pela POSICAO DENTRO DO MAPA, que e o que o jogador enxerga
-     */
-    const indiceGlobal = Number(
-      partes.find((parte, i) => i > 1 && /^\d+$/.test(parte)),
-    );
-
-    if (!mapa || !Number.isInteger(indiceGlobal) || indiceGlobal < 1) {
-      return null;
-    }
-
-    /**
-     * O `PRIMEIRO` indice global de cada mapa, para saber quantos degraus
-     * existiram antes
-     *
-     * E uma tabela de duas linhas e nao um calculo sobre `MAIN_QUESTS` porque
-     * a funcao nao pode depender da ordem do catalogo: um passo novo
-     * inserido no meio do mapa 1 mudaria o numero do mapa 2 inteiro, e o
-     * numero impresso passaria a depender de um arquivo que esta a tres
-     * `import` de distancia
-     */
-    const primeiroIndiceDoMapa = { 1: 1, 2: 19 };
-
-    const base = primeiroIndiceDoMapa[mapa] ?? 1;
-
-    const indice = indiceGlobal - base + 1;
-
-    if (indice < 1) return null;
-
-    return `${mapa}.${indice}`;
-  }
 
 /**
  * O bloco de RECOMPENSAS: ouro, xp e itens, cada um num SLOT DE ITEM.

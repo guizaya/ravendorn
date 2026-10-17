@@ -153,7 +153,7 @@ function Linha({ livro, saldo, aprendida, onBuy }) {
           <>
             <strong
               className="pocao-linha__preco"
-              style={{ color: "#8ad9a0" }}
+              style={{ color: "#d3bd90" }}
             >
               ✓
             </strong>

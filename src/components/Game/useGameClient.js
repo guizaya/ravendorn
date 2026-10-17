@@ -464,10 +464,43 @@ const alternarAutoPlay = useCallback(
    * em jogo online o clique da arvore nao fazia nada: o ponto aparecia
    * disponivel e o servidor nunca recebia o pedido
    */
-  const aprenderNoArvore = useCallback(
-    (noId) => comCliente((c) => c.aprenderNoArvore(noId)),
-    [comCliente],
-  );
+const aprenderNoArvore = useCallback(
+        (noId) => comCliente((c) => c.aprenderNoArvore(noId)),
+        [comCliente],
+      );
+
+      /**
+       * AS QUATRO AÇÕES DE EXPEDIÇÃO DO CHEFE.
+       *
+       * Vêm pelo mesmo `comCliente` do resto, e pelo mesmo motivo: em jogo
+       * online o painel é uma cópia de tela, e um clique que mexe só no React
+       * morria ali — o grupo sumia no próximo pacote, sem o servidor nunca ter
+       * ouvido falar dele
+       *
+       * E o `criarExpedicao` leva o `chefeId` junto porque a expedição é
+       * DAQUELE chefe: é o que o `GameServer` confere contra o catálogo antes
+       * de gravar
+       */
+      const criarExpedicao = useCallback(
+        ({ chefeId, dificuldade }) =>
+          comCliente((c) => c.criarExpedicao(dificuldade, chefeId)),
+        [comCliente],
+      );
+
+      const entrarExpedicao = useCallback(
+        (expedicaoId) => comCliente((c) => c.entrarExpedicao(expedicaoId)),
+        [comCliente],
+      );
+
+      const sairExpedicao = useCallback(
+        (expedicaoId) => comCliente((c) => c.sairExpedicao(expedicaoId)),
+        [comCliente],
+      );
+
+      const dissolverExpedicao = useCallback(
+        (expedicaoId) => comCliente((c) => c.dissolverExpedicao(expedicaoId)),
+        [comCliente],
+      );
 
   /**
    * Resgata UM dia do passe.
@@ -678,6 +711,12 @@ const listarNoMarket = useCallback(
    */
   const teleportar = useCallback(
     () => comCliente((c) => c.teleportar()),
+    [comCliente],
+  );
+
+  /** Anda até o NPC. Só o id vai; o servidor resolve o caminho. */
+  const irAteNpc = useCallback(
+    (npcId) => comCliente((c) => c.irAteNpc(npcId)),
     [comCliente],
   );
 
@@ -941,6 +980,10 @@ atacar,
     resgatarRecompensaMissao,
     resgatarTodasMissoes,
     aprenderNoArvore,
+        criarExpedicao,
+        entrarExpedicao,
+        sairExpedicao,
+        dissolverExpedicao,
     resgatarDiaDoPasse,
     definirPassePremium,
     cacarCriatura,
@@ -959,6 +1002,7 @@ atacar,
     reviver,
     voltarBase,
     teleportar,
+    irAteNpc,
   };
 
   /**

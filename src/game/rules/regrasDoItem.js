@@ -241,8 +241,12 @@ export const EQUIPAMENTOS_DE_DROP = [
   { id: "luvas_warrior", weight: 10 },
   { id: "peito_warrior", weight: 10 },
 
-  { id: "anel", weight: 4 },
-  { id: "amuleto_arqueiro", weight: 4 },
+  { id: "anel_de_forca", weight: 2 },
+  { id: "anel_de_mana", weight: 2 },
+  { id: "anel_de_vigor", weight: 2 },
+  { id: "amuleto_de_forca", weight: 2 },
+  { id: "amuleto_de_mana", weight: 2 },
+  { id: "amuleto_de_vigor", weight: 2 },
 ];
 
 /**

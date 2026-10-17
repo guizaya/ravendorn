@@ -235,31 +235,43 @@ Sobrou so o brilho dourado, que nao tem peca de figuracao e so escurece
 }
 
 /**
- * O NO: UM BOTAO COM O HEXAGONO DENTRO.
+ * O NO: UM BOTAO COM A BOLA DENTRO.
  *
- * ## POR QUE `clip-path` EM DOIS BLOCOS
+ * ## POR QUE `border-radius` E NAO `clip-path`
  *
- * Porque `clip-path` recorta um preenchimento, e nao desenha uma borda. O
- * contorno de um pixel do desenho e um hexagono MAIOR na cor da borda
- * (`.arb-hex__forma`), com o conteudo por cima na cor do fundo. O que sobra
- * entre os dois e a linha
+ * O hexagono era `clip-path: polygon(...)`. A bola e um `border-radius: 50%`
+ * num quadrado, e e mais barato alem disso: o `clip-path` do hexagono era
+ * repetido no bloco de fora e no de dentro para o recorte nao vazar, e aqui os
+ * dois blocos sao circulos de qualquer jeito
  *
- * E o `clip-path` do CONTEUDO tambem: sem ele, o retangulo interno cobriria os
- * seis cantos e o hexagono viraria um losango com os picos tampados
+ * ## POR QUE DOIS BLOCOS MESMO SENDO UM circulo
  *
- * ## E POR QUE O FORMATO E UM POLYGON DE 6 PONTOS
+ * Porque `border-radius` nao desenha contorno: ele arredonda um preenchimento.
+ * O contorno e um circulo MAIOR na cor da borda (`.arb-hex__forma`), com o
+ * conteudo por cima na cor do fundo (`.arb-hex__conteudo`). O que sobra entre
+ * os dois e a linha, e continua sendo a mesma conta de 1px do hexagono
  *
- * Porque a referencia tem o topo e a base em PONTA, e nao achata. Sao seis
- * vertices: o topo, o ombro direito, o quadril direito, a base, e os dois
- * esquerdo. Com o topo achatado vira um octogono, que e outro desenho
+ * ## E POR QUE A BOLA PRECISA DE GRADIENTE
+ *
+ * Porque um circulo chapado e um disco, e nao uma bola. O gradiente radial
+ * com o brilho acima e a esquerda e o que da volume: e a mesma luz que ja vem
+ * do topo nos gradientes do cabecalho e do painel
+ *
+ * ## E POR QUE ESTE BLOCO NAO TEM MAIS `transform` NEM LARGURA FIXA
+ *
+ * Porque o `translate(-50%, -50%)` e o `width`/`height` fixa eram do no como
+ * elemento posicionado. Agora quem posiciona e o `.arb-no` em volta, e ele ja
+ * faz essa conta. Deixar aqui tambem aplicava a translacao duas vezes e a bola
+ * saia do lugar — e o `width: 100%` faz a fundaçao de 66 Herdar do wrapper, em
+ * vez de repetir o numero em dois lugares
  */
 .arb-hex {
   position: absolute;
+  inset: 0;
   z-index: 1;
-  transform: translate(-50%, -50%);
   display: block;
-  width: 54px;
-  height: 84px;
+  width: 100%;
+  height: 100%;
   padding: 0;
   border: 0;
   background: none;
@@ -272,39 +284,42 @@ Sobrou so o brilho dourado, que nao tem peca de figuracao e so escurece
   position: absolute;
   inset: 0;
   display: block;
+  border-radius: 50%;
   background: var(--t-line-3);
-  clip-path: polygon(50% 0%, 100% 25%, 100% 75%, 50% 100%, 0% 75%, 0% 25%);
 }
 
 .arb-hex__conteudo {
   position: absolute;
-  inset: 1.5px;
+  inset: 2px;
   display: flex;
-  flex-direction: column;
   align-items: center;
   justify-content: center;
-  gap: 1px;
-  background: var(--t-abyss);
-  clip-path: polygon(50% 0%, 100% 25%, 100% 75%, 50% 100%, 0% 75%, 0% 25%);
+  border-radius: 50%;
+  background: radial-gradient(
+    circle at 34% 28%,
+    #3a2e1f 0%,
+    var(--t-abyss) 58%
+  );
 }
 
 .arb-hex__icone {
-    font-size: 12px;
+  font-size: 19px;
   line-height: 1;
 }
 
-.arb-hex__nome {
-  font-size: 8px;
-  line-height: 1.05;
-  letter-spacing: 0.02em;
-  color: var(--t-text);
-  text-align: center;
-}
-
-.arb-hex__completo {
-  display: none;
-}
-
+/**
+ * O NOME SAIU DA BOLA.
+ *
+ * Antes o nó mostrava a primeira palavra do nome embaixo do ícone, e o resto
+ * (`arb-hex__completo`) já era `display: none` — o nome vivia em duas metades
+ * e só uma aparecia. Com a bola redonda não há onde assentar uma linha de
+ * texto sem achatar o círculo ou furar a borda, e o nome curto era o que mais
+ * pesava na leitura: "Golpe", "Casco", "Manto" são genéricos demais para
+ * distinguir um nó do outro
+ *
+ * O nome continua no `data-tip` do botão, que é onde o jogador lê o nome
+ * inteiro — com o bônus e o custo — antes de clicar
+ */
 /**
  * O CUSTO, NO CANTO SUPERIOR DIREITO.
  *
@@ -322,23 +337,177 @@ Sobrou so o brilho dourado, que nao tem peca de figuracao e so escurece
 }
 
 /**
- * O `comprados/total` DO DEGRAU, DEBAIXO DO HEXAGONO.
+ * O `comprados/total` SAIU DE DEBAIXO DA BOLA.
  *
- * ## POR QUE O MESMO NUMERO EM TODOS OS NOS DO MESMO DEGRAU
- *
- * Porque ele responde "quanto deste nivel eu ja construi?", e nao "quanto
- * este no vale". Sao perguntas diferentes, e a segunda nao tem resposta util
- * num no de compra unica
+ * Ele foi parar dentro da caixa, no cabeçalho. Debaixo da bola ele vivia num
+ * vulto de 7px cinza sobre o fundo escuro, repetido em 37 posicoes: era o
+ * primeiro texto que o olho pegava e o ultimo que ele lia. Na caixa ele fica
+ * ao lado do nome, onde responde "quanto deste nivel eu ja construi?" com o
+ * nome do no do lado
  */
 .arb-hex__progresso {
+  display: none;
+}
+
+/**
+ * O NO: POSICIONADO, E SEM CLIQUE.
+ *
+ * O wrapper e quem tem o `left`/`top` e o `translate`. A bola dentro deixou de
+ * ser o alvo do clique — quem abre a caixa e o cabecalho dela — e precisa
+ * voltar a ser um bloco comum, sem `transform`, porque a transformacao do
+ * wrapper ja faz o posicionamento e as duas somadas tirariam o no do lugar
+ */
+.arb-no {
   position: absolute;
-  top: calc(100% - 4px);
+  z-index: 1;
+  transform: translate(-50%, -50%);
+  width: 54px;
+  height: 54px;
+}
+
+/**
+ * O NÓ COM CAIXA ABERTA SOBE ACIMA DAS IRMÃS.
+ *
+ * Porque o `transform` do wrapper cria um contexto de empilhamento: a caixa
+ * fica presa no `z-index` dele, e as bolas vizinhas — que também são
+ * wrappers com `z-index: 1` — pintavam por cima. O `z-index: 5` da caixa não
+ * resolvia, porque ele só vale dentro do contexto do pai
+ */
+.arb-no.is-aberto {
+  z-index: 10;
+}
+
+.arb-no:has(.arb-hex--fundacao) {
+  width: 66px;
+  height: 66px;
+}
+
+/**
+ * A CAIXA DO NO.
+ *
+ * ## POR QUE `visibility` E NAO SO `opacity`
+ *
+ * Porque a caixa fica no DOM dos 37 nos o tempo todo. Com `opacity` sozinha ela
+ * continuaria ocupando espaco, e — pior — o `pointer-events` do filho grudaria
+ * no vazio: uma caixa invisivel a 210px de largura na frente da bola de baixo
+ * engoliria o clique de abrir a caixa DELE
+ *
+ * ## E POR QUE FICA ACIMA, E NAO AO LADO
+ *
+ * Porque a bola ja e o centro da leitura, e a caixa ao lado empurraria o
+ * desenho. Acima ela cobre a linha de cima e some quando o cursor sai
+ */
+.arb-caixa {
+  position: absolute;
+  bottom: calc(100% + 10px);
   left: 50%;
+  z-index: 5;
+  width: 210px;
   transform: translateX(-50%);
-      font-size: 7px;
+  visibility: hidden;
+  opacity: 0;
+  padding: 8px 10px 9px;
+  border: 1px solid var(--t-line-2);
+  border-radius: 4px;
+  background: linear-gradient(180deg,
+    var(--t-panel) 0%,
+    var(--t-sunken) 100%);
+  box-shadow: 0 8px 22px rgba(0, 0, 0, 0.55);
+  text-align: left;
+  transition: opacity 110ms ease;
+  cursor: default;
+}
+
+.arb-caixa.is-aberta {
+  visibility: visible;
+  opacity: 1;
+}
+
+/**
+ * A CAIXA VIRA PARA BAIXO QUANDO NÃO CABE ACIMA.
+ *
+ * Porque o primeiro degrau fica a 100px do topo do palco, e a caixa sobe uns
+ * 120px: ela saia pela barra do painel e cortava a frase no meio. Aqui ela
+ * desce por baixo da bola, que nessa altura tem a linha inteira de degrau
+ * livre embaixo
+ *
+ * E o `is-para-baixo` vem do componente, que é quem sabe o `y` do nó — o CSS
+ * não vê a coordenada. O limiar está explained no `CaixaNo`
+ */
+.arb-caixa.is-para-baixo {
+  bottom: auto;
+  top: calc(100% + 10px);
+}
+
+/**
+ * A CAIXA FIXADA GANHA A BORDA DOURADA.
+ *
+ * Porque e o clique que arma o gasto, e a borda e o que diz "agora tem um botao
+ * aqui que custa ponto". No hover simples a caixa e so leitura e fica na cor
+ * da moldura
+ */
+.arb-caixa.is-fixada {
+  border-color: var(--t-gold);
+}
+
+.arb-caixa__cabecalho {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 8px;
+  width: 100%;
+  padding: 0 0 4px;
+  border: 0;
+  background: none;
+  color: var(--t-gold-bright);
+  font: inherit;
+  font-size: 12px;
+  font-weight: 800;
   letter-spacing: 0.04em;
-  color: var(--t-text-faint);
-  white-space: nowrap;
+  text-align: left;
+  cursor: pointer;
+}
+
+.arb-caixa__progresso {
+  flex: none;
+  color: var(--t-gold);
+  font-size: 10px;
+  font-weight: 900;
+  font-variant-numeric: tabular-nums;
+  letter-spacing: 0.06em;
+}
+
+.arb-caixa__linhas {
+  margin: 0;
+  padding-top: 4px;
+  border-top: 1px solid var(--t-line);
+  white-space: pre-line;
+  color: var(--t-text-dim);
+  font-size: 10px;
+  line-height: 1.55;
+}
+
+.arb-caixa__aplicar {
+  display: block;
+  width: 100%;
+  margin-top: 8px;
+  padding: 6px 10px;
+  border: 1px solid var(--t-gold);
+  border-radius: 3px;
+  background: linear-gradient(180deg, #f0d9a8 0%, #d8b45c 100%);
+  color: #1a1208;
+  font: inherit;
+  font-size: 10px;
+  font-weight: 900;
+  letter-spacing: 0.1em;
+  cursor: pointer;
+}
+
+.arb-caixa__aplicar:disabled {
+  border-color: var(--t-line-2);
+  background: transparent;
+  color: var(--t-text-faintest);
+  cursor: not-allowed;
 }
 
 /* ---------- os tres estados ---------- */
@@ -389,50 +558,47 @@ Sobrou so o brilho dourado, que nao tem peca de figuracao e so escurece
   cursor: not-allowed;
 }
 
-/**
- * O CADEADO, SO NO BLOQUEADO.
- *
- * E o que diz "voce nao chega aqui ainda" sem uma palavra. A razao completa
- * fica no `data-tip` do botao inteiro
- */
-.arb-hex__cadeado {
-  position: absolute;
-  bottom: 14px;
-  left: 50%;
-  transform: translateX(-50%);
-  font-size: 10px;
-  filter: grayscale(1);
-  opacity: 0.9;
+/* o cadeado saiu: o no bloqueado e so apagado, sem simbolo */
+.arb-hex.is-bloqueado {
+  opacity: 0.42;
+  cursor: not-allowed;
+}
+
+.arb-hex.is-bloqueado .arb-hex__forma {
+  background: var(--t-line);
+}
+
+.arb-hex:disabled {
+  cursor: not-allowed;
 }
 
 /**
- * A FUNDACAO: MAIOR, VERDE, E COM O HEXAGRAMA INTERIOR.
+ * A FUNDACAO: A BOLA DO CENTRO, E UM POUCO MAIOR.
  *
- * ## POR QUE MAIOR
+ * ## POR QUE `height` E IGUAL A `width`
  *
- * Porque ela e onde o desenho junta, e o olho precisa achar o centro sem ler
- * nada. Na referencia ela tem um hexagrama dentro do hexagono; aqui o hexagrama
- * virou a borda verde mais grossa e a barra de progresso, porque um hexagrama
- * com texto dentro de 96px nao caberia
+ * Porque ela ficou 66 de largura e 106 de altura — a medida do hexagono antigo,
+ * que nao foi mexida junto com o resto. Um circulo de 66 por 106 nao e uma
+ * bola: e uma elipse, e com o `border-radius: 50%` ela aparecia esticada, de
+ * bola de futebol americano. A `altura` de 106 era o que segurava o hexagono
+ * de ponta em cima e ponta embaixo
+ *
+ * ## E POR QUE SO UM POUCO MAIOR, E NAO MUITO
+ *
+ * Porque a hierarquia vem do CONTRASTE, e nao do tamanho. 66 contra 54 ja e
+ * 22% maior, e e o suficiente para o olho achar o centro do desenho sem ler
+ * nada. Uma bolinha de 96 entre bolas de 54 vira o unico no que importa, e o
+ * resto da arvore perde o peso de degrau
+ *
+ * O tamanho vem do `.arb-no:has(...)`, e aqui nao ha `width`: repetir o 66 em
+ * dois lugares seria o numero mudando em um deles sem o outro avisar
  */
-.arb-hex--fundacao {
-  width: 66px;
-  height: 106px;
-}
-
 .arb-hex--fundacao .arb-hex__conteudo {
   inset: 4px;
 }
 
 .arb-hex--fundacao .arb-hex__icone {
   font-size: 26px;
-}
-
-.arb-hex--fundacao .arb-hex__nome {
-  font-size: 12px;
-  letter-spacing: 0.06em;
-  text-transform: uppercase;
-  color: var(--t-gold-bright);
 }
 
 .arb-hex--fundacao .arb-hex__forma {
@@ -446,12 +612,6 @@ Sobrou so o brilho dourado, que nao tem peca de figuracao e so escurece
  * vez de fora. E o unico no com barra, porque e o unico que o desenho inteiro
  * mede
  */
-.arb-hex--fundacao .arb-hex__progresso {
-  top: auto;
-  bottom: 16px;
-  color: var(--t-gold);
-}
-
 .arb-vazio-detalhe code {
   color: var(--t-gold);
 }

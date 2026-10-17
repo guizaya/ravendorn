@@ -203,38 +203,31 @@ export const BASE_MAP = {
    */
   resumeWhereLeftOff: false,
 
-  /**
+/**
    * A CAMERA MAIS PERTO, NESTE MAPA.
    *
-   * `1 / 0.62` e `1.6129`, e nao `1.6`. A camera ve 62% da distancia, e
-   * o que cabe na tela e proporcional a distancia: entao ver 62% de antes e
-   * multiplicar por `1 / 0.62`
+   * `103 / 64` e `1.609375`, e nao `1 / 0.62`.
    *
-   * E `1.6` seria outra coisa — 60% MAIS ampliado, que corta menos da
-   * tela. A diferenca aparece: em 1.61 a area visivel cai 38%, em 1.6 cai
-   * 36%
+   * O valor antigo era `1 / 0.62` (1.6129), escolhido para a camera ver 62%
+   * da distancia. Ele foi trocado por este porque a base usa TILE DE 64PX, e
+   * `64 * 1.6129` da `103.226` pixels de dispositivo: um tile terminava
+   * sempre entre dois pixels e o mapa inteiro aparecia com uma GRADE de
+   * linhas, uma por emenda de tile, andando junto com a camera.
    *
-   * ## POR QUE BAIXOU DE 0.7 PARA 0.62
+   * ## POR QUE `103 / 64` E NAO UM NUMERO ARREDONDADO
    *
-   * Porque o calcamento da base entrou com a arte de 1254px e o ladrilho
-   * caiu para 64px. Com o ladrilho antigo, a 128px, a pedra ainda media o
-   * suficiente para o jogador ler o chao como chao de perto; a 64px ela e
-   * miudo, e a camera perto de antes empurrava o resto do hub para fora da
-   * tela sem dar nada em troca
+   * Porque o que precisa fechar e `64 * zoom`: aqui da `103` exatos, e cada
+   * tile ocupa um numero inteiro de pixels de dispositivo. Como a base roda
+   * com `dpr` 1 ou 2, `103 * dpr` continua inteiro nos dois casos.
    *
-   * O boneco continua com 128px de largura no mundo: ele so ocupa mais
-   * espaco na TELA
+   * ## E A VISIVELMENTE O MESMO ENQUADRAMENTO
    *
-   * Isto nao muda o TAMANHO do personagem no mundo. O boneco continua
-   * com 128px de largura; ele so ocupa mais espaco na TELA, porque a
-   * camera esta mais perto. Reduzir a arte dele encolheria o boneco no
-   * mapa e no colisor de clique, que e outra coisa
-   *
-   * A propriedade e do MAPA porque e uma diferenca de LUGAR: o vale
-   * fica no enquadramento de sempre e o hub aperta o enquadramento.
-   * Todo mapa que nao declarar nada usa 1
+   * A diferenca para o valor antigo e de `0.22%` — a area visivel muda de
+   * 38% para 38.08% de reducao. Ninguem distingue isso na tela, e em troca
+   * a grade de linhas some. `104 / 64` (1.625) tambem fecharia, mas erra
+   * `0.75%`, quase quatro vezes mais, sem trazer nenhuma vantagem
    */
-  cameraZoom: 1 / 0.62,
+  cameraZoom: 103 / 64,
 
   /**
    * AS DUAS CLASSES GRANDES DESTA MAPA, REDUZIDAS.

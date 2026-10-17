@@ -354,6 +354,48 @@ this.ultimaIntencao = { x: move.x, y: move.y };
     return this.pedirPainel({ op: PANEL_OPS.EQUIP, uid, slotId });
   }
 
+  /**
+   * AS QUATRO AÇÕES DE EXPEDIÇÃO.
+   *
+   * ## POR QUE ELAS NÃO LEVAM O `chefeId`
+   *
+   * Porque o chefe é o CONTEXTO do painel, não uma escolha do jogador no
+   * pedido: ele está olhando um chefe e a expedição é daquele. Mandá-lo abriria
+   * espaço para um cliente pedir a expedição de outro chefe, e o store não tem
+   * como saber qual era o da tela
+   *
+   * E o `criarExpedicao` leva só a dificuldade, que É escolha — e o store
+   * valida o índice contra os três que existem
+   */
+  criarExpedicao(dificuldade, chefeId) {
+    return this.pedirPainel({
+      op: PANEL_OPS.CREATE_EXPEDITION,
+      expedicaoDificuldade: dificuldade,
+      expedicaoChefe: chefeId,
+    });
+  }
+
+  entrarExpedicao(expedicaoId) {
+    return this.pedirPainel({
+      op: PANEL_OPS.JOIN_EXPEDITION,
+      expedicaoId,
+    });
+  }
+
+  sairExpedicao(expedicaoId) {
+    return this.pedirPainel({
+      op: PANEL_OPS.LEAVE_EXPEDITION,
+      expedicaoId,
+    });
+  }
+
+  dissolverExpedicao(expedicaoId) {
+    return this.pedirPainel({
+      op: PANEL_OPS.DISBAND_EXPEDITION,
+      expedicaoId,
+    });
+  }
+
   desequipar(slotId) {
     return this.pedirPainel({ op: PANEL_OPS.UNEQUIP, slotId });
   }
@@ -948,6 +990,17 @@ irParaTeste() {
    */
   teleportar() {
     return this.pedirPainel({ op: PANEL_OPS.TELEPORTAR });
+  }
+
+  /**
+   * Anda até o NPC, para o painel dele abrir quando o jogador chegar perto.
+   *
+   * Leva SO o `npcId`. Quem escolhe o caminho e quem decide que chegou e o
+   * servidor: um `x`/`y` aqui deixaria qualquer cliente se mandar para o
+   * ponto que quisesse, por dentro de parede
+   */
+  irAteNpc(npcId) {
+    return this.pedirPainel({ op: PANEL_OPS.IR_ATE_NPC, npcId });
   }
 
   /**

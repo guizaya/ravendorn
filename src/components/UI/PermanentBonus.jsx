@@ -129,7 +129,7 @@ if (layout === "lista") {
           <strong
             style={{
               color:
-                entrada.value >= 0 ? "#7ef0b0" : "#ff9d9d",
+                entrada.value >= 0 ? "#e5bb68" : "#ff9d9d",
             }}
           >
             {entrada.text}

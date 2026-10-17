@@ -308,6 +308,20 @@ export const QUEST_SCOPE = {
 export const AUTO_TYPES = new Set([
   QUEST_TYPE.HUNT,
   QUEST_TYPE.KILL,
+
+  /**
+   * A MINERACAO ENTROU NO AUTO.
+   *
+   * E o unico dos tres que nao e cacada, e ele destoa por um motivo
+   * concreto: os outros dois tem um alvo que se MOVE pelo mapa, e o auto
+   * precisa de um `location` para chegar perto e esperar. O tutorial de
+   * minerar nao se move: ele tem uma PEDIDA, e o auto sabe ir ate uma prop
+   *
+   * Sem esta linha, `temDestinoDeAuto` devolvia `false` e o `objective()`
+   * devolvia `null`: o auto ligava, o painel dizia que a missao era o
+   * objetivo, e o personagem ficava parado porque nao havia destino
+   */
+  QUEST_TYPE.MINE,
 ]);
 
 export function isAutoCompletable(quest) {
@@ -1282,11 +1296,12 @@ function quantidadeDeTutoriaisAntes(posicao) {
        * E a unica acao do jogo que nao passa por combate, entao e a unica
        * que o jogador nunca encontraria sozinho
        */
-      objetivo: "Minere uma pedra no Vale das Cinzas",
+      objetivo: "Minere uma pedra no Vale",
       dica:
-        "Procure uma pedra de minerio no mapa e clique nela. O painel abre " +
-        "so quando voce chega perto — o steel e o unico recurso que nao " +
-        "vem de matar.",
+        "Ligue o auto e ele atravessa para o Vale, acha um cristal comum " +
+        "e comeca a minerar sozinho. No manual, procure um cristal no Vale " +
+        "e clique nele — o painel so abre quando voce chega perto, e o " +
+        "steel e o unico recurso que nao vem de matar.",
       icone: "\u26CF",
     },
 
@@ -2003,6 +2018,68 @@ export function indiceDaUltimaMissao(mapa) {
  * novo para sincronizar e nenhuma missao precisa ser consultada: a
  * campanha e uma escada, e o indice diz ate onde o jogador chegou
  */
+/**
+ * O NUMERO DA MISSAO COMO A CAMPANHA MOSTRA: `mapa.missao`.
+ *
+ * ## POR QUE ESTA FUNCAO ESTA AQUI, E NAO NO PAINEL
+ *
+ * Porque a trava do portal e o painel de missoes falam da MESMA degrau, e
+ * cada um com a sua conta eles divergem: o painel mostrava `1.19` e a trava
+ * escrevia "O Hulk". O jogador lia um numero na campanha e um nome no
+ * portal, sem caminho para ligar um no outro
+ *
+ * ## POR QUE O INDICE E REINICIADO POR MAPA
+ *
+ * Porque o numero impresso responde "onde eu to", e nao "quantas coisas eu
+ * ja fiz". Quem abre o mapa 2 espera `2.1` — e `2.19` faz o jogador achar
+ * que pulou dezenove degraus
+ *
+ * ## POR QUE A TABELA E FIXA, E NAO CALCULADA
+ *
+ * Porque o `id` e usado como CHAVE DE SAVE. Derivar o numero da posicao em
+ * `MAIN_QUESTS` pareceria mais limpo, mas um degrau novo inserido no meio do
+ * mapa 1 mudaria o numero do mapa 2 inteiro — e o numero impresso passaria
+ * a depender de um arquivo que esta a tres `import` de distancia
+ */
+const PRIMEIRO_INDICE_DO_MAPA = { 1: 1, 2: 19 };
+
+export function numeroDaMissao(id) {
+  const partes = String(id ?? "").split("_");
+
+  /**
+   * O MAPA ESTA PARTIDO EM DUAS PARTES, E NAO EM UMA.
+   *
+   * O `id` e `map_1_main_1_limo_pantano`, e dividir por underscore da
+   * `["map", "1", "main", "1", "limo", "pantano"]`. A forma antiga era
+   * `map1_main_1`, sem separador entre o mapa e o numero
+   */
+  const temSeparador = partes[0] === "map";
+
+  const mapa = temSeparador
+    ? (/^\d+$/.test(partes[1] ?? "") ? partes[1] : null)
+    : (/^map(\d+)$/.exec(partes[0] ?? "")?.[1] ?? null);
+
+  const indiceGlobal = Number(
+    partes.find((parte, i) => i > 1 && /^\d+$/.test(parte)),
+  );
+
+  /**
+   * ID FORA DO PADRAO E UM SAVE DE OUTRA VERSAO, NAO UMA MISSAO.
+   *
+   * O `null` deixa o nome sozinho, que e o que o jogador ainda consegue ler.
+   * Um "0.0" no lugar seria pior que nada
+   */
+  if (!mapa || !Number.isInteger(indiceGlobal) || indiceGlobal < 1) {
+    return null;
+  }
+
+  const indice = indiceGlobal - (PRIMEIRO_INDICE_DO_MAPA[mapa] ?? 1) + 1;
+
+  if (indice < 1) return null;
+
+  return `${mapa}.${indice}`;
+}
+
 export function portalLiberado(exigeMissaoDe, mainIndex) {
   // sem exigencia, o portal e um corredor
   if (!exigeMissaoDe) return LIBERADO;
@@ -2025,12 +2102,22 @@ export function portalLiberado(exigeMissaoDe, mainIndex) {
   /**
    * A PORTA FECHADA, e a ultima missao que falta.
    *
-   * O nome vai no motivo de proposito: sem ele o jogador ve "finalize a
-   * campanha" e nao sabe o que procurar. `indice` e a ultima do mapa, e
-   * o jogador parado nela e justamente o caso que o jogador mais
-   * encontra — ele fez onze e falta a decima segunda
+   * ## POR QUE O NUMERO E O NOME, E SO O NOME
+   *
+   * A trava falava `Termine "O Hulk"` e a campanha mostra `1.19` para a
+   * mesma degrau. Sao a mesma missao escrita de duas maneiras, e o jogador
+   * nao tinha como ligar uma na outra — ele procurava no painel um "Hulk"
+   * que o painel nunca mostrou
+   *
+   * O `numeroDaMissao` e a MESMA conta do painel,importada de la agora: as
+   * duas telas mostram `1.19` quando falam da degrau 19 do mapa 1
+   *
+   * E o nome continua depois do numero, e nao no lugar dele: o numero diz
+   * ONDE procurar, e o nome diz o que o jogador vai ler quando chegar
    */
   const quest = MAIN_QUESTS[indice];
+
+  const numero = quest ? numeroDaMissao(quest.id) : null;
 
   const doMapa = mainQuestsDoMapa(exigeMissaoDe).length;
 
@@ -2039,9 +2126,19 @@ export function portalLiberado(exigeMissaoDe, mainIndex) {
   return {
     ok: false,
     motivo: quest
-      ? `Termine "${quest.name}" para atravessar (${feitas}/${doMapa} da campanha).`
+      ? numero
+        ? `Para atravessar complete a missao: ${numero}/${doMapa} da campanha.`
+        : `Voce nao pode atravessar`
       : "Termine a campanha deste mapa para atravessar.",
     questId: quest?.id ?? null,
+
+    /**
+     * O NUMERO DA DEGRAU, PARA QUEM QUISER MOSTRAR SO ELE.
+     *
+     * A box e o painel usam este campo em vez de recortar a frase do
+     * `motivo`: o texto e para o jogador e o numero e para a maquetacao
+     */
+    numeroMissao: numero,
 
     /**
      * O CHEFE, quando a missao que tranca a porta e o proprio chefe.

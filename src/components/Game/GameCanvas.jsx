@@ -482,8 +482,23 @@ engine.hookDePrevisao = null;
       onIntentRef.current?.atacar(targetId);
     };
 
+    /**
+     * A TRAVESSIA AUTOMATICA DAS PASSAGENS.
+     *
+     * O mesmo desenho do `onTargetClick`: o motor avisa que o jogador chegou
+     * na ponta da luz, e quem vira isso num pedido e a camada de rede. Sem
+     * este elo, no online o jogador entraria na zona, o motor chamaria o
+     * `travessarPortal` LOCAL, e ele trocaria o mapa no cliente sem passar
+     * pelo servidor — que e exatamente o buraco que a autoridade do servidor
+     * existe para fechar
+     */
+    engine.onPassagemEntrou = (portalId) => {
+      onIntentRef.current?.atravessarPortal?.(portalId);
+    };
+
     return () => {
       engine.onTargetClick = null;
+      engine.onPassagemEntrou = null;
     };
   }, [engineRef]);
 

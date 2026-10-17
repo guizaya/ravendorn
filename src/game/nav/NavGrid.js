@@ -301,6 +301,16 @@ export class NavGrid {
     this.andavel = new Uint8Array(this.columns * this.rows);
 
     /**
+     * AS ROTAS JA RESPONDIDAS.
+     *
+     * Vive aqui e nao no motor porque a resposta e da GRADE: a grade e
+     * estatica e o A* sobre ela e determinista, entao a mesma pergunta tem
+     * sempre a mesma resposta — e o custo de responder e o do caminho, nao
+     * o da pergunta
+     */
+    this.cacheCaminho = new Map();
+
+    /**
      * A GRADE JUSTA, montada na primeira rota perdida.
      *
      * Comeca `null` porque o caso comum e a primeira grade achar caminho,
@@ -688,6 +698,62 @@ if (atual.id === fimId) {
    * animado
    */
   caminho(de, para) {
+    /**
+     * O MESMO PEDIDO, A MESMA RESPOSTA.
+     *
+     * ## O QUE FOI MEDIDO
+     *
+     * A rota de (3023,3461) ate o portal do topo do mapa 1 leva de 56ms a
+     * 90ms por chamada. Para um alvo curto, 0ms a 5ms. A diferenca e a
+     * distancia, e nao o tamanho da grade: e o tanto de celula que o A*
+     * precisa abrir
+     *
+     * ## POR QUE ISSO APARECE NA TELA COMO TRAVADINHA
+     *
+     * Porque 60ms sao mais de tres quadros a 60Hz, e o motor faz isso no
+     * MEIO do tique: o jogo inteiro para, desenhando o quadro seguinte. O
+     * piloto travado refaz a rota a cada tique, e cada refacao e um
+     * congelamento novo — que e o que o jogador viu
+     *
+     * ## POR QUE O MESMO PEDIDO VOLTA
+     *
+     * Porque o jogador parado nao se move: o `de` e byte a byte o mesmo, e
+     * a grade e estatica e deterministica, entao a resposta e identica. Nao
+     * ha nada para recalcular
+     *
+     * ## POR QUE UMA COPIA, E NAO O ARRAY GUARDADO
+     *
+     * Porque quem chama consome o caminho com `shift()`, no `travelPlan` e
+     * na mineracao. Devolver o array guardado encheria o cache de listas pela
+     * metade e a segunda consulta devolveria um caminho truncado
+     */
+    const chave = `${Math.round(de.x)},${Math.round(de.y)},${Math.round(para.x)},${Math.round(para.y)}`;
+
+    const guardado = this.cacheCaminho.get(chave);
+
+    if (guardado !== undefined) {
+      return guardado === null ? null : [...guardado];
+    }
+
+    const resposta = this.#caminhoCalculado(de, para);
+
+    /**
+     * O LIMITE, E NAO UM LRU.
+     *
+     * Uma viagem faz poucas dezenas de pedidos, e 256 entradas cabem na
+     * memoria sem esforço. Passando disso o mapa esta sendo varrido inteiro
+     * — o que e uma varredura de tela, nao uma viagem — e limpar tudo e o
+     * comportamento certo
+     */
+    if (this.cacheCaminho.size >= 256) this.cacheCaminho.clear();
+
+    this.cacheCaminho.set(chave, resposta === null ? null : [...resposta]);
+
+    return resposta;
+  }
+
+  /** o caminho de verdade, sem o cache */
+  #caminhoCalculado(de, para) {
     const direto = this.#caminhoAqui(de, para);
 
     if (direto) return direto;

@@ -83,7 +83,7 @@ export default function ServerPerf() {
     ? "#e06b6b"
     : (dados.duracaoPiorMs ?? 0) > orcamento * 0.8
       ? "#e8c96a"
-      : "#8ad9a0";
+      : "#d3bd90";
 
   return (
     <div className="server-perf">

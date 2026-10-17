@@ -266,6 +266,88 @@ ls front_rpg/.output/server/index.mjs  # o servidor do front
 > Faça o build do front **depois** de acertar o `front_rpg/.env`. O valor do
 > `.env` é lido no build, não no boot.
 
+### 8.1 O build do jogo não é mais um `vite build` simples
+
+O `vite build` da raiz tem um plugin que faz duas coisas por baixo dos panos.
+**Não há passo extra para elas** — elas acontecem durante o `npm run build` — mas
+é preciso saber disso para não estranhar o resultado, e para não instalar o
+projeto de um jeito que desliga a otimização.
+
+**O que o plugin faz:**
+
+| | |
+|---|---|
+| **PNG e JPG → WebP** | cada imagem vira `.webp` no `dist/`. Os originais continuam no `src/`, intocados. Arte com canal alfa é convertida **sem perda** |
+| **`.gz` pré-comprimido** | cada `.js`, `.css` e `.html` ganha um `.gz` ao lado. O servidor entrega o `.gz` quando o navegador aceita gzip |
+
+Resultado no `dist/`: **20 MB → 6,3 MB**.
+
+**A dependência que isso exige: `sharp`.**
+
+Está em `devDependencies`, então o `npm ci` normal instala. O que **não**
+funciona é instalar sem as de desenvolvimento:
+
+```bash
+npm ci --omit=dev     # ERRADO: sem sharp, o build passa e não converte nada
+```
+
+Dois motivos para ligar o alarme aqui:
+
+1. **O build não falha.** O plugin carrega o `sharp` com `import` dinâmico
+   dentro de um `try`. Sem ele, o plugin simplesmente vira uma peça a menos e o
+   build entrega os **PNG e os JPEG originais, sem `.gz`**. O jogo funciona
+   perfectly, o `dist/` volta a 20 MB, e **nada no terminal avisa**.
+2. **É um `--omit=dev` comum em imagem Docker e em pipeline de CI.** Se a sua
+   VPS builda a imagem com `NODE_ENV=production`, o `npm ci` pula as
+   devDependencies sozinho.
+
+**Como conferir depois do build, em vez de confiar:**
+
+```bash
+# tem que ter .webp
+ls dist/assets/*.webp | head -3
+
+# tem que ter .gz do bundle
+ls dist/assets/*.gz
+
+# e o tamanho total tem que estar perto de 6 MB
+du -sh dist/
+```
+
+Sem nenhum `.webp` em `dist/assets/`, o `sharp` não entrou. Aí:
+
+```bash
+npm install --include=dev sharp
+npm run build
+```
+
+**Ponto de atenção — `sharp` é nativo.** Ele traz binário pronto para a
+plataforma. Se a VPS for ARM e o `node_modules` foi montado num volume
+montado no x86, dá erro de módulo nativo. Nesse caso o `npm ci` tem que rodar
+**na própria máquina alvo**, e não ser copiado de outro lugar.
+
+### 8.2 O que o servidor faz com esses arquivos
+
+O `server/src/index.js` ganhou um middleware (`servirArquivoComprimido`) e uma
+montagem própria de `/assets`. Ela é o que transforma o `.gz` e o `.webp` em
+ganho de verdade:
+
+- **`/assets/*`** → `Cache-Control: public, max-age=31536000, immutable`
+- **HTML na raiz** → `max-age=0` com `ETag` (revalida, não fica um ano preso)
+- **`.gz`** entregue no lugar do original quando o pedido traz
+  `Accept-Encoding: gzip`
+
+O `immutable` só é seguro porque o nome do arquivo tem o hash do conteúdo.
+**Mudar o `dist/` sem rebuildar não funciona**: o navegador guardaria a versão
+antiga por um ano. Deploy sempre com `npm run build`.
+
+> **Atenção ao cache na hora do teste.** Se vocêDeployar uma versão com defeito
+> de cabeçalho e corrigir sem rebuildar, o hash não muda (ele é do *conteúdo*),
+> o navegador pede com `If-None-Match`, recebe **304** e reaproveita a resposta
+> antiga — **com o cabeçalho antigo junto**. Nem reload comum conserta; é preciso
+> DevTools → Application → Clear site data. Foi o que aconteceu durante o
+> desenvolvimento deste projeto e levou horas de debugging à toa.
+
 ---
 
 ## 9. Rodar
@@ -409,6 +491,8 @@ a origem de quem acessa, que já é o HTTPS certo.
 
 ## 13. Checklist
 
+### 13.1 Antes de subir
+
 ```bash
 node -v                                     # >= 20
 grep -qE '^SEGREDO_DO_TOKEN=[0-9a-f]{64}$' .env && echo "segredo ok" \
@@ -416,11 +500,67 @@ grep -qE '^SEGREDO_DO_TOKEN=[0-9a-f]{64}$' .env && echo "segredo ok" \
 grep -q '^VITE_API_URL=$' front_rpg/.env && echo "front ok: vazio"
 ls dist/jogo.html
 ls front_rpg/.output/server/index.mjs
+```
+
+### 13.2 O build do jogo está otimizado?
+
+```bash
+ls dist/assets/*.webp | head -3      # tem que ter: sem isso, faltou o sharp
+ls dist/assets/*.gz                  # tem que ter o .gz do bundle
+du -sh dist/                         # perto de 6 MB. Com 20 MB, nao otimizou
+```
+
+### 13.3 Os dois processos estão no ar
+
+```bash
 pm2 status
 curl -sf localhost:8787/health/laco >/dev/null && echo "loop ok"
 curl -s localhost:8787 | head -c 200
 curl -sI localhost:3000/api/capabilities | head -1   # 404/502, nunca 200
 ```
+
+### 13.4 O cache e a compressão estão funcionando?
+
+O `curl` abaixo precisa responder **dois** headers. É o teste que pega
+regressão de `Content-Type` — que é a que **quebra o jogo inteiro** e não dá
+erro visível.
+
+```bash
+curl -sI -H 'Accept-Encoding: gzip' localhost:8787/assets/main-*.js | grep -iE 'content-type|cache-control|content-encoding'
+```
+
+Esperado, nas três linhas:
+
+```
+content-type: application/javascript; charset=utf-8
+cache-control: public, max-age=31536000, immutable
+content-encoding: gzip
+```
+
+E o HTML tem que revalidar, **não** ficar um ano:
+
+```bash
+curl -sI localhost:8787/jogo.html | grep -i cache-control
+# public, max-age=0
+```
+
+> **`Content-Type: application/gzip`** é o defeito que derruba tudo: o
+> navegador recusa o módulo JavaScript, ignora o CSS e **baixa o `jogo.html`
+> em vez de abrir**, e a tela trava em "Carregando o mundo" para sempre, sem
+> erro no console. Se aparecer, **não** é problema do build — é do
+> `servirArquivoComprimido`, que precisa estar pegando o tipo do arquivo
+> **original**, não do `.gz`.
+
+### 13.5 O front e o jogo estão na mesma origem?
+
+```bash
+curl -s localhost:8787/jogo | grep -o 'jogo.html'
+```
+
+Precisa aparecer. Se aparecer `/index.html`, o front está com `VITE_JOGO_URL`
+apontando para o lugar errado.
+
+---
 
 > **Não** use `grep -r "localhost:8787" front_rpg/.output/` como verificação: o
 > fallback de dev e de SSR está no bundle de propósito e o grep acusa sempre.
@@ -460,6 +600,67 @@ estar: ele guarda endereço de carteira e saldo de diamantes.
 **O jogador ficou perto demais do mouse para mirar**
 Isso é o `.env` do front com `localhost` embebido: o `build` precisa ser
 refeito com `VITE_API_URL=` vazio.
+
+### 14.1 Os quatro que vieram da otimização
+
+Estes não existiam antes de o `dist/` passar por WebP e gzip, e nenhum deles
+dá erro no terminal.
+
+**O navegador baixa o `jogo.html` em vez de abrir, e a tela fica em "Carregando o mundo" para sempre**
+
+É o `Content-Type`. O servidor precisa mandar o tipo do arquivo **original**,
+não o do `.gz`:
+
+```bash
+curl -sI -H 'Accept-Encoding: gzip' localhost:8787/jogo.html | grep -i content-type
+# tem que ser text/html. Se vier application/gzip, é este o defeito.
+```
+
+Com `application/gzip` o navegador **não renderiza e não executa nada**: ele
+baixa o arquivo, recusa o módulo JavaScript e ignora o CSS. O jogo nunca chega
+a rodar, então nunca manda o `pronto` por `postMessage`, e o front fica
+esperando para sempre. **Console limpo, API respondendo 200, e mesmo assim
+travado** — é exatamente esse o combo.
+
+**Corrigi o servidor e continua igual**
+
+O navegador guardou a resposta quebrada. O nome do arquivo tem o hash do
+*conteúdo*, e o defeito estava no cabeçalho — então **o hash não mudou**, a URL
+é a mesma e o `immutable` de um ano segura.
+
+```bash
+# no navegador: DevTools -> Application -> Storage -> Clear site data
+```
+
+Reload comum **não resolve**. `Ctrl+Shift+R` resolve, desde que o *Disable
+cache* do DevTools esteja ligado.
+
+**O `dist/` tem 20 MB em vez de 6 MB**
+
+Faltou o `sharp` no build. Compara:
+
+```bash
+ls dist/assets/*.webp | head -3   # vazio = sem sharp
+npm install --include=dev sharp
+npm run build
+```
+
+O build **não falha** quando falta `sharp` — degrada sozinho e entrega os
+originais. É por isso que a verificação é por arquivo, e não pelo exit code.
+
+**Apareceu uma grade no chão do mapa da base**
+
+Não é arte: é a emenda do ladrilho. A textura é reduzida para 64px e repetida,
+e a borda direita dela não casa com a esquerda. O truque é espelhar o ladrilho
+antes de repetir, e a lista de quem usa está em:
+
+```
+src/data/terrain/index.js  ->  GROUND_TILE_ESPELHADO
+```
+
+Lá dentro tem o porquê de cada chave. Para conferir se a emenda está zerada,
+é a diferença média entre a borda do ladrilho e a coluna de dentro — tem que
+dar 0.
 
 ---
 

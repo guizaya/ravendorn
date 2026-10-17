@@ -524,6 +524,22 @@ export class EnemyAI {
      */
     if (sessoes?.size) {
       for (const sessao of sessoes.values()) {
+        /**
+         * O CHEFE SO PERSEGUE O DONO DELE.
+         *
+         * A arena cria um Hulk por sessao. Sem esta linha, os dois se
+         * ignorariam e cada um ia atras do jogador mais proximo — inclusive
+         * do outro: o jogador que entrasse depois comecaria a lutar contra
+         * o chefe que o primeiro jogador ja estava danificando, e o
+         * primeiro veria a barra mexendo sozinha
+         *
+         * O `!== undefined` mantem o resto igual: um mob comum nao tem dono,
+         * e ele continua perseguindo o jogador mais proximo como sempre
+         */
+        if (enemy.sessaoDe !== undefined && enemy.sessaoDe !== sessao.id) {
+          continue;
+        }
+
         const player = sessao.player;
 
         if (!this.estaDePe(player)) continue;

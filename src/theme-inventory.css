@@ -55,7 +55,7 @@
   --t-gold-deep: #c9a227;
   --t-gold-bright: #f0d9a8;
   --t-gold-line: #8a7250;
---t-positive: #7ef0b0;
+--t-positive: #e5bb68;
     --t-danger: #a03434;
     --t-danger-text: #ff9d9d;
 
@@ -1332,9 +1332,9 @@ jogador ler principal e secundaria do mesmo jeito
 
 /* mensagem */
 .game-message {
-  border: 1px solid rgba(126, 240, 176, 0.35);
+  border: 1px solid rgba(229$1187$2104, 0.35);
   color: var(--t-positive);
-  background: linear-gradient(180deg, #16281e 0%, #0f1c15 100%);
+  background: linear-gradient(180deg, #272217 0%, #1b1710 100%);
   box-shadow: var(--t-bevel), var(--t-drop-sm);
 }
 
@@ -1369,7 +1369,7 @@ jogador ler principal e secundaria do mesmo jeito
 }
 
 .hud-buff--poison {
-  border-color: rgba(124, 178, 78, 0.7);
+  border-color: rgba(218, 160, 43, 0.7);
 }
 
 .hud-buff--stun,
@@ -1399,7 +1399,7 @@ jogador ler principal e secundaria do mesmo jeito
 
 .hud-buff--regeneration,
 .hud-buff--lifesteal {
-  border-color: rgba(110, 196, 132, 0.7);
+  border-color: rgba(220, 164, 51, 0.7);
 }
 
 .hud-buff--cloak,
@@ -1408,7 +1408,7 @@ jogador ler principal e secundaria do mesmo jeito
 }
 
 .hud-buff--elementalAffinity {
-  border-color: rgba(96, 190, 172, 0.75);
+  border-color: rgba(196, 170, 118, 0.75);
 }
 
 /* ============================================================================
@@ -1487,8 +1487,8 @@ jogador ler principal e secundaria do mesmo jeito
 }
 
 .qst-tracker__row.is-auto {
-  border-color: rgba(126, 240, 176, 0.6);
-  background: linear-gradient(180deg, #16281e 0%, #0f1c15 100%);
+  border-color: rgba(229$1187$2104, 0.6);
+  background: linear-gradient(180deg, #272217 0%, #1b1710 100%);
 }
 
 .qst-tracker__auto {
@@ -1568,7 +1568,7 @@ jogador ler principal e secundaria do mesmo jeito
 }
 
 .qst-row.is-done {
-  border-color: rgba(126, 240, 176, 0.35);
+  border-color: rgba(229$1187$2104, 0.35);
   color: var(--t-text-faint);
 }
 
@@ -1602,7 +1602,7 @@ jogador ler principal e secundaria do mesmo jeito
 }
 
 .qst-row__done {
-  border: 1px solid rgba(126, 240, 176, 0.35);
+  border: 1px solid rgba(229$1187$2104, 0.35);
   color: var(--t-positive);
   background: rgba(0, 0, 0, 0.3);
   cursor: default;
@@ -1659,8 +1659,8 @@ jogador ler principal e secundaria do mesmo jeito
 }
 
 .qst-auto.is-on {
-  border-color: rgba(126, 240, 176, 0.6);
-  background: linear-gradient(180deg, #16281e 0%, #0f1c15 100%);
+  border-color: rgba(229$1187$2104, 0.6);
+  background: linear-gradient(180deg, #272217 0%, #1b1710 100%);
 }
 
 .qst-autoinfo {
@@ -1739,12 +1739,12 @@ jogador ler principal e secundaria do mesmo jeito
 }
 
 .bst-entry.is-done {
-  border-color: rgba(126, 240, 176, 0.35);
+  border-color: rgba(229$1187$2104, 0.35);
 }
 
 .bst-entry.is-hunting {
-  border-color: rgba(126, 240, 176, 0.6);
-  box-shadow: 0 0 0 1px rgba(126, 240, 176, 0.25);
+  border-color: rgba(229$1187$2104, 0.6);
+  box-shadow: 0 0 0 1px rgba(229$1187$2104, 0.25);
 }
 
 .bst-entry__head {
@@ -1794,7 +1794,7 @@ jogador ler principal e secundaria do mesmo jeito
 }
 
 .bst-hunt.is-done {
-  border-color: rgba(126, 240, 176, 0.3);
+  border-color: rgba(229$1187$2104, 0.3);
 }
 
 .bst-hunt__title {
@@ -1817,7 +1817,7 @@ jogador ler principal e secundaria do mesmo jeito
 }
 
 .bst-hunt.is-done .bst-hunt__fill {
-  background: linear-gradient(180deg, var(--t-positive) 0%, #3f9a6c 100%);
+  background: linear-gradient(180deg, var(--t-positive) 0%, #947a45 100%);
 }
 
 .bst-hunt__count {
@@ -1840,8 +1840,8 @@ jogador ler principal e secundaria do mesmo jeito
 
 /* box do auto do bestiario */
 .bst-auto {
-  border: 2px solid rgba(126, 240, 176, 0.55);
-  background: linear-gradient(180deg, #16281e 0%, #0f1c15 100%);
+  border: 2px solid rgba(229$1187$2104, 0.55);
+  background: linear-gradient(180deg, #272217 0%, #1b1710 100%);
   color: var(--t-text);
 }
 
@@ -1858,7 +1858,7 @@ jogador ler principal e secundaria do mesmo jeito
 }
 
 .bst-auto__stop {
-  border: 1px solid rgba(126, 240, 176, 0.5);
+  border: 1px solid rgba(229$1187$2104, 0.5);
   border-radius: var(--t-radius-sm);
   color: var(--t-positive);
 }
@@ -1866,10 +1866,10 @@ jogador ler principal e secundaria do mesmo jeito
 @keyframes bst-auto-pulse {
   0%,
   100% {
-    box-shadow: 0 10px 26px rgba(0, 0, 0, 0.6), 0 0 0 0 rgba(126, 240, 176, 0.45);
+    box-shadow: 0 10px 26px rgba(0, 0, 0, 0.6), 0 0 0 0 rgba(229$1187$2104, 0.45);
   }
   50% {
-    box-shadow: 0 10px 26px rgba(0, 0, 0, 0.6), 0 0 0 4px rgba(126, 240, 176, 0);
+    box-shadow: 0 10px 26px rgba(0, 0, 0, 0.6), 0 0 0 4px rgba(229$1187$2104, 0);
   }
 }
 
@@ -3186,7 +3186,7 @@ jogador ler principal e secundaria do mesmo jeito
  * achar
  */
 .gld-no.is-ready .gld-no__barra i {
-  background: linear-gradient(180deg, var(--t-positive) 0%, #3f9a6c 100%);
+  background: linear-gradient(180deg, var(--t-positive) 0%, #947a45 100%);
 }
 
 .gld-no.is-ready .gld-no__pct {
@@ -3662,7 +3662,7 @@ jogador ler principal e secundaria do mesmo jeito
  * ambar proprio aqui seria uma cor que existe so nesta caixa
  */
 .pty-member__track i {
-  background: linear-gradient(180deg, var(--t-positive) 0%, #3f9a6c 100%);
+  background: linear-gradient(180deg, var(--t-positive) 0%, #947a45 100%);
 }
 
 .pty-member.is-low .pty-member__track i {
@@ -4049,10 +4049,18 @@ jogador ler principal e secundaria do mesmo jeito
 }
 
 /* O CARD */
-.mkt-listing__restricao {
-  border-color: var(--t-line-2);
-  color: var(--t-text-faint);
-  background: color-mix(in srgb, var(--t-abyss) 55%, transparent);
+/*
+  A ETIQUETA DA CLASSE.
+
+  A cor vem inteira do `--classe`, que o `ListingCard` preenche com o `accent`
+  do `CHARACTER_CLASSES`. Aqui so entra a base comum; qualquer cor escrita
+  aqui brigaria com o acento do catalogo
+*/
+.mkt-listing__classe {
+  text-shadow: 0 1px 2px rgba(0,
+      0,
+      0,
+      0.9);
 }
 
 .mkt-listing__preco strong {

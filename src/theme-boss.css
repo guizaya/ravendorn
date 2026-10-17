@@ -1,0 +1,1150 @@
+/* ============================================================================
+   TEMA DA MODAL DO CHEFE - camada de override
+   ----------------------------------------------------------------------------
+   Este arquivo NAO edita styles.css. Ele entra DEPOIS dele, e depois do
+   `theme-inventory.css`, e cuida SO da modal do chefe.
+
+   PARA REVERTER: comente a linha de import em src/main.jsx
+       import "./theme-boss.css";
+   e apague este arquivo.
+
+   O LAYOUT VEIO DE `teste_modal.html`: modal de 1087x545, abas no canto
+   esquerdo, fileira horizontal de chefes embaixo delas, arte no centro e
+   coluna de informacao a direita.
+
+   A COR NAO VEIO DE LA. O HTML e roxo e cinza-azulado, e este projeto e
+   dourado sobre madeira escura. Toda cor aqui vem de token: o HTML serviu
+   para a GEOMETRIA, nao para a paleta.
+============================================================================ */
+
+/**
+ * A MODAL NAO USA A CASCA `.inv-panel`.
+ *
+ * E porque a casca traz duas coisas que esta tela nao quer: a barra de abas no
+ * topo, e a largura de 600px. Aqui o teto e do lado esquerdo e a tela precisa de
+ * largura para caber a fileira, a arte e a coluna de lado sem espremer nenhuma
+ * das tres
+ *
+ * E o que ganha em troca: sem `.inv-panel`, esta tela nao herda o `background`
+ * e o `border` da casca compartilhada, e nao depende de ela continuar com o
+ * mesmo desenho
+ */
+.boss-modal {
+  /**
+   * AS MEDIDAS DA MODAL, E POR QUE ESTAO EM TOKEN.
+   *
+   * A tela veio do HTML com 1087x545 e encolheu. As medidas vivem em token
+   * porque sao SEIS coisas que andam juntas: a modal, a arte, a fileira, a
+   * caixa da faixa e o topo da fileira. Escritas em numero solto, a proxima
+   * mudanca de tamanho quebraria a tela em tres lugares ao mesmo tempo
+   *
+   * A coluna da direita NAO entrou aqui de proposito: ela e em porcentagem, e
+   * porcentagem acompanha a modal sozinha
+   */
+  --boss-w: 766px;
+  --boss-h: 417px;
+  --boss-arte: 360px;
+  --boss-faixas-w: 210px;
+  --boss-faixas-h: 170px;
+  --boss-faixa-w: 130px;
+  --boss-faixas-top: 42px;
+
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  z-index: 30;
+  width: min(var(--boss-w), calc(100vw - 24px));
+  height: min(var(--boss-h), calc(100vh - 28px));
+  overflow: hidden;
+  border: 2px solid var(--t-line-2);
+  border-radius: var(--t-radius);
+  color: var(--t-text);
+  font-family: inherit;
+  transform: translate(-50%, -50%);
+  pointer-events: auto;
+  user-select: none;
+
+  /**
+   * O FUNDO, E AGORA O MESMO DE TODO PAINEL DO JOGO.
+   *
+   * O radial carmesim foi para o bolso: a tela tem cor que ja diz "aqui e
+   * luta" — a coluna da direita, a borda do chefe e a cor da raridade. E o
+   * fundo carmesim punha a mesma informacao duas vezes e ainda deixava a modal
+   * como o unico painel do jogo sem o gradiente de madeira
+   */
+  background: linear-gradient(
+    180deg,
+    var(--t-panel) 0%,
+    var(--t-sunken) 100%
+  );
+}
+
+/**
+ * O FECHAR, E O QUE ELE PRECISA FICAR ACIMA DA VINHETA.
+ *
+ * O `z-index: 7` e o maior da tela de proposito: a vinheta escurece a ponta
+ * direita com um `rgba(0,0,0,.65)`, e um `X` na cor do texto dim sumiria
+ * exatamente ali. O `boss-info` esta em `6`, entao o fechar passa por cima
+ * dele sem cobrir o nome do chefe
+ */
+.boss-modal__fechar {
+  position: absolute;
+  top: 8px;
+  right: 8px;
+  z-index: 7;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 26px;
+  height: 26px;
+  border: 1px solid var(--t-line-2);
+  border-radius: var(--t-radius-sm);
+  background: var(--t-panel);
+  color: var(--t-text-dim);
+  font: inherit;
+  font-size: 15px;
+  line-height: 1;
+  cursor: pointer;
+  transition: color 120ms ease, border-color 120ms ease;
+}
+
+.boss-modal__fechar:hover {
+  border-color: var(--t-gold-line);
+  color: var(--t-text-bright);
+}
+
+@keyframes boss-neblina {
+  to {
+    opacity: 0.72;
+    transform: scale(1.05);
+  }
+}
+
+.boss-modal__vinheta {
+  position: absolute;
+  inset: 0;
+  z-index: 1;
+  background:
+    linear-gradient(to bottom, transparent 55%, rgba(0, 0, 0, 0.6) 100%),
+    linear-gradient(
+      90deg,
+      rgba(0, 0, 0, 0.8) 0%,
+      transparent 18%,
+      transparent 72%,
+      rgba(0, 0, 0, 0.65) 100%
+    );
+  pointer-events: none;
+}
+
+/* ---------- a fileira de chefes ---------- */
+
+/**
+ * A FILEIRA: 260 DE LARGURA, ABAIXO DAS ABAS, E ROLANDO NO EIXO X.
+ *
+ * ## POR QUE 260 E NAO A LARGURA INTEIRA
+ *
+ * Porque a coluna da direita comeca em 82% da largura. A fileira inteira
+ * atravessaria por baixo dela, e a ultima caixa ficaria embaixo da coluna de
+ * recompensa — o jogador rolar a fileira e nao ver para onde o card esta indo
+ *
+ * ## E POR QUE A RODA DO MOUSE VIRA ROLAGEM X
+ *
+ * Porque o `overflow-x` rola a barra horizontal e a roda manda o eixo Y. Sem o
+ * desvio, passar o mouse aqui rola o painel inteiro, e o painel tem oito
+ * linhas de altura. O `wheel` que faz isso esta no componente, com
+ * `passive: false`, que sem ele o navegador ignora o `preventDefault`
+ */
+.boss-faixas {
+  position: absolute;
+  top: 0;
+  left: 0;
+  z-index: 3;
+  display: flex;
+  gap: 2px;
+  width: var(--boss-faixas-w);
+  height: var(--boss-faixas-h);
+  overflow-x: auto;
+  overflow-y: hidden;
+  overscroll-behavior: contain;
+  scrollbar-width: thin;
+  scrollbar-color: var(--t-gold-line) var(--t-abyss);
+}
+
+.boss-faixas::-webkit-scrollbar {
+  height: 5px;
+}
+
+.boss-faixas::-webkit-scrollbar-track {
+  background: var(--t-abyss);
+}
+
+.boss-faixas::-webkit-scrollbar-thumb {
+  background: var(--t-gold-line);
+  border-radius: 3px;
+}
+
+/**
+ * O ARRASTE, E O QUE O `cursor` CONTA.
+ *
+ * `grab` na caixa toda e `grabbing` com o botão apertado, e não `pointer`:
+ * `pointer` diria que a caixa é um link, e ela rola. O estado vem do
+ * componente, porque o `movido` mora num `ref` — e um `ref` lido no render
+ * não dispararia o re-render que muda a classe
+ *
+ * E o `user-select: none` evita que o arraste selecione o texto das caixas
+ * enquanto rola, que no desktop seleciona a arte em PNG
+ */
+.boss-faixas {
+  cursor: grab;
+  user-select: none;
+  -webkit-user-select: none;
+}
+
+.boss-faixas.is-arrastando {
+  cursor: grabbing;
+}
+
+/**
+ * A CAIXA.
+ *
+ * E um `<button>`, e nao um `<div>` com `onClick`: a fileira e uma lista de
+ * alvos, e o teclado precisa alcancar cada um. O gradiente do degrau entra do
+ * tom do chefe para o escuro do painel, que e o que faz as sete caixas sem
+ * arte parecerem uma progressao e nao sete quadrados iguais
+ *
+ * ## E A PRIMEIRA COM ARTE
+ *
+ * Porque a miniatura e o que o jogador reconhece ANTES de clicar. A arte e a
+ * mesma do centro, encolhida: reconhecer duas vezes o mesmo desenho e o que
+ * faz o clique na miniatura parecer obvio em vez de adivinhacao
+ */
+/**
+ * A CAIXA, COM O FUNDO DA CASCA COMPARTILHADA.
+ *
+ * ## POR QUE AS TRÊS VARIAÇÕES SUMIRAM
+ *
+ * Eram `nth-child` com tom acinzentado, marrom e verde-oliva, para a
+ * fileira não virar oito quadrados iguais. Hoje o fundo é o mesmo da casca de
+ * todo painel — `var(--t-panel)` para `var(--t-sunken)` — e as três variantes
+ * dariam três vezes a mesma cor
+ *
+ * E a distinção real não precisa de cor: a caixa selecionada tem a borda
+ * dourada de 3px, e é ela que o olho acha. A fileira inteira é o mesmo painel,
+ * como as fileiras de mapa e de loot
+ */
+.boss-faixa {
+  position: relative;
+  flex: 0 0 var(--boss-faixa-w);
+  overflow: hidden;
+  padding: 0;
+  border: 1px solid var(--t-line-2);
+  border-top: 1px solid rgba(255, 255, 255, 0.14);
+  background: linear-gradient(
+    180deg,
+    var(--t-panel) 0%,
+    var(--t-sunken) 100%
+  );
+  cursor: pointer;
+  transition: filter 150ms ease;
+}
+
+.boss-faixa:hover {
+  filter: brightness(1.25);
+}
+
+/**
+ * A SELECIONADA, E O BORDAO DOURADO DO PROJETO.
+ *
+ * E nao um `outline` de 2px com `-2px` de deslocamento, como no HTML: o
+ * `outline` nao acompanha o `border-radius` e nascia um retangulo em volta da
+ * caixa. Aqui a borda dourada de verdade, com o canto arredondado junto
+ *
+ * ## E A BORDA ESQUERDA MAIS GROSSA NA PRIMEIRA
+ *
+ * Porque e a que ja vem aberta quando o painel abre, e o olho precisa de um
+ * sinal de "comecou aqui" antes de qualquer clique
+ */
+.boss-faixa.is-on {
+  border: 2px solid var(--t-gold-line);
+  border-left-width: 3px;
+}
+
+.boss-faixa.tem-arte {
+  border-left: 3px solid var(--t-gold-line);
+}
+
+/**
+ * A ARTE DENTRO DA MINIATURA.
+ *
+ * ## POR QUE ELA PRECISA DE `position` E DE `translate` PARA FICAR NO MEIO
+ *
+ * Porque o `object-fit: contain` centraliza a arte DENTRO do quadro, mas o
+ * quadro e que precisa estar centrado na caixa. Sem o `top/left` com `50%` e o
+ * `translate(-50%, -50%)`, a arte ficaria encostada no topo da caixa — e o
+ * `translateY(-12%)` que existia antes era uma gambiarra para isso
+ *
+ * ## E POR QUE UM `scale` E NAO `object-fit: cover`
+ *
+ * Porque `cover` preenche a caixa e CORTA. O idle de Karghul e um quadro
+ * quadrado de 168px, e a caixa e de 130x170 — retrato. `cover` cortaria as
+ * laterais do chefe para caber na altura, e o que se perde e exatamente a
+ * parte que o jogador esta tentando reconhecer na miniatura
+ *
+ * Com `contain` a arte inteira cabe, sobrando 20px de vazio acima e abaixo; o
+ * `scale` come esse vazio pelos quatro lados e chega no mesmo tamanho do
+ * `cover` com um corte de 12px em vez de um de 20px, e ainda assim o
+ * personagem continua inteiro
+ */
+.boss-faixa__arte {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+  transform: translate(-50%, -50%) scale(1.2);
+  image-rendering: pixelated;
+}
+
+/* ---------- a arte do centro ---------- */
+
+/**
+ * A ARTE, E A SOMBRA DEBAIXO DELA.
+ *
+ * ## POR QUE A SOMBRA E UM `div` E NAO O `::after` DO HTML
+ *
+ * Porque no HTML a sombra usava `z-index: -1` e o pai nao tinha fundo, entao
+ * ela caia para tras do modal inteiro. Aqui o pai tem o radial roxo como
+ * `background`: o `-1` colocaria a sombra ATRAS do fundo, e ela sumiria
+ *
+ * O `image-rendering: pixelated` vem da arte do chefe, que e pixel art. Sem
+ * ele o navegador interpola o GIF e o idle treme a cada quadro
+ */
+.boss-arte {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  z-index: 2;
+  width: var(--boss-arte);
+  height: var(--boss-arte);
+  transform: translate(-50%, -50%);
+  pointer-events: none;
+}
+
+.boss-arte__gif {
+  position: relative;
+  display: block;
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+  image-rendering: pixelated;
+}
+
+/* ---------- a coluna da direita ---------- */
+
+/**
+ * A COLUNA, POR CIMA DA VINHETA.
+ *
+ * O `z-index: 6` e obrigatorio: a vinheta escurece as bordas, e o texto do
+ * nome do chefe fica na ponta direita. Sem subir, o nome do chefe ficava sob
+ * o `rgba(0,0,0,.65)` do gradiente
+ *
+ * ## E POR QUE A LARGURA SUBIU DE 19.6% PARA 24%
+ *
+ * Porque a coluna e em porcentagem, e a porcentagem acompanha a modal sozinha:
+ * com a tela em 870 de largura, os 19.6% do HTML dariam 170px — 43px a menos
+ * que antes, e a grade de recompensa de 4 colunas perderia 10px por coluna. O
+ * 24% devolve os 208px que a coluna tinha na tela cheia, e a coluna continua
+ * proporcional se a janela for menor
+ */
+.boss-info {
+  position: absolute;
+  top: 2%;
+  right: 0.7%;
+  z-index: 6;
+  display: flex;
+  flex-direction: column;
+  width: 28%;
+  height: 94%;
+  padding: 1.2em 0.9em 0.8em;
+  border: 1px solid var(--t-line-2);
+  background: linear-gradient(
+    180deg,
+    rgba(20, 16, 12, 0.94) 0%,
+    rgba(10, 8, 6, 0.94) 100%
+  );
+}
+
+.boss-info__sub {
+  margin: 0;
+  color: var(--t-text-dim);
+  font-size: 12px;
+  text-align: center;
+}
+
+.boss-info__nome {
+  margin: 0.1em 0 0.5em;
+  color: var(--t-text-bright);
+  font-size: 27px;
+  font-weight: 600;
+  text-align: center;
+}
+
+.boss-info__stats {
+  display: flex;
+  justify-content: center;
+  gap: 1.4em;
+  margin: 0.9em 0 0.8em;
+  font-size: 12px;
+}
+
+.boss-info__traco {
+  height: 1px;
+  margin: 0.3em 0;
+  border: 0;
+  background: var(--t-line);
+}
+
+.boss-info__rotulo {
+  margin: 0.4em 0 0.45em;
+  color: var(--t-text-dim);
+  font-size: 11px;
+  text-align: center;
+  letter-spacing: 0.04em;
+}
+
+/**
+ * A DIFICULDADE.
+ *
+ * E um quadrado com o numero romano, e nao um `<select>`. Porque sao tres
+ * opcoes e o jogador esta vendo a recompensa de cada uma ao lado: escolher e
+ * comparar, e um menu que abre esconde justamente a metade da decisao
+ *
+ * E o estado ligado e borda E fundo dourados, do token. O `box-shadow` curto
+ * e o mesmo do botao de aplicar da arvore: e o que faz o estado ligado
+ * parecer acionado e nao so pintado
+ */
+.boss-dif {
+  display: flex;
+  justify-content: center;
+  gap: 0.5em;
+  margin-bottom: 0.8em;
+}
+
+.boss-dif__btn {
+  width: 34px;
+  height: 34px;
+  border: 1px solid var(--t-line-2);
+  background: var(--t-button);
+  color: var(--t-text-faintest);
+  font: inherit;
+  font-size: 11px;
+  font-weight: 700;
+  cursor: pointer;
+  transition: all 150ms ease;
+}
+
+.boss-dif__btn:hover {
+  border-color: var(--t-gold-line);
+  color: var(--t-text-dim);
+}
+
+.boss-dif__btn.is-on {
+  border-color: var(--t-gold-line);
+  background: #2a2318;
+  color: var(--t-gold);
+  box-shadow: 0 0 8px rgba(200, 164, 78, 0.35);
+}
+
+/**
+ * A GRADE DE RECOMPENSA, E O `min-height: 0` QUE A FAZ ROLAR.
+ *
+ * Trinta e duas caixas nao cabem na coluna. A rolagem e DA COLUNA, nao do
+ * painel inteiro: se o painel rolasse, os botoes do rodape desceriam junto e
+ * o jogador teria de rolar de volta para achar "criar expedição" depois de
+ * ler a recompensa
+ *
+ * E o `min-height: 0` e obrigatorio num flex filho. Sem ele, o padrao de
+ * item flex (`min-height: auto`) recusa encolher, a grade cresce ate a
+ * altura do conteudo e o `overflow-y` nao tem o que percorrer
+ *
+ * A barra de rolagem e a do tema, e nao a padrao do navegador: ela aparecia
+ * clara e grossa no meio de uma coluna escura
+ */
+/**
+ * A GRADE DE QUATRO COLUNAS, E POR QUE ELA É FLEX E NÃO GRID.
+ *
+ * ## O QUE ACONTECEU COM O GRID
+ *
+ * O card tem `aspect-ratio: 1`, ou seja, a ALTURA vem da LARGURA. E o grid
+ * dimensiona a trilha da linha pelo CONTEÚDO — no intrinsic sizing, antes de o
+ * navegador resolver a razão. A trilha saia mais baixa que o card, o card
+ * invadia a linha seguinte, e as grades ficavam uma em cima da outra
+ *
+ * Nao apareceu antes porque o `min-width: auto` do grid estourava a coluna
+ * inteiro: largo demais, o card cabia na trilha mesmo errada. Ao trocar para
+ * `minmax(0, 1fr)` — que foi o que fez as quatro colunas caberem de verdade —
+ * a coluna ficou justa, e o erro da trilha apareceu
+ *
+ * ## POR QUE O FLEX-WRAP RESOLVE
+ *
+ * Porque no flex-wrap a largura do item é DEFINIDA (`25%` do container), e uma
+ * largura definida é o que o `aspect-ratio` precisa para devolver a altura
+ * exata. A linha do flex cresce ate o item mais alto, e o card cabe nela por
+ * construcao
+ *
+ * ## E O `calc(25% - 0.3em)` E A CONTA DOS VÃOS
+ *
+ * Sao tres vaos de `0.4em` entre quatro colunas. Se cada coluna fosse 25% sem
+ * desconto, o total seria 100% mais 1.2em, e a quarta carta passaria da
+ * borda. O `0.3em` e `3 x 0.4em / 4` — a fatia do vau que cabe em cada coluna
+ */
+.boss-recompensas {
+  display: flex;
+  flex: 1;
+  flex-wrap: wrap;
+  gap: 0.4em;
+  min-height: 0;
+  margin-bottom: 0.8em;
+  padding-right: 0.3em;
+  overflow-y: auto;
+  overflow-x: hidden;
+  overscroll-behavior: contain;
+  scrollbar-width: thin;
+  scrollbar-color: var(--t-gold-line) var(--t-abyss);
+}
+
+.boss-recompensas::-webkit-scrollbar {
+  width: 5px;
+}
+
+.boss-recompensas::-webkit-scrollbar-track {
+  background: var(--t-abyss);
+}
+
+.boss-recompensas::-webkit-scrollbar-thumb {
+  background: var(--t-gold-line);
+  border-radius: 3px;
+}
+
+/**
+ * O FUNDO DA CAIXA, PELA RARIDADE DO ITEM.
+ *
+ * ## POR QUE A CAIXA INTEIRA E NAO SÓ A MARCA
+ *
+ * Era a marca — um quadradinho — que carregava a cor. Com o `ItemIcon` no
+ * lugar, a peça tem arte e a cor da raridade passa a ser o fundo da caixa
+ * inteira: é o que o inventário faz, e é o que faz a grade de 32 caixas ler
+ * como raridade em vez de como 32 quadrados iguais
+ *
+ * ## E O `--cor-raridade` CHEGA POR VARIÁVEL, E NÃO POR CLASSE
+ *
+ * Porque existem cinco raridades e a caixa é uma. Uma classe por raridade
+ * repetiria a mesma regra cinco vezes, e a sexta apareceria no dia em que
+ * alguém acrescentar uma raridade nova — que é o dia em que ninguém lembra
+ * de atualizar cinco classes
+ */
+/**
+ * A CARTA, E O FUNDO QUE VEM DO INVENTÁRIO.
+ *
+ * ## POR QUE HÁ UM `background` AQUI E AS CARDS DE RARIDADE NÃO TÊM
+ *
+ * Porque `.inv-slot--uncommon` e companhia são regras simples no `styles.css`
+ * e valem para qualquer elemento com a classe: escrever a classe na carta faz
+ * o fundo do COMUM, do RARO e do ÉPICO saírem da mesma regra que pinta o baú
+ * e o inventário — vão mudar junto quando alguém mexer lá
+ *
+ * Mas o COMUM não tem regra própria. Ele é o "sem nada" da raridade, e o fundo
+ * dele vem do `.inv-slot` BASE, que esta carta não tem. Sem o bloco abaixo, a
+ * carta comum ficaria sem fundo nenhum e o gradiente da modal apareceria por
+ * trás dela — as 14 primeiras caixas da recompensa, que são quase tudo material
+ * comum, ficariam transparentes
+ *
+ * ## E POR QUE O `--rarity` PRECISA DO FALLBACK
+ *
+ * Porque a regra base do inventário declara `--rarity: #c3ccd6` na própria
+ * `.inv-slot`. Sem isso aqui, o `color-mix` do efeito cairia no `var()` sem
+ * valor e o card inteiro perderia a cor
+ */
+.boss-recompensa {
+  --rarity: #c3ccd6;
+
+  position: relative;
+  display: flex;
+  flex: 0 0 calc(25% - 0.3em);
+  align-items: center;
+  justify-content: center;
+  min-width: 0;
+  aspect-ratio: 1;
+  overflow: hidden;
+  border: 1px solid rgba(0, 0, 0, 0.6);
+  background: linear-gradient(180deg, #1a120c 0%, #0c0806 100%);
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.05),
+    inset 0 -2px 6px rgba(0, 0, 0, 0.6);
+  transition: transform 120ms ease, border-color 120ms ease;
+}
+
+.boss-recompensa:hover {
+  z-index: 2;
+  border-color: var(--t-gold);
+  transform: scale(1.08);
+}
+
+/* ---------------------------------------------------------------------------
+   O EFEITO DE RARIDADE, O MESMO DO INVENTÁRIO.
+   ---------------------------------------------------------------------------
+   O bloco do `styles.css` que faz isso é ancorado em painéis — `:is(.inv-v2,
+   .enc-panel) :is(.inv-grid-modern, ...) .inv-slot`. Ele não pega aqui, e
+   arrastar `.boss-recompensas` para dentro dele traria junto o layout inteiro
+   do slot: o `padding`, o `border` e o posicionamento do ícone, que aqui são
+   diferentes.
+
+   O que fica abaixo são os MESMOS valores, lidos da MESMA variável `--rarity`,
+   com a MESMA regra de exclusão: o Comum não tem efeito. Se um dia o efeito do
+   inventário mudar, este é o lugar que precisa mudar junto — e é por isso que
+   o bloco está marcado como cópia, e não como terceira via da regra.
+   --------------------------------------------------------------------------- */
+
+.boss-recompensa:not(.inv-slot--common) {
+  isolation: isolate;
+  box-shadow:
+    inset 0 0 0 1px color-mix(in srgb, var(--rarity, #c3ccd6) 32%, transparent),
+    inset 0 1px 0 color-mix(in srgb, var(--rarity, #c3ccd6) 24%, transparent),
+    inset 0 -2px 6px rgba(0, 0, 0, 0.6);
+}
+
+/**
+ * A VINHETA INTERNA, e o `::before`.
+ *
+ * E o que faz o canto da carta escurecer e o centro ficar limpo. Precisa do
+ * `isolation: isolate` acima para o `::after` de `mix-blend-mode: screen`
+ * ficar preso ao card e não vazar para as cartas vizinhas
+ */
+.boss-recompensa:not(.inv-slot--common)::before {
+  position: absolute;
+  z-index: 0;
+  inset: 0;
+  border-radius: inherit;
+  background: radial-gradient(
+    ellipse at 50% 42%,
+    transparent 38%,
+    rgba(0, 0, 0, 0.55) 100%
+  );
+  content: "";
+  pointer-events: none;
+}
+
+/**
+ * O BRILHO DA RARIDADE, e o `::after`.
+ *
+ * O `mix-blend-mode: screen` e o que faz a cor da raridade ACENDER em vez de
+ * só tingir: sem ele, seria mais um fundo opaco por cima do desenho
+ */
+.boss-recompensa:not(.inv-slot--common)::after {
+  position: absolute;
+  z-index: 0;
+  inset: 0;
+  border-radius: inherit;
+  background: radial-gradient(
+    circle at 50% 40%,
+    color-mix(in srgb, var(--rarity, #c3ccd6) 22%, transparent) 0%,
+    transparent 68%
+  );
+  content: "";
+  mix-blend-mode: screen;
+  pointer-events: none;
+}
+
+/* o conteudo acima da vinheta e do brilho */
+.boss-recompensa__arte,
+.boss-recompensa__nivel,
+.boss-recompensa__qtd {
+  position: relative;
+  z-index: 1;
+}
+
+/**
+ * A ARTE PULSANDO, com o MESMO keyframe do inventario.
+ *
+ * E `cft-brilho-pulso`, de 3.2s. Não é o `qst-auto-pulse` de 1.6s: aquele é
+ * o ritmo dos estados AUTOMÁTICOS do HUD, e um item brilhando a 1.6s com 32
+ * cartas na tela vira uma cerca piscando. A raridade é informação de leitura
+ * lenta, e o pulso dela é meant para ser notado de relance
+ */
+.boss-recompensa:not(.inv-slot--common) .boss-recompensa__arte {
+  filter:
+    drop-shadow(0 0 6px color-mix(in srgb, var(--rarity, #c3ccd6) 60%, transparent))
+    drop-shadow(0 0 12px color-mix(in srgb, var(--rarity, #c3ccd6) 32%, transparent));
+  animation: cft-brilho-pulso 3.2s ease-in-out infinite;
+}
+
+/**
+ * A ARTE DO ITEM, E A REGRA QUE DERROTA O 44x44 DO INVENTARIO.
+ *
+ * ## POR QUE A REGRA ALVO A IMAGEM E NAO SO O CONTAINER
+ *
+ * Porque o `styles.css` fixa o TAMANHO no `<img>` dentro do `.item-icon`, e
+ * nao no container:
+ *
+ *     .item-icon img { width: 44px; height: 44px; }
+ *
+ * Dimensionar o `<span>` — que e o que a classe passada ao `ItemIcon` monta —
+ * nao alcanca a imagem, e ela continuava em 44px dentro de uma carta de 46px,
+ * sangrando nas vizinhas. E o que apareceu na tela: o icone para fora do card
+ *
+ * ## E POR QUE `object-fit: contain` E NAO SO 100%
+ *
+ * Porque a arte do item nao e quadrada, e `width/height` fixo esticaria ela.
+ * O `contain` deixa a arte inteira caber mantendo a proporcao, com sobra
+ * simetrica — e o que o slot do inventario faz
+ *
+ * ## E O `font-size` DO GLYFO
+ *
+ * Porque sem arte o `ItemIcon` devolve um `<span>` com um caractere, e ele
+ * precisa de medida propria: o `width/height` do container nao aperta glifo
+ */
+/**
+ * A ARTE, E O CENTRAMENTO DELA.
+ *
+ * ## POR QUE `display: grid` NO WRAPPER E `display: block` NA IMAGEM
+ *
+ * Porque o `.item-icon` do `styles.css` e `display: block`, mas o `<img>`
+ * dentro dele NAO tem `display` nenhum — e o padrao da imagem e INLINE. Uma
+ * imagem inline assenta na baseline da linha, o que empurra a arte para CIMA
+ * de uma fracção da altura e abre um vao de descida embaixo. Com a caixa
+ * quadrada e a arte quadrada, a diferenca e pequena mas visivel: a peca nao
+ * estava no meio, estava um pouco alta
+ *
+ * O `place-items: center` e o que resolve sem depender do `align-items` do
+ * flex da carta: ele centra a arte E o glifo de fallback no mesmo lugar, e os
+ * dois caminhos passam a dar o mesmo resultado
+ *
+ * ## E POR QUE A IMAGEM CONTINUA COM `contain`
+ *
+ * Porque a arte do item nao e quadrada. Com `width/height` em 100% sem
+ * `contain`, o `object-fit` padrao (`fill`) esticaria a arte ate virar o
+ * quadrado da carta
+ */
+.boss-recompensa__arte {
+  display: grid;
+  place-items: center;
+  width: 78%;
+  height: 78%;
+  font-size: 15px;
+  line-height: 1;
+}
+
+.boss-recompensa__arte img {
+  display: block;
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+}
+
+.boss-recompensa__arte {
+  font-size: 15px;
+  line-height: 1;
+}
+
+.boss-recompensa__nivel {
+  position: absolute;
+  top: 0;
+  left: 0;
+  padding: 1px 5px;
+  background: #1a6ac0;
+  color: #fff;
+  font-size: 7px;
+  font-weight: 700;
+  clip-path: polygon(0 0, 100% 0, 80% 100%, 0 100%);
+}
+
+.boss-recompensa__qtd {
+  position: absolute;
+  right: 4px;
+  bottom: 1px;
+  color: #fff;
+  font-size: 9px;
+  font-weight: 700;
+  text-shadow: 0 1px 2px rgba(0, 0, 0, 0.9);
+}
+
+/**
+ * OS DOIS BOTOES DO RODAPE.
+ *
+ * O primario usa o gradiente dourado cheio do projeto — o mesmo do [RECEBER]
+ * da missao e do APLICAR da arvore. Sao os tres casos em que o botao promete
+ * coisa que o jogador ainda nao tem: receber, aplicar ponto, abrir expedicao
+ *
+ * E o gradiente vai do dourado claro para o dourado do token, com o texto
+ * escuro em cima. Texto escuro em cima de dourado e a unica combinacao do
+ * projeto que passa em contraste, e inverter isso deixaria o botao mais
+ * importante da tela como o menos legivel
+ */
+.boss-acoes {
+  display: flex;
+  flex: none;
+  gap: 0.5em;
+}
+
+.boss-btn {
+  flex: 1;
+  padding: 8px 0;
+  border: 1px solid var(--t-gold-line);
+  background: linear-gradient(180deg, #2a2318 0%, #17120a 100%);
+  color: var(--t-gold-bright);
+  font: inherit;
+  font-size: 10px;
+  font-weight: 600;
+  text-align: center;
+  cursor: pointer;
+  transition: filter 150ms ease;
+}
+
+.boss-btn:hover {
+  filter: brightness(1.3);
+}
+
+.boss-btn--primario {
+  border-color: var(--t-gold-line);
+  background: linear-gradient(180deg, #f0d9a8 0%, #d8b45c 100%);
+  color: #1a1208;
+}
+/* ============================================================================
+   AS DUAS SUB-MODAIS: PROCURAR E CRIAR EXPEDIÇÃO
+   ----------------------------------------------------------------------------
+   Filhas da modal do chefe, como no HTML. Ficam DENTRO dela — e não como um
+   dialogo do navegador — para a moldura do chefe continuar em volta, que é o
+   que faz o jogador saber que não saiu daquela tela
+   ============================================================================ */
+
+/**
+ * O ESCURO E O FUNDO, E O `z-index: 20` QUE VENCE O PAINEL DA DIREITA.
+ *
+ * A coluna de informação está em `6`. A camada tem de ficar acima dela, e o
+ * `20` do HTML é o que faz isso — não é enfeite: sem ele a camada abriria
+ * ATRÁS da coluna, e o jogador veria a expedição passando por baixo do nome
+ * do chefe
+ */
+.boss-capa {
+  position: absolute;
+  inset: 0;
+  z-index: 20;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: rgba(0, 0, 0, 0.7);
+  animation: boss-aparece 150ms ease-out;
+}
+
+@keyframes boss-aparece {
+  from {
+    opacity: 0;
+  }
+}
+
+/**
+ * A CAIXA, E O `width` QUE DIFERE ENTRE AS DUAS.
+ *
+ * A de busca é larga porque a linha tem nome, anfitrião, contagem e dois
+ * botões. A de criação é estreita porque tem três campos — e uma caixa larga
+ * com três campos deixa o formulário perdido no meio, com o botão de criar
+ * longe do último campo
+ *
+ * E o `max-height` com o `overflow` é o que impede a lista de 30 expedições de
+ * empurrar a caixa para fora da modal e cortar o rodapé
+ */
+.boss-capa__box {
+  display: flex;
+  flex-direction: column;
+  width: 520px;
+  max-height: 92%;
+  border: 1px solid var(--t-line-2);
+  border-radius: var(--t-radius);
+  background: linear-gradient(180deg, #171410 0%, var(--t-abyss) 100%);
+  box-shadow: var(--t-drop);
+}
+
+.boss-capa__topo {
+  display: flex;
+  flex: none;
+  align-items: center;
+  justify-content: space-between;
+  padding: 10px 14px;
+  border-bottom: 1px solid var(--t-line);
+  color: var(--t-gold-bright);
+  font-size: 15px;
+  font-weight: 700;
+}
+
+.boss-capa__x {
+  width: 22px;
+  height: 22px;
+  border: 1px solid var(--t-line-2);
+  border-radius: var(--t-radius-sm);
+  background: transparent;
+  color: var(--t-text-dim);
+  font: inherit;
+  font-size: 13px;
+  line-height: 1;
+  cursor: pointer;
+}
+
+.boss-capa__x:hover {
+  border-color: var(--t-gold-line);
+  color: var(--t-text-bright);
+}
+
+/* ---------- os filtros ---------- */
+
+.boss-filtros {
+  display: flex;
+  flex: none;
+  align-items: center;
+  gap: 5px;
+  padding: 8px 14px;
+  border-bottom: 1px solid var(--t-line);
+}
+
+/**
+ * O CHIP, E O MESMO PAR DE CORES DO RESTANTE DA PRATELEIRA.
+ *
+ * Porque o chip ligado é um estado, e estado na prateleira do projeto é
+ * `--t-gold-line` na borda com `--t-gold` no texto. Um chip com cor própria
+ * seria o primeiro lugar da tela que não segue a regra
+ */
+.boss-chip {
+  padding: 3px 11px;
+  border: 1px solid var(--t-line-2);
+  border-radius: var(--t-radius-sm);
+  background: var(--t-button);
+  color: var(--t-text-dim);
+  font: inherit;
+  font-size: 11px;
+  cursor: pointer;
+}
+
+.boss-chip.is-on {
+  border-color: var(--t-gold-line);
+  background: #2a2318;
+  color: var(--t-gold);
+}
+
+.boss-filtros__conta {
+  margin-left: auto;
+  color: var(--t-text-faint);
+  font-size: 11px;
+}
+
+/* ---------- a lista de expedições ---------- */
+
+/**
+ * A LISTA ROLA SOZINHA.
+ *
+ * Porque a caixa é `flex` com `max-height`, e sem o `min-height: 0` no filho o
+ * padrão de item flex (`auto`) recusa encolher: a lista cresceria até a
+ * altura do conteúdo e o rodapé — ou o topo — saíam da caixa. O `min-height:
+ * 0` é o que deixa ela encolher até o que sobra
+ */
+.boss-lista {
+  flex: 1;
+  min-height: 0;
+  padding: 8px 14px;
+  overflow-y: auto;
+  scrollbar-width: thin;
+  scrollbar-color: var(--t-gold-line) var(--t-abyss);
+}
+
+.boss-lista::-webkit-scrollbar {
+  width: 5px;
+}
+
+.boss-lista::-webkit-scrollbar-thumb {
+  background: var(--t-gold-line);
+  border-radius: 3px;
+}
+
+.boss-lista__vazia {
+  padding: 40px 12px;
+  color: var(--t-text-faint);
+  font-size: 12px;
+  line-height: 1.7;
+  text-align: center;
+}
+
+.boss-lista__vazia strong {
+  display: block;
+  margin-bottom: 6px;
+  color: var(--t-text-dim);
+  font-size: 15px;
+}
+
+/**
+ * A LINHA DA EXPEDIÇÃO.
+ *
+ * ## A BORDA DOURADA DA MINHA, E O FUNDO COM LEVE
+ *
+ * Porque o jogador precisa achar a expedição em que ele está entre trinta
+ * linhas, e "o nome é igual em todas" não ajuda: só a borda e o fundo dizem
+ * qual é a dele
+ *
+ * ## E O `min-width: 0` NO NOME
+ *
+ * Porque o nome é texto longo e a linha é flex. Sem ele, o nome vira o piso
+ * da coluna e empurra a contagem de membros para fora da caixa — o mesmo
+ * mecanismo que esticava a coluna da grade de recompensa
+ */
+.boss-linha {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-bottom: 5px;
+  padding: 7px 10px;
+  border: 1px solid var(--t-line);
+  background: var(--t-sunken);
+  transition: border-color 150ms ease;
+}
+
+.boss-linha:hover {
+  border-color: var(--t-gold-line);
+}
+
+.boss-linha.is-minha {
+  border-color: var(--t-gold-line);
+  background: linear-gradient(90deg, #2a2318 0%, var(--t-sunken) 70%);
+}
+
+/**
+ * A ETIQUETA DA DIFICULDADE.
+ *
+ * O III sozinho não diz nada ao jogador que desce a lista: é a cor que ele lê
+ * de relance. As três são as do jogo — e o fundo escuro com a cor no texto e na
+ * borda é o mesmo desenho do rótulo de raridade, para a dificuldade virar
+ * mais um sinal que o jogador já sabe ler
+ */
+.boss-linha__tag {
+  flex: none;
+  min-width: 42px;
+  padding: 2px 0;
+  border: 1px solid;
+  font-size: 11px;
+  font-weight: 700;
+  text-align: center;
+}
+
+.boss-linha__tag.is-d0 {
+  border-color: var(--t-line-3);
+  color: var(--t-text-dim);
+}
+
+.boss-linha__tag.is-d1 {
+  border-color: var(--t-gold-line);
+  color: var(--t-gold);
+}
+
+.boss-linha__tag.is-d2 {
+  border-color: #8a3a4a;
+  color: #e08a9a;
+}
+
+.boss-linha__info {
+  flex: 1;
+  min-width: 0;
+}
+
+.boss-linha__nome {
+  display: block;
+  overflow: hidden;
+  color: var(--t-text-bright);
+  font-size: 13px;
+  font-weight: 700;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.boss-linha__sub {
+  display: block;
+  margin-top: 2px;
+  overflow: hidden;
+  color: var(--t-text-faint);
+  font-size: 11px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.boss-linha__membros {
+  flex: none;
+  color: var(--t-text-dim);
+  font-size: 12px;
+  font-variant-numeric: tabular-nums;
+}
+
+.boss-linha__acoes {
+  display: flex;
+  flex: none;
+  gap: 5px;
+}
+
+/**
+ * O BOTÃO PEQUENO DA LINHA.
+ *
+ * E o `--t-gold-line` na borda com fundo escuro, e nao o gradiente dourado
+ * cheio dos botoes principais: são ações de lista, não a decisão da tela. Um
+ * "entrar" dourado-filled na linha 1 e na linha 12 faz o jogador achar que as
+ * duas são igualmente importantes
+ *
+ * E o `danger` do "sair" e do "dissolver" é o carmesim do tema. Dissolver
+ * expedição é a única ação aqui que não tem volta para os outros jogadores,
+ * e precisa parecer diferente de "sair"
+ */
+.boss-btn-pequeno {
+  padding: 4px 11px;
+  border: 1px solid var(--t-gold-line);
+  border-radius: var(--t-radius-sm);
+  background: linear-gradient(180deg, #2a2318 0%, #17120a 100%);
+  color: var(--t-gold-bright);
+  font: inherit;
+  font-size: 11px;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.boss-btn-pequeno:hover:not(:disabled) {
+  filter: brightness(1.3);
+}
+
+.boss-btn-pequeno:disabled {
+  filter: grayscale(1) brightness(0.6);
+  cursor: not-allowed;
+}
+
+.boss-btn-pequeno--perigo {
+  border-color: #8a3a4a;
+  background: #3a1018;
+  color: #e8b8b8;
+}
+
+
+/**
+ * O AVISO DE RECUSA, e o CARMESIM DELE.
+ *
+ * E a cor do perigo do tema, e nao o dourado: o aviso so aparece quando um
+ * pedido RECUSADO, e dourado é o que o jogo usa para dizer "isto vai acontecer".
+ * Um aviso dourado ensinaria o jogador a esperar um resultado bom onde houve
+ * recusa
+ *
+ * E ele é `flex: none` acima da lista, e nao dentro dela: uma linha que
+ * empurra a rolagem apareceria e sumiria a cada recusa, e o jogador perderia o
+ * lugar da lista que estava lendo
+ */
+.boss-aviso {
+  flex: none;
+  margin: 0 14px 8px;
+  padding: 6px 10px;
+  border: 1px solid #8a3a4a;
+  border-radius: var(--t-radius-sm);
+  background: #3a1018;
+  color: #e8b8b8;
+  font-size: 11px;
+  line-height: 1.4;
+}

@@ -1950,6 +1950,26 @@ function NoTalento({ node, onTalent }) {
  * diz de onde o item vem. Um painel so para os dois lados teria de
  * renomear o campo a cada clique
  */
+/**
+ * OS 100 SLOTS DO COFRE DA GUILDA, na aba de Retirar.
+ *
+ * ## POR QUE UM NUMERO AQUI, E NAO O `cofre.capacity` DO SERVIDOR
+ *
+ * Porque o painel precisa desenhar a grade ANTES de saber o que tem dentro
+ * dela, e a grade dos 100 slots e o que o jogador ve — nao o quanto esta
+ * ocupado. Se o numero viesse do servidor, um cofre quase vazio mostraria uma
+ * grade de 3 slots, e o layout pularia a cada peca guardada
+ *
+ * ## E POR QUE A ABA DE DEPOSITAR NAO USA ESTE NUMERO
+ *
+ * Porque ali os slots sao os da MOCHILA (`inventory.capacity`), que cresce
+ * quando o jogador compra espaco. Um cofre de 100 nao vira uma mochila de 100
+ *
+ * E o mesmo desenho do bau do NPC: um limite por lado, porque cada aba e a
+ * MESMA grade vista de duas direcoes
+ */
+const COFRE_SLOTS = 100;
+
 function AbaCofre({ guilda, onCofre, inventory }) {
   const cofre = guilda?.cofre;
 
@@ -2055,9 +2075,20 @@ function AbaCofre({ guilda, onCofre, inventory }) {
         para "Retirar": o estado do `PainelCofre` é local a ele, e sem o
         `key` o React reaproveitaria a instancia e o jogador veria
         "Poção Grande (5)" selecionado do outro lado
+
+        E o `slots` que vem logo abaixo: QUANTOS QUADRADINHOS CADA ABA
+        DESENHA, e as duas nao desenham o mesmo numero.
+
+        Em "Depositar" vale a capacidade da MOCHA: 20 para quem tem 20, 30
+        para quem comprou mais 10 espaco. Desenhar ali os 100 do cofre seria
+        mentira — o jogador escolheria um slot que a mochila dele nao tem, e o
+        servidor recusaria a peca depois que ela ja entrou no slot
+
+        Em "Retirar" vale a capacidade do COFRE, que sao os 100 do `COFRE_SLOTS`
       */}
       <PainelCofre
         key={lado}
+        lado={lado}
         titulo={lado === "depositar" ? "Depositar" : "Retirar"}
         dica={
           lado === "depositar"
@@ -2070,6 +2101,9 @@ function AbaCofre({ guilda, onCofre, inventory }) {
             : cofre.moedas ?? 0
         }
         itens={lado === "depositar" ? inventory?.items ?? [] : slots}
+        slots={
+          lado === "depositar" ? (inventory?.capacity ?? 0) : COFRE_SLOTS
+        }
         rotuloDaQuantidade={(e) =>
           lado === "depositar" ? e.count ?? 1 : e.quantidade ?? 1
         }
@@ -2088,11 +2122,6 @@ function AbaCofre({ guilda, onCofre, inventory }) {
 
         onMover={(dados) =>
           onCofre?.(id, lado === "depositar" ? "depositar" : "retirar", dados)
-        }
-        vazio={
-          lado === "depositar"
-            ? "Sua mochila esta vazia."
-            : "O cofre esta vazio."
         }
       />
 
@@ -2129,14 +2158,15 @@ function AbaCofre({ guilda, onCofre, inventory }) {
  * trava a acao por um erro de digitar
  */
 function PainelCofre({
+  lado,
   titulo,
   dica,
   moedas,
   itens,
+  slots,
   rotuloDaQuantidade,
   montarItem,
   onMover,
-  vazio,
 }) {
   const [chave, setChave] = useState(null);
   const [quantidade, setQuantidade] = useState("");
@@ -2254,10 +2284,15 @@ function PainelCofre({
 
       {/* ---------- os itens ---------- */}
 
-      {itens.length === 0 ? (
-        <p className="inv-panel__empty">{vazio}</p>
-      ) : (
-        <div className="inv-grid gld-cofre__grade">
+      {/*
+        A GRADE SEMPRE, NUNCA O TEXTO DE VAZIO.
+
+        Antes havia `{itens.length === 0 ? <p>{vazio}</p> : <grade>}`: um cofre
+        vazio mostrava um aviso no lugar dos slots. Com as celulas fixas o
+        cofre vazio É uma grade de quadrados vazios — e e isso que o jogador
+        precisa ver: que existe espaco, e quanto
+      */}
+      <div className="inv-grid gld-cofre__grade">
           {itens.map((entrada) => {
             const id = entrada.uid ?? entrada.itemId;
 
@@ -2286,8 +2321,26 @@ function PainelCofre({
               </div>
             );
           })}
+
+          {/*
+            OS VAZIOS ATÉ `slots`, E NAO UM MAP SOBRE UM ARRAY DE `slots`.
+
+            ## POR QUE UM DIV, E NAO O `InvSlotView`
+
+            Porque o `InvSlotView` faz `getItem(entry.itemId)` e devolve `null`
+            quando o item nao existe — o slot nem chega a ser desenhado.
+            Passar `entry={null}` aqui renderizaria celulas invisiveis: o
+            espaco da grade viria certo, mas o jogador nao veria o cofre
+
+            E o mesmo desenho que a mochila usa no slot vazio dela
+            (`InventoryPanel.jsx:753`), para que as duas grades leiam igual
+          */}
+          {Array.from({ length: Math.max(0, slots - itens.length) }, (_, i) => (
+            <div key={`vazio-${i}`} className="inv-cell">
+              <div className="inv-slot inv-slot--empty" aria-hidden="true" />
+            </div>
+          ))}
         </div>
-      )}
 
       {/*
         A QUANTIDADE do item escolhido.
@@ -2331,7 +2384,24 @@ function PainelCofre({
             className="gld-btn gld-btn--sm"
             onClick={enviarItem}
           >
-            Mover
+            {/*
+              O NOME DA AÇÃO, E NAO "Mover".
+
+              ## POR QUE "MOVER" ESTAVA ERRADO
+
+              "Mover" descreve a MECANICA, e nao o que o jogador vai fazer. O
+              item nao muda de lugar dentro de uma tela: ele sai da mochila e
+              entra no cofre, ou o contrario. Duas acoes opostas com o mesmo
+              botao e o mesmo texto e o que faz o jogador clicarDepositando
+              quando queria retirar
+
+              ## E POR QUE O TEXTO VEM DO `lado`, E NAO DO `titulo`
+
+              Porque o `titulo` e o que a aba escreve — mudar a palavra do titulo
+              mudaria o botao junto, e o botao nao e o titulo. O `lado` e o
+              valor que o servidor recebe, entao ele e a fonte da verdade
+            */}
+            {lado === "depositar" ? "Depositar" : "Retirar"}
           </button>
         </div>
       )}

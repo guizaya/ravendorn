@@ -133,6 +133,49 @@ para alcancar a regra que ganha
 }
 .auth-card .wordmark .marca { height: 36px; }
 .chars-header .wordmark .marca { height: 32px; }
+
+/*
+A MARCA MAIOR SEM MEXER NA CAIXA.
+
+## POR QUE `transform: scale()`, E NAO `height`
+
+Porque `height` participa do LAYOUT. Trocar 36px por 54px faria a linha da
+wordmark crescer, a caixa do `auth-card` cresceria junto, e tudo descia uns
+18px na tela. O mesmo no `chars-header`: o `padding` continuaria igual, mas
+o miolo cresceria e a barra ficaria mais alta — que e o que foi pedido para
+nao acontecer
+
+`transform: scale()` mora na ETAPA DE DESENHO, depois do layout: o
+navegador reserva o espaco antigo, e o desenho aparece maior por cima dele.
+A caixa nao se mexe um pixel, e o `align-items: center` do flex ja
+centraliza o desenho maior sem precisar de regra nova
+
+## POR QUE NAO UM `overflow: hidden` NA CAIXA
+
+Porque seria a outra forma de chegar no mesmo resultado, e a errada:
+esconderia parte da marca. Aqui a marca cresce para fora da caixa de
+proposito — e o espaco reservado continua sendo o antigo
+
+## POR QUE 2.0 E 1.45, E NAO O MESMO NUMERO
+
+O `auth` e uma caixa isolada no centro da tela, com muito ar em volta: a
+marca pode ocupar o dobro sem encostar em nada. O `chars-header` e uma
+barra que divide a linha com o titulo e o saldo de diamantes, e 1.45 ja e o
+teto que nao disputa espaco com eles
+
+## POR QUE 2.0 NAO BORRA
+
+A arte e um PNG quadrado de 256px. Multiplicar 2 sobre 36px da 72px, e
+continua um terco da resolucao nativa. Acima de ~3x comecaria a aparecer a
+serrilha do proprio PNG
+*/
+.auth-card .wordmark .marca {
+  transform: scale(2);
+}
+
+.chars-header .wordmark .marca {
+  transform: scale(1.45);
+}
 .desktop-nav { display: flex; align-items: center; gap: 29px; }
 .desktop-nav a { font-size: 12px; color: var(--muted-foreground); text-decoration: none; transition: color .2s; }
 .desktop-nav a:hover, .desktop-nav a.active { color: var(--foreground); }
@@ -340,6 +383,25 @@ footer p { font-size: 10px; color: var(--muted-foreground); }
 .chars-slot-locked span { font-size: 13px; font-weight: 700; color: var(--foreground); }
 .chars-slot-locked small { display: inline-flex; align-items: center; gap: 4px; font-size: 11px; color: var(--primary); }
 .chars-slot-locked:hover { border-color: color-mix(in oklab, var(--primary) 60%, transparent); }
+/* O DIAMANTE DENTRO DE UM CARTAO DE SELECAO.
+ *
+ * A regra `.chars-slot img` acima e feita para a ARTE do personagem, que
+ * preenche o cartao inteiro. Ela nao pode valer para este icone, que esta no
+ * texto do cartao bloqueado: sem o cancelamento abaixo o `<img>` herdava
+ * `position:absolute; inset:0` e saia do fluxo, sem lugar na linha de texto.
+ *
+ * AQUI NAO HA `width` NEM `height`, E ISSO E PROPOSITAL.
+ *
+ * Uma versao anterior desta regra punha `width: auto; height: auto` para
+ * "desfazer" o `100%` herdado. Trocou um defeito por outro: em um `<img>`,
+ * `width: auto` ignora os atributos `width`/`height` do HTML e volta para o
+ * tamanho INTRINSICO da arte — 128x96. O icone passou de "enche o cartao"
+ * para "128 pixels de lado", que e ainda pior.
+ *
+ * O tamanho e posto no `style` inline do componente, e inline ganha de
+ * qualquer regra de classe. Aqui so se cancela o posicionamento
+ */
+img.chars-diamond { position: static; inset: auto; }
 
 .unlock-dialog { max-width: 430px; gap: 14px; padding: 30px 28px 24px; text-align: center; background: var(--panel-strong); border-color: color-mix(in oklab, var(--gold) 34%, transparent); box-shadow: var(--shadow-game); }
 .unlock-icon { display: grid; place-items: center; width: 48px; height: 48px; margin: 0 auto; border: 1px solid color-mix(in oklab, var(--gold) 40%, transparent); border-radius: 3px; background: color-mix(in oklab, var(--gold) 9%, transparent); color: var(--gold); }

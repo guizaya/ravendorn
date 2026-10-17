@@ -78,12 +78,14 @@ import {
   MIRA_OFFSET,
 } from "../../data/cursor/index.js";
 import {
+  QUEST_TYPE,
   dadosDaTrava,
   entradaNaArena,
   portalLiberado,
 } from "../../data/quests/index.js";
 import {
   ARENA_ID,
+  MAP_TESTE_ID,
   findMap,
   getMap,
 } from "../../data/maps/index.js";
@@ -119,6 +121,54 @@ import {
  * conversa e o clique, e ele ja tem a propria tolerancia
  */
 const ALCANCE_DE_CHEGADA = 48;
+
+/**
+ * A DISTANCIA EM QUE UM NPC ACEITA O CLIQUE.
+ *
+ * ## POR QUE 96, E NAO O `ALCANCE_DE_CHEGADA`
+ *
+ * Porque o `ALCANCE_DE_CHEGADA` e 48px e serve para o AUTO parar em cima do
+ * ponto. O clique e mais tolerante: o jogador mira no NPC com o ponteiro, e o
+ * ponteiro nao e o meio do personagem. Ele clica na CABECA do mercador, que
+ * fica uns 40px acima do chao, e o personagem parado logo abaixo e mais 48px
+ *
+ * Com 48px de raio o jogador teria de estar praticamente dentro do NPC, e o
+ * clique nao abriria nada na maior parte das vezes — o painel viraria algo
+ *
+ * ## POR QUE 96 E NAO UM NUMERO MAIOR
+ *
+ * Porque 96px e um tile e meio. Alem disso o jogador comeca a abrir o painel
+ * de um NPC que ele ve, mas nao com quem ele esta conversando: dois NPCs
+ * vizinhos ficam a menos de 200px um do outro, e um raio de 300px abriria o
+ * painel do mercador errado
+ *
+ * ## E POR QUE NAO VEM DO CATALOGO DO NPC
+ *
+ * Porque nenhum NPC do jogo tem raio de conversa proprio, e criar o campo
+ * seria um numero a mais para manter em tres lugares sem nenhum dia em que
+ * eles divergissem. Se um dia um NPC precisar de conversa a distancia, o
+ * campo entra aqui
+ */
+const ALCANCE_DE_NPC = 96;
+
+/**
+ * A ALTURA EM QUE O NPC CONVERSA COM O JOGADOR.
+ *
+ * E o meio do tronco, e nao a altura da arte. O `y` do NPC e o chao onde ele
+ * pisa, e a arte dele sobe uns 60px; sem este numero o alcance mediria do
+ * jogador ate o chao, e o `ALCANCE_DE_NPC` de 96 pareceria na tela quase 150px
+ */
+const ALTURA_DE_CONVERSA_NPC = 24;
+
+/**
+ * O CONJUNTO VAZIO DE TECLAS, e por que ele e uma constante.
+ *
+ * O `vetorDeMovimento` chama `teclas.has(...)` sem guarda, entao um
+ * `undefined` la LANCA. Esta constante e o que a caminhada entrega quando a
+ * sessao ainda nao tem input — e por ser a MESMA referencia, ela nao aloca
+ * nada a cada quadro
+ */
+const NO_KEYS = new Set();
 
 /**
  * soma dicionarios de bonus stat por chave.
@@ -333,18 +383,107 @@ import {
  * `boss.level` aqui faria o `scaleForLevel` crescer o numero de novo em
  * cima do que ja foi escalado
  */
-function createBosses(map) {
+/**
+ * QUEM JA VENCEU O CHEFE DE CADA MAPA.
+ *
+ * E um `Map` de sessao para id de mapa, e nao um campo da sessao porque o
+ * motor cria o contexto do mapa ANTES de qualquer metodo de sessao poder
+ * rodar — e quem precisa da resposta e o `createBosses`, na montagem
+ *
+ * ## POR QUE NAO ESTA NO `PlayerSession`
+ *
+ * Porque ele e sobre o MAPA, e nao sobre a pessoa: um jogador pode ter
+ * vencido o chefe da arena e nao o do vale. Guardar como `sessao.chefesVencidos`
+ * daria a mesma informacao, mas com um segundo lugar para o dado — e este
+ * arquivo ja tem `sessaoDe` no inimigo, ou seja, a identidade da sessao ja
+ * circula aqui
+ *
+ * ## POR QUE SO PRECISA DO MAPA, E NAO DO `id` DO CHEFE
+ *
+ * Porque um mapa tem uma arena so, com um chefe so. Guardar o par inteiro
+ * (sessao, chefe) seria preciso no dia em que um mapa tivesse dois, e ate
+ * la o mapa identifica a luta
+ */
+const ARENA_VENCIDA = new Map();
+
+/**
+ * MARCA QUE ESTA SESSAO VENCEU O CHEFE DESTE MAPA.
+ *
+ * E o que `createBosses` le antes de recriar a criatura. Sem esta chamada,
+ * "derrotar o chefe" seria um numero de abates: o jogador voltava pela
+ * arena e o Hulk estava la de novo com a vida cheia
+ *
+ * @param {string} sessaoId quem venceu
+ * @param {string} mapaId em que arena
+ */
+export function marcarChefeVencido(sessaoId, mapaId) {
+  if (!sessaoId || !mapaId) return;
+
+  ARENA_VENCIDA.set(sessaoId, mapaId);
+}
+
+/**
+ * O CHEFE DA ARENA PODE SER UM POR JOGADOR.
+ *
+ * ## POR QUE ISSO EXISTE
+ *
+ * Porque `world.enemies` e do MUNDO, e nao da sessao: o servidor tem um
+ * motor so, e a lista e recriada no `setMap` de quem esta em foco. Dois
+ * jogadores dentro da arena compartilhariam o mesmo Hulk, e a vida dele
+ * seria uma barra so — um dos dois perderia a luta que o outro ganhou
+ *
+ * Com o `sessaoDe`, cada jogador que entra na arena ganha a sua propria
+ * instancia: vida, alvo e recompensa separados, e o snapshot de um nao
+ * carrega o chefe do outro
+ *
+ * ## POR QUE O ID GANHA O SUFIXO DO DONO
+ *
+ * Porque o `id` e a chave: e por ele que o snapshot identifica a criatura,
+ * que o indice de inimigos procura, e que o painel de inventario casa a
+ * recompensa. Dois `hulk_9000` na mesma lista seriam um so inimigo com duas
+ * copias de posicao
+ *
+ * ## E O MAPA QUE DECIDE, E NAO O CHEFE
+ *
+ * Porque "um chefe por jogador" e uma propriedade da ARENA, e nao da
+ * criatura: o mesmo `hulk` pode ser o guardian de um mapa e um boss comum
+ * de outro
+ */
+function createBosses(map, sessaoId = null) {
   const entradas = map.bosses ?? [];
+
+  /**
+   * O CHEFE JA CAIU PARA ESTE JOGADOR?
+   *
+   * E o que impede o renascimento. Sem esta linha, entrar na arena de novo
+   * recriava o Hulk com a vida cheia pelo `setMap`, e "matar o chefe" seria
+   * um numero de abates e nao uma vitoria
+   *
+   * O sinal esta na sessao e nao no mundo, porque e por jogador que o chefe
+   * e defeatido — dois podem ter lutado o mesmo tipo de luta em epocas
+   * diferentes
+   */
+  const jaVencido =
+    map.bossPorJogador === true && sessaoId ? ARENA_VENCIDA.get(sessaoId) === map.id : false;
+
+  if (jaVencido) return [];
 
   return entradas
     .map((chefe, ordem) => {
       try {
-        return createCreature(
+        const inimigo = createCreature(
           chefe.creature,
           { x: chefe.x, y: chefe.y },
           9000 + ordem,
           null,
         );
+
+        if (map.bossPorJogador === true && sessaoId) {
+          inimigo.sessaoDe = sessaoId;
+          inimigo.id = `${inimigo.id}_${sessaoId}`;
+        }
+
+        return inimigo;
       } catch {
         /**
          * UM CHEFE COM NOME ERRADO NAO DERRUBA O MAPA.
@@ -352,7 +491,7 @@ function createBosses(map) {
          * O resto do `montarContexto` tambem engole entrada invalida (e
          * os NPCs que nao existem sao filtrados em silencio). Um `throw`
          * aqui derrubaria o `setMap` do jogador e ele cairia na tela
-         * preta â€” o pior jeito de avisar que um id esta errado no
+         * preta — o pior jeito de avisar que um id esta errado no
          * catalogo
          */
         console.warn(
@@ -441,6 +580,103 @@ const SEGUIR_REPLANEJA = 0.4;
 const SEGUIR_REPLANEJA_PX = 96;
 
 const TRAVEL_TRAVADO_LIMITE = 3;
+
+/**
+ * QUANDO O PILOTO DESISTE DO PONTO E PULA PARA O SEGUINTE.
+ *
+ * ## POR QUE 0.8 E NAO 3
+ *
+ * Porque sao respostas diferentes para sintomas diferentes. O `3` refaz o
+ * caminho INTEIRO, e o A* e determinista: refaz do mesmo lugar devolve o
+ * mesmo caminho, entao o piloto batia na mesma parede a cada 3 segundos para
+ * sempre, sem nunca tentar o ponto seguinte
+ *
+ * Em 0.8s o boneco nao deu um passo — e um passo dele dura bem menos que
+ * isso. Passou disso parado no mesmo ponto, o ponto e o problema, e o certo
+ * e gasta-lo e tentar o outro
+ *
+ * ## POR QUE SO PULA COM MAIS DE UM PONTO NA LISTA
+ *
+ * Porque com um ponto so nao ha "o seguinte": sobraria caminho vazio, e o
+ * `proximo` cairia no centro da etapa — que e o ponto que ja deu problema.
+ * Ate la, o certo e refazer a grade
+ */
+const TRAVEL_PARADO_PULA_PONTO = 0.8;
+
+/**
+ * QUANTO PODE GANHAR EM 0.8s E AINDA SER "PRESO".
+ *
+ * ## O QUE O LOG MOSTROU
+ *
+ * Um waypoint levou 6259ms e o jogador andou 1010px nesse tempo todo — e
+ * mesmo assim ele AVANCOU o tempo inteiro, um pixel de cada vez. O
+ * `travelParado`, que so conta quando a distancia nao melhora, nunca chegou
+ * ao piso: ele zerava a cada ganho minimo, e o piloto nunca descartava o
+ * ponto. O resultado era um trajeto de seis segundos onde cabem menos de um
+ *
+ * ## POR QUE 24px
+ *
+ * Porque e a distancia de UMA ETAPA, o `TRAVEL_CHEGADA`. Em 0.8s o jogador
+ * normal anda bem mais que isso — e o `avancou` mais rapido de 2px por quadro
+ * daria 96px no mesmo tempo. Entao 24px separa as duas coisas:
+ *
+ *   atravessando uma fresta   ganha alguns pixels e volta -> abaixo de 24
+ *   andando de verdade        ganha 96 ou mais             -> acima de 24
+ *
+ * E o mesmo numero do `walkToward`, e nao porCoincidencia: e a distancia em
+ * que o piloto ja Considera que chegou no ponto. Perto do waypoint, ganhar
+ * menos que isso e o mesmo que nao ter ganhado
+ */
+const TRAVEL_PERNA_EPSILON = 24;
+
+/**
+ * A QUE DISTANCIA O "JA PASSEI" VALE, E POR QUE 120px.
+ *
+ * ## O QUE A REGUA ANTES FAZIA
+ *
+ * O "passou" consumia o ponto quando o SEGUINTE estava mais perto que o ATUAL,
+ * sem olhar onde o jogador estava. Fora do caminho isso e verdade o tempo
+ * inteiro, e o piloto pulava a perna inteira de uma vez
+ *
+ * ## POR QUE 120 E NAO 24
+ *
+ * Porque 120px sao tres celulas de 40px — a medida da `NavGrid`. E perto o
+ * bastante para o "passou" continuar valendo no caso que ele existe para
+ * atender: o jogador raspou a celula e esta alguns pixels do centro, e nao a
+ * meia hora de distancia que faria o salto valer
+ *
+ * E o mesmo `TRAVEL_CHEGADA` de 24 ficaria rigido demais: o jogador que
+ * acabou de ser devolvido pela colisao pode estar a 30px do centro, e o
+ * "passou" pararia de funcionar justo no caso em que ele e necessario
+ */
+const TRAVEL_PERTO_DO_PONTO = 120;
+
+/**
+ * O TIPO DE PEDIDA QUE O TUTORIAL DE MINERAR BUSCA.
+ *
+ * Comum, e nao o primeiro degrau que o jogador encontra: o vale tem 2
+ * lendarios, 5 epicos, 10 raros e 23 comuns, e o comum e o degrau que a
+ * missao ensina. Sortear o lendario daria a 1.6 uma recompensa que o
+ * jogador nao deveria ter ainda
+ */
+const PEDIDA_DO_TUTORIAL = "cristal_comum";
+
+/**
+ * A QUE DISTANCIA O PEDIDO DE MINERAR SAI.
+ *
+ * ## POR QUE 200 E NAO O RAIO DE CHEGADA DA VIAGEM
+ *
+ * A viagem entrega o personagem a 44px do ponto, e `runMineracao` tem um
+ * caminho pronto para fechar o resto. Pedir de longe nao desperdica nada: o
+ * relogio do servidor so comeca quando o jogador ENCOSTA, entao o pedido
+ * antecipado nao antecipa nem um segundo de mineracao
+ *
+ * E 200px e nao 44 porque o oposto seria visivel: a arte do cristal tem
+ * deslocamento do ponto, e pedir na chegada do waypoint as vezes e pedir de
+ * um lado do desenho. A 200px o pedido ja esta no mesmo lugar que o clique
+ * manual, que e o que o servidor espera
+ */
+const PEDIDA_MINERAR_DIST = 200;
 
 /**
  * O MENOR deslocamento que conta como "andou".
@@ -714,6 +950,48 @@ const JANELA_DO_LAST_HIT_MS = 10_000;
  */
 const ALCANCE_CREDITO_ABATE = 320;
 const EMPTY_LIST = [];
+
+/**
+ * AS CAMADAS DE LUZ DA PASSAGEM, DO MAIS FORTE AO MAIS FRACO.
+ *
+ * ## POR QUE ESTAO NO ESCOPO DO MODULO E NAO DENTRO DO METODO
+ *
+ * Porque a lista e DADOS, e um metodo que recria a lista a cada quadro aloca
+ * um array e quatro objetos por quadro, a 60Hz, para sempre. No escopo do
+ * modulo ela e criada uma vez
+ *
+ * ## POR QUE A GEOMETRIA PRECISA MORAR AQUI
+ *
+ * Porque as mesmas camadas respondem a DUAS perguntas ao mesmo tempo: onde
+ * cada uma e desenhada, e ate onde o brilho escorre. O corte de visao usa a
+ * maior delas — quando o corte media a faixa de 64px em vez das camadas, ele
+ * cortava a luz pela metade e ela sumia quando o jogador olhava de longe
+ *
+ * ## OS TRES NUMEROS DE CADA CAMADA
+ *
+ * - `rx` e o raio na HORIZONTAL. E o que define a largura da luz
+ * - `ry` e o raio na VERTICAL. A passagem e uma faixa de duas celulas, e um
+ *   circulo do mesmo tamanho vazaria muito acima e abaixo
+ * - `arrasto` e o quanto o centro desloca para a ESQUERDA. E o que faz a luz
+ *   apontar para dentro do mapa em vez de ser uma mancha simetrica
+ */
+const CAMADAS_DA_PASSAGEM = [
+  { rx: 48, ry: 102, arrasto: 0, cor: "255, 246, 220", alfa: 0.62 },
+  { rx: 86, ry: 122, arrasto: 14, cor: "255, 219, 150", alfa: 0.34 },
+  { rx: 136, ry: 146, arrasto: 38, cor: "238, 184, 90", alfa: 0.18 },
+  { rx: 206, ry: 174, arrasto: 70, cor: "200, 144, 56", alfa: 0.09 },
+];
+
+/**
+ * O TILE DE AVISO: onde o nome do mapa aparece, em relacao ao comeco da luz.
+ *
+ * ## POR QUE E UM TILE, E NAO A ZONA DE TRAVESSIA
+ *
+ * Porque o aviso precisa dar tempo de ler. A zona de travessia tem 16px de
+ * largura, e se o nome aparecesse nela o jogador leria no mesmo instante em
+ * que e levado. Um tile antes da zona da para ver, decidir e recuar
+ */
+const CELULA_DO_AVISO = 64;
 
 const COIN_COLOR = "#ffc857";
 
@@ -1351,6 +1629,33 @@ export class GameEngine {
     this.partyStore = opcoes.partyStore ?? null;
 
     /**
+     * AS EXPEDIÇÕES DO CHEFE: estado do MUNDO, lido e nunca escrito aqui.
+     *
+     * A mesma relação que a party tem com o `PartyStore`: o motor só LÊ. Quem
+     * cria, quem entra, quem sai e quem dissolve é o `ExpeditionStore`, no
+     * servidor — e é ele que garante que os dois jogadores estão olhando a
+     * MESMA lista
+     *
+     * `null` no single player: sem servidor não há segunda pessoa para
+     * encontrar, e o painel mostra a lista vazia em vez de quebrar
+     */
+    this.expeditionStore = opcoes.expeditionStore ?? null;
+
+    /**
+     * A RECUSA DA ÚLTIMA TENTATIVA, que o painel mostra e o cliente limpa.
+     *
+     * Fica no MOTOR e não no store por um motivo de tempo: o store rejeita no
+     * `case` do `GameServer`, e o próximo pacote do painel sai dali mesmo. Um
+     * erro guardado no store só apareceria no pacote seguinte, com o jogador
+     * tendo clicado de novo — e a segunda recusa viria "você já está em uma"
+     * quando a causa era "expedição cheia"
+     *
+     * E é texto de painel, não código: quem traduz para português é o
+     * `BossPanel`, porque a lista de motivos mora com quem mostra
+     */
+    this.expedicaoErro = null;
+
+    /**
      * OS PERSONAGENS EM DISCO, para o rank.
      *
      * Uma funcao e nao a lista: o painel e montado varias vezes por
@@ -1434,10 +1739,68 @@ this.hookDePrevisao = null;
      * snapshot da rede. Guardar o objeto faria `===` falhar logo no
      * primeiro pacote recebido, e o balanco do NPC pararia de piscar
      */
-    this.npcHover = null;
+this.npcHover = null;
 
     /**
-     * O ponteiro como o jogo quer que ele apareca: `npc`, `hub` ou
+     * O NPC QUE ABRIU O PAINEL, e o aviso de que ele ficou longe.
+     *
+     * ## POR QUE O PAINEL FECHA SO DEPOIS QUE FOI ABERTO POR UM NPC
+     *
+     * Porque o painel da mochila nao tem NPC nenhum. Se qualquer afastamento
+     * fechasse painel, andar pelo mapa com a mochila aberta a fecharia sozinha
+     * — e a mochila nao tem pe para o jogador se aproximar. O que fecha e o
+     * NPC QUE ABRIU
+     *
+     * ## POR QUE O `id`, E NAO A ENTIDADE
+     *
+     * Pelo mesmo motivo do `npcHover`: o NPC e recriado a cada snapshot da
+     * rede, e guardar o objeto faria a comparacao falhar no primeiro pacote
+     */
+    this.npcDoPainel = null;
+
+    this.onNpcLonge = null;
+
+    /**
+     * O NPC QUE O JOGADOR PEDIU PARA IR ATÉ, e o aviso de chegada.
+     *
+     * Vem do comando `IR_ATE_NPC` do protocolo, que leva SO o id. Quem
+     * resolve onde o NPC esta e este motor, no mundo dele — e o painel, que
+     * abre do lado da tela quando o `onChegouNoNpc` avisa
+     */
+    this.irAteNpcId = null;
+
+    this.onChegouNoNpc = null;
+
+    /**
+     * O CLIQUE LONGE, que vira pedido de caminhada.
+     *
+     * Sao dois avisos, porque sao duas metades do mesmo gesto: um para a tela
+     * pedir a caminhada, e outro para a tela abrir o painel na chegada. O
+     * motor nao sabe de painel, entao o `onChegouNoNpc` e quem volta
+     */
+    this.onNpcLongePedido = null;
+
+    /**
+     * O NPC QUE ESTA SENDO CAMINHADO, no motor que CONFIRMA a chegada.
+     *
+     * ## POR QUE O MESMO CAMPO NOS DOIS MOTORES
+     *
+     * Porque os dois lados precisam do id, e nao pelo mesmo motivo. No
+     * SERVIDOR ele e o destino a seguir. No CLIENTE ele e o que a tela
+     * precisa vigiar para saber quando pode abrir o painel
+     *
+     * ## E POR QUE O SERVIDOR NAO AVISA A CHEGADA
+     *
+     * Porque nao ha canal de volta para isso sem inventar um evento novo no
+     * protocolo, e a informacao ja viaja: a posicao do jogador chega no
+     * pacote de estado, e o NPC esta no mapa dos dois lados. O cliente
+     * confere a distancia com o mesmo `npcAoAlcance` que ele usou para
+     * recusar o clique de longe
+     */
+    this.npcSendoVisitado = null;
+
+    /**
+     * o ponteiro como o jogo quer que ele apareca: `npc`, `hub` ou
      * `combat`. Quem le e o `GameCanvas`, que escreve no `style` do
      * canvas â€” o motor nao mexe em DOM
      */
@@ -1551,14 +1914,37 @@ this.hookDePrevisao = null;
 
 
     /**
-     * A ONDE o jogador estava no quadro anterior da viagem.
+     * O ALVO que a viagem mandou no quadro ANTERIOR, e a MELHOR distancia
+     * ja alcancada ate ele nesta janela.
      *
-     * E o que permite detectar travamento por POSICAO em vez de por
+     * E o que permite detectar travamento por PROGRESSO em vez de por
      * comando. `null` no primeiro quadro, porque comparar com zero
      * diria que o jogador andou tres mil pixels
+     *
+     * O alvo vem do quadro anterior de proposito: e a pergunta que importa
+     * e "durante o tempo que eu pedi aquele ponto, ele se aproximou?"
      */
-    this.travelUltimaX = null;
-    this.travelUltimaY = null;
+    this.travelAlvoX = null;
+    this.travelAlvoY = null;
+    this.travelMelhorDist = null;
+    this.travelTempoNaPerna = 0;
+    this.travelDistNaPerna = null;
+
+    /**
+     * A PEDIDA DE MINERAR JA PEDIDA NESTA VIAGEM, ou `null`.
+     *
+     * ## POR QUE UM LACHE E NAO SO "pede todo quadro"
+     *
+     * Porque o `minerar` do servidor e um INTERRUPTOR: se ja existe uma
+     * mineracao na sessao, ele para aquela e devolve sucesso. Pedir todo
+     * quadro ligava e desligava a mineracao em 60Hz, e o jogador via o
+     * relogio do steel parado e subindo ao mesmo tempo
+     *
+     * Por isso o pedido sai uma vez, e so uma vez por pedra. O lache e
+     * limpo quando a mineracao acaba — a pedra esta gasta, e a proxima e
+     * outra
+     */
+    this.pedidoDeMinerar = null;
 
     // o input nasce dentro da sessao do jogador local (ver
     // `createPlayerSession`). aqui so guardamos uma referencia
@@ -2420,7 +2806,7 @@ montarContexto(mapa) {
        * que dois chefes do mesmo tipo em mapas diferentes nao
        * colidissem no id
        */
-      ...createBosses(map),
+      ...createBosses(map, this.world.session?.id ?? null),
     ];
 
     /**
@@ -2978,6 +3364,525 @@ this.autoWaypoint = null;
      * remoto usasse outra coisa, os dois nomes andariam em alturas
      * diferentes ao lado um do outro
      */
+  /**
+   * O BRILHO DA PASSAGEM NA BORDA DIREITA DA BASE.
+   *
+   * ## O QUE ISTO E, E O QUE NAO E
+   *
+   * E um aviso de que ali tem saida. **Nao e um portal**: nao ha
+   * `travessarPortal` envolvido, nao muda `world.map`, nao altera colisao e
+   * nao manda nada ao servidor. E so um efeito de tela, para ver como fica
+   * antes de decidir se vira mecanismo.
+   *
+   * ## POR QUE UM METODO E NAO UMA ZONA DO MAPA
+   *
+   * Porque a zona e dado de conteudo (`data/maps/index.js`), e o que se esta
+   * testando e uma aparencia. Se virar mecanismo, ai sim a regiao vira zona —
+   * e nesse momento o servidor tem que conhecer a passagem, porque quem decide
+   * a travessia e ele. Enquanto e visual, fica no motor, que e onde o resto
+   * do desenho do mundo vive
+   *
+   * ## A GEOMETRIA
+   *
+   * Sao as celulas (25, 8) e (25, 9) do `.tmj` da base, que tem 26x18 celulas
+   * de 64px: coluna 25 e a ULTIMA, entao e a borda direita
+   *
+   * O CENTRO da luz e `map.width` — a ultima coluna de pixel do mapa — e nao
+   * o meio da coluna. Com o centro na borda, metade da luz cai fora do mapa
+   * e e cortada, e a outra metade se espalha para dentro: e o que faz parecer
+   * que a luz vem de algo que esta la fora da tela, em vez de ser uma mancha
+   * desenhada no chao
+   *
+   * ## POR QUE FICA DEPOIS DO `drawMap` E NAO ANTES
+   *
+   * Porque e uma luz SOBRE o chao. Antes do terreno, o ladrilho da base —
+   * opaco e escuro — cobriria o brilho por completo, e o efeito nao apareceria
+   * em lugar nenhum. E antes de `drawWorldSorted`, para o boneco passar na
+   * FRENTE da luz, e nao ficar escondido dentro dela
+   *
+   * @param {CanvasRenderingContext2D} context o contexto ja em coordenada de mundo
+   */
+  drawBrilhoDaPassagem(context) {
+    const map = this.world.map;
+
+    if (!map) return;
+
+    // sem viewport, nao ha o que cortar: e o caso do servidor
+    if (!this.viewport?.width) return;
+
+/**
+     * A REGIAO DA PASSAGEM, EM PIXEL DE MUNDO.
+     *
+     * ## POR QUE NAO EXISTE UM `x`/`largura` DA FAIXA AQUI
+     *
+     * Porque a luz NAO e desenhada num retangulo: sao elipses radiais, e cada
+     * uma define seu proprio alcance. Havia um `x` e uma `largura` de 64px
+     * servindo so ao corte de visao, e eles eram a medida errada — cortavam a
+     * luz pela metade. O corte agora sai das camadas, que e o que realmente
+     * pinta
+     *
+     * E nao ha mais celula fixa aqui: a posicao vem do PORTAL, e sao as
+     * celulas (25,8)-(25,9) da base e (93,62)-(93,63) do mapa 1 — as duas
+     *Ultimas colunas, na parede. Um numero escrito aqui so serviria para um
+     * dos dois mapas
+     */
+    const CELULA = 64;
+
+    /**
+     * A PASSAGEM DESTE MAPA, E NAO O ID DO MAPA.
+     *
+     * ## POR QUE O EFEITO PAROU DE SER DA BASE
+     *
+     * Porque ele nasceu para a base e agora o mapa 1 tem a mesma passagem: a
+     * parede, a luz dourada e a travessia automatica. Com o `map.id ===
+     * "base"` fixo, a luz do mapa 1 nunca aparecia.
+     *
+     * ## E POR QUE O CENTRO VEM DO PORTAL, E NAO DE `map.width`
+     *
+     * Porque e o portal que sabe ONDE a passagem esta. A base tem a parede em
+     * 1624 e o jogador encosta em 1602; o mapa 1 tem a parede em 5976 e o
+     * jogador encosta em 5954. O `size` do portal ja e a zona de entrada
+     * correta de cada um, entao ler a posicao de la mantem a luz e o gatilho
+     * no mesmo lugar por construcao — e nao por dois numeros que precisam
+     * concordar
+     *
+     * A luz nasce no `x` do portal (a parede onde o boneco encosta) e se
+     * espalha para dentro, com metade cortada pelo `clip` do mapa
+     */
+    /**
+     * A PASSAGEM QUE ESTA NA TELA, E NAO A PRIMEIRA DA LISTA.
+     *
+     * ## POR QUE UM `find` SIMPLES NAO SERVIA
+     *
+     * Porque ele devolvia sempre a mesma: a primeira da lista. O mapa 1 tem
+     * duas passagens com brilho — a do pantano na parede direita e a do vale
+     * na esquerda — entao a segunda ficava com parede nua para sempre
+     *
+     * ## POR QUE ESCOLHER A VISIVEL, E NAO DESENHAR AS DUAS
+     *
+     * Porque elas estao em paredes OPOSTAS de um mapa de 6016px, e o jogador
+     * nunca ve as duas ao mesmo tempo. Desenhar as duas significaria fazer
+     * duas vezes o trabalho de gradiente e recorte por quadro para pintar uma
+     * luz que esta do outro lado da tela
+     *
+     * E a escolha aqui e a mesma conta que o corte de tela ja fazia mais
+     * abaixo: a camada mais larga com o arrasto dela. Nao e logica nova, e o
+     * `passagemNaTela` que ja existia sendo usado um lugar antes
+     *
+     * O resto do metodo nao muda: uma passagem, um centro, um `return`
+     */
+    const camadasDeTela = CAMADAS_DA_PASSAGEM;
+    const maior = camadasDeTela[camadasDeTela.length - 1];
+
+    const passagem = (this.world.portals ?? [])
+      .filter((p) => p.passagem && p.brilho)
+      .find((p) =>
+        this.passagemNaTela(
+          p.x - maior.arrasto - maior.rx,
+          p.y - maior.ry,
+          maior.arrasto + maior.rx * 2,
+          maior.ry * 2,
+        ),
+      );
+
+    if (!passagem) return;
+
+    /**
+     * O TEMPO DO BRILHO.
+     *
+     * `spriteTime` e o relogio de DESENHO: ele anda no cliente mesmo no modo
+     * rede, onde `world.time` fica congelado (ver o ramo `networked` do
+     * `update`). Usar `world.time` deixaria a luz parada no online e animada
+     * no offline — exatamente o contrario do que um aviso deve fazer
+     *
+     * As DUAS frequencias nao sao enfeite: a rapida (1.9) e a respiracao do
+     * brilho, e a lenta (0.7) e a deriva dele pelo mapa. Com uma so, a luz
+     * fica ou parada ou piscando — e piscar e o que faz o jogador achar que e
+     * um efeito quebrado
+     */
+    const pulso =
+      0.78 + Math.sin(this.spriteTime * 1.9) * 0.13 + Math.sin(this.spriteTime * 0.7) * 0.09;
+
+    const centroX = passagem.x;
+    const centroY = passagem.y;
+
+    const camadas = camadasDeTela;
+
+    /**
+     * O CORTE DE VISAO, MEDIDO NAS CAMADAS.
+     *
+     * O brilho escorre para fora do centro de cada elipse, entao o corte
+     * tem que pegar a camada mais larga E o arrasto dela. Medir pela faixa de
+     * 64px cortaria a luz quase inteira: o jogador viria o brilho sumindo
+     * conforme o contorno da tela chegava nele, o que e pior do que nao ter
+     * corte nenhum
+     *
+     * A `passagem` ja foi escolhida por este mesmo retangulo, entao a
+     * conferida abaixo e uma garantia, e nao a-selection
+     */
+    if (
+      !this.passagemNaTela(
+        centroX - maior.arrasto - maior.rx,
+        centroY - maior.ry,
+        maior.arrasto + maior.rx * 2,
+        maior.ry * 2,
+      )
+    ) {
+      return;
+    }
+
+context.save();
+
+/**
+ * O RECORTE NO MAPA.
+ *
+ * ## POR QUE ISTO E O QUE FAZ A METADE DIREITA DESAPARECER
+ *
+ * O centro da luz esta em `map.width`, entao a elipse escorre `rx` pixels
+ * alem da borda. Fora do mapa o canvas esta com o fundo escuro do `render`,
+ * e a luz — que e aditiva — pintaria ali uma mancha dourada flutuando no
+ * preto, do lado de fora do cenario. O `clip` corta exatamente na borda, e o
+ * que sobra e a metade da luz que esta DENTRO do mapa
+ *
+ * ## POR QUE A CAMERA JA NAO RESOLVIA ISSO
+ *
+ * Porque o clamp da camera garante que a tela nunca mostra alem de
+ * `map.width` — entao a parte de fora nunca era VISIVEL quando o jogador
+ * estava longe da borda. Mas o recorte e o que garante o corte limpo em
+ * TODO quadro, inclusive com a camera encostada na borda e com o meio pixel
+ * do alinhamento de dispositivo jogando
+ *
+ * E `save`/`restore`, e nao um `reset`: o contexto ja vem com a transform da
+ * camera e o modo aditivo, e soltar isso no meio do `render` quebraria todo o
+ * desenho que vem depois
+ */
+context.beginPath();
+context.rect(0, 0, map.width, map.height);
+context.clip();
+
+/**
+ * O MODO ADITIVO.
+ *
+ * E o que faz parecer LUZ e nao tinta. `lighter` soma a cor do brilho ao
+ * que ja esta no canvas, entao onde o chao e escuro a luz aparece e onde
+ * ja e claro ela satura. Com `source-over`, o brilho viraria uma mancha
+ * por cima do ladrilho
+ */
+context.globalCompositeOperation = "lighter";
+
+    for (const camada of camadas) {
+      context.save();
+
+      context.translate(centroX - camada.arrasto, centroY);
+      context.scale(1, camada.ry / camada.rx);
+
+      const raio = camada.rx;
+      const brilho = context.createRadialGradient(0, 0, 0, 0, 0, raio);
+
+      /**
+       * AS PARADAS DO RADIAL.
+       *
+       * O ultimo alpha e 0 no raio inteiro, e o nucleo fica em `0.3` do raio:
+       * e o coracao da luz. O trecho entre `0.3` e `1` e a queda, e e ele que
+       * suaviza a borda — se o `0` estivesse so no limite, a luz teria um
+       * anel de transicao largo demais e pareceria neblina em vez de brilho
+       */
+      brilho.addColorStop(0, `rgba(${camada.cor}, ${camada.alfa * pulso})`);
+      brilho.addColorStop(0.3, `rgba(${camada.cor}, ${camada.alfa * 0.55 * pulso})`);
+      brilho.addColorStop(0.62, `rgba(${camada.cor}, ${camada.alfa * 0.18 * pulso})`);
+      brilho.addColorStop(1, `rgba(${camada.cor}, 0)`);
+
+      context.fillStyle = brilho;
+      context.fillRect(-raio, -raio, raio * 2, raio * 2);
+
+      context.restore();
+    }
+
+    context.restore();
+  }
+
+  /**
+   * O RETANGULO ESTA DENTRO DA JANELA VISIVEL?
+   *
+   * ## POR QUE UM METODO E NAO UM `getViewBounds` INLINE
+   *
+   * Porque o `getViewBounds` devolve o retangulo de tela, e a conta de
+   * interseccao com o zoom e meio caminho de fazer. Aqui so interessa saber se
+   * ha interseccao, e um retangulo e interseccao e uma linha
+   *
+   * @returns {boolean}
+   */
+  passagemNaTela(x, y, largura, altura) {
+    const vis = this.getViewBounds?.();
+
+    if (!vis) return true;
+
+    return (
+      x < vis.x + vis.width &&
+      x + largura > vis.x &&
+      y < vis.y + vis.height &&
+      y + altura > vis.y
+    );
+  }
+
+  /**
+   * QUEM DISPARA A TRAVESSIA DE UMA PASSAGEM, no modo rede.
+   *
+   * ## POR QUE E UM GANCHO E NAO UMA CHAMADA DIRETA
+   *
+   * Porque o motor nao conhece a camada de rede — e nao deve conhecer. Ele
+   * sabe que o jogador chegou na ponta da luz; quem vira isso num pedido e o
+   * `GameCanvas`, que e quem sabe se existe socket. E o mesmo desenho do
+   * `onTargetClick`
+   *
+   * ## POR QUE SO AS PASSAGENS USAM ISTO
+   *
+   * Porque um portal normal continua precisando da box: o jogador decide a
+   * hora. Numa passagem a travessia e automatica, e quem chama este gancho e
+   * o `updatePassagem`
+   *
+   * @type {((portalId: string) => void) | null}
+   */
+  onPassagemEntrou = null;
+
+/**
+   * ONDE O JOGADOR ESTAVA NA ULTIMA VEZ QUE A PASSAGEM DISPAROU.
+   *
+   * ## POR QUE UM PONTO, E NAO UM TEMPO NEM UM ID TRAVADO
+   *
+   * Porque as duas formas anteriores de segurar o teleporte davam ao jogador
+   * um TEMPO de espera antes de poder atravessar de volta, e isso e o que
+   * ele pediu para sumir:
+   *
+   * - trava por `id`: so rearmava quando o jogador SAIA da zona, entao um
+   *   pedido recusado deixava o jogador preso encostado ate ele dar um passo
+   *   para fora e outro para dentro
+   * - carencia em segundos: bloqueava de propósito, porem com tempo
+   *
+   * Com um ponto no lugar, a unica regra e "o jogador se mexeu?". Parado,
+   * nao repete; andou, repede na hora. Nao ha relogio envolvido
+   *
+   * ## POR QUE ISSO NAO VOLTA O TELEPORTE DE 60HZ
+   *
+   * Porque a chegada do jogador cai 3 tiles PARA DENTRO do mapa, fora da zona.
+   * Ele so fica parado em cima da passagem no caso de recusa, e parado nao
+   * repete. O caso que reinicia a 60Hz era o de atravessar e voltar sozinho,
+   * e esse nao existe mais com o recuo
+   *
+   * @type {{x:number, y:number}|null}
+   */
+  #passagemDisparouEm = null;
+
+  /**
+  /**
+   * A TRAVESSIA AUTOMATICA DAS PASSAGENS.
+   *
+   * ## O QUE FAZ
+   *
+   * Quando o jogador esta na zona de uma passagem, pede a travessia. No
+   * online o pedido vai ao servidor, que revalida a posicao antes de trocar o
+   * mapa — o motor nao decide nada, ele so avisa que o jogador chegou
+   *
+   * ## POR QUE CHAMAR PELO NOME E NAO PELO ID FIXO
+   *
+   * Porque `travessarPortal` sem argumento usa o `portalSobOsPes`, que
+   * devolve o portal debaixo do jogador. Passando o id, o servidor compara
+   * com o que ele mediu, e um jogador que mudou de mapa no meio do caminho
+   * tem o pedido recusado em vez de atravessar o portal errado
+   *
+   * @returns {boolean} `true` se o pedido foi feito neste quadro
+   */
+  updatePassagem() {
+    const emCima = this.portalSobOsPets();
+
+    /**
+     * FORA DA ZONA: O MARCADOR some.
+     *
+     * E o que faz a proxima entrada valer de novo. Sem isto, um jogador que
+     * encostou uma vez nunca mais atravessaria para o vale pelo mesmo caminho
+     */
+    if (!emCima || !emCima.portal.passagem) {
+      this.#passagemDisparouEm = null;
+      return false;
+    }
+
+    const player = this.world.player;
+    const anterior = this.#passagemDisparouEm;
+
+    this.#passagemDisparouEm = { x: player.x, y: player.y };
+
+    /**
+     * NAO ANDOU DESDE O ULTIMO DISPARO: NAO REPETE O PEDIDO.
+     *
+     * Este e o UNICO lugar que impede o pedido a 60Hz. Ele segura o jogador
+     * PARADO em cima da passagem — o caso de recusa — e nao segura o jogador
+     * que esta voltando: quem voltou andou, e andar rearmoa na mesma hora
+     */
+    if (
+      anterior &&
+      Math.abs(player.x - anterior.x) < 1 &&
+      Math.abs(player.y - anterior.y) < 1
+    ) {
+      return false;
+    }
+
+    // offline: a travessia e local. online: o gancho vira o pedido
+    if (this.onPassagemEntrou) {
+      this.onPassagemEntrou(emCima.portal.id);
+    } else {
+      this.travessarPortal();
+    }
+
+    return true;
+  }
+
+  /**
+   * O PORTAL EM QUE O JOGADOR ESTA EM CIMA.
+   *
+   * ## POR QUE ISTO E A UNICA LEITURA DE "TEM PORTAL AQUI"
+   *
+   * Porque sao TRES coisas diferentes que precisam da mesma conta, e elas
+   * nao podem divergir:
+   *
+   * 1. o servidor, que RECUSA a travessia de quem nao esta em cima de nada
+   * 2. o painel, que so oferece a caixa quando ha portal com destino
+   * 3. a passagem automatica, que mede a zona a cada quadro
+   *
+   * Se cada uma medisse por conta, o cliente ofereceria uma viagem que o
+   * servidor recusa — e o sintoma seria um botao que nao faz nada
+   */
+  /**
+   * ESTA PASSAGEM ESTA ABERTA PARA ESTE JOGADOR?
+   *
+   * A passagem do topo do mapa 1 tem DOIS portais no mesmo pixel: um leva
+   * para a arena e vale durante a missao do chefe, o outro leva para o mapa 2
+   * e vale depois dela. Eles estao empilhados de proposito, e o que separa
+   * os dois nao e a posicao — e a `janela` de degrau de cada um
+   *
+   * ## POR QUE UM METODO, E NAO A REGRA NOS TRES VARREDORES
+   *
+   * Porque existem tres lugares que varrem `world.portals` — o
+   * `portalSobOsPets`, o `portalSobOsPes` e o `dadosDaPassagemPerto` — e eles
+   * tem nomes quase iguais e corpos quase iguais. Uma regra escrita nas tres
+   * copias e uma regra que diverge na proxima mudanca, e a falha e silenciosa:
+   * o desenho mostra a arena, a travessia passa para o mapa 2
+   *
+   * ## POR QUE UM SO METODO E NAO UM FILTRO NA LISTA
+   *
+   * Porque a lista e compartilhada: `world.portals` vem do mapa, e o mapa
+   * nao sabe em que degrau o jogador esta. Filtrar la exigiria montar uma
+   * lista nova por chamada, em um metodo que roda a 60Hz
+   *
+   * Sem `abre` e sem `fecha`, o portal e um corredor: e o caso de todos os
+   * outros portais do jogo, e por isso a conta sai antes de ler o degrau
+   */
+  passagemAberta(portal) {
+    const abre = portal.abreNoDegrau;
+    const fecha = portal.fechaNoDegrau;
+
+    if (abre === undefined && fecha === undefined) return true;
+
+    const degrau = this.world.quests?.mainIndex ?? 0;
+
+    if (abre !== undefined && degrau < abre) return false;
+    if (fecha !== undefined && degrau >= fecha) return false;
+
+    return true;
+  }
+
+  portalSobOsPets() {
+    const player = this.world.player;
+
+    if (!player) return null;
+
+    /**
+     * A CAMADA DE PORTAL VEEM DO `setMap`, e nao de `map.portals`.
+     *
+     * E por isso que o primeiro painel pode chegar vazio: ate o primeiro
+     * `setMap` nao existe `world.portals`
+     */
+for (const portal of this.world.portals ?? []) {
+      if (!portal.destino) continue;
+
+      /**
+       * UM PORTAL QUE AINDA NAO ABRIU NAO EXISTE PARA ESTE JOGADOR.
+       *
+       * A passagem do topo do mapa 1 tem DOIS portais no mesmo pixel: um
+       * leva para a arena e abre na missao do chefe, o outro leva para o
+       * mapa 2 e abre depois dela. O par esta empilhado de proposito, e o
+       * que separa os dois nao e a posicao — e o `abreNoDegrau`
+       *
+       * ## POR QUE PULAR AQUI, E NAO SO NO DESENHO
+       *
+       * Porque este e o metodo que responde "qual portal o jogador esta
+       * em cima". Se ele devolvesse os dois, o primeiro da lista ganharia
+       * sempre: quem ja matou o chefe estaria entrando na arena de novo
+       *
+       * E o desenho, o aviso e a box leem este mesmo metodo, entao o que
+       * nao abriu nao acende luz, nao mostra nome e nao oferece botao — e
+       * nenhum dos tres lugares precisa repetir a regra
+       */
+      if (!this.passagemAberta(portal)) continue;
+
+
+      /**
+       * O MAPA DE DESTINO TEM QUE EXISTIR.
+       *
+       * Um portal que aponta para um id que o registro nao conhece e um
+       * portal quebrado: sem esta conferida, `destino.name` seria lido de
+       * `undefined` e a tela mostraria "undefined" no lugar do nome
+       */
+      const destino = findMap(portal.destino);
+
+      if (!destino) continue;
+
+      /**
+       * A ZONA DO PORTAL: CIRCULO OU ELIPSE.
+       *
+       * ## POR QUE A PASSAGEM PRECISA DE ELIPSE
+       *
+       * Porque a passagem e uma FAIXA VERTICAL na parede, e nao um ponto: a
+       * luz ocupa duas celulas de altura e o jogador tem que entrar na altura
+       * certa andando.
+       *
+       * Num circulo unico, a zona teria que ser larga o bastante para cobrir
+       * os 128px de altura — e com 128px de diametro ela comecaria 64px antes
+       * da parede, e o teleporte dispararia de novo no meio do chao. O
+       * jogador precisa de TOLERANCIA EM Y e de PRECISAO EM X, e um circulo
+       * nao consegue dar as duas coisas
+       *
+       * ## POR QUE ISTO NAO AFETA OS OUTROS PORTAIS
+       *
+       * Porque so a passagem declara `raioY`. Sem o campo, `raioY` cai no
+       * `size` e a conta e a mesma de sempre — o circulo original, com o
+       * mesmo resultado em todos os portais que ja existiam
+       *
+       * E o MESMO metodo rodando no mesmo motor dos dois lados: o cliente
+       * pede e o servidor refaz esta conta identica
+       */
+      const raioX = portal.size / 2;
+      const raioY = (portal.raioY ?? portal.size) / 2;
+
+      const dx = player.x - portal.x;
+      const dy = player.y - portal.y;
+
+      const dentroX = (dx * dx) / (raioX * raioX);
+      const dentroY = (dy * dy) / (raioY * raioY);
+
+      if (dentroX + dentroY > 1) continue;
+
+      return {
+        portal,
+
+        /** o texto da box vem do MAPA, e nao de uma copia no portal */
+        nome: destino.name,
+        destino,
+      };
+    }
+
+    return null;
+  }
+
   drawNomeDoLocal(context) {
     const player = this.world.player;
 
@@ -3261,6 +4166,237 @@ screenToWorld(clientX, clientY) {
     return this.world.map?.id === "base" ? "hub" : "combat";
   }
 
+  /**
+   * O NPC ESTA AO ALCANCE DO JOGADOR?
+   *
+   * ## POR QUE DISTANCIA E NAO CAIXA
+   *
+   * Porque o que o jogador enxerga e o NPC DE PÉ, e a caixa de colisao dele e
+   * um retangulo fino no chao. Um retangulo daria ao jogador o beneficio do
+   * ponto mais baixo do NPC — o pes, bem longe do boneco — e a conversa viraria
+   * possivel de longe demais num canto e de perto demais no outro
+   *
+   * ## E POR QUE MEDIR ATE O PEITO, E NAO ATE OS PES
+   *
+   * Porque e onde o jogador olha. O `y` do NPC e o chao, e subir uns 24px
+   * pega o meio do tronco. Sem essa correcao o alcame appearia maior do que e
+   * no desenho: o jogador pararia a 96px do pes, que sao quase 150px do
+   * tronco na tela
+   *
+   * ## E POR QUE PRECISA DO `Number.isFinite`
+   *
+   * Porque o jogador pode estar em transicao de mapa, com o `world.player`
+   * recem-criado e sem posicao ainda. Sem a guarda, `Math.hypot(NaN, NaN)` e
+   * `NaN`, e `NaN <= 96` e `false` — o que por acaso daria o resultado certo,
+   * por um motivo errado. A guarda deixa a decisao explicita
+   */
+  /**
+   * O JOGADOR SE AFASTOU DO NPC QUE ABRIU O PAINEL?
+   *
+   * ## POR QUE UM METODO, E NAO UM TRECHO NO `update`
+   *
+   * Porque o `update` roda 60 vezes por segundo e este e um calculo de
+   * distancia. Ele sai do lao quando o jogador anda com o painel de baú
+   * aberto, que e a maior parte do tempo em que o painel esta aberto — e o
+   * caso comum nao pode custar um `Math.hypot` por quadro
+   *
+   * ## E POR QUE SUMIR DO MAPA CONTA COMO AFastAMENTO
+   *
+   * Porque o NPC some junto com o mapa. Sem o `return true` aqui, atravessar
+   * um portal com o baú aberto deixaria o painel flutuando em cima de um mapa
+   * que nao tem NPC nenhum, e o `onNpcLonge` nunca chegaria
+   *
+   * ## E POR QUE SO AVISA UMA VEZ
+   *
+   * Porque o campo e limpo antes do `onNpcLonge`. Se nao fosse, o aviso
+   * dispararia a cada quadro ate o React processar o fechamento — e o
+   * `setState` repetido 60 vezes por segundo e o que trava painel no React
+   */
+  conferirAlcanceDoPainel() {
+    const id = this.npcDoPainel;
+
+    if (!id) return;
+
+    const npc = (this.world?.npcs ?? []).find((n) => n.id === id);
+
+    if (!npc || this.npcAoAlcance(npc)) return;
+
+    this.npcDoPainel = null;
+    this.onNpcLonge?.(id);
+  }
+
+  npcAoAlcance(npc) {
+    const player = this.world?.player;
+
+    if (!player || !npc) return false;
+
+    if (
+      !Number.isFinite(player.x) ||
+      !Number.isFinite(player.y) ||
+      !Number.isFinite(npc.x) ||
+      !Number.isFinite(npc.y)
+    ) {
+      return false;
+    }
+
+    const dx = player.x - npc.x;
+    const dy = player.y - (npc.y - ALTURA_DE_CONVERSA_NPC);
+
+    return Math.hypot(dx, dy) <= ALCANCE_DE_NPC;
+  }
+
+  /**
+   * O JOGADOR PEDIU PARA IR ATÉ ESTE NPC.
+   *
+   * ## POR QUE SO O `npcId` CHEGA AQUI
+   *
+   * Porque quem resolve a posicao e o proprio motor: ele procura o NPC no
+   * mundo dele. Um id que nao existe no mapa atual morre no `find`, e o
+   * jogador fica parado — que e a resposta correta para um clique em algo que
+   * nao esta mais la
+   *
+   * ## E POR QUE UM CAMPO NO MOTOR, E NAO UM PLANO DE VIAGEM
+   *
+   * Porque o `travelPlan` e do auto-play, e o `updateAutoPlay` zera o
+   * `autoMoveDirection` a cada quadro quando o auto esta desligado. Um
+   * destino escrito la seria apagado no frame seguinte. E porque este destino
+   * responde a um CLIQUE, e o plano responde a uma MISSÃO
+   */
+  irAteNpc(npcId) {
+    this.irAteNpcId = npcId ?? null;
+  }
+
+  /**
+   * A CHEGADA, conferida no motor que tem os ganchos.
+   *
+   * E o espelho do `conduzirAteNpc`: aquele MOVE, este CONFIRMA. Vem logo
+   * depois do `conferirAlcanceDoPainel` e antes de qualquer coisa de jogo,
+   * porque e o que o jogador espera ver acontecer quando chega
+   *
+   * ## E POR QUE O CAMPO E LIMPO SO DEPOIS DO AVISO
+   *
+   * Porque o aviso vai para o React, e o React resolve depois. Se o campo
+   * fosse limpo antes, o painel abriria uma vez — que e o que acontece se o
+   * aviso repetisse, e o que NAO pode acontecer e o painel ficar preso
+   * abrindo e fechando a cada quadro
+   */
+  conferirChegadaNoNpc() {
+    const id = this.npcSendoVisitado;
+
+    if (!id) return;
+
+    const npc = (this.world?.npcs ?? []).find((n) => n.id === id);
+
+    // o NPC sumiu do mapa no caminho: nao ha painel para abrir
+    if (!npc) {
+      this.npcSendoVisitado = null;
+      return;
+    }
+
+    if (!this.npcAoAlcance(npc)) return;
+
+    this.npcSendoVisitado = null;
+
+    /**
+     * E AGORA O PAINEL DESTA VISITA TEM DONO.
+     *
+     * ## POR QUE ISTO FALTAVA, E O QUE CAUSAVA
+     *
+     * Porque o `npcDoPainel` so era marcado no caminho do clique curto, em
+     * `tratarCliqueNoNpc`. Quem chegava ANDANDO passava por aqui: o painel
+     * abria, o `onChegouNoNpc` avisava a tela, e ninguem marcava de qual NPC
+     * o painel era
+     *
+     * E um painel sem dono e um painel que nunca fecha. O
+     * `conferirAlcanceDoPainel` abre com `if (!id) return`, e com o campo
+     * vazio ele nem chega a medir distancia. Era exatamente o sintoma: o
+     * painel fechava quando o NPC estava no alcance do mouse — o caminho do
+     * clique curto, que marcava — e ficava aberto quando o jogador tinha
+     * clicado de longe e caminhado ate ele
+     *
+     * ## E POR QUE A MARCA FICA AQUI, E NAO DENTRO DO GANCHO DE TELA
+     *
+     * Porque aqui o motor tem o `id` e sabe que o painel vai abrir. O
+     * `onChegouNoNpc` e um gancho de tela: quem escuta pode nem abrir painel
+     * nenhum, e a marca e sobre o NPC, nao sobre o painel
+     */
+    this.npcDoPainel = id;
+
+    this.onChegouNoNpc?.(id);
+  }
+
+  /**
+   * CONDUZ O JOGADOR ATÉ O NPC PEDIDO, E AVISA QUANDO CHEGAR.
+   *
+   * ## POR QUE `Math.hypot` NORMALIZADO E NAO A DIFERENCA CRUA
+   *
+   * Porque o `autoMoveDirection` e um VETOR DE DIRECAO, e o `moveEntity`
+   * multiplica ele pela velocidade e pelo `deltaTime`. Um vetor de
+   * comprimento 300px andaria 300 vezes mais rapido que um de comprimento 1.
+   * Por isso o comprimento e reduzido a 1
+   *
+   * ## E POR QUE O TECLADO CANCELA
+   *
+   * Porque e a resposta que o jogador espera: ele apertou uma seta, ele
+   * quer ir para la. Nao ha teimo em um NPC longinquo, e insistir seria o
+   * personagem andar para um mercador enquanto o jogador tenta fugir de um
+   * slime
+   *
+   * ## E POR QUE O CHEGANDO SAI CALADO
+   *
+   * Porque este metodo roda nos DOIS motores, e o aviso de chegada so
+   * encontra quem escuta no do cliente — a tela e que instala o
+   * `onChegouNoNpc`. Disparar aqui, no servidor, seria atirar num gancho
+   * nulo. Quem confirma a chegada e o `conferirChegadaNoNpc`, no motor da tela
+   */
+  conduzirAteNpc() {
+    const id = this.irAteNpcId;
+
+    if (!id) return false;
+
+    const npc = (this.world?.npcs ?? []).find((n) => n.id === id);
+
+    if (!npc) {
+      this.irAteNpcId = null;
+      return false;
+    }
+
+    // CHEGOU: o alvo sai da lista
+    if (this.npcAoAlcance(npc)) {
+      this.irAteNpcId = null;
+      return false;
+    }
+
+    const player = this.world?.player;
+
+    if (!player) return false;
+
+    // CANCELOU: o teclado tem a prioridade.
+    // O `?? NO_KEYS` e obrigatorio: o `vetorDeMovimento` chama `.has()`
+    // direto nas teclas, e sem o conjunto ele LANCA. Como isto roda dentro
+    // do `update` do servidor, a excecao derrubaria o tick inteiro — e nao
+    // so a caminhada
+    const doTeclado = vetorDeMovimento(this.input?.keys ?? NO_KEYS);
+
+    if (doTeclado.x !== 0 || doTeclado.y !== 0) {
+      this.irAteNpcId = null;
+      return false;
+    }
+
+    const dx = npc.x - player.x;
+    const dy = npc.y - ALTURA_DE_CONVERSA_NPC - player.y;
+    const tamanho = Math.hypot(dx, dy);
+
+    if (tamanho <= 0.01) return false;
+
+    this.autoMoveDirection = {
+      x: dx / tamanho,
+      y: dy / tamanho,
+    };
+
+    return true;
+  }
+
   handlePointerDown(event) {
     if (event.button !== 0) return;
 
@@ -3289,6 +4425,70 @@ screenToWorld(clientX, clientY) {
     const npc = this.npcs.pickAt(this.world.npcs, point);
 
     if (npc) {
+      /**
+       * O NPC PRECISA ESTAR AO ALCANCE, OU O CLIQUE NAO ABRE NADA.
+       *
+       * ## O QUE ESTAVA ERRADO
+       *
+       * O `pickAt` acha o NPC debaixo do PONTEIRO, e o ponteiro pode estar a
+       * tela inteira de distancia: na ponta da base o jogador clica no
+       * mercador que ve do outro lado da sala e o painel abria. O baú dele
+       * aparecia, a mochila aparecia, e a peça que ele ia buscar estava no
+       * outro mapa
+       *
+       * ## POR QUE A CHECAGEM FICA AQUI, E NAO NO `onNpcClick`
+       *
+       * Porque e um filtro de ALCANCE, e alcance e do motor: ele e quem sabe
+       * onde o jogador esta, e o `world.player` ja esta em maos neste ponto.
+       * No `HUD.jsx` a checagem precisaria de outra fonte de posicao — o
+       * snapshot, que chega atrasado — e o painel abriria numa posicao que o
+       * jogador ja deixou
+       *
+       * ## E POR QUE VALE PARA OS TRES NPCs
+       *
+       * Porque a regra nao e do bau: e do NPC. Poções, habilidades e baú sao
+       * a mesma mesa com tres mercadorias, e um mercador que abre de longe e um
+       * mercador que abre de perto sao o mesmo bug
+       *
+       * ## E O QUE O JOGADOR VÊ
+       *
+       * Nada. O clique no longe nao abre painel nem manda mensagem: e o mesmo
+       * silencio de clicar no chao. A pista do alcance e o proprio cursor, que
+       * ja muda de `hub` para `combat` quando o ponteiro sai de perto dos
+       * NPCs — e essa leitura fica no `update`, nao aqui
+       */
+      if (!this.npcAoAlcance(npc)) {
+      /**
+       * LONGE DEMAIS: o jogador clicou, e o pedido de andar e o que ele quer.
+       *
+       * Só o `npcId` vai no pedido. O caminho, o desvio de parede e a parada
+       * são do servidor, e o painel abre sozinho quando a distância fechar —
+       * o que decide abrir é a tela, no `onChegouNoNpc`
+       */
+      this.onNpcLongePedido?.(npc.id);
+
+      /*
+       * O NPC fica marcado aqui, no motor do cliente.
+       *
+       * E o que o `conferirChegadaNoNpc` vai vigiar. Sem esta marca o
+       * servidor caminhava ate la e a chegada se perdia: o aviso de chegada
+       * sai do servidor, e nenhum gancho o escuta la
+       */
+      this.npcSendoVisitado = npc.id;
+      return;
+    }
+
+      /**
+       * O PAINEL QUE ESTE NPC ABRIU, marcado aqui.
+       *
+       * Porque e daqui que vem a ordem de fechar quando o jogador se afastar.
+       * O motor sabe qual NPC foi clicado; quem sabe qual PAINEL abriu e a
+       * tela, e por isso o motor avisa pelo `onNpcLonge` em vez de fechar
+       * sozinho — fechar por dentro derrubaria o painel errado se o jogador
+       * tivesse aberto outro no meio do caminho
+       */
+      this.npcDoPainel = npc.id;
+
       this.onNpcClick?.(npc);
       return;
     }
@@ -3739,6 +4939,18 @@ screenToWorld(clientX, clientY) {
     this.setAutoPlay(!this.autoPlay);
   }
 
+/**
+   * MARCA A RECUSA DA EXPEDIÇÃO, e é o que o painel lê.
+   *
+   * Só aceita texto não vazio: as quatro ações marcam `null` no caminho do
+   * sucesso, e um `undefined` aqui viraria "erro" na fila do painel — que
+   * mostrava um aviso de expedição que ninguém tinha causationado
+   */
+  marcarErroDaExpedicao(erro) {
+    this.expedicaoErro = erro ? String(erro) : null;
+  }
+
+
   isAutoActive() {
     return (
       this.autoPlay ||
@@ -4173,9 +5385,55 @@ screenToWorld(clientX, clientY) {
   tryBeberAutoPocao() {
     const sessao = this.sessaoDeJogador;
 
-    if (!sessao?.autoPocao?.ligado) return false;
+    const config = sessao?.autoPocao;
 
-    const config = sessao.autoPocao;
+    if (!config) return false;
+
+    /**
+     * A PILHA ACABOU: O SLOT ESVAZIA E O AUTOMATICO SE DESLIGA.
+     *
+     * ## POR QUE ESTA VERIFICACAO VEM ANTES DE TODAS AS OUTRAS
+     *
+     * Porque ela nao e sobre beber. E sobre a configuracao, e a unica coisa que
+     * o jogador perde de verdade quando a ultima pocao acaba: o slot ficava
+     * com a arte de uma pilha que ja nao existia, e o automatico continuava
+     * ligado, com a tela prometendo uma cura sem de onde tirar
+     *
+     * ## POR QUE ANTES DO LIMIAR, E NAO DEPOIS
+     *
+     * Porque o slot so sumia quando o jogador voltava a estar ferido. O
+     * `percentual > config.limiar` segura o resto do metodo, entao a pilha
+     * vazia so aparecia na proxima luta - e era na luta que o jogador mais
+     * precisava saber que a pocao tinha acabado
+     *
+     * ## E POR QUE LIMPAR O `itemId`, E NAO SO DESLIGAR
+     *
+     * Porque os dois sao o mesmo controle visto de dois lados. O `ligado`
+     * decide se o motor bebe; o `itemId` decide se a tela mostra alguma coisa.
+     * Desligar sem limpar deixaria o slot com a arte e a dica "automatico
+     * desligado", que e um estado do qual o jogador so sai indo ate o painel de
+     * configuracao
+     *
+     * ## E POR QUE O `sendSnapshot` ESTA AQUI, E NAO NO CHAMADOR
+     *
+     * Porque o `false` deste caminho impede o retrato automatico de quem chama:
+     * ele so dispara quando o metodo bebeu de verdade. Sem este retrato o
+     * motor ja teria trocado o estado, e a tela continuaria com a pilha cheia
+     * ate o proximo motivo qualquer pedir um retrato
+     */
+    if (
+      config.itemId &&
+      this.world.inventory.count(config.itemId) <= 0
+    ) {
+      config.itemId = null;
+      config.ligado = false;
+
+      this.sendSnapshot();
+
+      return false;
+    }
+
+    if (!config.ligado) return false;
 
     if (!config.itemId) return false;
 
@@ -4192,12 +5450,19 @@ screenToWorld(clientX, clientY) {
     if (percentual > config.limiar) return false;
 
     /**
-     * A PILHA SOME E O AUTOMATICO SEGUE LIGADO.
+     * A PILHA SOME, E O MOTOR NAO INSISTE.
      *
-     * Sem esta guarda, o jogador que tinha a ultima pocao bebia uma, o
-     * `usarItem` gastava, e a tentativa seguinte ia rodar de novo a cada
-     * quadro pelo resto da luta â€” um `findStack` por quadro atando nada.
-     * Aqui o slot vazio e um estado, e o painel e quem mostra
+     * ## POR QUE ESTA GUARDA CONTINUA, DEPOIS DA QUE DESLIGA
+     *
+     * Porque sao coisas diferentes. La em cima o motor apaga a configuracao
+     * quando a pilha acabou; aqui ele so evita o trabalho de ir ate o
+     * `usarItem` para descobrir que nao ha o que beber. Esta e a ultima
+     * linha antes do consumo, entao e o ultimo lugar onde a pilha sumir
+     * sem o retrato ter sido mandado
+     *
+* Sem ela, o jogador que tinha a ultima pocao bebia uma, o `usarItem`
+     * gastava, e a tentativa seguinte rodava de novo a cada quadro pelo
+     * resto da luta, atando um `findStack` por quadro sem nada para beber
      */
     const pilha = this.world.inventory.findStack(config.itemId);
 
@@ -6573,19 +7838,77 @@ this.showMessage(
      * comando de teste, um `setMap` â€” nao tem de onde voltar, e nesse caso o
      * acampamento e o melhor destino disponivel
      */
-    const voltouDaArena = this.voltarDaArenaParaOrigem();
+    /**
+     * MORTO NA ARENA: VOLTA PARA A PASSAGEM DO CHEFE, NO MAPA 1.
+     *
+     * ## POR QUE NAO O ACAMPAMENTO
+     *
+     * Porque a entrada na arena deixou de ser o botao e passou a ser a
+     * passagem do topo do mapa 1 — entao ninguem tem `arenaOrigem` para onde
+     * voltar, e o `voltouDaArena` dá falso. Sem esta linha, morrer para o
+     * Hulk jogava o jogador no meio da base, a tres mil pixels da luta
+     *
+     * ## E POR QUE 3 TILES DA PASSAGEM
+     *
+     * E o mesmo ponto de chegada que o portal devolve, e nao uma
+     * coordenada escrita aqui: o `chegadaDe` e quem sabe recuar 3 tiles para
+     * dentro do mapa. Escrever o numero de novo aqui seria um segundo lugar
+     * com a mesma conta, e o primeiro a divergir quando a passagem mudar
+     *
+     * ## O CHEFE VOLTA SOZINHO
+     *
+     * Nao ha `reviveEnemy` nesta linha, e e proposital. O `setMap` recria
+     * `world.enemies` a partir de `BOSS_1_MAP.bosses`, entao a arena que o
+     * jogador vai encontrar quando voltar por aqui tem o Hulk com a vida
+     * cheia — sem estado de chefe guardado em lugar nenhum
+     */
+    const saiuDaArena =
+      this.world.map.id === ARENA_ID &&
+      this.voltarParaPortalDoChefe();
+
+    const voltouDaArena = saiuDaArena || this.voltarDaArenaParaOrigem();
 
     if (!voltouDaArena) {
       this.voltarParaAcampamento();
     }
 
-    const destino = voltouDaArena ? "o portal" : "o acampamento";
+    const destino = saiuDaArena
+      ? "a passagem do chefe"
+      : voltouDaArena
+        ? "o portal"
+        : "o acampamento";
 
     this.showMessage(
       perdido > 0
         ? `Voltou para ${destino}. Perdeu ${perdido} de XP.`
         : `Voltou para ${destino}.`,
     );
+
+    return true;
+  }
+
+  /**
+   * DEVOLVE O JOGADOR AO MAPA 1, NO PONTO DE CHEGADA DA PASSAGEM DO CHEFE.
+   *
+   * E o par da entrada: a `portal_chefe` leva para a arena, e este traz de
+   * volta para o mesmo lugar, 3 tiles para dentro do mapa
+   *
+   * @returns {boolean} `true` se havia destino e o jogador foi movido
+   */
+  voltarParaPortalDoChefe() {
+    const mapa1 = findMap("map_1");
+
+    if (!mapa1) return false;
+
+    const portal = (mapa1.portals ?? []).find(
+      (p) => p.id === "portal_chefe",
+    );
+
+    if (!portal) return false;
+
+    const chegada = this.chegadaDe(portal, mapa1);
+
+    this.setMap(mapa1, { chegada });
 
     return true;
   }
@@ -7601,7 +8924,7 @@ return {
     const player = this.world.player;
 
     /**
-     * SEM ZONA E "JA CHEGOU".
+     * A ZONA PODE NAO TER RETANGULO.
      *
      * Porque um destino pode nao ter retangulo: o do NPC e um ponto em pe,
      * e o do chefe e um portal. Ler `zone.x` com `zone` vazio estourava o
@@ -7738,6 +9061,20 @@ return {
   }
 
   updateAutoPlay(deltaTime) {
+    /**
+     * A CAMINHADA ATÉ O NPC VENCE O AUTO, E É POR ISSO QUE ESTA LINHA ESTÁ AQUI.
+     *
+     * A linha seguinte zera o `autoMoveDirection` a cada quadro, e com o auto
+     * desligado ela esvazia o `travelPlan` inteiro. Se a caminhada para o
+     * NPC fosse conduzida depois, o `updateAutoPlay` apagaria a direção no
+     * mesmo quadro em que ela foi escrita — o personagem nem sairia do lugar
+     *
+     * E a ordem importa em favor da caminhada: o jogador segurou o botão do
+     * baú agora, e o auto é um programa ligado antes. O teclado continua
+     * acima dos dois, dentro do `conduzirAteNpc`
+     */
+    if (this.conduzirAteNpc()) return;
+
     this.autoMoveDirection = null;
     this.autoFacing = null;
 
@@ -7852,6 +9189,98 @@ return {
    * ir" do piloto, e tanto a viagem quanto a cacada leem daqui â€” assim
    * o bestiario e a missao nao podem divergir sobre o destino
    */
+  /**
+   * A PEDIDA QUE O TUTORIAL DE MINERAR VAI USAR, ou `null`.
+   *
+   * ## POR QUE O MAPA VEM DO REGISTRO E NAO DO `world`
+   *
+   * Porque o tutorial comeca no mapa 1 e a pedra esta no vale: no instante
+   * em que o auto liga, o jogador ainda nao atravessou o portal, e o
+   * `world.props` dele nao tem cristal nenhum. `findMap(MAP_TESTE_ID).props`
+   * e a lista do vale inteiro, e ela existe antes da travessia
+   *
+   * `findMap` e nao `getMap` porque o `getMap` cai no hub quando o id nao
+   * existe. Um id errado aqui viraria "os cristais do hub", que tem nenhum,
+   * e o auto voltaria a ficar parado sem nenhuma pista do motivo
+   *
+   * ## A ESCOLHA E A MAIS PROXIMA DO JOGADOR
+   *
+   * Porque o vale tem 23 cristais comuns espalhados e o jogador pode
+   * atravessar em qualquer ponto. A mais proxima e a que o auto cruza
+   * primeiro, e nenhum cristal e tao longe do outro que a escolha mude o
+   * tempo da missao
+   *
+   * ## POR QUE A PEDIDA GASTA SAI DA LISTA
+   *
+   * Porque uma pedra que o jogador acabou de minerar volta em 120s
+   * (`PEDRA_VOLTA_EM_S`). Sem este filtro, o auto poderia ir ate uma
+   * pedra que o servidor recusa, ficar em cima dela sem minerar nada, e o
+   * tutorial nunca fecharia
+   */
+  cristalParaMinerar() {
+    const vale = findMap(MAP_TESTE_ID);
+
+    if (!vale) return null;
+
+    const esgotadas = this.pedidasForaDoMapa;
+    const player = this.world.player;
+
+    let melhor = null;
+    let melhorDist = Infinity;
+
+    for (const prop of vale.props ?? []) {
+      if (prop.type !== PEDIDA_DO_TUTORIAL) continue;
+      if (!mineravel(prop.type)) continue;
+      if (esgotadas instanceof Set && esgotadas.has(prop.id)) continue;
+
+      const distancia = Math.hypot(
+        prop.x - player.x,
+        prop.y - player.y,
+      );
+
+      /**
+       * A DISTANCIA DE OUTRO MAPA NAO E A DISTANCIA DE PERCURSO
+       *
+       * O jogador no mapa 1 e a pedra no vale nao dividem tela, e a
+       * distancia crua serve so para ordenar as 23. O que decide o
+       * caminho e o planejador de viagem, que sabe onde esta o portal
+       */
+      if (distancia < melhorDist) {
+        melhorDist = distancia;
+        melhor = prop;
+      }
+    }
+
+    return melhor;
+  }
+
+  /**
+   * O DESTINO DA MISSAO DE MINERAR, ou `null` quando o auto nao esta nela.
+   *
+   * ## POR QUE UM `mapId` JUNTO DA COORDENADA
+   *
+   * Porque o plano de viagem so atravessa portal quando sabe para onde vai.
+   * Um destino sem mapa e um ponto no mapa em que o jogador esta, e ai o
+   * tutorial viraria "ande ate o cristal mais proximo do mapa 1", onde nao
+   * tem cristal nenhum
+   */
+  destinoDeMinerar() {
+    const objective = this.getAutoObjective();
+
+    if (objective?.type !== QUEST_TYPE.MINE) return null;
+
+    const prop = this.cristalParaMinerar();
+
+    if (!prop) return null;
+
+    return {
+      x: prop.x,
+      y: prop.y,
+      mapId: MAP_TESTE_ID,
+      prop,
+    };
+  }
+
   destinoDoObjetivo() {
     /**
      * O SEGUIDO VEM ANTES DA MISSAO.
@@ -7900,6 +9329,18 @@ const objective = this.getAutoObjective();
   const destinoDoNpc = this.destinoDoNpc(objective);
 
   if (destinoDoNpc) return destinoDoNpc;
+
+  /**
+   * A PEDIDA ANTES DA ZONA, e pela mesma razao do chefe e do NPC: o destino
+   * e um objeto, em um mapa que a missao nao declara.
+   *
+   * A 1.6 tem `location: "dunas"`, que e a zona do mapa 1 onde a missao
+   * comeca. Sem esta ordem o auto andaria ate as dunas e pararia, e o
+   * tutorial ensinaria a ir ate a tela de outra missao em vez de minerar
+   */
+  const destinoDaPedida = this.destinoDeMinerar();
+
+  if (destinoDaPedida) return destinoDaPedida;
 
   const zona = this.getQuestZone(objective);
 
@@ -8171,6 +9612,15 @@ travelPlanParaObjetivo() {
       destinoX: destino.x,
       destinoY: destino.y,
       destinoMapId: destino.mapId,
+
+      /**
+       * A PROP QUE E O DESTINO, quando o destino e uma prop.
+       *
+       * Só a etapa FINAL carrega. As de portal nao: elas terminam numa
+       * passagem, e o pedido de minerar ali dispararia aonde o jogador
+       * esta a caminho da pedra, nao nela
+       */
+      prop: destino.prop ?? null,
       caminho: null,
     });
 
@@ -8247,7 +9697,44 @@ travelPlanParaObjetivo() {
        */
       const objetivo = this.getAutoObjective();
 
-      if (!this.world.session?.seguindoId) {
+/**
+       * A VIAGEM NAO SE ENTREGA A CACADA ENQUANTO TEM PASSAGEM PELA FRENTE.
+       *
+       * ## O QUE ACONTECIA, E POR QUE O SINTOMA ERA "PARA NO PORTAL"
+       *
+       * O `pickAutoTarget` aceitava um bicho do tipo do objetivo a qualquer
+       * distancia, e o `return false` abaixo entregava o boneco ao
+       * `runAutoHunt` — inclusive no MEIO de uma viagem entre mapas
+       *
+       * Na base, indo para a missao principal, o `portal_hub` fica encostado
+       * na parede da direita, e qualquer criatura do tipo da missao que
+       * aparecia ali cancelava a viagem. O `runAutoHunt` assumia o boneco,
+       * ele ia para o lado do bicho e ficava ali, encostado na passagem, com
+       * o auto ligado e a viagem abandonada
+       *
+       * ## POR QUE UMA SANDINHA RESOLVIA
+       *
+       * Porque a passagem e um SISTEMA SEPARADO. O `updatePassagem` mede a
+       * zona do `portalSobOsPets` a cada quadro, sem olhar objetivo, plano
+       * nem alvo. Um toque de dedo levava o jogador para dentro da faixa, e
+       * a travessia saia pelo `updatePassagem` — o caminho que nunca foi
+       * cancelado. Era por isso que o portao "funcionava na mao e nao no
+       * auto"
+       *
+       * ## POR QUE SO A ETAPA DE PORTAL PROTEGE A VIAGEM
+       *
+       * Porque `portalId !== null` e exatamente "ainda tem mapa para
+       * atravessar". Na etapa final — ja no mapa do destino — a cacada pode
+       * assumir como sempre, que e o comportamento certo: o objetivo da
+       * viagem era chegar la
+       */
+      const etapaDaViagem = this.travelPlan[0];
+
+      const aindaTravessando =
+        etapaDaViagem?.portalId !== null &&
+        etapaDaViagem?.portalId !== undefined;
+
+      if (!this.world.session?.seguindoId && !aindaTravessando) {
         /**
          * O ALVO PRECISA SER O DO OBJETIVO, e nao "um bicho".
          *
@@ -8391,12 +9878,89 @@ travelPlanParaObjetivo() {
      * vez de tentar seguir uma etapa de outro mapa â€” e andar para uma
      * coordenada que aqui nao significa nada â€” o plano e descartado e
      * refeito a partir de onde o jogador esta
+     *
+     * ## POR QUE "DESCARTAR TUDO" ERA O QUE FAZIA O AUTO SE PERDER
+     *
+     * Porque a passagem e AUTOMATICA: quem troca o mapa e o `updatePassagem`,
+     * e nao o `#concluirEtapa`. O piloto andou ate a parede, entrou na zona, e
+     * o `setMap` rodou por fora do plano â€” entao a etapa do portal continua
+     * na cabeca da fila, ainda apontando para o mapa de onde o jogador saiu
+     *
+     * Ao chegar aqui, o corte descartava as etapas que ainda VALEM e voltava
+     * tudo para `travelPlanParaObjetivo`. E esse metodo depende do
+     * `destinoDoObjetivo`, que no mesmo instante do `setMap` pode nao
+     * resolver nada: o mob do mapa novo ainda nao foi spawned, e a missao
+     * ainda nao reentrou no escopo. `destino` fora `null`, o plano era
+     * descartado e nao recriado, e o `runTravelPlan` devolvia `false` â€” o
+     * auto desligava sozinho no meio do mapa, sem aviso e sem caminho
+     *
+     * A correcao e distinguir os dois casos, porque eles nao sao o mesmo
+     * problema:
+     *
+     * - o mapa novo e o `destinoMapa` DESTA etapa: o jogador acabou de
+     *   atravessar o portal dela. A etapa foi cumprida, entao ela e consumida
+     *   e o resto do plano continua de pe
+     * - qualquer outro mapa: ai sim o plano morreu com o jogador, e o
+     *   descarte com remontagem e o comportamento certo
      */
     if (etapa.mapId !== this.world.map.id) {
+      /**
+       * A ETAPA FOI CUMPRIDA: SO CONSOME.
+       *
+       * O `destinoMapa` so existe nas etapas de portal, entao uma etapa
+       * final nunca entra aqui: ela nao atravessa nada
+       */
+      if (etapa.destinoMapa === this.world.map.id) {
+        this.travelPlan.shift();
+        this.travelParado = 0;
+
+        /**
+         * Sobrou rota: o proximo trecho ja esta pronto, com o mapa novo no
+         * `mapId` dele, e o piloto continua andando no mesmo quadro
+         */
+        if (this.travelPlan.length > 0) return true;
+
+        /**
+         * A ETAPA CONSUMIDA ERA A ULTIMA: o plano acabou junto com a
+         * travessia. A montagem e refeita a partir de onde o jogador esta,
+         * que e o unico caminho para o auto nao morrer aqui
+         */
+        return this.travelPlanParaObjetivo();
+      }
+
       this.travelPlan = [];
       this.travelParado = 0;
 
       return this.travelPlanParaObjetivo();
+    }
+
+    /**
+     * A MINERACAO ASSUME O COMANDO.
+     *
+     * ## POR QUE CEDE AQUI E NAO NO `updateAutoPlay`
+     *
+     * Porque o `runMineracao` roda DEPOIS do `updateAutoPlay` na ordem do
+     * tique. Se o piloto continuasse mandando direcao, os dois escreveriam
+     * `autoMoveDirection` no mesmo quadro e o jogador puxaria para o meio
+     * da pedra e para o waypoint ao mesmo tempo
+     *
+     * E por isso que o plano e ZERADO aqui: o destino desta etapa era a
+     * pedra, e a proxima etapa e a da missao seguinte. Sem limpar, o plano
+     * antigo continuaria puxando o jogador de volta para a pedra gasta
+     *
+     * ## POR QUE O LACHE E LIMPO AQUI
+     *
+     * Porque a mineracao acabou. A pedra foi gasta, e a proxima e outra
+     * pedra — reusar o lache faria o auto pedir para uma que o servidor ja
+     * recusa
+     */
+    if (this.world.session?.mineracao) {
+      this.pedidoDeMinerar = null;
+      this.travelPlan = [];
+      this.autoWaypoint = null;
+      this.travelParado = 0;
+
+      return true;
     }
 
     this.#contarTravelParado(deltaTime, player);
@@ -8408,28 +9972,98 @@ travelPlanParaObjetivo() {
      * salva o piloto quando o plano envelhece sem ninguem mexer nele: um
      * inimigo empurra o jogador para tras do ultimo ponto do caminho, ou
      * o ponto final fica dentro de um obstaculo que o grid marcou livre
+     *
+     * ## POR QUE REFAZER SO NAO RESOLVE, E PRECISA PULAR O PONTO
+     *
+     * Porque o A* e DETERMINISTICO: ele refaz do mesmo lugar de onde
+     * refez, e devolve exatamente o mesmo caminho. O piloto ficava num laco
+     * de 3 segundos — re-rastrear, bater na mesma parede, re-rastrear — sem
+     * nunca tentar o ponto SEGUINTE, que pode estar livre
+     *
+     * Era o sintoma do jogador: andava continuo, batia num ponto, e voltava
+     * a andar para o mesmo lado
+     *
+     * ## POR QUE DOIS LIMITOS, E NAO UM
+     *
+     * Porque sao doisACOES diferentes com consequencias diferentes:
+     *
+     * - travado POUCO: o ponto do caminho esta bloqueado. Pular e o certo, e
+     *   barato — um `shift` e o proximo ponto e tentado no mesmo tique
+     *
+     * - travado LONGO (o limite antigo): o caminho inteiro envelheceu. Ai o
+     *   certo e refazer, porque pular todos os 20 pontos levaria o piloto
+     *   para longe do destino sem saber que errou
+     *
+     * O limite curto e de 0.8s porque um passo do boneco e bem menos que
+     * isso: se em 0.8s ele nao avançou nem um pixel, o ponto nao e o caminho
+     * dele
      */
+    if (this.travelParado > TRAVEL_PARADO_PULA_PONTO) {
+      /**
+       * O DIAGNÓSTICO AQUI, E NÃO NO `#contarTravelParado`.
+       *
+       * ## POR QUE ESTE LUGAR, E NÃO O CONTADOR
+       *
+       * Porque aqui é onde o travamento ACONTECE, e é o único lugar que o
+       * jogo reconhece: 0.8s sem avançar e o piloto descarta o waypoint. O
+       * contador nunca chega ao `TRAVEL_TRAVADO_LIMITE` de 3s — o `shift`
+       * abaixo o zera no mesmo quadro — então um log disparado por 3s nunca
+       * sairia. Foi exatamente o que aconteceu na primeira tentativa: o log
+       * ficou pronto e nunca apareceu
+*
+        * E por que o piso e 0.8s: um passo do boneco dura bem menos que isso.
+        * Passou disso sem avancar nem um pixel, o ponto nao e o caminho dele
+        */
+      if ((etapa.caminho?.length ?? 0) > 1) {
+        etapa.caminho.shift();
+        this.travelParado = 0;
+      } else {
+        /**
+         * SOZINHO NO CAMINHO, NAO HA "O SEGUINTE".
+         *
+         * O `shift` deixaria a lista vazia e o proximo viraria o centro da
+         * etapa — que e o ponto que ja deu problema. Entao este caso nao
+         * pula: ele esgota o limite de 3s e cai no refazer-a-grade logo
+         * abaixo, que e a resposta certa quando o problema e o caminho
+         * inteiro e nao um ponto
+         */
+        this.travelParado = TRAVEL_TRAVADO_LIMITE;
+      }
+    }
+
     if (this.travelParado > TRAVEL_TRAVADO_LIMITE) {
       this.travelParado = 0;
       etapa.caminho = null;
     }
 
-    /**
+/**
      * Chegou no ponto final da etapa?
      *
-     * O `24` e o mesmo raio do `walkToward`, e nao o raio de travessia
-     * do portal: estar a 24px do centro ja esta dentro do raio de 96px
-     * que o `portalSobOsPes` aceita, entao o `travessarPortal` nunca
-     * falha aqui. Se falhasse, o passo abaixo reentraria no loco e a
-     * proxima tentativa veria o jogador ja em cima do portal
+     * ## POR QUE UM PORTAL USA A ZONA DELE, E NAO A DISTANCIA
      *
-     * E a chegada e MEDIA CELULA mais larga que a de um ponto do caminho,
-     * porque o caminho nem sempre termina no ponto exato da etapa: quando
-     * o destino esta perto demais de um arbusto para a folga, o `NavGrid`
-     * fecha o caminho no centro da celula vizinha. Ver
-     * `TRAVEL_CHEGADA_CELULA`
+     * Porque a chegada por distancia e um palpite: ela diz "perto o
+     * bastante", e perto nao e o mesmo que dentro. O texto antigo deste
+     * bloco razonava que 24px do centro ja cabiam no raio de 96px do
+     * `portalSobOsPets` — e isso era verdade quando a passagem tinha
+     * `size: 192`
+     *
+     * A passagem e uma FAIXA VERTICAL estreita: `size: 16` com
+     * `raioY: 128`, o que da uma zona de 8px para cada lado em X. O piloto
+     * para a 24px do centro por causa do `walkToward`, ficava FORA da zona,
+     * o `travessarPortal` devolvia `false`, e a etapa nao era consumida: o
+     * boneco encostado na parede empurrando o ar, com o auto ligado e a
+     * passagem ali do lado
+     *
+     * Quem responde "chegou" e o proprio portal, entao a unica pergunta
+     * coerente e "o jogador esta em cima do portal desta etapa?"
      */
-    if (
+    if (etapa.portalId !== null) {
+      const emCima = this.portalSobOsPets();
+
+      if (emCima && emCima.portal.id === etapa.portalId) {
+        return this.#concluirEtapa(etapa);
+      }
+    } else if (
       Math.hypot(etapa.x - player.x, etapa.y - player.y) <
       TRAVEL_CHEGADA + TRAVEL_CHEGADA_CELULA
     ) {
@@ -8448,36 +10082,131 @@ travelPlanParaObjetivo() {
      * jogador precisa de um caminho novo para o resto do caminho, sem
      * contar com o replanejamento do plano
      */
-    if (!etapa.caminho || etapa.caminho.length === 0) {
-      etapa.caminho = this.gradeDoMapa()
+    const semCaminho = !etapa.caminho || etapa.caminho.length === 0;
+
+    if (semCaminho) {
+      const daGrade = this.gradeDoMapa()
         .caminho(
           { x: player.x, y: player.y },
           { x: etapa.x, y: etapa.y },
         );
 
-      /**
-       * Sem caminho, a etapa e INALCANCAVEL e nao "dificil".
-       *
-       * A grade e feita dos solidos do mapa e dos NPCs bloqueantes.
-       * O caso real e o mercador do hub: se algum dia ele for para
-       * dentro de uma parede, o destino fica dentro de um solido e o
-       * A* nao acha celula de entrada. Sem este `if` o piloto ficaria
-       * andando na direcao do obstaculo para sempre
-       *
-       * E o caminho VAZIO entra no mesmo `if` de proposito: um caminho
-       * sem nenhum ponto faria o `caminho[0]` abaixo ser `undefined`, e o
-       * `walkToward` explodiria em `proximo.x`. Descartar a etapa e o
-       * que mantem o piloto dando as costas em vez de quebrando
-       */
-      if (!etapa.caminho || etapa.caminho.length === 0) {
+      const gradeFalhou = !daGrade || daGrade.length === 0;
+
+      if (gradeFalhou && etapa.portalId === null) {
         this.travelPlan = [];
         this.travelParado = 0;
 
         return false;
       }
+
+      /**
+       * A PASSAGEM RECEBE O CENTRO DELA COMO ULTIMO PONTO.
+       *
+       * ## POR QUE O A* SOZINHO NUNCA FAZ O PILOTO ATRAVESSAR
+       *
+       * Medido com a grade e o colisor de verdade: o `NavGrid` leva o jogador
+       * ate (1560, 541) e para, 42px a esquerda e 35px ACIMA do centro da
+       * passagem, que fica em (1602, 576). A zona e de 8px em X, entao
+       * (1560, 541) esta fora, e o auto nunca entrava
+       *
+       * A grade nao chega porque a parede e solido: as celulas coladas nela
+       * nao sao andaveis e o A* fecha no centro da ultima celula livre. Para
+       * um ponto qualquer do mapa isso e o comportamento certo — chegar perto
+       * e chegar — e para uma faixa de 8px e estar longe
+       *
+       * ## POR QUE UM PONTO NO FIM DA LISTA, E NAO UMA RETA SEPARADA
+       *
+       * Porque a reta precisa sobreviver a tres coisas que o codigo faz todo
+       * quadro: o A* ser refeito quando o caminho acaba, o atalho de consumo
+       * girar o ultimo ponto, e o `travelParado` zerar o caminho quando o
+       * jogador demora. Um ponto que FAZ PARTE da lista atravessa as tres por
+       * construcao, e nao depende de nenhuma flag dizer que ele ainda vale
+       *
+       * ## E POR QUE ISSO NAO ANULA O DESVIO DE OBSTACULO
+       *
+       * Porque o centro vai no FIM da lista. O A* continua fazendo o
+       * contorno dos solidos, e so o ultimo metro e a reta — que mede poucas
+       * dezenas de pixels, porque termina logo ao lado da parede
+       */
+      etapa.caminho = etapa.portalId === null
+        ? daGrade
+        : [...(daGrade ?? []), { x: etapa.x, y: etapa.y }];
     }
 
-    const proximo = etapa.caminho[0];
+    /**
+     * O ULTIMO TRECHO E A RETA ATÉ O CENTRO DA ETAPA.
+     *
+     * Vale para toda etapa: e a ultima linha do plano, e ela tem de
+     * terminar no ponto que a etapa pediu. Sem este `??`, um caminho
+     * consumido dava `undefined` e o `walkToward` explodia; e o mais
+     * importante, com o caminho vazio de uma etapa de portal o piloto
+     * parava no ultimo ponto do A* e nunca encostava na faixa
+     */
+    const proximoPadrao = etapa.caminho?.[0] ?? { x: etapa.x, y: etapa.y };
+
+/**
+     * O ULTIMO TRECHO IGNORA A GRADE, E VAI DIRETO NO CENTRO DA PASSAGEM.
+     *
+     * ## O QUE O LOG DO SERVIDOR MOSTROU
+     *
+     * `jog=(1557,541) etapa=(1602,576) dist=57 caminho=2`, igual em todos os
+     * quadros: o boneco parado, a lista com dois pontos e nenhum deles
+     * descartado. O `walkToward` recebia `caminho[0]` e empurrava o jogador
+     * contra ele, quadro apos quadro, sem um unico pixel de progresso
+     *
+     * ## POR QUE O PONTO DA GRADE NAO ALCANCAVE
+     *
+     * Porque `caminho[0]` e o CENTRO de uma celula de 40px, e o `NavGrid`
+     * julga essa celula pelos solidos do mapa — nao pelo circulo do jogador.
+     * Uma celula pode estar livre no centro e ter um solido cortando a borda
+     * onde o raio de 22px encosta. O A* fecha o caminho nela e o boneco, que
+     * precisa de 44px de largura, nunca chega
+     *
+     * ## POR QUE SO NOS ULTIMOS METROS
+     *
+     * Porque e onde o obstaculo some. Medido com o colisor de verdade, a
+     * partir do ponto travado: a reta de (1557, 541) ate (1602, 576) e
+     * inteiraMENTE livre, e o jogador chega em (1601, 575), dentro da zona.
+     * Antes disso a grade e melhor: e ela que contorna arvore e pedra. E o
+     * ultimo metro mede poucas dezenas de pixels, encostado na parede
+     */
+    const centroDaEtapa = { x: etapa.x, y: etapa.y };
+
+const overridePortal =
+      etapa.portalId !== null &&
+      Math.hypot(etapa.x - player.x, etapa.y - player.y) < 160;
+
+    let proximo = overridePortal ? centroDaEtapa : proximoPadrao;
+
+    /**
+     * O ALVO DA JANELA DE TRAVAMENTO E O PONTO QUE EU VOU PEDIR AGORA.
+     *
+     * Fica guardado para o proximo quadro medir o progresso contra ele. Se
+     * o alvo virou, a janela antiga nao vale mais: comparar o avanco de um
+     * ponto com o ponto novo daria um numero sem sentido
+     */
+    const alvoVirou =
+      this.travelAlvoX === null ||
+      proximo.x !== this.travelAlvoX ||
+      proximo.y !== this.travelAlvoY;
+
+    if (alvoVirou) {
+      this.travelAlvoX = proximo.x;
+      this.travelAlvoY = proximo.y;
+      this.travelMelhorDist = null;
+
+      /**
+       * A PERNA COMECA AGORA, e nao antes.
+       *
+       * Porque `travelDistNaPerna` guarda a distancia COM QUE o waypoint foi
+       * adotado. Medir contra a distancia do ponto anterior daria ao piloto
+       * um ganho de centenas de pixels logo no primeiro quadro, e ele passaria
+       * a achar que andou rapido nos 0.8s seguintes
+       */
+      this.travelTempoNaPerna = 0;
+      this.travelDistNaPerna = null;
+    }
 
     /**
      * O ponto seguinte e o destino: consome e a etapa terminou.
@@ -8485,11 +10214,204 @@ travelPlanParaObjetivo() {
      * O `shift` em vez de indice guardado e o que mantem o plano
      * pequeno. Um plano de viagem tem duas ou tres etapas; guardar o
      * indice seria um campo a mais na sessao por causa de nada
+     *
+     * ## POR QUE A GUARDA `etapa.caminho?.length`
+     *
+     * Porque uma etapa de portal chega aqui com o caminho vazio, e ele e
+     * vazio DE PROPOSITO: o A* termina no centro de uma celula, que nao e a
+     * faixa da passagem, entao o caminho dela e a reta final ate o centro da
+     * etapa e nao vem da grade
+     *
+     * E precisa ser `.length`, e nao um `caminho &&`: um array VAZIO e
+     * truthy em JavaScript, e a guarda so com `&&` deixava o atalho rodar com
+     * a lista vazia. O `shift` nao explodia — engolia nada — e o quadro
+     * terminava ali sem nunca chamar o `walkToward`, que e quem manda no
+     * movimento. O boneco chegava a uns 40px da passagem e parava
+     *
+     * E precisa ser `?.` e nao so `&&`: sem ele o `shift` era chamado sobre
+     * `null` e derrubava o tick inteiro do servidor — o `Cannot read
+     * properties of null (reading 'shift')` que matava o WebSocket no
+     * instante em que o jogador encostava no portal
+     *
+     * E o `&&` tambem resolve o segundo problema, que era o boneco parado:
+     * sem caminho nao ha ponto para consumir, entao o atalho nao pode
+     * encerrar o quadro. O fluxo segue ate o `walkToward`, que e quem
+     * empurra o jogador para dentro da faixa
      */
-    if (this.#chegouEm(player, proximo.x, proximo.y)) {
-      etapa.caminho.shift();
+    /**
+     * ## POR QUE O RAIO DESTE ATALHO NAO E O MESMO DO `walkToward` ANTES
+     *
+     * Porque este era o bug de verdade, e ele nao aparecia em nenhum teste de
+     * raciocinio: o atalho consumia o ponto a `TRAVEL_CHEGADA` (24px), e a
+     * zona da passagem tem 8px de metade em X. O jogador chegava a 23.4px do
+     * centro — MENOS que 24 — e o ponto era descartado antes de ele entrar
+     * na faixa. O caminho acabava, o A* era refeito, o mesmo ponto era
+     * descartado de novo, e o boneco nunca mais andava um pixel
+     *
+     * E e por isso que uma sandinha resolvia: o sandinho tirava o jogador dos
+     * 24px e o colocava dentro da faixa, e a travessia saia pelo `updatePassagem`
+     *
+     * ## POR QUE 2 E NAO 8
+     *
+     * Porque o raio precisa ser MENOR que a metade da zona, e sobra: a zona
+     * tem 8px, e parar a 2px do centro deixa o jogador dentro dela com folga
+     * de 6px. E o mesmo 2 que o `walkToward` usa para a etapa de portal, entao
+     * consumir o ponto e parar nele sao a mesma medida
+     */
+    const raioChegada = etapa.portalId !== null ? 2 : TRAVEL_CHEGADA;
 
-      return true;
+    /**
+     * CONSOME TODOS OS PONTOS JA ALCANCADOS, E ANDA NO MESMO QUADRO.
+     *
+     * ## O QUE ESTAVA ERRADO ANTES
+     *
+     * Eram dois erros em sequência, e o segundo só apareceu quando o primeiro
+     * foi consertado
+     *
+     * **O primeiro** era o `return true` logo apos o `shift`: o quadro
+     * terminava antes do `walkToward`, o `autoMoveDirection` ficava nulo e o
+     * boneco não andava. Com ponto do A* a cada 40px e raio de chegada de
+     * 24px, isso era um tique parado a cada waypoint: a marcha quebrada do
+     * caminho inteiro
+     *
+     * **O segundo** foi o que o jogador viu depois: `if` consumia UM ponto
+     * por quadro e já mandava andar para o seguinte. Com dois pontos dentro
+     * do raio ao mesmo tempo — o caso de sempre, já que 24px é quase a
+     * distância entre dois pontos de 40px — o `walkToward` recebia um alvo
+     * que o jogador já estava alcançando, virava a direção, e o quadro
+     * seguinte consumia o outro e virava de volta. O sintoma era o boneco
+     * indo e voltando dentro do mesmo tile, para sempre
+     *
+     * ## POR QUE UM `while`, E NAO UM `if`
+     *
+     * Porque o ponto tem de estar FORA do raio de chegada quando o
+     * `walkToward` receber ele. O `while` garante isso: sai do laço com o
+     * primeiro ponto que o jogador ainda NAO alcançou, ou com a lista vazia
+     *
+     * E o `while` tem um teto de proposito (`caminho.length`), porque um
+     * laço sem fim num `shift` que nunca reduz a lista seria um travamento
+     * melhor que o sintoma
+     *
+     * ## POR QUE ISSO NAO AFETA A PASSAGEM
+     *
+     * Porque com o override ligado o alvo continua sendo o centro da
+     * passagem, e o raio de chegada dela é 2px — bem menor que a zona de 8px
+     * que o `portalSobOsPets` mede. O jogador entra na zona antes de o
+     * `while` ter qualquer ponto o que consumir, e a travessia sai pelo
+     * `updatePassagem` e pelo `concluirEtapa`
+     */
+    if (!overridePortal) {
+      let percorridos = 0;
+
+      while (etapa.caminho?.length && percorridos < etapa.caminho.length) {
+        const atual = etapa.caminho[0];
+
+        /**
+         * O RAIO ESTREITO E SO DO ULTIMO PONTO, E O MOTIVO DESTE `if`.
+         *
+         * ## O QUE ESTAVA ERRADO
+         *
+         * `raioChegada` valia para o caminho INTEIRO: numa etapa de portal
+         * eram 2px, e nao 24. Cada waypoint do trajeto e um centro de celula, e
+         * exigir 2px do centro exato e o mesmo que exigir que o jogador
+         * pare sobre um ponto de dimensao zero — ele orbita o centro, a
+         * colisao devolve, e o unico jeito de consumir o ponto passa a ser a
+         * regra do "passou". Quando ela falha, o piloto empurra para um ponto
+         * inalcancavel e o personagem treme
+         *
+         * ## POR QUE O ULTIMO PRECISA DOS 2
+         *
+         * Porque a passagem e uma FAIXA VERTICAL de 8px em X, e a checagem
+         * dela e do `portalSobOsPets`. Parar a 24px do centro ja era estar
+         * FORA da zona, e o `travessarPortal` recusava a cada tique — era o
+         * travamento antigo. Nos 2px o jogador entra na faixa antes de o
+         * portal perguntar
+         *
+         * ## E POR QUE O IR CACAR NAO SOFRIA
+         *
+         * Porque ele nao tem etapa de portal: o `raio` dele e sempre 24, e
+         * nenhum waypoint de caminho exige 2px. A diferenca entre os dois
+         * estava neste numero
+         */
+        const ultimoPonto = etapa.caminho.length === 1;
+
+        const raioDestePonto = ultimoPonto ? raioChegada : TRAVEL_CHEGADA;
+
+        const distAtual = Math.hypot(
+          atual.x - player.x,
+          atual.y - player.y,
+        );
+
+        const chegou = distAtual < raioDestePonto;
+
+        /**
+         * "JA PASSEI DO PONTO" TAMBEM E CHEGAR.
+         *
+         * ## A TRAVADINHA QUE O USUARIO VIU
+         *
+         * A celula da grade tem 40px, mas o `walkToward` so solta o ponto
+         * dentro de 24px. O jogador raspava num canto a uns 28px do centro
+         * da celula, ficava do lado de fora da margem, e a travavia de 0.8s
+         * aparecia na tela como uma parada antes de ele seguir
+         *
+         * Exigir o centro exato e pedir demais: o que importa e a DIRECAO,
+         * e nao um circulo perfeito em volta do ponto. Entao o ponto e
+         * consumido quando o proximo ja esta mais perto que ele — sinal de
+         * que o jogador passou e o caminho ja virou
+         *
+         * Isso tambem resolve o caso em que o A* manda o jogador para um
+         * canto que a grade liberou mas o colisor nao cabe: ele nao fica
+         * batendo, vira para o resto do caminho e segue
+         */
+        const seguinte = etapa.caminho[1];
+
+        /**
+         * "JA PASSEI DO PONTO" SO CONTA PERTO DELE.
+         *
+         * ## O QUE ESTAVA ERRADO, E O QUE O LOG PROVOU
+         *
+         * A regra consumia o ponto quando o SEGUINTE estava mais perto que o
+         * atual — sem olhar onde o jogador estava. Fora do caminho, isso e
+         * verdade o tempo todo: o `dist(seguinte)` e menor que o `dist(atual)`
+         * para qualquer jogador deslocado, entao o piloto PULAVA o caminho
+         * inteiro de uma vez e passava a mirar um ponto distante, de uma posicao
+         * que o A* nunca autorizou. A reta ate esse ponto corta o obstaculo que
+         * o A* tinha avoided, a colisao devolve o jogador, e ele treme no lugar
+         *
+         * E o sintomo que o jogador descreveu: tres vaivens curtos e destrava.
+         * Cada vaivem e um canto que o piloto sobe, a colisao devolve, e o
+         * piloto sobe o proximo canto — ate o jogador alinhar com o caminho de
+         * novo
+         *
+         * ## POR QUE TRES CELULAS, E NAO O RAIO DE CHEGADA
+         *
+         * Porque o raio de chegada e 24px, e a regra precisa tolerar o jogador
+         * que raspou a celula e esta 30px do centro. Tres celulas de 40px sao
+         * 120px: perto o bastante para o "passou" fazer sentido — o jogador
+         * estava seguindo aquele trecho — e longe o bastante para nunca vale um
+         * salto de meio mapa
+         *
+         * ## E POR QUE O IR CACAR NAO TINHA O PROBLEMA
+         *
+         * Porque o `runAutoHunt` persegue UM ponto so e nao tem esta regra:
+         * ele mira o alvo ate chegar a 24px dele. Sem lista para pular, sem
+         * canto que o piloto suba, sem tremidao. Era a diferenca entre os dois
+         * durante a hunt, e ela morava aqui
+         */
+        const pertoDoPonto = distAtual < TRAVEL_PERTO_DO_PONTO;
+
+        const passou =
+          seguinte !== undefined &&
+          pertoDoPonto &&
+          Math.hypot(seguinte.x - player.x, seguinte.y - player.y) < distAtual;
+
+        if (!chegou && !passou) break;
+
+        etapa.caminho.shift();
+        percorridos += 1;
+      }
+
+      proximo = etapa.caminho?.[0] ?? centroDaEtapa;
     }
 
     /**
@@ -8507,39 +10429,216 @@ travelPlanParaObjetivo() {
      */
     this.autoWaypoint = proximo;
 
-    this.walkToward(player, proximo);
+
+    /**
+     * A PASSAGEM EXIGE CHEGAR DENTRO, E O 24 DEIXA DE SERVIR
+     *
+     * O raio de chegada e a propria metade da zona em X, menos 2px de
+     * folga. Ele e pequeno de proposito: o piloto tem de parar DENTRO da
+     * faixa, e parar antes e o que deixava o boneco empurrando a parede ao
+     * lado da passagem sem nunca atravessar
+     *
+     * ## E ESTE ARGUMENTO TEM QUE ESTAR AQUI, E NAO EM `runMineracao`
+     *
+     * Porque foi colocado no metodo errado uma vez, e o resultado foi o pior
+     * dos dois: a mineracao passou a ler `etapa.portalId`, que nao existe la,
+     * e o `runTravelPlan` ficou sem o raio — o piloto parava a 24px do centro
+     * da passagem, fora da zona de 8px, e o portal nao atravessava
+     */
+    const raio = etapa.portalId !== null ? 2 : 24;
+
+    /**
+     * O PEDIDO DE MINERAR SAI AQUI, e nao antes.
+     *
+     * ## POR QUE O PEDIDO NAO E UM PASSO SEPARADO
+     *
+     * Porque a etapa desta missao TEM como destino a pedra. O caminho ate
+     * ela ja e o caminho do piloto, entao o pedido e a ultima coisa que
+     * acontece quando o jogador chega perto — o mesmo lugar onde o clique
+     * manual sairia
+     *
+     * ## POR QUE SO NESTE MAPA
+     *
+     * Porque o `pedidaMineravel` do servidor procura a prop pelo id NO
+     * MAPA EM QUE O JOGADOR ESTA. Pedir a pedra do vale enquanto o jogador
+     * esta no mapa 1 seria um id que nao existe la, e o servidor devolveria
+     * "pedido recusado" sem erro visivel
+     *
+     * ## POR QUE A DISTANCIA E DA ARTE E NAO DO PONTO
+     *
+     * Porque o `prop.x` e o PIVOT do desenho, e a arte do cristal comum
+     * fica deslocada dele. Medir do ponto daria uma distancia que nao
+     * corresponde a nada que o jogador ve
+     */
+    this.pedirMinerarNaPedida(etapa, player);
+
+    this.walkToward(player, proximo, raio);
 
     return true;
   }
 
   /**
-   * O TEMPO que o jogador passou sem avancar, para o replanejamento.
+   * PEDE A MINERACAO DA PEDIDA QUE E O DESTINO DESTA ETAPA.
    *
-   * A medicao e de POSICAO e nao de "o motor pediu para andar": durante
-   * a viagem o piloto pode querer andar e nao andar â€” um status que
-   * prende, um `canMove` falso â€” e um contador de comando ignoraria
-   * esses quadros. Medindo o deslocamento real, so conta o que o
-   * jogador esta de fato parado
-   *
-   * O primeiro quadro e ignorado de proposito: `travelUltimaX` comeca em
-   * zero, e a primeira comparacao diria "andou 3000px" e zeraria o
-   * contador em qualquer viagem
+   * Devolve `true` quando pediu, para o chamador saber que nao deve
+   * mexer na direcao do piloto neste quadro
    */
-  #contarTravelParado(deltaTime, player) {
-    if (this.travelUltimaX !== null) {
-      const andou =
-        Math.hypot(
-          player.x - this.travelUltimaX,
-          player.y - this.travelUltimaY,
-        ) > TRAVEL_TRAVADO_EPSILON;
+  pedirMinerarNaPedida(etapa, player) {
+    const prop = etapa.prop;
 
-      this.travelParado = andou ? 0 : this.travelParado + deltaTime;
-    }
+    if (!prop) return false;
 
-    this.travelUltimaX = player.x;
-    this.travelUltimaY = player.y;
+    if (this.pedidoDeMinerar === prop.id) return false;
+
+    if (this.world.map.id !== etapa.mapId) return false;
+
+    const distancia = distanciaAteArte(
+      player.x,
+      player.y,
+      prop,
+      prop.type,
+    );
+
+    if (distancia > PEDIDA_MINERAR_DIST) return false;
+
+    this.pedidoDeMinerar = prop.id;
+
+    this.onMineClick?.(prop);
+
+    return true;
   }
 
+  /**
+   * CONTA QUANTO TEMPO O JOGADOR NAO FAZ PROGRESSO AO ALVO.
+   *
+   * ## POR QUE DISTANCIA AO ALVO E NAO "ANDOU NESTE QUADRO"
+   *
+   * A versao anterior comparava o jogador com a posicao do quadro ANTERIOR
+   * e chamava isso de travamento. Isso so detecta o jogador que esta
+   * perfectlyo. O jogador que VAIVEM — vai um passo, volta um passo, repete
+   * — passa pelo teste toda vez, porque a posicao muda todo quadro. O
+   * contador era zerado a cada tique e nunca chegava no limiar: o detector
+   * era cego para o sintoma que ele existia para achar
+   *
+   * ## O QUE CONTA COMO PROGRESSO
+   *
+   * So `ficar mais perto do alvo`. Oscilar de qualquer tamanho nao engana:
+   * ir 10px para um lado e 10px para o outro devolve a distancia a mesma,
+   * e o melhor marcador so baixa quando o jogador realmente avanca
+   *
+   * E o alvo do quadro anterior, porque a pergunta e "no tempo em que eu
+   * mandei aquele ponto, ele se aproximou?" — medir contra um alvo que
+* acabou de mudar zeraria o contador justo no quadro em que ele comecou
+    */
+
+  #contarTravelParado(deltaTime, player) {
+    /**
+     * SEM ALVO OU SEM PODER ANDAR, NAO HA TRAVAMENTO A MEDIR.
+     *
+     * Atordoado nao e estar preso: e estar esperando. Contar esse tempo
+     * faria o piloto descartar o waypoint e empurrar o jogador para longe
+     */
+    if (this.travelAlvoX === null || !this.statuses.canMove(player)) {
+      this.travelMelhorDist = null;
+      this.travelParado = 0;
+      this.travelTempoNaPerna = 0;
+      this.travelDistNaPerna = null;
+      return;
+    }
+
+    const dist = Math.hypot(
+      this.travelAlvoX - player.x,
+      this.travelAlvoY - player.y,
+    );
+
+    /**
+     * A DISTANCIA COM QUE O WAYPOINT ATUAL FOI ADOTADO.
+     *
+     * ## E POR QUE ESTE SEGUNDO CONTADOR, E NAO SO O `avancou`
+     *
+     * Porque o `avancou` pergunta "melhorou AGORA?", e a passagem estreita
+     * responde sim quase sempre: o jogador ganha um pixel de cada vez, sem
+     * nunca estar parado. O contador zerava antes de chegar no piso de 0.8s, o
+     * piloto nunca descartava o ponto, e o trajeto levava 6.3s onde levaria
+     * menos de um — que foi o que o log mostrou
+     *
+     * ## O QUE ESTE CONTADOR PERGUNTA
+     *
+     * "Depois de um tempo de permanencia, ele chegou perto do waypoint?" E a
+     * pergunta do gringo preso numa fresta: nao e se ele se move, e se ele
+     * AVANCOU. Um Improvement de 2px em um segundo e o mesmo trajeto de 6
+     * segundos visto de longe
+     *
+     * ## E POR QUE A DISTANCIA E REAMOSTRADA NO WAYPOINT
+     *
+     * Porque medir a partir do quadro em que o waypoint mudou zeraria a
+     * conta justo quando ele comeca a andar. O `travelDistNaPerna` e null ate
+     * a primeira medicao, e e nela que a perna comeca
+     */
+    if (this.travelDistNaPerna === null) {
+      this.travelDistNaPerna = dist;
+      this.travelTempoNaPerna = 0;
+      return;
+    }
+
+    this.travelTempoNaPerna += deltaTime;
+
+    const avancou =
+      this.travelMelhorDist === null ||
+      dist < this.travelMelhorDist - TRAVEL_TRAVADO_EPSILON;
+
+    if (avancou) {
+      this.travelMelhorDist = dist;
+      this.travelParado = 0;
+      return;
+    }
+
+    this.travelParado += deltaTime;
+
+    /**
+     * A PERNA LONGA: TEMPO DE PERMANENCIA, E GANHO NO PERIODO TODO.
+     *
+     * E o que o `avancou` nao enxerga. Ele zera a cada ganho de 2px, e o
+     * ganho acumulado em 0.8s e o que separa "atravessando uma fresta" de
+     * "preso nela"
+     */
+    if (this.travelTempoNaPerna >= TRAVEL_PARADO_PULA_PONTO) {
+      const ganhou = this.travelDistNaPerna - dist;
+
+      this.travelTempoNaPerna = 0;
+      this.travelDistNaPerna = dist;
+
+      /**
+       * ESTE E O PONTO QUE FAZ O PILOTO ABANDONAR O PONTO.
+       *
+       * ## O ERRO DA PRIMEIRA TENTATIVA, E O QUE FALTAVA AQUI
+       *
+       * Na primeira versao deste contador eu media a perna e REINICIAVA os
+       * numeros — e nada mais. O descarte do waypoint depende de
+       * `travelParado > TRAVEL_PARADO_PULA_PONTO`, e o `travelParado` e o
+       * contador que a OSCILACAO mantem em zero. Entao a medida estava certa,
+       * o diagnostico estava certo, e o piloto nunca recebia o sinal: o jogo
+       * ficava igual. Foi por isso que a correcao nao mudou nada na tela
+       *
+       * ## POR QUE SUBIR O `travelParado` E NAO CHAMAR O DESCARTE DAQUI
+       *
+       * Porque o descarte tem uma regra que precisa valer: com um ponto so
+       * na lista nao ha "o seguinte", e o `shift` deixaria o caminho vazio —
+       * o `proximo` cairia no centro da etapa, que e o proprio ponto ruim. O
+       * tratamento desse caso esta la, e reescrever aqui seria ter as duas
+       * regras em lugares diferentes
+       *
+       * Entao este bloco so ELEVACAO: ele marca que ja passou o tempo do
+       * piso, e quem decide o que fazer com isso e o bloco do descarte, um
+       * quadro acima
+       */
+      if (ganhou < TRAVEL_PERNA_EPSILON) {
+        this.travelParado = TRAVEL_PARADO_PULA_PONTO + deltaTime;
+      } else {
+        this.travelParado = 0;
+      }
+    }
+  }
   /** o jogador esta no RAIO DE CHEGADA do ponto? */
   #chegouEm(player, x, y) {
     return Math.hypot(x - player.x, y - player.y) < TRAVEL_CHEGADA;
@@ -8827,11 +10926,22 @@ travelPlanParaObjetivo() {
   }
 
     /** true enquanto ainda ha caminho, false quando chegou */
-    walkToward(player, point) {
+    walkToward(player, point, raio = 24) {
       const dx = point.x - player.x;
       const dy = point.y - player.y;
 
-      if (Math.hypot(dx, dy) < 24) return false;
+      /**
+       * O RAIO DE CHEGADA E UM PARAMETRO, E NAO O 24 FIXO
+       *
+       * Porque 24 e um folio para um ponto qualquer do mapa, e um folio
+       * absurdo para uma faixa de passagem: a zona de `portalSobOsPets` e
+       * de 8px para cada lado em X, e parar a 24px e parar FORA dela
+       *
+       * E parar fora e o que trava: o `walkToward` devolvia `false`, o
+       * `autoMoveDirection` nao era setado, o boneco parava a 24px da
+       * parede e o `travessarPortal` recusava a cada tique, para sempre
+       */
+      if (Math.hypot(dx, dy) < raio) return false;
 
       this.autoFacing = { x: dx, y: dy };
 
@@ -9006,8 +11116,9 @@ travelPlanParaObjetivo() {
         return;
       }
 
-      this.walkToward(player, proximo);
+    this.walkToward(player, proximo);
     }
+
 
     /**
      * A PICARETA DO ARBALIST, LIGADA E DESLIGADA AQUI.
@@ -9357,6 +11468,25 @@ travelPlanParaObjetivo() {
   }
 
   update(deltaTime) {
+    /**
+     * O PAINEL DO NPC FECHA QUANDO O JOGADOR SAI DE ALCANCE, E ABRE
+     * SOZINHO QUANDO ELE CHEGA.
+     *
+     * ## POR QUE A CHEGADA E CONFIRMADA AQUI, E NÃO PELO SERVIDOR
+     *
+     * Porque quem caminha é o servidor, e quem tem painel é a tela. O
+     * `onChegouNoNpc` do servidor dispara para um motor que ninguém escuta:
+     * os ganchos vivem no motor do CLIENTE, e são eles que a tela instalou.
+     * Sem confirmar aqui, o servidor walks até o NPC e a chegada se perde no
+     * caminho
+     *
+     * E confirmar aqui é honesto: o `world.player` do cliente é o que veio no
+     * pacote, então a distância conferida é a posição que o SERVIDOR
+     * broadcastou — não é o cliente inventando onde ele está
+     */
+    this.conferirAlcanceDoPainel();
+    this.conferirChegadaNoNpc();
+
     // No navegador o `destroy` cancela o requestAnimationFrame e o
     // laco morre sozinho. No servidor o laco e de fora, entao um
     // tick ja enfileirado continuaria simulando um jogador que ja
@@ -9398,6 +11528,38 @@ this.updatePresentation(deltaTime);
  * cliente aceita.
  */
 this.hookDePrevisao?.(deltaTime);
+
+/**
+ * A PASSAGEM E MEDIDA TAMBEM NO MODO REDE.
+ *
+ * ## POR QUE ESTA LINHA EXISTE DOS DOIS LADOS DO `return`
+ *
+ * Porque `updatePassagem` e a unica coisa que percebe que o jogador encostou
+ * na passagem. Sem ela no cliente, ele encosta, fica parado na parede e nao
+ * acontece NADA — o painel nao oferece nada para passagem, e o pedido de
+ * travessia so existe dentro do `updatePassagem`
+ *
+ * ## POR QUE AQUI, E NO `update` DEPOIS DO MOVIMENTO
+ *
+ * Pela mesma razao do ramo de simulacao: quem decide a entrada na zona e a
+ * posicao do FIM do quadro. O `hookDePrevisao` e o que aplica o movimento
+ * previsto no cliente, entao e logo depois dele que a posicao ja e a do
+ * quadro que esta acabando
+ *
+ * ## POR QUE ISTO NAO TRAVESSA SOZINHO
+ *
+ * Porque com o gancho ligado, `updatePassagem` chama `onPassagemEntrou` e
+ * PARA. Quem troca o mapa e o servidor, depois de conferir a posicao dele
+ * tambem. Sem o gancho — no single player — ai sim ela chama
+ * `travessarPortal` e a travessia e local
+ *
+ * ## POR QUE ISSO NAO VOLTA A PINGAR
+ *
+ * Porque a chegada ja cai 3 tiles para DENTRO do mapa, longe da zona. Sem
+ * carencia e sem travessia dobrada: o jogador entra na zona, e sai dela de
+ * novo no instante em que o mapa troca
+ */
+this.updatePassagem();
 
       /**
        * O RELOGIO DO TELEGRAPH, e ele e o `spriteTime`, nao o `world.time`.
@@ -9520,6 +11682,22 @@ this.runMineracao(deltaTime);
     this.atualizaMineracaoVisual();
 
     this.updatePlayer(deltaTime);
+
+/**
+ * A TRAVESSIA AUTOMATICA, DEPOIS DE MOVER O JOGADOR.
+ *
+ * ## POR QUE NAO ANTES DO `updatePlayer`
+ *
+ * Porque a posicao que decide a entrada na zona e a do FIM do quadro.ANTES
+ * dele, o jogador ainda estaria na posicao do quadro anterior, e quem acabasse
+ * de encostar na ponta levaria um quadro a mais parado na passagem
+ *
+ * E DEPOIS por outro motivo: depois do movimento e o `travessarPortal` ja tem
+ * a posicao nova, e ele recalcula o `chegada` a partir dela. Com a posicao
+ * velha, a chegada no mapa de destino seria calculada de um lugar que o
+ * jogador ja deixou
+ */
+this.updatePassagem();
 
         this.skillSystem.update(deltaTime);
 
@@ -11610,6 +13788,30 @@ setPassPremium(ativo, passeId = PASSE_PADRAO.id) {
       portal: this.dadosDoPortalNoPe(),
 
       /**
+       * O AVISO DA PASSAGEM QUE ESTA PERTO, ou `null`.
+       *
+       * ## O QUE E
+       *
+       * Quando o jogador chega a um tile do COMECO da luz, o nome do mapa de
+       * destino aparece embaixo da box de moeda. E o aviso de "daqui sai
+       * para la", e ele precisa aparecer ANTES do teleporte: quem descobre o
+       * nome no mesmo instante em que e levado nao le nada
+       *
+       * ## POR QUE UM TILE DE DISTANCIA
+       *
+       * Porque e o que da tempo de ler. A luz tem centenas de pixels e o
+       * jogador a ve de longe, mas o aviso tem que aparecer na entrada dele —
+       * um tile antes — para ser lido enquanto ele ainda pode escolher voltar
+       *
+       * ## POR QUE `reduzido`, E SO TRES CAMPOS
+       *
+       * Pelo mesmo motivo do portal: o painel vai por JSON no socket a 4Hz, e
+       * mandar o objeto inteiro arrastaria as referencias de mapa e destino,
+       * que o cliente nao tem como usar
+       */
+      passagemPerto: this.dadosDaPassagemPerto(),
+
+      /**
        * A MORTE, ou `null`.
        *
        * E o unico campo que decide se o `DeathPanel` existe. Sem ele o
@@ -11661,6 +13863,39 @@ setPassPremium(ativo, passeId = PASSE_PADRAO.id) {
       party: this.partySnapshot(),
       craft: this.craftSnapshot(),
       collection: this.collectionSnapshot(),
+
+      /**
+       * AS EXPEDIÇÕES DO CHEFE, e o que o painel precisa ler.
+       *
+       * ## POR QUE VAI NO PAINEL E NÃO NO SNAPSHOT DO MUNDO
+       *
+       * Porque é uma LISTA que muda com o clique de qualquer jogador, e o
+       * snapshot do mundo é de 20Hz para todo mundo. A expedição só precisa
+       * estar fresca quando o painel do chefe está aberto — e o painel já
+       * viaja a 4Hz
+       *
+       * E o `listar` devolve COPIA, e não o registro: o pacote é serializado
+       * com `JSON.stringify`, e um `Map` dentro dele viraria `{}` no cliente
+       *
+       * ## E O TRÊS CAMPOS, E POR QUE SEPARADOS
+       *
+       * `lista` é o que a tela mostra. `minha` é o rodapé trocar entre
+       * "procurar/criar" e "ver expedição" — e vem separado porque é o índice
+       * invertido, que é O(1) na lista que seria O(n)
+       *
+       * E o `erro` é a última resposta do store. O painel mostra "expedição
+       * cheia" ou "você já está em uma" e limpa depois; sem ele, a recusa
+       * seria um clique que não faz nada
+       */
+expedicoes: {
+        lista: this.expeditionStore
+          ? this.expeditionStore.listar(this.sessaoDeJogador?.id)
+          : [],
+        minha: this.expeditionStore
+          ? this.expeditionStore.de(this.sessaoDeJogador?.id)
+          : null,
+        erro: this.expedicaoErro ?? null,
+      },
 
     /**
      * A LOJA, e so os PRODUTOS JA COMPRADOS.
@@ -12321,18 +14556,27 @@ market: this.marketStore
       context.scale(z, z);
     }
 
-    /**
-     * O CENTRO E O JOGADOR LIMITADO AOS LIMITES DO MAPA.
+/**
+     * O CENTRO, PARA DESENHAR, ALINHADO EM PIXEL DE DISPOSITIVO.
      *
-     * Pelo `centroDaCameraLimitado()`, e nao pelo jogador cru: e ele que
-     * impede a tela de mostrar a faixa fora do `.tmj` quando o jogador
-     * encosta na borda
+     * Antes vinha de `centroDaCameraLimitado()`, e o logico ainda e quem
+     * limita a camera aos bordes do `.tmj` — o clamp e um limite de MUNDO, e
+     * arredondar um limite mudaria onde a camera para na borda do mapa.
+     *
+     * E o `centroDaCameraParaDesenhar()` que vai para o `translate`, e nao o
+     * logico direto: o logico cai em ponto flutuante quase sempre (o jogador
+     * anda continuamente), e essa fracao e o que abre a fresta de 1px entre os
+     * tiles. Com `imageSmoothingEnabled = false` o navegador arredonda a borda
+     * de cada tile, e tiles que comecam em `x.4` deixam um pixel de vao — o
+     * metodo alinha o deslocamento em pixel de dispositivo, e e o que mantem
+     * a grade de tiles continua em qualquer posicao da camera
      */
-    const centro = this.centroDaCameraLimitado();
+const centroDesenhado = this.centroDaCameraParaDesenhar();
 
-    context.translate(-centro.x, -centro.y);
+context.translate(-centroDesenhado.x, -centroDesenhado.y);
 
     this.drawMap(context);
+    this.drawBrilhoDaPassagem(context);
     this.drawTelegraphs(context);
     this.drawAim(context);
     this.drawSelectedTarget(context);
@@ -12534,6 +14778,91 @@ vistaDaAmbiencia() {
         meiaAlturaVisivel * 2 >= alturaMapa
           ? alturaMapa / 2
           : Math.max(minY, Math.min(maxY, player.y)),
+    };
+  }
+
+  /**
+   * O CENTRO DA CAMERA PARA DESENHAR, ALINHADO EM PIXEL DE DISPOSITIVO.
+   *
+   * ## A CAUSA DAS FRESTAS ENTRE OS TILES
+   *
+   * A camera e o jogador, e o jogador anda em `x/y` de ponto flutuante: ele
+   * nao anda de 64 em 64, ele anda continuamente. Esse valor entra no desenho
+   * como `context.translate(-centro.x, -centro.y)`, e ele chega fracionario
+   * quase sempre.
+   *
+   * O efeito no `drawImage` de cada tile e este: com
+   * `imageSmoothingEnabled = false`, o navegador NAO suaviza — mas ainda
+   * assim tem de decidir em que pixel de dispositivo comeca e termina cada
+   * tile, e essa decisao e por arredondamento. Quando o canto do tile cai em
+   * `x.4`, o tile da esquerda termina no pixel `X` e o da direita comeca no
+   * `X+1`: sobra (ou some) um pixel. E como todos os tiles compartilham a
+   * MESMA fracao do camera, a fresta e continua ao longo de toda a linha de
+   * tiles — e ela anda junto com a camera, que e exatamente o sintoma
+   * relatado.
+   *
+   * ## POR QUE ARREDONDAR O TILE, E NAO A CAMERA, NAO RESOLVE
+   *
+   * O `drawCamada` faz `Math.round(centroX - tileWidth / 2)` no destino de
+   * cada tile, e isso parece resolver. Nao resolve: o arredondamento e feito
+   * em coordenada de MUNDO, e a fracao que quebra o pixel e o resultado de
+   * aplicar o zoom e o `dpr` por cima. Arredondar em mundo antes de uma
+   * transformacao fracionaria nao devolve um pixel inteiro no dispositivo.
+   *
+   * ## O QUE ESTE METODO FAZ
+   *
+   * Arredonda o deslocamento da camera no espaco de DISPOSITIVO, e so para
+   * desenhar. A partir dai todos os tiles caem em pixel inteiro e as frestas
+   * somem, sem tocar na arte, no `.tmj`, no espaçamento de 1px, nem na
+   * posicao do jogador.
+   *
+   * ## POR QUE O `dpr * width / 2` ENTRA NA CONTA
+   *
+   * Porque o `translate(width / 2, height / 2)` do `render` tambem move a
+   * camera. Se a largura da viewport for IMPAR, essa metade e `x.5`, e sem
+   * incluir o termo aqui o resultado continuaria fracionario pela metade dos
+   * tamanhos de janela.
+   *
+   * ## POR QUE SO NO DESENHO, E NAO NO `centroDaCameraLimitado`
+   *
+   * Porque `centroDaCameraLimitado` e o centro LOGICO, e ele alimenta o
+   * mouse (`screenToWorld`), o culling, o minimapa, a nevoa e o ambience. O
+   * ambience roda no tique de 20Hz do SERVIDOR, onde nao existe pixel de
+   * dispositivo: arredondar la faria as particulas nascerem em degraus de
+   * 1px, visiveis como um chaco no ar. E o mouse nao pode ser deslocado,
+   * ou a mira pararia de bater no alvo.
+   *
+   * O desvio e de menos de meio pixel de dispositivo, invisivel para o
+   * jogador e irrelevante para quem mira.
+   *
+   * @returns {{x:number,y:number}} o centro, no maximo 0.5px de dispositivo
+   *   afastado do centro logico
+   */
+  centroDaCameraParaDesenhar() {
+    const centro = this.centroDaCameraLimitado();
+
+    const dpr = this.viewport.dpr ?? 1;
+    const z = this.cameraZoom;
+
+    // sem zoom ou com viewport degenerado (o servidor), arredondar nao tem
+    // contra o que: devolve o centro logico e nao muda nada
+    if (!dpr || !z || dpr <= 0 || z <= 0) return centro;
+
+    /**
+     * `Math.round(v)` devolve o inteiro mais proximo, e o objetivo e que
+     * `meioTela - dpr * z * centro` seja inteiro — onde `meioTela` e
+     * `dpr * width / 2`.
+     *
+     * Subtrair `meioTela` antes de arredondar e o que faz o termo entrar
+     * certo: sem ele, arredondar `dpr * z * centro` deixaria a meia tela
+     * de fora, e a fracao dela voltaria como fresta
+     */
+    const alinhar = (centro, meiaTela) =>
+      (Math.round(dpr * z * centro - meiaTela) + meiaTela) / (dpr * z);
+
+    return {
+      x: alinhar(centro.x, (dpr * this.viewport.width) / 2),
+      y: alinhar(centro.y, (dpr * this.viewport.height) / 2),
     };
   }
 
@@ -12936,6 +15265,16 @@ for (const portal of this.world.portals ?? []) {
       if (!portal.destino) continue;
 
       /**
+       * O MESMO PORTAO DO `portalSobOsPets`.
+       *
+       * Sao dois metodos de nomes quase iguais e corpos quase iguais, e
+       * este e o que a `travessarPortal` e o servidor chamam. Se so um
+       * dos dois respeitasse o `abreNoDegrau`, o desenho mostraria a arena
+       * e a travessia passaria para o mapa 2 — o pior dos dois
+       */
+      if (!this.passagemAberta(portal)) continue;
+
+      /**
        * `findMap`, e nao `getMap`.
        *
        * O `getMap` cai no hub quando o id nao existe, e isso e o
@@ -12948,24 +15287,55 @@ for (const portal of this.world.portals ?? []) {
 
       if (!destino) continue;
 
-    const raio = portal.size / 2;
+      /**
+       * A ZONA DO PORTAL: CIRCULO OU ELIPSE.
+       *
+       * ## POR QUE A PASSAGEM PRECISA DE ELIPSE
+       *
+       * Porque a passagem da base e uma FAIXA VERTICAL na parede, e nao um
+       * ponto: a luz ocupa duas celulas de altura (y de 512 a 640) e o jogador
+       * tem que entrar na altura certa andando.
+       *
+       * Num circulo unico, a zona teria que ser larga o bastante para cobrir
+       * os 128px de altura — e com 128px de diametro ela comecaria 64px antes
+       * da parede, e o teleporte dispararia de novo no meio do chao. O
+       * jogador precisa de TOLERANCIA EM Y e de PRECISAO EM X, e um circulo
+       * nao consegue dar as duas coisas
+       *
+       * ## POR QUE ISTO NAO AFETA OS OUTROS PORTAIS
+       *
+       * Porque so a passagem declara `raioY`. Sem o campo, `raioY` cai no
+       * `size` e a conta e a mesma de sempre — o circulo original, com o
+       * mesmo resultado em todos os portais que ja existiam
+       *
+       * ## E POR QUE O SERVIDOR CONTINUA ACEITANDO
+       *
+       * Porque e o MESMO metodo, rodando no mesmo motor dos dois lados: o
+       * cliente pede e o servidor refaz esta conta identica. Mudar a geometria
+       * aqui muda os dois juntos, e nao abre uma divergencia entre eles
+       */
+      const raioX = portal.size / 2;
+      const raioY = (portal.raioY ?? portal.size) / 2;
 
-    const dx = player.x - portal.x;
-    const dy = player.y - portal.y;
+      const dx = player.x - portal.x;
+      const dy = player.y - portal.y;
 
-    if (dx * dx + dy * dy > raio * raio) continue;
+      const dentroX = (dx * dx) / (raioX * raioX);
+      const dentroY = (dy * dy) / (raioY * raioY);
 
-    return {
-      portal,
+      if (dentroX + dentroY > 1) continue;
 
-      /** o texto da box vem do MAPA, e nao de uma copia no portal */
-      nome: destino.name,
-      destino,
-    };
+      return {
+        portal,
+
+        /** o texto da box vem do MAPA, e nao de uma copia no portal */
+        nome: destino.name,
+        destino,
+      };
+    }
+
+    return null;
   }
-
-  return null;
-}
 
 /**
  * ATRAVESSA O PORTAL EM QUE O JOGADOR ESTA.
@@ -12989,15 +15359,82 @@ for (const portal of this.world.portals ?? []) {
  * portal se ele for movido
  */
 chegadaDe(portal, destino) {
-  if (!portal.chegada) return null;
+if (!portal.chegada) return null;
 
-  const alvo = (destino.portals ?? []).find(
-    (p) => p.id === portal.chegada,
-  );
+const alvo = (destino.portals ?? []).find(
+(p) => p.id === portal.chegada,
+);
 
-  if (!alvo) return null;
+if (!alvo) return null;
 
-  return { x: alvo.x, y: alvo.y };
+/**
+ * A CHEGADA E 3 TILES PARA DENTRO DO MAPA, NAO SOBRE O PORTAL.
+ *
+ * ## POR QUE SAIR DE CIMA DO PORTAL
+ *
+ * Porque a travessia agora e AUTOMATICA: o jogador chega andando na parede e
+ * e levado no mesmo instante. Chegar em cima da passagem significaria ficar
+ * em cima do ponto que dispara a volta — e o jogador teria que dar um passo
+ * para fora antes de poder andar
+ *
+ * ## O DESLOCAMENTO E PARA DENTRO, E SEMPRE
+ *
+ * O `bounds` de todo mapa tem 40px de margem, e o passageiro precisa ficar
+ * dentro deles com o raio do boneco. Deslocar 3 tiles (192px) para o lado
+ * OPOSTO ao da parede e o que garante isso sem precisar saber em que ponto
+ * do perimeter o portal esta
+ *
+ * ## POR QUE SAO 3 TILES, E NAO 1
+ *
+ * Porque 1 tile (64px) deixa o boneco praticamente colado na parede, e ele
+ * le como um empurrao sem motivo. 3 tiles dao para andar livre sem sair do
+ * mapa
+ */
+const TILES_DE_RECUO = 3;
+const recuo = TILES_DE_RECUO * 64;
+
+/**
+ * DE QUAL BORDA A PASSAGEM ESTA.
+ *
+ * ## POR QUE AS BORDAS, E NAO O CENTRO
+ *
+ * Porque a pergunta e "para dentro do mapa ha espaco?", e quem tem a
+ * resposta e a borda mais proxima. Usando o CENTRO, um portal no canto
+ * superior esquerdo estava a mesma distancia da esquerda e do topo, e o
+ * `>` escolhia um lado pelo empate — mandando o jogador 3 tiles para FORA
+ * do mapa
+ *
+ * ## POR QUE UM SO EIXO, E NAO OS DOIS
+ *
+ * Porque o deslocamento e de um eixo so. Uma passagem na parede da direita
+ * (linha inteira) tem que trazer o jogador para a ESQUERDA, no mesmo `y` —
+ * e nao diagonal, que o levaria para fora da faixa da passagem e o
+ * colocaria no meio de uma parede
+ *
+ * A borda mais proxima mede `menor distancia ate a borda`, e o recuo vai
+ * no sentido oposto
+ */
+const distDireita = (destino.width ?? 0) - alvo.x;
+const distEsquerda = alvo.x;
+const distBaixo = (destino.height ?? 0) - alvo.y;
+const distTopo = alvo.y;
+
+const menor = Math.min(distDireita, distEsquerda, distBaixo, distTopo);
+
+return {
+x:
+menor === distEsquerda
+? alvo.x + recuo
+: menor === distDireita
+? alvo.x - recuo
+: alvo.x,
+y:
+menor === distTopo
+? alvo.y + recuo
+: menor === distBaixo
+? alvo.y - recuo
+: alvo.y,
+};
 }
 
 travessarPortal() {
@@ -13020,14 +15457,45 @@ travessarPortal() {
       this.world.quests?.mainIndex ?? 0,
     );
 
-    if (!trava.ok) return false;
+if (!trava.ok) return false;
 
-    const chegada = this.chegadaDe(
-      emCima.portal,
-      emCima.destino,
-    );
+const chegada = this.chegadaDe(
+    emCima.portal,
+    emCima.destino,
+  );
 
-    this.setMap(emCima.destino, { chegada });
+/**
+ * O PRELOAD DA ARTE DE DESTINO, ANTES DO `setMap`.
+ *
+ * ## O DEFEITO QUE ISTO CONSERTA
+ *
+ * Ate aqui, as folhas de tile do mapa destino so eram pedidas de dentro do
+ * `drawMap` — e o `drawMap` so roda com o mapa JA em cena. A ordem era
+ * entao: trocar o mapa, o proximo quadro pintar o mapa novo sem nenhum tile
+ * (a folha ainda estava baixando), e alguns centenas de milissegundos
+ * depois os tiles aparecessem de uma vez.
+ *
+ * O sintoma era o chao "se completando" depois da troca, e o boneco
+ * aparecendo junto com ele, porque o sprite tambem e da arte do mapa novo.
+ *
+ * ## POR QUE ANTES, E NAO DEPOIS
+ *
+ * Porque `precarregar` nao bloqueia: ele dispara o download e devolve. Se
+ * fosse depois do `setMap`, seria a mesma coisa que o `load` do `drawMap`,
+ * um quadro mais tarde, e nao adiantaria nada. Antes, o download ja esta
+ * correndo enquanto o motor ainda esta no mapa de origem — que e a janela
+ * em que ele nao esta sendo visto.
+ *
+ * ## POR QUE SO CHAMAR, E NAO ESPERAR
+ *
+ * Ver o `precarregar` do `TileMapRenderer`: a travessia nunca espera pela
+ * imagem. Uma folha que da 404, ou um download lento, deixaria o jogador
+ * preso em frente ao portal. O preload faz o caso comum ficar pronto; o
+ * caso raro continua sendo o de antes, e e melhor do que travar o jogo.
+ */
+this.tiles.precarregar(tiledDoMapa(emCima.destino.id));
+
+this.setMap(emCima.destino, { chegada });
 
     /**
      * O AGGRO DO MAPA DE DESTINO E ZERADO AQUI.
@@ -13064,10 +15532,130 @@ travessarPortal() {
  * inteiro â€” o motor precisa dele para o `setMap`, e o cliente nao tem
  * como usar um mapa do servidor. O que cruza o socket e este objeto
  */
+/**
+ * O AVISO DA PASSAGEM QUE ESTA PERTO, ou `null`.
+ *
+ * ## O QUE ESTE METODO MEDE
+ *
+ * A distancia entre o jogador e o COMECO da luz — a ponta esquerda, a mais
+ * afastada da borda. E de la que o jogador se aproxima, porque vem andando do
+ * interior do mapa. Avistar a luz e uma coisa; chegar na zona que teleporta e
+ * outra, e o aviso precisa estar no meio das duas
+ *
+ * ## POR QUE UM TILE, E NAO A ZONA INTEIRA
+ *
+ * A zona de travessia tem 140px de diametro. Se o aviso aparecesse nela, o
+ * jogador leria o nome do mapa no mesmo instante em que e levado, e nao
+ * teria tempo de voltar. Um tile antes da zona da para ler, escolher e
+ * recuar
+ *
+ * ## POR QUE SO PASSAGEM, E NAO QUALQUER PORTAL
+ *
+ * Porque portal normal tem a box com o nome, e dois avisos do mesmo dado ao
+ * mesmo tempo viriam duplicados na tela
+ *
+ * @returns {{id:string, nome:string}|null}
+ */
+dadosDaPassagemPerto() {
+  const player = this.world.player;
+
+  if (!player) return null;
+
+    /**
+     * O AVISO SO DENTRO DE UM RAIO DE 3 TILES.
+     *
+     * ## POR QUE O RAIO, E NAO A PONTA DA LUZ
+     *
+     * Antes era um limiar so no eixo X: `player.x >= inicioDaLuz`. Tres
+     * problemas, e o primeiro deles e o que o jogador viu
+     *
+     * - O Y era ignorado. O aviso acendia quando o jogador passava na MESMA
+     *   COLUNA da passagem, a qualquer altura do mapa — e o nome aparecia
+     *   no meio do vale, a tres mil pixels da saida
+     *
+     * - A ponta da luz e uma conta da parede DIREITA: `portal.x` MENOS o
+     *   arrasto. Na parede ESQUERDA, do `portal_vale`, esse numero fica
+     *   negativo, e `player.x < negativo` nunca e verdade: o aviso ficava
+     *   ligado o mapa inteiro
+     *
+     * - Com varias passagens no mesmo mapa, o `return` do primeiro achado
+     *   devolvia o nome da ERRADA: o `portal_pantano` estava primeiro na
+     *   lista e era ele que aparecia quando o jogador se aproximava do vale
+     *
+     * ## POR QUE UM RAIO CIRCULAR
+     *
+     * Porque e a unica conta que funciona nas duas paredes sem saber de qual
+     * lado a passagem esta. Medir em X so na parede direita, e em Y so na
+     * esquerda, exigiria um `if` por parede aqui e no desenho da luz — e as
+     * duas paredes existem
+     *
+     * Tres tiles sao 192px: perto o bastante para o jogador ler o nome e
+     * decidir, longe o bastante para o aviso nao ser mais um numero na tela
+     */
+    const AVISO_EM_TILES = 3;
+    const raioDoAviso = AVISO_EM_TILES * 64;
+
+    let melhor = null;
+    let melhorDistancia = Infinity;
+
+    for (const portal of this.world.portals ?? []) {
+      if (!portal.passagem || !portal.destino) continue;
+
+      /**
+       * O MESMO PORTAO DAS DUAS OUTRAS PASSAGENS.
+       *
+       * O aviso de "voce esta perto da saida" mostra o NOME de um destino. Sem
+       * esta linha, na missao do chefe ele anunciaria o mapa 2 — que ainda
+       * nao abre — enquanto o jogador esta de frente para a arena
+       */
+      if (!this.passagemAberta(portal)) continue;
+
+      const destino = findMap(portal.destino);
+
+      if (!destino) continue;
+
+      const distancia = Math.hypot(
+        portal.x - player.x,
+        portal.y - player.y,
+      );
+
+      if (distancia > raioDoAviso) continue;
+
+      /**
+       * A MAIS PERTO, E NAO A PRIMEIRA DA LISTA.
+       *
+       * Sem isto, num mapa com duas passagens o nome exibido seria o da
+       * ordem do array, e nao o da saida que o jogador esta de frente
+       */
+      if (distancia >= melhorDistancia) continue;
+
+      melhorDistancia = distancia;
+      melhor = {
+        id: portal.id,
+        nome: destino.name,
+      };
+    }
+
+    return melhor;
+}
+
 dadosDoPortalNoPe() {
     const emCima = this.portalSobOsPes();
 
     if (!emCima) return null;
+
+    /**
+     * UMA PASSAGEM NAO OFERTA CAIXA NENHUM BOTAO.
+     *
+     * A box e o botao existem para o jogador DECIDIR a hora de ir. Numa
+     * passagem a travessia e automatica, entao a caixa viraria um caminho que
+     * nao teleporta — o jogador chega perto, ve o botao, aperta, e nada
+     * acontece, porque o que o move e estar no outro extremo da luz
+     *
+     * E o `null` e o que a box entende: e o mesmo caminho do "nao ha portal
+     * aqui", entao o `PortalBox` simplesmente nao desenha
+     */
+    if (emCima.portal.passagem) return null;
 
     return {
       id: emCima.portal.id,
@@ -13855,7 +16443,29 @@ if (tiled) {
       this.tiles.load(tiled);
 
       if (this.tiles.isReady(tiled)) {
-        this.tiles.draw(context, tiled, view);
+        /**
+         * O `dpr` E O `zoom` SÃO PASSADOS PARA O DESENHO DOS TILES.
+         *
+         * E o que permite ao `TileMapRenderer` arredondar o destino de cada
+         * tile em PIXEL DE DISPOSITIVO. Sem estes numeros ele arredonda em
+         * coordenada de mundo, e o zoom e o `dpr` vem depois — e a fracao que
+         * sobra e o que abre a fresta de 1px entre os tiles
+         */
+        this.tiles.draw(
+          context,
+          tiled,
+          view,
+          /**
+           * O `cameraZoom` e lido pelo getter, e nao pela variavel `z` do
+           * `render`: o `drawMap` e um metodo SEPARADO e nao tem `z` no
+           * escopo. O getter (`map?.cameraZoom ?? 1`) e a mesma fonte que o
+           * `render` usa, entao os dois nunca discordam do zoom
+           */
+          this.tiles.alinhamentoDeDispositivo(
+            this.viewport.dpr,
+            this.cameraZoom,
+          ),
+        );
       }
     }
 

@@ -246,41 +246,40 @@ export class Inventory {
     if (!equipment) return new Set();
 
     /**
-     * QUANTOS SLOTS USAM CADA PECA, e nao so quais.
+     * ## POR QUE ISTO DEVIA SER UM `Set` CHEIO E AGORA E VAZIO
      *
-     * Sao dois slots com o mesmo par possivel — um `ring` e um `ring2` com
-     * o mesmo anel. O `Set` contaria 1 e esvaziaria as duas pilhas
+     * A regra antiga escondia da grade uma pilha por slot vestido, contando
+     * pelo par `itemId` + `rarity`. A intencao era "nao repetir no inventario a
+     * peca que ja esta no corpo"
+     *
+     * ## O QUE A CONTAGEM FAZIA DE ERRADO
+     *
+     * Porque a peca equipada NUNCA esta na mochila. O caminho e simetrico:
+     *
+     * - `equipItem` tira a unidade do `uid` e veste o slot
+     * - `unequipItem` tira do slot e devolve com `inventory.add`
+     *
+     * Entao a pilha que casava com o slot nao era a peca equipada — era uma
+     * peca IGUAL que estava legitimamente na bolsa. O resultado era o que o
+     * jogador viu: dois arcos na mochila, equipar um, e **os dois sumirem**
+     *
+     * E o contador de espaco suffer junto: `usadosCom` subtraia essas
+     * pilhas de novo, entao dois arcos viravam zero espacos usados
+     *
+     * ## POR QUE UM VAZIO, E NAO APAGAR O METODO
+     *
+     * Porque `usadosCom` e o `summary` chamam este metodo, e os dois
+     * precisam da MESMA resposta. Devolver vazio aqui conserta o painel e o
+     * contador de uma vez so, e deixa um unico lugar para a regra
+     *
+     * ## E O QUE FICA PARA TRAGAR DE VOLTA
+     *
+     * Nada, enquanto `equipItem` e `unequipItem` forem simetricos. Se um dia
+     * um caminho NOVO vestir sem tirar da mochila — um equipamento que fica
+     * duplicado de proposito, por exemplo — e a regra precisa voltar aqui, e
+     * com o teste do inventario na mao para dizer em qual sentido
      */
-    const porChave = new Map();
-
-    for (const slot of equipment.slots ?? []) {
-      if (!slot?.itemId) continue;
-
-      const chave = chaveDePilha(slot.itemId, slot.rarity);
-
-      porChave.set(chave, (porChave.get(chave) ?? 0) + 1);
-    }
-
-    if (porChave.size === 0) return new Set();
-
-    const resta = new Map(porChave);
-    const vestidas = new Set();
-
-    for (const stack of this.stacks) {
-      const chave = chaveDePilha(
-        stack.itemId,
-        stack.rarity ?? baseRarityOf(stack.itemId),
-      );
-
-      const disponiveis = resta.get(chave) ?? 0;
-
-      if (disponiveis <= 0) continue;
-
-      resta.set(chave, disponiveis - 1);
-      vestidas.add(stack.uid);
-    }
-
-    return vestidas;
+    return new Set();
   }
 
   /**
@@ -1045,11 +1044,10 @@ comercializavel: stack.comercializavel ?? false,
 /**
  * A CHAVE QUE DIZ QUE DUAS PILHAS SAO A MESMA PECA.
  *
- * E `itemId` + `raridade`, e o MESMO par que o `slotsNecessarios` e o
- * `fundePilha` do `add` comparam. Um separador que nao pode aparecer em nenhum
- * dos dois lados — e por isso que e uma barra, e nao um ponto: o `itemId` do
- * catalogo usa underscore, e um separador ambiguo faria `a_b` + `c` colidir
- * com `a` + `b_c`
+ * E `itemId` + `raridade`, e o MESMO par que o `fundePilha` do `add` compara.
+ * Um separador que nao pode aparecer em nenhum dos dois lados — e por isso que e
+ * uma barra, e nao um ponto: o `itemId` do catalogo usa underscore, e um
+ * separador ambiguo faria `a_b` + `c` colidir com `a` + `b_c`
  */
 function chaveDePilha(itemId, rarity) {
   return `${itemId}|${rarity}`;

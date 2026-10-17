@@ -131,6 +131,73 @@ function Arvore({ classeId, comprados, nos, aoComprar, disabled }) {
   const nosArvore = useMemo(() => arvoreDaClasse(classeId), [classeId]);
 
   /**
+   * A CAIXA DO NÓ: DUAS ESTADOS, E O PINCO É O QUE SEPARA OS DOIS.
+   *
+   * `passando` e `noSobre`: só passa o mouse, some no instante seguinte, e não
+   * tem botão. `fixado` e o que o clique abriu: fica, ganha o "APLICAR", e é o
+   * único jeito de gastar o ponto
+   *
+   * ## POR QUE O CLIQUE NÃO APLICA MAIS DIRETO
+   *
+   * Porque o ponto é caro e não tem volta: `aprenderNoArvore` debita do saldo
+   * e grava no save no mesmo pedido. Um clique acidental num nó errado gastava
+   * um ponto que o jogador não conseguia recuperar, e o `custoTotalDaArvore`
+   * devolvia o número mas não devolvia a escolha
+   *
+   * Passar o mouse já mostra tudo o que o balão mostrava, então a caixa não
+   * tira informação de ninguém: ela só acrescenta o botão que cobra o clique
+   */
+  const [noSobre, setNoSobre] = useState(null);
+  const [fixado, setFixado] = useState(null);
+
+  const fechar = useCallback(() => {
+    setFixado(null);
+  }, []);
+
+  /**
+   * O CLIQUE FORA FECHA, E NUM LISTENER NATIVO NA FASE DE CAPTURA.
+   *
+   * ## POR QUE NATIVO E NÃO `onPointerDown` NO REACT
+   *
+   * Porque o `pointerdown` do React só dispara em elemento do React, e um
+   * clique no vazio do painel — que é a maior parte da tela — não é nenhum
+   * deles. A alternativa seria um `onPointerDown` em cada div do caminho, e
+   * qualquer elemento novo entre eles deixaria a caixa aberta
+   *
+   * ## E POR QUE `capture: true`, QUE ERA O QUE FALTAVA
+   *
+   * Porque o `aoPointerDown` do arraste chama `e.stopPropagation()` — ele
+   * precisa, para o arraste não virar arraste do painel. No `document`, um
+   * listener de FASE DE BORBOTA só roda se o evento chegar lá, e esse
+   * `stopPropagation` mata o evento antes: clicar no vazio entre duas bolas
+   * nunca chegava, e a caixa ficava presa. Trocar de bola funcionava porque o
+   * `click` do nó é outro evento, e o `.arb-arvore` não cancela o clique
+   *
+   * Na fase de CAPTURA o listener roda ANTES de qualquer handler do alvo, e
+   * o `stopPropagation` de bubbling não alcança o que já foi executado
+   *
+   * ## E POR QUE O TESTO E `.arb-no`, E NÃO O `contains` DO `caixaRef`
+   *
+   * Porque `contains` perguntava "o clique saiu do painel que rola a árvore?",
+   * e a árvore ocupa a tela toda — o fundo dela é justamente o que o jogador
+   * clica para dispensar. `closest(".arb-no")` acha a bola E a caixa num
+   * seletor só, porque a caixa é filha do wrapper do nó
+   */
+  useEffect(() => {
+    if (fixado === null) return;
+
+    function fora(evento) {
+      if (evento.target.closest?.(".arb-no")) return;
+
+      fechar();
+    }
+
+    document.addEventListener("pointerdown", fora, true);
+
+    return () => document.removeEventListener("pointerdown", fora, true);
+  }, [fixado, fechar]);
+
+  /**
    * QUANTOS NOS DE CADA DEGRAU JA FORAM PAGOS.
    *
    * E o que vira o `comprados/total` do rotulo. A contagem e feita uma vez
@@ -152,7 +219,7 @@ function Arvore({ classeId, comprados, nos, aoComprar, disabled }) {
   }, [nosArvore, comprados]);
 
   /**
-   * AS LIGACOES: retas, da borda de um hexagono a borda do outro.
+   * AS LIGACOES: retas, da borda de uma bola a borda da outra.
    *
    * ## POR QUE SAO RETAS E NAO COM COTOVELO
    *
@@ -167,18 +234,20 @@ function Arvore({ classeId, comprados, nos, aoComprar, disabled }) {
     const linhas = [];
 
     /**
-     * ONDE A LINHA ENCONTRA A BORDA DE UM HEXAGONO.
+     * ONDE A LINHA ENCONTRA A BORDA DA BOLA.
      *
-     * O hexagono da imagem e mais alto que largo, e por isso o raio vertical
-     * e maior que o horizontal. Sem isto a linha sairia do meio do hexagono
-     * dos nos de baixo, que e onde a convergencia e mais visivel
+     * E o raio, e nao uma divisao. A versao anterior tratava o no como um
+     * RETANGULO e pegava o menor entre `meiaLargura/|ux|` e `meiaAltura/|uy|`
+     * — que e exatamente a borda de um retangulo. Numa bola isso e um
+     * quadrado: nas diagonais a linha saia cedo demais e ficava no vazio
+     * entre um no e o outro, e nas pontas ela afurava o circulo
+     *
+     * Com a bola, o raio e o mesmo em toda direcao. Como `(ux, uy)` ja e um
+     * vetor normalizado — o `Math.hypot` de `dx, dy` divided por ele — a
+     * distancia ate a borda e o proprio raio, sem divisao nenhuma
      */
     const naBorda = (no, ux, uy, sinal) => {
-      const t =
-        Math.min(
-          no.meiaLargura / (Math.abs(ux) || 1e-6),
-          no.meiaAltura / (Math.abs(uy) || 1e-6),
-        ) * sinal;
+      const t = no.meiaLargura * sinal;
 
       return { x: no.x + ux * t, y: no.y + uy * t };
     };
@@ -227,8 +296,21 @@ function Arvore({ classeId, comprados, nos, aoComprar, disabled }) {
     if (e.pointerType === "mouse" && e.button !== 0) return;
     if (e.target.closest("button, a")) return;
 
-    e.preventDefault();
-
+    /**
+     * O `preventDefault` SAIU, E O QUE ELE TRAVA ERA O CLIQUE.
+     *
+     * `preventDefault` no `pointerdown` cancela os eventos de compatibilidade
+     * de mouse — e com eles o `click`. Quem sofria era o clique na BOLA: ela
+     * não está na lista `button, a` acima, então o arraste subia, cancelava o
+     * clique, e a caixa nunca fixava
+     *
+     * ## POR QUE ELE NÃO ERA NECESSÁRIO
+     *
+     * O que ele segurava — a seleção de texto na rolagem e a rolagem da página
+     * junto do arraste — já é feito por `user-select: none` e `touch-action:
+     * none` no `.arb-arvore`. E o `removeAllRanges` abaixo cobre a seleção que
+     * já tivesse sido feita antes
+     */
     window.getSelection?.()?.removeAllRanges();
     e.stopPropagation();
 
@@ -291,6 +373,7 @@ function Arvore({ classeId, comprados, nos, aoComprar, disabled }) {
       className={[
         "gld-arvore arb-arvore",
         arrastando ? "is-arrastando" : "",
+        fixado !== null ? "is-fixada" : "",
       ]
         .filter(Boolean)
         .join(" ")}
@@ -350,6 +433,14 @@ function Arvore({ classeId, comprados, nos, aoComprar, disabled }) {
             progresso={`${porDegrau.get(no.degrau) ?? 0}/${no.total}`}
             aoComprar={aoComprar}
             desabilitado={disabled}
+            sobre={noSobre === no.id}
+            fixado={fixado === no.id}
+            aoSobre={setNoSobre}
+            aoFixar={setFixado}
+            aoAplicar={() => {
+              setFixado(null);
+              aoComprar?.(no.id);
+            }}
           />
         ))}
       </div>
@@ -468,7 +559,26 @@ function textoDoNo(no, { pode, motivo, investido }) {
   return linhas.join("\n");
 }
 
-function NoHabilidade({ no, dados, progresso, aoComprar, desabilitado }) {
+/**
+ * O NÓ, COM A CAIXA ACIMA DELE.
+ *
+ * E o `z-index` que este wrapper carrega que põe a caixa ACIMA das bolas
+ * vizinhas, e não o `z-index: 5` da caixa. O `transform` do wrapper cria um
+ * contexto de empilhamento próprio: a caixa nunca sobe acima das irmãs do
+ * wrapper, por mais alto que o `z-index` dela seja. Nos nós da fileira de cima
+ * a caixa atravessava as bolas de baixo
+ */
+function NoHabilidade({
+  no,
+  dados,
+  progresso,
+  desabilitado,
+  sobre,
+  fixado,
+  aoSobre,
+  aoFixar,
+  aoAplicar,
+}) {
   if (!dados) return null;
 
   const { pode, motivo, investido } = dados;
@@ -479,77 +589,162 @@ function NoHabilidade({ no, dados, progresso, aoComprar, desabilitado }) {
     investido ? "is-aprendido" : "",
     !investido && !pode ? "is-bloqueado" : "",
     pode ? "is-pronto" : "",
+    fixado ? "is-fixado" : "",
   ]
     .filter(Boolean)
     .join(" ");
 
+  /**
+   * A BOLA É UM `div`, E NÃO O BOTÃO.
+   *
+   * Porque o botão agora seria o "APLICAR" dentro da caixa. Se a bola
+   * continuasse sendo o botão, um clique nela gastaria o ponto — que é
+   * exatamente o que o pedido é para não acontecer — e o `disabled` dela
+   * desligaria justamente os nós bloqueados, que são os que precisam abrir
+   * a caixa para o jogador LER o motivo
+   *
+   * ## E POR QUE O CLIQUE ESTÁ NO WRAPPER, E NÃO NA BOLA
+   *
+   * Porque a caixa também é filha do wrapper, e o clique no cabeçalho dela
+   * subiria até aqui de qualquer jeito. Com o handler no wrapper, os dois
+   * alvos — a bola e o cabeçalho — fixam a caixa, e não há dois lugares
+   * mantendo o mesmo estado
+   */
   return (
-    <button
-      type="button"
-      className={classes}
+    <div
+      className={[
+        "arb-no",
+        sobre || fixado ? "is-aberto" : "",
+      ]
+        .filter(Boolean)
+        .join(" ")}
       style={{ left: no.x, top: no.y }}
-      disabled={!pode || desabilitado}
-      onClick={() => aoComprar?.(no.id)}
-      data-tip={textoDoNo(no, { pode, motivo, investido })}
+      onPointerEnter={() => aoSobre(no.id)}
+      onPointerLeave={() => aoSobre(null)}
+      onClick={() => aoFixar(no.id)}
     >
-      {/**
-       * O HEXAGONO DE FORMA, que e o elemento que recorta.
-       *
-       * E um `span` vazio: ele existe so para receber o `clip-path`. O
-       * conteudo do no fica no bloco de cima, que fica por cima dele
-       */}
-      <span className="arb-hex__forma" aria-hidden="true" />
+      <div className={classes} aria-hidden="true">
+        <span className="arb-hex__forma" />
 
-      <span className="arb-hex__conteudo">
-        <span className="arb-hex__icone" aria-hidden="true">
-          {no.icone}
+        <span className="arb-hex__conteudo">
+          <span className="arb-hex__icone">{no.icone}</span>
         </span>
+      </div>
 
-        {/**
-         * O NOME, que na imagem fica dentro do hexagono.
-         *
-         * E curto de proposito — duas palavras no maximo. O nome longo vai
-         * para o `data-tip`, porque um nome de 14 letras dentro de 76px
-         * quebraria o hexagono e a leitura do conjunto
-         */}
-        <span className="arb-hex__nome">
-          {no.nome.split(" ")[0]}
-        </span>
+      <CaixaNo
+        no={no}
+        aberta={sobre || fixado}
+        progresso={progresso}
+        linhas={textoDoNo(no, { pode, motivo, investido })}
+        mostrarAplicar={fixado}
+        pode={pode && !desabilitado && !investido}
+        aoAbrir={() => aoFixar(no.id)}
+        aoAplicar={aoAplicar}
+      />
+    </div>
+  );
+}
 
-        <span className="arb-hex__completo">{no.nome.split(" ").slice(1).join(" ")}</span>
-      </span>
+/**
+ * A CAIXA DO NÓ: some, ou fica com o botão.
+ *
+ * Passar o mouse mostra o texto e o `comprados/total` do degrau — o que era o
+ * rótulo preso embaixo da bola. Clicar na bola trava a caixa e é aí que o
+ * "APLICAR" aparece: só existe com a caixa fixada, porque é o clique que está
+ * autorizando o gasto, e não a passagem do cursor
+ *
+ * ## POR QUE ELA VIRA PARA BAIXO NA FILA DE CIMA
+ *
+ * Porque a caixa abre para cima por padrão, e o primeiro degrau fica a 100px do
+ * topo do palco: a caixa subia uns 120px e saía pela barra do painel, cortada
+ * no meio da frase. Vira para baixo nos nós em que não há espaço acima
+ */
+function CaixaNo({
+  no,
+  aberta,
+  progresso,
+  linhas,
+  mostrarAplicar,
+  pode,
+  aoAbrir,
+  aoAplicar,
+}) {
+  /**
+   * ALTURA QUE A CAIXA PRECISA ACIMA DA BOLA, E O LIMIAR QUE VIRA A DECISÃO.
+   *
+   * 10px de folga + ~78px de caixa (nome, uma linha de bônus, o botão quando
+   * fixada) + 27px da metade da bola. Abaixo de 130px de `y` não cabe, e o
+   * primeiro degrau está a 100
+   */
+  const paraBaixo = no.y < 130;
 
-      {/**
-       * O CUSTO, no canto superior direito do hexagono.
-       *
-       * E um numero solto, como na referencia. E a unica coisa que o jogador
-       * precisa antes de clicar, entao fica onde o olho ja procura o custo de
-       * todas as outras coisas da tela
-       */}
-      <span className="arb-hex__custo">{no.custo}</span>
+  /**
+   * O AJUSTE QUE MANTÉM A CAIXA DENTRO DO PALCO.
+   *
+   * A caixa é de 210px e nasce centrada na bola. Na bola da ponta esquerda o
+   * centro fica a 60px do palco, e metade da caixa passava para fora: o
+   * `overflow` do palco cortava o canto e o nome da habilidade aparecia
+   * partido
+   *
+   * ## POR QUE CONTA EM JAVASCRIPT E NÃO COM `right: 0` NO CSS
+   *
+   * Porque a coluna dos nós é o dado — `DEGRAUS[degrau][indice]` já traz o X
+   * normalizado, e é dele que sai o pixel. Uma regra de CSS que ancorasse pela
+   * direita adivinharia a posição pelo nome da classe, e o degrau de 8 nós é o
+   * que chega mais perto da borda: um limiar em CSS erra por linhas inteiras,
+   * enquanto `no.x` é exato
+   */
+  const MEIA_CAIXA = 105;
+  const MARGEM = 6;
 
-      {/**
-       * O `comprados/total` DO DEGRAU, embaixo.
-       *
-       * E o mesmo numero em todos os nos do mesmo degrau, e parece desperdico
-       * — mas e o que responde "quanto deste nivel eu ja construi?" sem o
-       * jogador precisar contar. E o que faz o degrau inteiro acender junto
-       * quando ele fecha
-       */}
-      <span className="arb-hex__progresso">{progresso}</span>
+  const faltouEsquerda = no.x - MEIA_CAIXA;
+  const faltouDireita = no.x + MEIA_CAIXA - (PALCO.largura - MARGEM);
 
-      {/**
-       * O CADEADO, so quando o no esta bloqueado.
-       *
-       * E o que diz "voce nao chega aqui ainda" sem texto. O `data-tip` da
-       * razao completa fica no botao inteiro
-       */}
-      {!investido && !pode ? (
-        <span className="arb-hex__cadeado" aria-hidden="true">
-          🔒
-        </span>
+  const ajuste =
+    faltouEsquerda < MARGEM
+      ? MARGEM - faltouEsquerda
+      : faltouDireita > 0
+        ? -faltouDireita
+        : 0;
+
+  return (
+    <div
+      className={[
+        "arb-caixa",
+        aberta ? "is-aberta" : "",
+        mostrarAplicar ? "is-fixada" : "",
+        paraBaixo ? "is-para-baixo" : "",
+      ]
+        .filter(Boolean)
+        .join(" ")}
+      style={ajuste === 0 ? undefined : { marginLeft: `${ajuste}px` }}
+      role="dialog"
+      aria-hidden={!aberta}
+    >
+      <button
+        type="button"
+        className="arb-caixa__cabecalho"
+        onClick={aoAbrir}
+        tabIndex={aberta ? 0 : -1}
+      >
+        <span className="arb-caixa__nome">{no.nome}</span>
+
+        <span className="arb-caixa__progresso">{progresso}</span>
+      </button>
+
+      <p className="arb-caixa__linhas">{linhas}</p>
+
+      {mostrarAplicar ? (
+        <button
+          type="button"
+          className="arb-caixa__aplicar"
+          onClick={aoAplicar}
+          disabled={!pode}
+        >
+          APLICAR
+        </button>
       ) : null}
-    </button>
+    </div>
   );
 }
 

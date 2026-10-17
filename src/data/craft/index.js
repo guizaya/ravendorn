@@ -219,18 +219,28 @@ const EQUIPAMENTOS = [
     ],
   },
 
+  /**
+   * OS SEIS ACESSORIOS.
+   *
+   * ## POR QUE SEIS RECEITAS E NAO DUAS
+   *
+   * Porque eram dois itens, e agora sao tres aneis e tres amuletos — um por
+   * atributo. A receita e por item, entao as seis precisam existir: sem a
+   * linha, a aba de craft mostra a peca e nunca da para criar
+   *
+   * ## A ESCALA DE CADA EIXO
+   *
+   * O anel de forca e o de mana sobem de familia de materia, como o anel
+   * antigo fazia. O de vigor fica no couro e no tendao, que e o par de
+   * resistencia do jogo. Os tres amuletos recebem Aco Temperado a partir do
+   * grau raro, que e o que os torna as pecas caras
+   *
+   * Nenhum tem `classes`: a trava de classe do craft e a familia da arma, e
+   * reliquia nao tem familia
+   */
+
   {
-    /**
-     * O ANEL, e o unico equipamento que NAO e de uma classe.
-     *
-     * E o desenho do txt o chama de "generico para qualquer classe", e a
-     * trava de classe do craft e a familia da arma: sem `kind`, nenhuma
-     * classe e barrada
-     *
-     * E o unico que sobe de familia: comeca em minerio e pedra verde, e
-     * no grau raro entra o ferro fragmentado do Kaelen
-     */
-    itemId: "anel",
+    itemId: "anel_de_forca",
     linhas: [
       [m("minerio_bruto", null, 5), m("pedra_verde_bruta", null, 2)],
       [m("minerio_bruto", "reforcado", 3), m("pedra_verde_bruta", "reforcado", 2)],
@@ -241,20 +251,57 @@ const EQUIPAMENTOS = [
   },
 
   {
-    /**
-     * O AMULETO, a peca mais cara do conjunto.
-     *
-     * E a unica que tem Essencia Necrotica nas cinco raridades, e a unica
-     * em que a Essencia entra pelo proprio grau enquanto o resto do
-     * conjunto sobe de familia
-     */
-    itemId: "amuleto_arqueiro",
+    itemId: "anel_de_mana",
     linhas: [
-      [m("osso_quebrado", null, 4), m("pedra_verde_bruta", null, 2), m("tecido_militar", null, 2)],
-      [m("essencia_necrotica", "reforcado", 3), m("pedra_verde_bruta", "reforcado", 2), m("tecido_militar", "reforcado", 2)],
-      [m("essencia_necrotica", null, 3), m("pedra_verde_bruta", "resistente", 2), m("aco_temperado", null, 2)],
+      [m("essencia_necrotica", null, 4), m("pedra_verde_bruta", null, 2)],
+      [m("essencia_necrotica", "reforcado", 3), m("pedra_verde_bruta", "reforcado", 2)],
+      [m("essencia_necrotica", "resistente", 3), m("pedra_verde_bruta", "resistente", 2)],
+      [m("essencia_necrotica", "refinado", 3), m("pedra_verde_bruta", "refinado", 2)],
+      [m("essencia_necrotica", "lendario", 3), m("pedra_verde_bruta", "lendario", 2)],
+    ],
+  },
+
+  {
+    itemId: "anel_de_vigor",
+    linhas: [
+      [m("couro_goblin", null, 4), m("tendao_ressecado", null, 3)],
+      [m("couro_goblin", "reforcado", 3), m("tendao_ressecado", "reforcado", 2)],
+      [m("couro_goblin", "resistente", 3), m("tendao_ressecado", "resistente", 2)],
+      [m("couro_goblin", "refinado", 3), m("tendao_ressecado", "refinado", 2)],
+      [m("couro_goblin", "lendario", 3), m("tendao_ressecado", "lendario", 2)],
+    ],
+  },
+
+  {
+    itemId: "amuleto_de_forca",
+    linhas: [
+      [m("minerio_bruto", null, 6), m("pedra_verde_bruta", null, 2)],
+      [m("fragmento_de_ferro", "reforcado", 4), m("pedra_verde_bruta", "reforcado", 2)],
+      [m("fragmento_de_aco", null, 4), m("pedra_verde_bruta", "resistente", 2)],
+      [m("aco_temperado", "refinado", 3), m("pedra_verde_bruta", "refinado", 2)],
+      [m("aco_temperado", "lendario", 3), m("pedra_verde_bruta", "lendario", 2)],
+    ],
+  },
+
+  {
+    itemId: "amuleto_de_mana",
+    linhas: [
+      [m("essencia_necrotica", null, 5), m("pedra_verde_bruta", null, 2), m("tecido_militar", null, 2)],
+      [m("essencia_necrotica", "reforcado", 4), m("pedra_verde_bruta", "reforcado", 2), m("tecido_militar", "reforcado", 2)],
+      [m("essencia_necrotica", "resistente", 3), m("pedra_verde_bruta", "resistente", 2), m("aco_temperado", null, 2)],
       [m("essencia_necrotica", "refinado", 3), m("pedra_verde_bruta", "refinado", 2), m("aco_temperado", "refinado", 2)],
       [m("essencia_necrotica", "lendario", 3), m("pedra_verde_bruta", "lendario", 2), m("aco_temperado", "lendario", 2)],
+    ],
+  },
+
+  {
+    itemId: "amuleto_de_vigor",
+    linhas: [
+      [m("couro_goblin", null, 5), m("tendao_ressecado", null, 4), m("osso_quebrado", null, 2)],
+      [m("couro_goblin", "reforcado", 4), m("tendao_ressecado", "reforcado", 3), m("osso_quebrado", "reforcado", 2)],
+      [m("couro_goblin", "resistente", 3), m("tendao_ressecado", "resistente", 3), m("osso_quebrado", "resistente", 2)],
+      [m("couro_goblin", "refinado", 3), m("tendao_ressecado", "refinado", 3), m("osso_quebrado", "refinado", 2)],
+      [m("couro_goblin", "lendario", 3), m("tendao_ressecado", "lendario", 3), m("osso_quebrado", "lendario", 2)],
     ],
   },
 
@@ -763,9 +810,34 @@ const CATEGORY_ICON = {
   [ITEM_TYPE.MATERIAL]: "⛏",
 };
 
+/**
+ * O NOME DA ABA, QUE NAO E SEMPRE O NOME DO TIPO.
+ *
+ * ## POR QUE SO O TRINKET DIVERGE
+ *
+ * Porque o `ITEM_TYPE_LABEL` chama o tipo de "Relíquia", e esse nome veio de
+ * quando havia um anel e um amuleto — peça de alto valor que se guarda como
+ * relíquia. Sao seis aneis e seis amuletos agora, tres de cada, e nenhum
+ * deles é relíquia: sao ajuste de atributo que o jogador usa no ombro e na
+ * mao
+ *
+ * ## POR QUE NAO TROCA O ROTULO DO TIPO INTEIRO
+ *
+ * Porque o mesmo rotulo aparece na aba do mercado, no tooltip do item e no
+ * painel de encantamento. Trocar la dentro mudaria quatro telas sem ninguem
+ * pedir. A aba do craft e a unica que o jogador escolhe pelo nome, e e a
+ * unica que ganhou o nome novo
+ *
+ * Se um dia "acessório" for o nome certo em todas elas, o lugar de mudar e
+ * o `ITEM_TYPE_LABEL` — e esta linha some junto
+ */
+const CATEGORY_LABEL = {
+  [ITEM_TYPE.TRINKET]: "Acessório",
+};
+
 export const CRAFT_CATEGORIES = CATEGORY_ORDER.map((type) => ({
   id: type,
-  label: ITEM_TYPE_LABEL[type],
+  label: CATEGORY_LABEL[type] ?? ITEM_TYPE_LABEL[type],
   icon: CATEGORY_ICON[type],
 }))
   .map((category) => ({

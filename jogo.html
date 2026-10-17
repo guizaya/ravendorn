@@ -22,7 +22,43 @@
 
       O `X-Frame-Options` e o `Content-Security-Policy` do servidor NAO
       bloqueiam isto: sao mesma origem.
+
+      A fonte e pedida aqui pelo mesmo motivo que no `index.html`: um `@import`
+      no topo do CSS atrasa a pintura em tres pedidos e duas conexoes, sem
+      ganho visual nenhum, porque o `display=swap` ja desenha o texto com a
+      fonte de sistema enquanto a Inter chega.
     -->
+
+    <!--
+      AS DUAS CONEXOES ABERTAS ANTES DA PEDIDA.
+
+      `preconnect` resolve o nome e abre o socket dos dois dominios enquanto o
+      navegador ainda nao sabe que precisa deles. Sem isso, cada um so comecaria
+      a ser resolvido depois que o CSS de 270 KB terminasse de baixar.
+    -->
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+
+    <!--
+      O `media="print"` E O `onload`.
+
+      Baixa a folha sem travar a pintura, e so a aplica quando ela chega. O
+      `noscript` cobre o caso sem JavaScript, que e o unico jeito de a troca
+      ficar presa em `print`.
+    -->
+    <link
+      rel="stylesheet"
+      href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=Montserrat:wght@600;700;800&display=swap"
+      media="print"
+      onload="this.media='all'"
+    />
+    <noscript>
+      <link
+        rel="stylesheet"
+        href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=Montserrat:wght@600;700;800&display=swap"
+      />
+    </noscript>
+
     <title>Eldoria</title>
   </head>
 

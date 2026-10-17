@@ -19,6 +19,20 @@ import "./theme-inventory.css";
 import "./theme-skilltree.css";
 
 /**
+ * A CAMADA DA MODAL DO CHEFE, e ela entra depois das outras duas.
+ *
+ * A unica que nao usa a casca `.inv-panel`, e por isso nao depende da ordem
+ * dela: o que ela sobrescreve sao classes `boss-`, que so existem aqui. O que
+ * ela PEGA do inventario e so os tokens -- `var(--t-gold)`, `--t-line-2`,
+ * `--t-radius` — e para isso basta ter vindo depois
+ *
+ * O `box-sizing` do `*` fica aqui de proposito: a grade de recompensa usa
+ * `aspect-ratio`, e sem ele a caixa fica 8px mais larga que a coluna da
+ * direita e o rodape dos botoes ganha uma barra de rolagem que nao existe
+ */
+import "./theme-boss.css";
+
+/**
  * A CAMADA DE TILE DO MAPA 1, e ela se registra por efeito de import.
  *
  * E um import de arquivo inteiro, e nao uma chamada: este arquivo e o

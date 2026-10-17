@@ -118,8 +118,12 @@ const EQUIPAMENTO_POR_ANDAR = {
   [ANDAR_DE_CAMPANHA.QUEBRADO]: [
     { id: "willow_bow", weight: 14 },
     { id: "aljava_arbalist", weight: 14 },
-    { id: "anel", weight: 6 },
-    { id: "amuleto_arqueiro", weight: 6 },
+    { id: "anel_de_forca", weight: 2 },
+    { id: "anel_de_mana", weight: 2 },
+    { id: "anel_de_vigor", weight: 2 },
+    { id: "amuleto_de_forca", weight: 2 },
+    { id: "amuleto_de_mana", weight: 2 },
+    { id: "amuleto_de_vigor", weight: 2 },
   ],
 
   [ANDAR_DE_CAMPANHA.COMUM]: [
@@ -135,8 +139,12 @@ const EQUIPAMENTO_POR_ANDAR = {
     { id: "elmo_warrior", weight: 10 },
     { id: "luvas_warrior", weight: 10 },
     { id: "peito_warrior", weight: 10 },
-    { id: "anel", weight: 5 },
-    { id: "amuleto_arqueiro", weight: 5 },
+    { id: "anel_de_forca", weight: 2 },
+    { id: "anel_de_mana", weight: 2 },
+    { id: "anel_de_vigor", weight: 2 },
+    { id: "amuleto_de_forca", weight: 2 },
+    { id: "amuleto_de_mana", weight: 2 },
+    { id: "amuleto_de_vigor", weight: 2 },
   ],
 
   [ANDAR_DE_CAMPANHA.REFINADO]: [
@@ -152,8 +160,12 @@ const EQUIPAMENTO_POR_ANDAR = {
     { id: "elmo_warrior", weight: 16 },
     { id: "luvas_warrior", weight: 16 },
     { id: "peito_warrior", weight: 16 },
-    { id: "anel", weight: 4 },
-    { id: "amuleto_arqueiro", weight: 4 },
+    { id: "anel_de_forca", weight: 2 },
+    { id: "anel_de_mana", weight: 2 },
+    { id: "anel_de_vigor", weight: 2 },
+    { id: "amuleto_de_forca", weight: 2 },
+    { id: "amuleto_de_mana", weight: 2 },
+    { id: "amuleto_de_vigor", weight: 2 },
   ],
 };
 
@@ -2064,7 +2076,7 @@ function allocateTypes(count, mix) {
  *
  * O `LEVEL_TIERS` global sorteia um deslocamento e soma ao nivel base do
  * tipo: um limo (base 1) nasce em 1, 2 ou 3, e um ogre (base 15) em 15,
- * 16 ou 17. E o que faz a zona危险 do jeito que o bioma pede
+ * 16 ou 17. E o que faz a zona variar do jeito que o bioma pede
  *
  * ## A REGRA DA ZONA
  *

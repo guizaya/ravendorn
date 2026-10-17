@@ -151,6 +151,8 @@ export const BOSS_1_SPAWN = {
   y: BOSS_1_CENTER.y + BOSS_1_DISTANCIA_DO_SPAWN,
 };
 
+import { BOSS_1_PORTALS } from "../portais/index.js";
+
 /**
  * A ARENA DE CHEFE, pronta para o `setMap`.
  *
@@ -168,6 +170,19 @@ export const BOSS_1_MAP = {
   height: BOSS_1_HEIGHT,
 
   bounds: BOSS_1_BOUNDS,
+
+  /**
+   * A SAIDA, NO VAO DA PAREDE DE BAIXO.
+   *
+   * A arena ficou sem nenhum portal ate agora: o botao da HUD e o `irParaArena`
+   * faziam o caminho inteiro. O que fica aqui e a SAIDA, no unico sentido em
+   * que o jogador sai da arena andando
+   *
+   * Nao ha portal de VOLTA porque o jogador nao volta: ele mata o chefe e
+   * segue para o mapa 2, e o unico caminho de volta e morrer — que devolve
+   * ele ao mapa 1 pelo respawn
+   */
+  portals: BOSS_1_PORTALS,
 
   /**
    * SEM `boundsCircle`: A SALA E DESENHADA NO TILED.
@@ -227,10 +242,19 @@ export const BOSS_1_MAP = {
    * A CAMERA MAIS PERTO, como o hub.
    *
    * Uma arena e um lugar de combate: o jogador precisa ver o chefe e o
-   * proprio boneco na mesma tela, e o zoom do hub (1 / 0.7) e o que faz
-   * isso
+   * proprio boneco na mesma tela, e o zoom do hub e o que faz isso.
+   *
+   * ## POR QUE `91 / 64` E NAO `1 / 0.7`
+   *
+   * Pelo mesmo motivo da base: a arena tem tile de 64px, e `64 * (1 / 0.7)`
+   * da `91.43` pixels de dispositivo. Um tile terminava sempre entre dois
+   * pixels e o chao aparecia com uma grade de linhas, uma por emenda.
+   *
+   * `91 / 64` da `91` exatos, e o enquadramento muda em `0.47%` do valor
+   * antigo — invisivel na tela. E o `dpr` 1 ou 2 mantem o produto inteiro
+   * nos dois casos
    */
-  cameraZoom: 1 / 0.7,
+  cameraZoom: 91 / 64,
 
 /**
    * A ESCALA DESTE MAPA, COM A ARTE NOVA DO SORCERER.
@@ -303,6 +327,28 @@ export const BOSS_1_MAP = {
   ],
 
   /**
+   * UM CHEFE POR JOGADOR, E ELE NAO VOLTA.
+   *
+   * ## POR QUE O CAMPO ESTA AQUI E NAO NA CRIATURA
+   *
+   * Porque "uma instancia por jogador" e uma propriedade da ARENA. O mesmo
+   * `hulk` pode ser um mob comum de um mapa e o guardian de outro, e o
+   * catalogo de criaturas nao pode saber disso — o mesmo motivo que fez o
+   * `chefe` ser uma propriedade do mapa e nao da criatura
+   *
+   * ## O QUE ELE FAZ NA PRATICA
+   *
+   * - o `createBosses` cria o Hulk com o `sessaoDe` de quem entrou, e o id
+   *   ganha o sufixo do dono
+   * - o snapshot de um jogador nao carrega o chefe do outro
+   * - a IA do chefe so persegue o proprio dono
+   *
+   * E o `marcarChefeVencido` faz a segunda metade: quem ja venceu nao
+   * reencontra o Hulk na arena
+   */
+  bossPorJogador: true,
+
+  /**
    * SEM ZONA, SEM PROP, SEM SOLIDO
    *
    * O clone do hub. A arena nao tem zona de mob — o chefe nao e uma
@@ -314,16 +360,6 @@ export const BOSS_1_MAP = {
   blocking: [],
   decorative: [],
   solids: [],
-
-  /**
-   * SEM PORTAL
-   *
-   * Lista vazia e nao `undefined`, como o resto do mapa. `portalSobOsPes`
-   * percorre com `for` e conta `.length`, entao e o estado que ele ja
-   * sabe tratar — e, mais importante, e o estado que faz a box do portal
-   * NAO aparecer, em vez de aparecer com um botao que nao faz nada
-   */
-  portals: [],
 
   /**
    * SEM MERCADOR DE POCAO

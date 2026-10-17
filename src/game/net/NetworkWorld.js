@@ -48,6 +48,7 @@ const EMPTY_LIST = [];
 
 import { getClassSprite } from "../../data/sprites/index.js";
 import { findMap } from "../../data/maps/index.js";
+import { tiledDoMapa } from "../maps/registroDeTiles.js";
 import { Previsao } from "./Previsao.js";
 
 export class NetworkWorld {  /**
@@ -116,6 +117,21 @@ this.intencao = { x: 0, y: 0 };
       const destino = findMap(estado.mapa);
 
       if (destino) {
+        /**
+         * O PRELOAD DA ARTE DE DESTINO, E POR QUE ESTE E O CAMINHO QUE
+         * PRECISA DELE.
+         *
+         * No online a troca de mapa NAO passa por `travessarPortal` — ela
+         * chega pelo snapshot, e e este `if` que a executa. O motor tem o
+         * preload do portal para o single player; sem esta linha, o online
+         * continuaria trocando o mapa antes de pedir a folha, e o defeito
+         * seria o mesmo: o chao e o boneco aparecendo depois, na tela.
+         *
+         * `precarregar` nao bloqueia e nao lanca: uma folha que da 404
+         * deixa o `setMap` acontecer igual, que e o comportamento de antes.
+         */
+        this.engine.tiles.precarregar(tiledDoMapa(destino.id));
+
         this.engine.setMap(destino);
 
         this.porId = new Map(

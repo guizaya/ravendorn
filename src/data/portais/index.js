@@ -11,8 +11,13 @@
  *
  * O caminho e de ida e volta entre o hub e o vale:
  *
- *   hub -> portal_pantano -> vale
- *   portal_pantano -> portal_hub -> hub
+ *   hub     -> portal_hub     -> vale   (passagem na parede, automatica)
+ *   portal_pantano -> portal_hub -> hub (passagem na parede, automatica)
+ *
+ * Os dois lados da ligacao sao PASSAGENS: sem arte, sem caixa e sem botao.
+ * O jogador chega andando na luz dourada da parede e atravessa sozinho. O
+ * `size`/`raioY` de cada uma e a ZONA DE ENTRADA, medida pelo `portalSobOsPes`
+ * dos dois lados — o cliente para oferecer, o servidor para aceitar
  *
  * E a ida da campanha:
  *
@@ -99,6 +104,22 @@ hub: new URL(
 export const PORTAL_SIZE = 192;
 
 /**
+ * O ID DO VALE, REPETIDO AQUI DE PROPOSITO.
+ *
+ * ## POR QUE NAO VEIO DO `data/maps`
+ *
+ * Porque `maps/index.js` importa ESTE arquivo para saber a lista de portais
+ * de cada mapa, e um import de la para ca fecharia o ciclo. O `MAP_TESTE_ID`
+ * de la nao esta visivel aqui
+ *
+ * E a repeticao e perigosa: se um dia o vale mudar de id, este constante fica
+ * para tras e a passagem passa a apontar para um mapa que nao existe — o
+ * `findMap` devolve `null` e o jogador atravessa para o spawn padrao, sem
+ * erro nenhum. A verificacao esta em `checarDestinos`, la embaixo
+ */
+const ID_DO_VALE = "mapa_teste";
+
+/**
  * Onde os portais estao.
  *
  * As duas posicoes foram pedidas na coordenada exata, e sao elas que
@@ -146,13 +167,143 @@ export const PORTAL_SIZE = 192;
   ];
  * 
  */
+/**
+ * A PASSAGEM DO CHEFE, NA MESMA FAIXA DA PASSAGEM DA FLORESTA.
+ *
+ * ## POR QUE SAO DOIS PORTAIS EMPILHADOS NO MESMO PIXEL
+ *
+ * Porque o destino muda SOZINHO, na virada da missao 1.19: antes dela o
+ * jogador vai para a arena terminar o chefe, e depois dela vai para o mapa 2
+ *
+ * Um portal so, com destino dinamico, exigiria que TODO o caminho de
+ * `findMap(portal.destino)` — em `portalSobOsPets`, em `chegadaDe`, em
+ * `travessarPortal`, na box e no aviso — soubesse resolver um destino que
+ * depende do jogador. Dois portais no mesmo pixel nao mudam nenhum desses
+ * caminhos: eles ja sabem achar um portal por posicao
+ *
+ * ## COMO SO UM DOS DOIS EXISTE POR VEZ
+ *
+ * Pelo `abreNoDegrau`, que e o indice da escada a partir do qual o portal
+ * entra na lista. O `portalSobOsPets` pula o que ainda nao abriu, entao o
+ * jogador so enxerga e encosta no que lhe serve:
+ *
+ * - `mainIndex` 0 a 17: nenhum dos dois. A passagem nao existe ainda
+ * - `mainIndex` 18 (na missao 1.19): so o `portal_chefe`, que leva a arena
+ * - `mainIndex` 19 ou mais: so o `portal_floresta`, que leva ao mapa 2
+ *
+ * E o `exigeMissaoDe` do `portal_floresta` foi embora: ele barrava ate a
+ * campanha INTEIRA acabar, e quem esta NA missao do chefe e exatamente quem
+ * tem que atravessar — para chegar nela
+ */
+export const MAP_1_PORTAL_DO_CHEFE = {
+  id: "portal_chefe",
+
+  /** o mesmo pixel da passagem da floresta: os dois dividem a parede */
+  x: 11 * 64,
+  y: 150,
+  size: 256,
+  raioY: 128,
+
+  oculto: true,
+  passagem: true,
+  brilho: true,
+
+  destino: "boss_1",
+  chegada: "portal_chefe_saida",
+
+  /**
+   * ABRE NA MISSAO DO CHEFE, E FECHA LOGO DEPOIS.
+   *
+   * O numero e o indice GLOBAL da escada: `MAIN_QUESTS[18]` e o Hulk, a
+   * missao 1.19.
+   *
+   * ## POR QUE PRECISA DO `fechaNoDegrau`, E SO DO `abreNoDegrau`
+   *
+   * Porque os dois portais dividem o pixel, e sem o `fecha` os dois ficariam
+   * abertos depois do chefe: quem ja matou o Hulk encostava na passagem e ia
+   * voltar para a arena para lutar com um chefe que nao existe mais
+   *
+   * Com o par fechado, cada degrau tem UM destino so:
+   *
+   * - ate o 17: nenhum dos dois
+   * - 18 (missao 1.19): so a arena
+   * - 19 ou mais: so o mapa 2
+   *
+   * E `fecha` e `>=` porque o degrau do chefe JA NAO E O ATUAL: a missao
+   * 1.19 concluida significa que o `mainIndex` andou para 19
+   */
+  abreNoDegrau: 18,
+  fechaNoDegrau: 19,
+};
+
 export const PORTALS = [
+  MAP_1_PORTAL_DO_CHEFE,
+
   {
     id: "portal_pantano",
-    x: 5799,
-    y: 3981,
-    size: PORTAL_SIZE,
+
+    /**
+     * A PASSAGEM DO MAPA 1, NA PAREDE — tiles (93, 62) e (93, 63).
+     *
+     * ## POR QUE SAIU DE (5799, 3981)
+     *
+     * Porque a imagem saiu e a travessia virou automatica, do mesmo jeito que
+     * a da base. A imagem vivia no meio do mapa, e o jogador pisava nela para
+     * abrir a caixa; agora ele chega andando na parede
+     *
+     * ## A CONTA DO `x`: `94 * 64 - 62`
+     *
+     * A parede do mapa 1 esta em `40 + (94 * 64 - 80) = 5976`, e o
+     * `CollisionSystem` ainda desconta o raio do boneco (22px). O centro do
+     * jogador para em `5976 - 22 = 5954`, e e ali que a passagem tem que
+     * ficar — e o mesmo `- 62` da base, porque e a mesma conta: largura
+     * menos a margem de 40, menos o raio de 22
+     *
+     * Com o portal no meio do mapa, a zona nunca era alcancada; na parede, e
+     * exatamente onde o jogador encosta
+     *
+     * ## E O `y`: `63 * 64`
+     *
+     * As duas celulas pedidas (62 e 63) vao de `y = 3968` a `4096`, e o meio
+     * delas e `4032`. E a mesma conta da base, que usa as linhas 8 e 9
+     */
+    x: 94 * 64 - 62,
+    y: 63 * 64,
+
+    /**
+     * A ZONA DE ENTRADA, E A ALTURA COBRINDO AS DUAS CELULAS.
+     *
+     * `raioY: 128` e a ALTURA: a faixa das duas celulas tem 128px, e o
+     * jogador atravessa andando na altura que quiser, sem precisar acertar um
+     * circulo estreito
+     *
+     * ## POR QUE O `size` NAO PODE SER MENOR QUE O RAIO DO JOGADOR
+     *
+     * A zona de entrada e a metade do `size` para cada lado em X, e o
+     * jogador NAO encosta na parede: o colisor o segura a 34px de distancia.
+     * Medido no servidor, com o boneco andando contra a parede da base, ele
+     * para em x=1590 — e a passagem e a 1602
+     *
+     * Com `size: 16` a zona comecava em 1594, ou seja 4px DEPOIS de onde o
+     * jogador consegue ficar. A conta da elipse dava 2.25 e o
+     * `portalSobOsPets` devolvia `null` com o boneco colado na parede: era a
+     * passagem que nao existia para ninguem, e o autoEncravava nela
+     *
+     * Com `size: 48` a zona abre em 1578 e o jogador entra nela 24px antes da
+     * parede, com folga para o raio de colisao
+     */
+    size: 48,
+    raioY: 128,
     sheet: "pantano",
+
+    /** A arte saiu: a passagem e a luz dourada na parede, nao um sprite */
+    oculto: true,
+
+    /** Sem caixa e sem botao: quem chega na ponta atravessa sozinho */
+    passagem: true,
+
+    /** A luz dourada que marca a saida na parede */
+    brilho: true,
 
     /**
      * A VOLTA PARA O HUB.
@@ -177,46 +328,250 @@ export const PORTALS = [
 
   {
     id: "portal_floresta",
-    x: 178,
-    y: 180,
-    size: PORTAL_SIZE,
-    sheet: "floresta",
+
+    /**
+     * A FAIXA NO TOPO, DOS TILES 9 A 12.
+     *
+     * ## POR QUE `size` E 256 E NAO O `PORTAL_SIZE`
+     *
+     * Porque este portal e DEITADO. Os outros pares estao em paredes
+     * verticais, e ali a faixa e alta em Y (`raioY`) e estreita em X (`size`).
+     * Aqui a faixa e larga em X — os tiles 9 a 12 dao 4 tiles, ou 256px — e
+     * tem pouca profundidade em Y
+     *
+     * E `size` e a LARGURA em X nas duas posicoes: `size: 256` abre a zona
+     * de 576 a 832, que e exatamente a faixa pedida
+     */
+    x: 11 * 64,
+    size: 256,
+
+    /**
+     * A PROFUNDIDADE DE 2 TILES PARA DENTRO DO MAPA.
+     *
+     * ## POR QUE 150, E NAO A BORDA DA PAREDE
+     *
+     * A parede do topo do mapa 1 e o objeto `id: 13` do `dungeon.tmj`, em
+     * (64, 64) com 768x64 — ela tem 64px de ESPESSURA, e a borda de baixo
+     * fica em y=128, nao em 64
+     *
+     * Com o raio de colisao em 34, o jogador para em y=162. A passagem fica
+     * 22px abaixo da borda, em 150, e o jogador entra na zona ao encostar
+     *
+     * Medido: a faixa inteira de x=576 a x=832 esta livre nessa altura
+     */
+    y: 150,
+    raioY: 128,
+
+    /** a arte saiu: e a passagem e a luz na parede */
+    oculto: true,
+
+    /** sem caixa e sem botao: quem chega na ponta atravessa sozinho */
+    passagem: true,
+
+    /** a luz dourada que marca a saida na parede */
+    brilho: true,
 
     /**
      * O PAR DO MAPA 2.
      *
-     * Este e o SEGUNDO portal do mapa 1, e ele vai para o PRIMEIRO
-     * portal do mapa 2. Os dois declaram o par pelo `id` do outro: este
-     * diz para onde vai e onde chega, e o outro faz o mesmo na volta
-     *
-     * E a `chegada` e `portal_mapa2`, e nao uma coordenada. Chegar "no
-     * portal 1" e chegar "perto do portal 1" sao coisas diferentes: se
-     * o portal se mover, o ponto de chegada acompanha sem ninguem editar
-     * numero
-     *
-     * Um `chegada` que nao exista no mapa de destino cai no spawn do
-     * mapa — e melhor aparecer no meio do vale do que nao atravessar
+     * Os dois declaram o par pelo `id` do outro: este diz para onde vai e
+     * onde chega, e o outro faz o mesmo na volta
      */
     destino: "map_2",
     chegada: "portal_mapa2",
 
     /**
-     * A TRAVA: SO ATRAVESSA COM A CAMPANHA DO MAPA 1 ACABADA.
+     * ABRE SO DEPOIS DO CHEFE.
      *
-     * `exigeMissaoDe: "map_1"` e so a DECLARACAO da regra — quais
-     * missoes faltam e quem avalia isso mora em `data/quests`, nas
-     * funcoes `portalLiberado` e `dadosDaTrava`
-     *
-     * A declaracao fica no portal porque e uma propriedade DO PORTAL: o
-     * dia em que a Floresta Sombria deixar de exigir a campanha e o dia
-     * em que este objeto muda, e nao o dia em que o motor ganha um
-     * `if` a mais
-     *
-     * Sem isto o mapa 2 e alcancavel no minuto um: o jogador sai do hub,
-     * ve o portal da floresta e cai na campanha do mapa 2 sem nunca ter
-     * cacado no pantano
+     * E o par da regra com o `portal_chefe`: os dois ficam no mesmo pixel,
+     * e este so entra na lista quando a missao 1.19 ja foi concluida. Sem
+     * este campo a Floresta Sombria seria alcancavel no minuto um, e a
+     * campanha do mapa 2 sem nunca ter lutado contra o Hulk
      */
-    exigeMissaoDe: "map_1",
+    abreNoDegrau: 19,
+  },
+
+  /**
+   * A PASSAGEM PARA O VALE, NA PAREDE ESQUERDA.
+   *
+   * ## A POSICAO, VINDO DOS TILES PEDIDOS
+   *
+   * `x` na parede da esquerda e a conta que a parede imp—e, nao a conta do
+   * tile: o tile `(0, —)` — a COLUNA 0, e o boneco nunca chega nela. O
+   * `bounds` do mapa comeca em x=40 e o colisor segura o jogador a 34px da
+   * parede, entao ele para em x=74 — e a passagem fica em 62, os mesmos 22px
+   * de folga que o `portal_hub` usa na direita
+   *
+   * `y` e o meio da faixa: tiles 52 a 56 sao cinco, ou seja 320px, e o meio
+   * e o tile 54. Com `raioY: 160` a zona cobre de 3296 a 3616 — a faixa
+   * inteira dos cinco tiles
+   *
+   * ## POR QUE `size: 48`
+   *
+   * Pela mesma razao das outras passagens: a zona em X e a metade do `size`,
+   * e ela tem que conter onde o jogador CONSEGUE ficar. Com o raio de 34, ele
+   * encosta a 12px do centro, e `raioX: 24` tem folga de sobra
+   */
+  {
+    id: "portal_vale",
+    x: 62,
+    y: 54 * 64,
+    size: 48,
+
+    /**
+     * A ALTURA INTEIRA DA FAIXA, E NAO A METADE.
+     *
+     * O `portalSobOsPets` le `(raioY ?? size) / 2`, entao o campo guarda a
+     * altura toda e a metade sai da conta. Cinco tiles sao 320px: com
+     * `raioY: 160` a zona cobria 160px e a faixa nao chegava na ponta da
+     * coluna pedida
+     */
+    raioY: 320,
+    sheet: "floresta",
+
+    /** a arte saiu: e a passagem e a luz na parede, como as outras */
+    oculto: true,
+
+    /** sem caixa e sem botao: quem chega na ponta atravessa sozinho */
+    passagem: true,
+
+    /** a luz dourada que marca a saida na parede */
+    brilho: true,
+
+    /**
+     * O PAR: CHEGA NO `portal_vale_retorno`, DO VALE.
+     *
+     * Os dois lados se declaram pelo `id` do outro. Sem isto, a chegada cai
+     * no spawn do mapa — e o jogador aparece no meio do vale, longe da
+     * parede, sem entender por que
+     *
+     * ## E O DESTINO E `mapa_teste`, E NAO `map_2`
+     *
+     * Porque o vale tem nome e id diferentes: o mapa se chama "Vale 1" e o
+     * registro dele e `MAP_TESTE_ID` (`"mapa_teste"`). O nome e o que se le
+     * na HUD, e o id e o que o `findMap` e o `setMap` recebem — e nenhum dos
+     * dois e `map_2`, que e a Floresta Sombria
+     */
+    destino: ID_DO_VALE,
+    chegada: "portal_vale_retorno",
+  },
+];
+
+/**
+ * Os portais da ARENA DO CHEFE.
+ *
+ * ## A PASSAGEM DE SAIDA, NO VAO DA PAREDE DE BAIXO
+ *
+ * A arena tem uma unica saida, e ela fica num buraco que o jogador fez no
+ * `boss.tmj`: entre x=704 e x=1024 a parede de baixo foi aberta
+ *
+ * A posicao nao sai da conta de "parede menos 22" dos outros pares, porque
+ * aqui nao ha parede para encostar: o vao e um buraco, e o jogador desce
+ * por ele. Medido com o colisor de verdade:
+ *
+ * - na altura y=1100 o jogador ocupa x de 738 a 990 (252px de largura util)
+ * - descendo pelo vao, ele chega em y=1118
+ *
+ * O `x` e o meio dos 252px, e o `y` fica um pouco antes do limite, para o
+ * gatilho disparar na descida e nao no fundo do buraco
+ */
+export const BOSS_1_PORTALS = [
+  /**
+   * A SAIDA DE QUEM AINDA NAO MATOU O CHEFE: VOLTA PARA O MAPA 1.
+   *
+   * ## POR QUE A ARENA TEM DOIS PORTAIS NO MESMO VAO
+   *
+   * Pelo mesmo motivo do mapa 1, e pelo mesmo motivo exato: o destino muda
+   * sozinho quando a missao 1.19 e concluida. Quem entra na arena e luta e
+   * desiste volta para o mapa 1; quem mata o Hulk sai para o mapa 2
+   *
+   * E sem isso o jogador que entrasse na arena por curiosidade, sem a
+   * missao em dia, so tinha um caminho: matar o chefe para poder sair. Perder
+   * o progresso inteiro da arena por curiosidade e o pior resultado que um
+   * portal fechado produz
+   *
+   * ## POR QUE ESTE TEM JANELA, E O OUTRO DO VAO TAMBEM
+   *
+   * Porque os dois precisam se EXCLUIR, e nao basta um deles abrir depois
+   * do chefe: enquanto o outro ficar sempre aberto, ele ganha — e a volta
+   * para o mapa 1 continua sendo a primeira da lista
+   */
+  {
+    id: "portal_chefe_saida_volta",
+
+    /** o mesmo vao, o mesmo pixel, o mesmo buraco */
+    x: 864,
+    y: 1100,
+    size: 256,
+    raioY: 128,
+
+    oculto: true,
+    passagem: true,
+    brilho: true,
+
+    /**
+     * O MAPA 1, E O PONTO DE CHEGADA DA PASSAGEM QUE TRAZ O JOGADOR AQUI.
+     *
+     * E o par do `portal_chefe`: aquele traz para a arena, este devolve para
+     * la. Declarar pelo `id` do outro mantem os dois no mesmo lugar sem
+     * ninguem editar coordenada
+     */
+    destino: "map_1",
+    chegada: "portal_chefe",
+
+    /**
+     * FECHA DEPOIS DO CHEFE — E O QUE FAZ OS DOIS SEREM EXCLUSIVOS.
+     *
+     * Sem este `fecha`, os dois portais do vao ficariam abertos depois da
+     * missao 1.19: quem ja matou o Hulk encostaria no vao e voltaria para o
+     * mapa 1, porque este e o primeiro da lista. O `abreNoDegrau: 19` do
+     * outro nao impede isso — os dois NEED se excluem por janela
+     *
+     * Entao o vao tem UM destino por vez:
+     *
+     * - antes da missao 1.19 acabar: so este, e a volta para o mapa 1
+     * - depois dela: so o `portal_chefe_saida`, e a ida para o mapa 2
+     */
+    fechaNoDegrau: 19,
+  },
+
+  {
+    id: "portal_chefe_saida",
+    x: 864,
+    y: 1100,
+    size: 256,
+    raioY: 128,
+
+    oculto: true,
+    passagem: true,
+    brilho: true,
+
+    /**
+     * A SAIDA VAI DIRETO PARA O MAPA 2.
+     *
+     * E o destino pedido: quem sobreviveu ao chefe nao volta para o mapa 1,
+     * ele segue para a Floresta Sombria
+     *
+     * A chegada e a MESMA passagem de topo do mapa 2, a `portal_mapa2` — o
+     * mesmo ponto por onde o mapa 1 chega. Um segundo ponto de chegada seria
+     * duas entradas na mesma parede, e o jogador apareceria em um lugar
+     * diferente conforme veio
+     */
+    destino: "map_2",
+    chegada: "portal_mapa2",
+
+    /**
+     * ABRE SO DEPOIS DO CHEFE — E A CONDICAO INTEIRA DESTA SAIDA.
+     *
+     * "Depois do chefe" e "com a missao 1.19 concluida", que e a mesma coisa:
+     * o degrau global avanca de 18 para 19 quando o Hulk cai. Enquanto o
+     * jogador estiver no 18, esta passagem nao existe e o que sobra no vao e
+     * o `portal_chefe_saida_volta`, que devolve o mapa 1
+     *
+     * Sem este campo, sair da arena SEM matar o chefe jogava o jogador no
+     * mapa 2 e a campanha continuava sem o Hulk — que era o bug
+     */
+    abreNoDegrau: 19,
   },
 ];
 
@@ -235,19 +590,110 @@ export const PORTALS = [
 export const MAP_2_PORTALS = [
   {
     id: "portal_mapa2",
-    x: 178,
-    y: 180,
-    size: PORTAL_SIZE,
-    sheet: "floresta",
+
+    /**
+     * A MESMA FAIXA DO MAPA 1: tiles 9 a 12, no topo.
+     *
+     * O `x` e igual ao do outro lado porque os dois mapas tem as mesmas
+     * dimensoes — 94 tiles de largura — e a faixa pedida e a mesma
+     */
+    x: 11 * 64,
+    size: 256,
+
+    /**
+     * ## POR QUE 86, E NAO OS 150 DO MAPA 1
+     *
+     * Porque a parede do topo do mapa 2 tem OUTRA espessura. E o objeto
+     * `id: 2` do `map_2.tmj`, em (-64, -128) com 6336x192: a borda de baixo
+     * fica em y=64, e nao em 128 como no mapa 1
+     *
+     * O jogador encosta em 64 + 34 = 98, e a passagem fica 22px abaixo da
+     * borda, em 86
+     *
+     * Copiar os 150 do mapa 1 deixaria a zona em 86..214 com o jogador
+     * parado em 98 — ainda dentro, por sorte. Mas a 3 tiles de folga em vez
+     * de 12px e o tipo de margem que some quando a parede muda
+     */
+    y: 86,
+    raioY: 128,
+
+    /** a arte saiu: e a passagem e a luz na parede */
+    oculto: true,
+
+    /** sem caixa e sem botao: quem chega na ponta atravessa sozinho */
+    passagem: true,
+
+    /** a luz dourada que marca a saida na parede */
+    brilho: true,
 
     /**
      * A VOLTA PARA O MAPA 1.
      *
-     * E o par do `portal_floresta`: ele traz o jogador para o
-     * `portal_mapa2`, e este devolve
+     * Sem `exigeMissaoDe` de proposito: a trava e a da IDA, no
+     * `portal_floresta`. Quem volta nao pode ser barrado pela campanha
      */
     destino: "map_1",
     chegada: "portal_floresta",
+  },
+];
+
+/**
+ * A PASSAGEM DE VOLTA, NA PAREDE DIREITA DO VALE.
+ *
+ * ## POR QUE O `x` NAO E `94 * 64 - 62`, COMO NO MAPA 1
+ *
+ * Porque no vale a parede NAO e um limite de `bounds`: e um objeto da
+ * camada `PAREDES` do `vale.tmj`, o de `id: 1`, em (5952, -64) com
+ * 128x4800. O `bounds` deixaria o jogador chegar em 5942, e a parede o segura
+ * 24px antes — em 5918
+ *
+ * Com a passagem em 5954 a zona abria em 5930, e o jogador nunca entrava
+ * nela: nascia uma parede que nao teleporteia. E o mapa 1 nao tem esse
+ * problema porque, na altura da passagem dele (y=3456), o `dungeon.tmj` nao
+ * tem parede nenhuma — la quem limita mesmo e o `bounds`
+ *
+ * ## A CONTA
+ *
+ * Parede em 5952, menos 22 de folga: a passagem fica em 5930 e a zona abre
+ * em 5906. O jogador encosta em 5918, que esta dentro
+ */
+export const VALE_PORTALS = [
+  {
+    id: "portal_vale_retorno",
+    x: 5952 - 22,
+    y: 33 * 64,
+    size: 48,
+
+    /**
+     * A ALTURA INTEIRA DA FAIXA: cinco tiles, 320px.
+     *
+     * O `portalSobOsPets` le `(raioY ?? size) / 2`, entao e a altura toda que
+     * vai no campo — a metade sai da conta
+     */
+    raioY: 320,
+    sheet: "floresta",
+
+    /**
+     * A ARTE NAO E DESENHADA.
+     *
+     * O vale nao tem arte de portal: a saida e a luz na parede, como nos
+     * outros dois pares
+     */
+    oculto: true,
+
+    /** Sem caixa e sem botao: quem chega na ponta atravessa sozinho */
+    passagem: true,
+
+    /** a luz dourada que marca a saida na parede */
+    brilho: true,
+
+    /**
+     * A VOLTA PARA O MAPA 1.
+     *
+     * O par e o `portal_vale`, do lado esquerdo do mapa 1
+     */
+    destino: "map_1",
+    chegada: "portal_vale",
   },
 ];
 
@@ -270,73 +716,125 @@ export const MAP_2_PORTALS = [
  * os mapas vem na proxima etapa
  */
 export const BASE_PORTALS = [
+  /**
+   * A PASSAGEM DA BASE, SEM ARTE E COM ENTRADA AUTOMATICA.
+   *
+   * ## O QUE MUDOU NESTE OBJETO
+   *
+   * A imagem saiu (`oculto`) e o portal passou a `passagem`: quem chega na
+   * ponta da luz e levado sozinho, sem box e sem botao. A `posicao` e a
+   * destino continuam EXATAMENTE como antes — e isso e o que mantem o par com
+   * o `portal_pantano` do vale sem ninguem editar numero nos dois lados
+   *
+   * ## POR QUE O OBJETO CONTINUA SENDO UM PORTAL, E NAO UM DADO NOVO
+   *
+   * Porque o SERVIDOR valida a travessia chamando `portalSobOsPets()`, que e
+   * o mesmo metodo do cliente: os dois lados leem `world.portals` e medem a
+   * distancia ate o centro. Um portal aqui nao e so desenho — e a REGRA que
+   * o servidor confere antes de trocar o mapa de alguem
+   *
+   * Se este objeto saisse da lista, o servidor passaria a recusar a
+   * travessia por nao encontrar portal sob o jogador, e o teleporte
+   * automatico nunca aconteceria
+   */
   {
     id: "portal_hub",
 
     /**
-     * (1475, 588), A MESMA POSICAO DE ANTES.
+     * A PASSAGEM FICA ONDE O JOGADOR ENCOSTA NA PAREDE.
      *
-     * O mapa da base foi redesenhado no Tiled e passou por 400x400 no meio do
-     * caminho, mas voltou para 1680 de largura — e 1475 e a posicao em que o
-     * portal foi colocado para caber na base de verdade, com os 192px dele
-     * inteiros dentro dos 1680
+     * ## POR QUE `1602`, E NAO A BORDA DO MAPA
+     *
+     * Porque o jogador NUNCA chega na borda. Os `bounds` da base vao de 40 a
+     * `40 + (26 * 64 - 80) = 1624`, e o `CollisionSystem` ainda desconta o
+     * raio do boneco (22px): o centro dele para em `1624 - 22 = 1602`.
+     *
+     * Com o portal no meio da parede (1664), a zona de 16px iria de 1656 a
+     * 1672 — e o jogador, preso em 1602, nunca chegaria nela. O teleporte
+     * estava correto no codigo e IMPOSSIVEL no jogo
+     *
+     * ## E POR QUE `1602` E `26 * 64 - 62`, E NAO O NUMERO CRU
+     *
+     * Porque a conta do raio e do `bounds` e do `CollisionSystem`. Escrever
+     * `1602` fixo na base de hoje funciona e para de funcionar no dia em que
+     * a base ganhar uma coluna ou o boneco mudar de tamanho — e o teleporte
+     * voltaria a nunca disparar, sem erro nenhum no console. A conta deixa a
+     * relacao visivel: e a parede, menos o raio de quem anda ate ela
+     *
+     * ## E A VALIDACAO DO SERVIDOR CONTINUA PEGANDO
+     *
+     * Porque os dois lados medem com `portalSobOsPets`, a MESMA conta: a zona
+     * e um circulo de diametro `size` em volta do centro. Com o centro em
+     * 1602 e o jogador encostando em 1602, a distancia e zero — o que o
+     * cliente pede e exatamente o que o servidor mede
      */
-    x: 1475,
-    y: 588,
+    x: 26 * 64 - 62,
+    y: 9 * 64,
 
     /**
-     * O PORTAL DA BASE E MENOR QUE O DO VALE.
+     * ## E O `size` NAO PODE SER MENOR QUE O RAIO DO JOGADOR
      *
-     * `PORTAL_SIZE` de 192px foi desenhado para o vale, que e de 6000x4200 —
-     * num mapa daquele tamanho um portal de 192 e uma marca de chegada. Na
-     * base, que e de 1680x1168, o mesmo portal comia 11% da largura, ao lado
-     * dos NPCs de ~100px, e ficava maior que tudo o que ele deveria levar o
-     * jogador ate
+     * Porque o jogador NAO encosta na parede: o colisor o segura a 34px de
+     * distancia, e na base ele para em x=1590 com a passagem em 1602. Com
+     * `size: 16` a zona so comecava em 1594 — 4px depois de onde o jogador
+     *consegue ficar, e a conta da elipse dava 2.25: a passagem nao existia
+     * para ninguem, e o auto encravava nela
      *
-     * E so este portal que muda: `PORTAL_SIZE` continua 192 para o vale e para
-     * o mapa 2. O campo `size` e por portal justamente para isso — mudar a
-     * constante encolheria os tres de uma vez
+     * Com `size: 48` a zona abre em 1578 e o jogador entra nela 24px antes da
+     * parede, com folga para o raio de colisao
+     *
+     * Quem le este campo e o `portalSobOsPets`, dos DOIS lados
      */
-    size: 120,
+    size: 48,
+    raioY: 128,
     sheet: "hub",
 
     /**
-     * PARA ONDE ESTE PORTAL VAI.
+     * A ARTE NAO E DESENHADA.
      *
-     * E o unico portal LIGADO por enquanto: o hub sai para o vale. Os
-     * dois do vale nao tem destino e por isso nao mostram a box — um
-     * portal sem `destino` e um enfeite, e e assim que eles continuam
-     *
-     * O valor e o `id` de um mapa do registro, e nao um nome. O nome que
-     * aparece na box vem de `getMap(destino).name`, para o texto da tela
-     * e o mapa do mundo nunca poderem divergir
+     * Quem respeita isto e o `PortalRenderer`. Sem o campo, o portal seria
+     * desenhado do mesmo jeito — e a imagem antiga ficaria exatamente em cima
+     * da luz nova, que e o que se pediu para tirar
      */
-    destino: "map_1",
+    oculto: true,
 
     /**
-     * ONDE CHEGA, do outro lado.
+     * ESTE PORTAL E UMA PASSAGEM, E NAO UM PORTAL DE PE.
      *
-     * E o `id` de um portal do mapa de destino, e nao uma coordenada.
-     * Chegar "no portal 1" e chegar "perto do portal 1" sao coisas
-     * diferentes: quando o portal se mover, ou quando outro for ligado
-     * no mesmo lugar, o ponto de chegada accompany sem ninguem editar
-     * numero nenhum
+     * E o que desliga a box e o botao. Sem este campo o jogador ainda
+     * receberia `portal` no painel e veria a caixa de travel ao chegar perto
+     * — e a caixa e o botao sairam de proposito: quem chega na ponta passa
+     * sozinho, e um botao offerta seria um caminho que nao teleporta
      *
-     * E o primeiro portal do vale, o `portal_pantano`. Sem este campo
-     * a chegada seria o spawn do mapa, que e o meio do vale — o jogador
-     * atravessaria o portal e apareceria a tres mil pixels dele, sem
-     * entender de onde veio
-     *
-     * Um `chegada` que nao exista no mapa de destino cai no spawn: e
-     * melhor aparecer no meio do mapa do que nao atravessar
+     * Quem respeita isto e o `dadosDoPortalNoPe`
      */
+    passagem: true,
+
+    destino: "map_1",
     chegada: "portal_pantano",
+
+    /**
+     * ESTA PASSAGEM TEM LUZ NA PAREDE.
+     *
+     * E o que faz o `drawBrilhoDaPassagem` pintar aqui. A base tem o mesmo
+     * campo: as duas passagens do jogo acendem a mesma luz dourada, e o
+     * efeito se posiciona pelo `x`/`y` do portal
+     */
+    brilho: true,
   },
 
   /**
    * O VORTICE NOVO, no tile (15, 0) da base.
    *
-   * ## A CONTA DA POSICAO
+   * ## ESTE PORTAL FOI SUBSTITUIDO PELA PASSAGEM ACIMA
+   *
+   * Ele foi a primeira tentativa de ligar a base, com a arte de 256px. O que
+   * substitute foi a luz da borda: a imagem ocupava o meio do calcamento e o
+   * jogador pisava nela para abrir a caixa, e agora ele chega andando e
+   * atravessa sozinho. O objeto fica comentado porque a arte `novo` continua
+   * registrada em `PORTAL_SHEETS` e pode voltar em outra posicao
+   *
+   * ## A CONTA DA POSICAO, SE ELE VOLTAR
    *
    * A base tem tile de 64px e 26x18 de grade, e o `PortalRenderer` trata `x` e
    * `y` como o CENTRO do portal — ele desenha a partir de `x - size / 2`. O

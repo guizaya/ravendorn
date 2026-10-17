@@ -1,5 +1,5 @@
 import { randomUUID } from "node:crypto";
-import { GameEngine } from "../../../src/game/engine/GameEngine.js";
+import { GameEngine, marcarChefeVencido } from "../../../src/game/engine/GameEngine.js";
 import { createPlayerSession } from "../../../src/game/engine/PlayerSession.js";
 import { CHARACTER_CLASSES } from "../../../src/data/characters/index.js";
 import {
@@ -25,6 +25,12 @@ import {
   snapshotMarket,
 } from "../../../src/game/market/MarketStore.js";
 import { GuildStore } from "../../../src/game/guild/GuildStore.js";
+import {
+  ExpeditionStore,
+  EXPEDICAO_MAX_MEMBROS,
+  EXPEDICAO_ERROS,
+} from "../../../src/game/boss/ExpeditionStore.js";
+import { chefePorId } from "../../../src/data/bosses/index.js";
 import { PartyStore, PARTY_INVITE_TTL } from "./PartyStore.js";
 import { createRandom } from "../../../src/data/maps/index.js";
 import { registrarTilesDoDisco } from "../maps/tilesDoDisco.js";
@@ -285,6 +291,23 @@ export class GameServer {
     });
 
     /**
+     * AS EXPEDIÇÕES DO CHEFE: o quarto estado compartilhado.
+     *
+     * Uma instância só, pelo mesmo motivo da guilda e da party: uma expedição
+     * criada por um jogador PRECISA aparecer para os outros, e isso só
+     * acontece se os dois lados lerem o mesmo `Map`. Com um store por motor, o
+     * botão "entrar" apontaria para um grupo que o outro cliente nunca ouviu
+     * falar
+     *
+* E o `agora` é injetado como na guilda: o store usa `Date.now()` para
+    * gerar id, e um teste que anda o relógio precisa poder controlar isso
+     */
+    this.expedicoes = new ExpeditionStore({
+      agora: config.agora ?? (() => Date.now()),
+      maximo: EXPEDICAO_MAX_MEMBROS,
+    });
+
+    /**
      * A PARTY: o terceiro estado compartilhado.
      *
      * Mora no servidor e tem uma unica copia, pelo mesmo motivo da
@@ -366,6 +389,13 @@ export class GameServer {
          * o motor so pergunta quem mais esta no grupo
          */
         partyStore: this.parties,
+        /**
+         * A expedição entra pelo MESMO caminho da guilda e da party: injetada,
+         * e o motor só pergunta. Quem cria, entra e dissolve é o
+         * `ExpeditionStore` — o que garante que a lista que o painel recebe é a
+         * mesma que os outros clientes estão vendo
+         */
+        expeditionStore: this.expedicoes,
 
         /**
          * OS PERSONAGENS EM DISCO, para o rank mostrar offline.
@@ -2956,6 +2986,40 @@ travessarPortal(portalId, sessao = null) {
 if (emCima.portal.id !== portalId) return false;
 
     /**
+     * A ARENA ACEITA UMA PESSOA DE CADA VEZ.
+     *
+     * ## POR QUE A TRAVA FICA AQUI, E NAO NO `createBosses`
+     *
+     * Porque o chefe por jogador resolve a VIDA, e nao o ACESSO. Sem esta
+     * trava, dois jogadores na arena teriam dois Hulks com vida separada e
+     * lutando ao mesmo tempo no mesmo pixel — cada um so vendo o dele, e
+     * cada um ENTITY_atacando o dono. Os dois bonecos brigando com um Hulk
+     * invisivel e o pior defeito de jogo que existe, e e melhor nao deixar
+     * a situacao existir
+     *
+     * ## POR QUE SO A ARENA
+     *
+     * Porque a arena tem `bossPorJogador`, e o resto dos mapas tem chefe
+     * compartilhado de proposito: o vale e feito para dois caçarem o mesmo
+     * guardian. Travar todo mapa com chefe ia transformar a campanha em
+     * fila
+     *
+     * ## E O JOGADOR QUE ESTA JA DENTRO
+     *
+     * A sessao que esta tentando sair para fora e contada como presente, e
+     * assim ela nao tranca a si mesma
+     */
+    if (emCima.destino?.id === ARENA_ID && this.arenaOcupadaPor(sessao)) {
+      this.avisoDoDono(
+        sessao,
+        "Tem alguem lutando na arena. Tente de novo quando ele sair.",
+        true,
+      );
+
+      return false;
+    }
+
+    /**
      * A TRAVA, e a RECUSA COM MOTIVO.
      *
      * O `engine.travessarPortal` tambem confere a trava, mas ele so
@@ -3663,15 +3727,85 @@ const stack =
      ------------------------------------------------------------------ */
 
   /**
-   * LIGA O GANCHO DE "CHEFE CAIU" AO MOTOR.
+   * A ARENA JA TEM ALGUEM, E NAO E A SESSAO QUE PERGUNTA?
    *
-   * E aqui e nao no construtor porque a arena nao e um conceito do
-   * motor: ele so avisa que um chefe caiu, e quem sabe o que fazer com a
-   * arena e este servidor, que e quem tem as sessoes
+   * ## POR QUE PERCORRE `clients`, E NAO O `world.players` DO MOTOR
+   *
+   * Porque `world.players` e o elenco do mapa em FOCO no ultimo quadro. A
+   * pergunta "quem esta na arena" e sobre o estado de cada sessao, e nao
+   * sobre o que o motor tem em memoria agora — um jogador parado em outro
+   * mapa pode ter a arena como destino salvo e nao estar la
+   *
+   * E pelas CHAVES, pelo mesmo motivo do `expulsarDaArena`: `clients` e um
+   * `Map` guardado ao contrario, e o valor e um `true` de presenca
+   *
+   * @param {object} sessao a sessao que esta perguntando
+   * @returns {boolean} `true` se tem OUTRO jogador dentro da arena
    */
+  arenaOcupadaPor(sessao) {
+    for (const client of this.clients.keys()) {
+      const outra = client.session;
+
+      if (!outra || outra === sessao) continue;
+      if (outra.mapId !== ARENA_ID) continue;
+
+      return true;
+    }
+
+    return false;
+  }
+
   conectarChefe() {
+    /**
+     * A VITORIA NAO TIRA NINGUEM DA ARENA.
+     *
+     * ## O QUE MUDOU
+     *
+     * Este gancho chamava `expulsarDaArena`, que devolvia todo mundo ao
+     * `arenaOrigem` com o aviso "O chefe caiu. Voce voltou para onde
+     * estava". Agora ele so avisa
+     *
+     * ## POR QUE
+     *
+     * Porque a arena tem uma SAIDA: o vao aberto na parede de baixo, com a
+     * passagem que leva direto para o mapa 2. E porque a entrada deixou de
+     * ser o botao da HUD e passou a ser a passagem do topo do mapa 1 — ou
+     * seja, ninguem tem mais `arenaOrigem`, e a expulsao nao tinha destino
+     * para onde mandar ninguem
+     *
+     * ## POR QUE O JOGADOR FICA, E O AVISO DIZ PARA ONDE IR
+     *
+     * Porque expulsar e o oposto do que a arena faz. O jogador lutou ate o
+     * fim, ganhou a missao 1.19, e ser jogado de volta para o mapa da
+     * briga seria desfezer a vitoria com uma teletransporte. Ele sai andando,
+     * pelo vao, para o mapa 2 — que e onde a campanha continua
+     */
     this.engine.onChefeDerrotado = ({ map }) => {
-      this.expulsarDaArena(map?.id);
+      if (!map?.id) return;
+
+      for (const client of this.clients.keys()) {
+        const sessao = client.session;
+
+        if (!sessao || sessao.mapId !== map.id) continue;
+
+        /**
+         * O CHEFE NAO VOLTA PARA ESTE JOGADOR.
+         *
+         * E o que separa "derrotar o chefe" de "abater o chefe tres vezes".
+         * O `createBosses` le este registro antes de montar a criatura, e
+         * devolve uma lista vazia para quem ja venceu — entao a arena que o
+         * jogador reencontra nao tem Hulk
+         *
+         * E por SESSAO, e nao global: o chefe e por jogador, e o registro
+         * tambem. Dois podem ter feito a mesma luta em epocas diferentes
+         */
+        marcarChefeVencido(sessao.id, map.id);
+
+        this.avisoDoDono(
+          sessao,
+          "O chefe caiu. A saida fica no vao da parede de baixo.",
+        );
+      }
     };
   }
 
@@ -4798,6 +4932,94 @@ case PANEL_OPS.DASH:
           this.engine.focusQuest(pedido.questId);
           break;
 
+        case PANEL_OPS.CREATE_EXPEDITION: {
+          /**
+           * CRIAR A EXPEDIÇÃO DO CHEFE.
+           *
+           * ## POR QUE A CHEGADA NA PARTY É AQUI E NÃO NO STORE
+           *
+           * Porque o `ExpeditionStore` não conhece party. São dois estados
+           * diferentes — a expedition é um ACORDO de intenção sobre um chefe, e
+           * a party é um grupo que anda pelo mundo junto, com loot dividido. O
+           * store que sabe dos dois é este `GameServer`, e é aqui que a regra
+           * "não nos dois ao mesmo tempo" fica
+           *
+           * E a regra é real: estar numa expedition não tira o jogador da
+           * party, e o inverso também não. Quem está numa party com o grupo já
+           * formado não pode entrar numa expedition, e o caminho é sair da
+           * party primeiro — que é o botão que ele já tem na HUD
+           *
+           * ## E POR QUE O CHEFE É CONFERIDO CONTRA O CATÁLOGO
+           *
+           * Porque o id vem do cliente, e é dado não confiável como todo o
+           * resto do pedido. Sem esta conferência um cliente alterado criaria
+           * "expedição do chefe Khaos", e ela apareceria na busca dos outros
+           * apontando para uma tela que não abre
+           */
+          if (this.parties.partyDe(sessao?.id)) {
+            this.engine.marcarErroDaExpedicao(EXPEDICAO_ERROS.EM_PARTY);
+            break;
+          }
+
+          const chefeId = chefePorId(pedido.expedicaoChefe)
+            ? pedido.expedicaoChefe
+            : null;
+
+          const criacao = this.expedicoes.criar({
+            jogadorId: sessao?.id ?? null,
+            jogadorNome: sessao?.name ?? sessao?.definition?.name ?? "",
+            chefeId,
+            dificuldade: pedido.expedicaoDificuldade,
+          });
+
+          this.engine.marcarErroDaExpedicao(criacao.erro ?? null);
+          break;
+        }
+
+        case PANEL_OPS.JOIN_EXPEDITION: {
+          /**
+           * A MESMA TRAVA DA CRIAÇÃO, e pela mesma razão.
+           *
+           * Entrar numa expedição é o mesmo compromisso que criar uma: o
+           * jogador vai estar com aquele grupo numa hora marcada. Ficar com os
+           * dois ao mesmo tempo é o estado sem Meaning nenhum, e é o tipo de
+           * coisa que o jogador não percebe até estar longe do chefe tentando
+           * decidir de qual lado está
+           */
+          if (this.parties.partyDe(sessao?.id)) {
+            this.engine.marcarErroDaExpedicao(EXPEDICAO_ERROS.EM_PARTY);
+            break;
+          }
+
+          const entrada = this.expedicoes.entrar({
+            jogadorId: sessao?.id ?? null,
+            expedicaoId: pedido.expedicaoId,
+          });
+
+          this.engine.marcarErroDaExpedicao(entrada.erro ?? null);
+          break;
+        }
+
+        case PANEL_OPS.LEAVE_EXPEDITION: {
+          const saida = this.expedicoes.sair({
+            jogadorId: sessao?.id ?? null,
+            expedicaoId: pedido.expedicaoId,
+          });
+
+          this.engine.marcarErroDaExpedicao(saida.erro ?? null);
+          break;
+        }
+
+        case PANEL_OPS.DISBAND_EXPEDITION: {
+          const fim = this.expedicoes.dissolver({
+            jogadorId: sessao?.id ?? null,
+            expedicaoId: pedido.expedicaoId,
+          });
+
+          this.engine.marcarErroDaExpedicao(fim.erro ?? null);
+          break;
+        }
+
         case PANEL_OPS.ACCEPT_SIDE_QUEST:
           this.engine.acceptSideQuest(pedido.questId);
           break;
@@ -5205,6 +5427,38 @@ case PANEL_OPS.DASH:
         case PANEL_OPS.TELEPORTAR:
           this.engine.teleportarParaOFim();
           break;
+
+        /**
+         * ANDA ATÉ O NPC, para abrir o painel dele.
+         *
+         * ## POR QUE SÓ O ID CHEGA AO MOTOR
+         *
+         * O pedido traz `npcId` e nada mais, e o motor procura esse NPC no
+         * MUNDO DELE. Se o cliente mandasse `x`/`y`, qualquer um se mandaria
+         * para o ponto que quisesse — e, pior, por dentro de parede
+         *
+         * ## E POR QUE UM `id` INVALIDO NÃO É ERRO
+         *
+         * Porque ele já pode ter sumido: o jogador clicou num mercador, o
+         * NPC foi removido do mapa naquele instante, e o pedido chegou um
+         * tique depois. O `find` do motor não acha ninguém, a caminhada não
+         * começa, e o jogador fica parado — que é o que ele veria de qualquer
+         * forma
+         *
+         * E os campos vem de `pedido`, e não de `op`: o `op` e a STRING do
+         * comando, e e o `switch (op)` que compara com o `PANEL_OPS`. Os
+         * dados do pedido (`pedido.uid`, `pedido.slotId`) moram no objeto
+         * de fora
+         */
+        case PANEL_OPS.IR_ATE_NPC: {
+          const npcId = pedido.npcId;
+
+          if (typeof npcId === "string" && npcId.length > 0) {
+            this.engine.irAteNpc(npcId);
+          }
+
+          break;
+        }
 
         // a loja do mercador tambem e do motor, e nao do bloco do
         // mercado acima: so uma sessao entra nesta conta
@@ -6556,6 +6810,23 @@ case PANEL_OPS.DASH:
     const py = client?.session?.player?.y ?? 0;
 
     for (const inimigo of this.engine.world.enemies) {
+      /**
+       * O CHEFE DE OUTRO JOGADOR NAO ENTRA NO SEU PACOTE.
+       *
+       * A arena cria um Hulk por sessao, e cada um e um objeto separado com
+       * a vida dele. Sem este filtro, o jogador receberia a barra do chefe
+       * do outro — e, pior, o `id` do chefe alheio no mesmo pacote
+       *
+       * E o filtro e por DONO, e nao por mapa: todo mundo na arena ve a
+       * arena, mas so ve o proprio chefe
+       *
+       * O `!== undefined` e o que mantem o resto do jogo intacto: um mob
+       * comum nao tem `sessaoDe`, e ele passa
+       */
+      if (inimigo.sessaoDe !== undefined && inimigo.sessaoDe !== client?.session?.id) {
+        continue;
+      }
+
       const dx = inimigo.x - px;
       const dy = inimigo.y - py;
 

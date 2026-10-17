@@ -66,15 +66,28 @@ const DEGRAUS = [
   [-0.851, -0.608, -0.365, -0.121, 0.121, 0.365, 0.608, 0.851],
   [-0.6, -0.2, 0.2, 0.6],
   [0],
-  [-0.45, 0, 0.45],
-  [-0.7, -0.23, 0.23, 0.7],
+
+  /**
+   * ## O ESPELHO DA FUNDAÇÃO
+   *
+   * Os quatro degraus de baixo repetem, na ordem inversa, a construção dos
+   * quatro de cima: 4 nós, 8 nós, 4 nós, e o ramo geral fechando. O X de cada
+   * linha é o da linha correspondente de cima, o que faz o desenho abrir e
+   * fechar duas vezes com a mesma silhueta
+   *
+   * Antes these three degrees eram uma fileira chapada de 3, outra de 4 e o
+   * ramo geral — e a única parte da árvore que não era um funil
+   */
+  [-0.6, -0.2, 0.2, 0.6],
+  [-0.851, -0.608, -0.365, -0.121, 0.121, 0.365, 0.608, 0.851],
+  [-0.78, -0.26, 0.26, 0.78],
 
   /**
    * O DEGRAU DAS HABILIDADES GERAIS.
    *
    * E o unico degrau que NAO pertence a uma classe: os quatro nos aqui sao os
    * mesmos para o guerreiro, o lancer, a feiticeira e a arqueira. Eles abrem
-   * depois da Fundacao de qualquer uma delas
+   * depois das quatro convergencias de qualquer uma delas
    *
    * O X abre mais que a linha de baixo porque e onde a arvore ja terminou o
    * caminho da classe e sobra largura para o ramo geral
@@ -92,13 +105,21 @@ const REGRAS_DEGRAU = [
   { nivel: 26, custo: 6 },
 
   /**
+   * A CONVERGENCIA DE BAIXO E A MAIS CARA DO CAMINHO DA CLASSE.
+   *
+   * Custa mais que a de cima porque e a ultima porta antes do ramo geral: e
+   * aqui que o jogador decide se ainda quer fechar os quatro ramos
+   */
+  { nivel: 30, custo: 7 },
+
+  /**
    * O DEGRAU GERAL E O MAIS CARO, e o ultimo a abrir.
    *
    * Nao por ser o mais forte, e porque chega depois de tudo: quem chegou ate
    * aqui ja pagou a classe inteira, e o ramo geral fecha o personagem. Com
    * custo menor, a Foundation de qualquer classe seria mais barata que ela
    */
-  { nivel: 30, custo: 7 },
+  { nivel: 36, custo: 9 },
 ];
 
 /**
@@ -110,14 +131,19 @@ const REGRAS_DEGRAU = [
  * inteira de uma vez: o `x` de cada nó sai do X normalizado vezes a METADE
  * da largura, entao o mesmo desenho fica mais estreito sem recalcular nada
  *
- * ## E POR QUE A ALTURA SUBIU PARA 980
+ /**
+ * ## E POR QUE A ALTURA SUBIU PARA 1120
  *
  * Porque estreitar sem alongar daria uma coluna espremida. O desenho é um
- * funil: com menos largura e a mesma altura, os sete degraus ficariam
- * espremidos em cima uns dos outros. Mais altura compra o ar vertical que a
- * largura perdida tirou
+ * funil que agora fecha DUAS vezes — o da classe descendo até a Fundação e o
+ * dos ramos subindo até o ramo geral — e são oito degraus em vez de sete.
+ * Com a altura antiga de 980, os 980px eram divididos em 6 vãos; são agora 7,
+ * e cada vão passaria a 111px contra os 130px que o hexágono de 84px precisa
+ * para a linha do `comprados/total` caber embaixo sem encostar no de baixo
+ *
+ * 1120 devolve os 130px exatos de vão
  */
-export const PALCO = { largura: 550, altura: 980 };
+export const PALCO = { largura: 550, altura: 1120 };
 
 /**
  * O TAMANHO DO NÓ, e ele é o que o palco de 550 dita.
@@ -128,6 +154,16 @@ export const PALCO = { largura: 550, altura: 980 };
  * 550 do palco, antes de qualquer folga. Com 54, oito nós ocupam 432 e
  * sobram 118 para sete folgas de 13px
  *
+ * ## POR QUE `alto` É IGUAL A `largo`
+ *
+ * Porque o nó virou BOLA, e uma bola é redonda. Com `alto` maior que `largo`
+ * sobraria uma elipse, e o `meiaAltura` — que é o raio com que a ligação sai
+ * do nó — passaria afurá-la em cima e em baixo: a linha entraria no desenho em
+ * vez de encostar nele
+ *
+ * O `alto` continua existindo como campo, e não como constante: o CSS do nó
+ * lê o mesmo par, e um dia a bola pode voltar a ser oval sem tocar na fórmula
+ *
  * ## E POR QUE A FUNDAÇÃO É MAIOR
  *
  * Porque é onde o desenho junta e o olho precisa achar o centro sem ler
@@ -136,9 +172,9 @@ export const PALCO = { largura: 550, altura: 980 };
  */
 export const TAMANHO_DO_NO = {
   largo: 54,
-  alto: 60,
+  alto: 54,
   fundacaoLargo: 66,
-  fundacaoAlto: 74,
+  fundacaoAlto: 66,
 };
 
 /**
@@ -251,16 +287,51 @@ const CATALOGO = {
       },
     ],
     fundacao: n("Fundacao", "🗿", { maxHp: 14, defense: 9 }),
-    abaixo: [
-      n("Postura", "🛡", { defense: 6 }),
-      n("Folego", "🫁", { maxHp: 8 }),
-      n("Instinto", "👁", { speed: 6 }),
-    ],
-    base: [
-      n("Aco", "🗡", { attack: 5 }),
-      n("Couro", "🥋", { maxHp: 5 }),
-      n("Grito", "📢", { attack: 3, defense: 3 }),
-      n("Passada", "👣", { speed: 5 }),
+
+    /**
+     * OS QUATRO RAMOS DE BAIXO, no espelho dos quatro troncos de cima.
+     *
+     * Cada um abre em dois filhos e fecha em uma convergência, exatamente
+     * como o tronco faz na descida. O nome de cada ramo é o eixo que ele
+     * trabalha, e os filhos saem os dois bonus do eixo com o valor dobrado
+     */
+    ramos: [
+      {
+        nome: "Muralha",
+        icone: "🛡",
+        bonus: { defense: 8 },
+        filhos: [
+          { no: n("Couro Escuro", "🧥", { defense: 12 }), neto: n("Bastiao", "🏰", { defense: 5 }) },
+          { no: n("Placas", "🪨", { maxHp: 16 }), neto: n("Pedra Bruta", "🪓", { maxHp: 5 }) },
+        ],
+      },
+      {
+        nome: "Furia",
+        icone: "⚔",
+        bonus: { attack: 7 },
+        filhos: [
+          { no: n("Golpe Pesado", "🪓", { attack: 14 }), neto: n("Executar", "💀", { attack: 5 }) },
+          { no: n("Rugido", "📢", { attack: 8, maxHp: 8 }), neto: n("Grito Longo", "🗣", { attack: 4 }) },
+        ],
+      },
+      {
+        nome: "Passo",
+        icone: "👣",
+        bonus: { speed: 8 },
+        filhos: [
+          { no: n("Arrancada", "💨", { speed: 14 }), neto: n("Investida", "🐎", { speed: 5 }) },
+          { no: n("Giro", "🌀", { speed: 9, defense: 6 }), neto: n("Rodopio", "🔄", { speed: 5 }) },
+        ],
+      },
+      {
+        nome: "Coracao",
+        icone: "❤",
+        bonus: { maxHp: 9 },
+        filhos: [
+          { no: n("Folego", "🫁", { maxHp: 16 }), neto: n("Vigor", "💪", { maxHp: 5 }) },
+          { no: n("Instinto", "👁", { defense: 7, speed: 5 }), neto: n("Presa", "🦷", { defense: 4 }) },
+        ],
+      },
     ],
   },
 
@@ -308,16 +379,44 @@ const CATALOGO = {
       },
     ],
     fundacao: n("Fundacao", "🏛", { maxHp: 12, attack: 6 }),
-    abaixo: [
-      n("Postura", "🦵", { attack: 5 }),
-      n("Folego", "🫁", { maxHp: 8 }),
-      n("Visao", "🔭", { speed: 6 }),
-    ],
-    base: [
-      n("Lanca", "➶", { attack: 5 }),
-      n("Couro", "🥋", { maxHp: 5 }),
-      n("Grito", "📢", { attack: 3, defense: 3 }),
-      n("Passada", "🦵", { speed: 5 }),
+
+    ramos: [
+      {
+        nome: "Presa",
+        icone: "🐍",
+        bonus: { attack: 8 },
+        filhos: [
+          { no: n("Estocada Profunda", "🗡", { attack: 13 }), neto: n("Perfurar", "🕳", { attack: 5 }) },
+          { no: n("Lanca Longa", "➶", { attack: 9, speed: 6 }), neto: n("Ponta Extra", "🔱", { attack: 4 }) },
+        ],
+      },
+      {
+        nome: "Couraça",
+        icone: "🛡",
+        bonus: { defense: 8 },
+        filhos: [
+          { no: n("Pele Dura", "🩸", { defense: 13 }), neto: n("Casco", "🐚", { defense: 5 }) },
+          { no: n("Escamas", "🐉", { maxHp: 15 }), neto: n("Muda", "🦎", { maxHp: 5 }) },
+        ],
+      },
+      {
+        nome: "Alento",
+        icone: "🫁",
+        bonus: { maxHp: 9 },
+        filhos: [
+          { no: n("Respiracao", "🌬", { maxHp: 17 }), neto: n("Pulmao Cheio", "🫀", { maxHp: 5 }) },
+          { no: n("Visao de Alcance", "🔭", { speed: 7 }), neto: n("Mirada", "👁", { speed: 4 }) },
+        ],
+      },
+      {
+        nome: "Giro",
+        icone: "🔄",
+        bonus: { speed: 8 },
+        filhos: [
+          { no: n("Rodopio", "🌀", { speed: 13 }), neto: n("Redemoinho", "🌪", { speed: 5 }) },
+          { no: n("Recuo", "🦵", { speed: 8, defense: 6 }), neto: n("Contra-Golpe", "🔙", { defense: 4 }) },
+        ],
+      },
     ],
   },
 
@@ -365,16 +464,44 @@ const CATALOGO = {
       },
     ],
     fundacao: n("Fundacao", "🧿", { resource: 18, maxHp: 8 }),
-    abaixo: [
-      n("Foco", "🎯", { attack: 5 }),
-      n("Reserva", "🫗", { resource: 8 }),
-      n("Reflexo", "🌀", { speed: 6 }),
-    ],
-    base: [
-      n("Cetro", "🔮", { attack: 5 }),
-      n("Manto", "🧥", { defense: 4, maxHp: 4 }),
-      n("Sussurro", "💬", { attack: 3, resource: 3 }),
-      n("Leveza", "🪶", { speed: 5 }),
+
+    ramos: [
+      {
+        nome: "Fluxo",
+        icone: "🔮",
+        bonus: { resource: 9 },
+        filhos: [
+          { no: n("Circuito Fechado", "🔋", { resource: 16 }), neto: n("Fluxo Pleno", "🌊", { resource: 5 }) },
+          { no: n("Canal Direto", "⚡", { resource: 10, attack: 6 }), neto: n("Descarga", "🔌", { resource: 4 }) },
+        ],
+      },
+      {
+        nome: "Brasa",
+        icone: "🔥",
+        bonus: { attack: 8 },
+        filhos: [
+          { no: n("Combustao", "🕯", { attack: 13 }), neto: n("Explosao", "💥", { attack: 5 }) },
+          { no: n("Estilhaco", "💎", { attack: 9, resource: 4 }), neto: n("Lasca", "🔹", { attack: 4 }) },
+        ],
+      },
+      {
+        nome: "Escudo",
+        icone: "🛡",
+        bonus: { defense: 9 },
+        filhos: [
+          { no: n("Manto Frio", "🧣", { defense: 12 }), neto: n("Absorcao", "🧿", { defense: 5 }) },
+          { no: n("Barreira", "🧊", { maxHp: 14 }), neto: n("Casca Gelada", "🧊", { maxHp: 5 }) },
+        ],
+      },
+      {
+        nome: "Leveza",
+        icone: "🪶",
+        bonus: { speed: 9 },
+        filhos: [
+          { no: n("Passos Leves", "🩰", { speed: 14 }), neto: n("Vento", "🌬", { speed: 5 }) },
+          { no: n("Flutuar", "🕊", { speed: 8, resource: 5 }), neto: n("Suspensao", "🪶", { speed: 4 }) },
+        ],
+      },
     ],
   },
 
@@ -422,16 +549,44 @@ const CATALOGO = {
       },
     ],
     fundacao: n("Fundacao", "🕸", { speed: 10, defense: 6 }),
-    abaixo: [
-      n("Mira", "🎯", { attack: 5 }),
-      n("Folego", "🫁", { maxHp: 8 }),
-      n("Corda", "🪢", { defense: 4, speed: 4 }),
-    ],
-    base: [
-      n("Arco", "🏹", { attack: 5 }),
-      n("Aljava", "🎯", { speed: 4, maxHp: 4 }),
-      n("Disparo", "💨", { attack: 3, speed: 3 }),
-      n("Esquiva", "↯", { speed: 5 }),
+
+    ramos: [
+      {
+        nome: "Mira",
+        icone: "🎯",
+        bonus: { attack: 8 },
+        filhos: [
+          { no: n("Olho de Aguia", "🦅", { attack: 13 }), neto: n("Alcance", "🔭", { attack: 5 }) },
+          { no: n("Corda Tensa", "🪢", { attack: 9, speed: 5 }), neto: n("Ponta Afiada", "🗡", { attack: 4 }) },
+        ],
+      },
+      {
+        nome: "Silencio",
+        icone: "🌫",
+        bonus: { speed: 9 },
+        filhos: [
+          { no: n("Capa Curtissima", "🧥", { speed: 14 }), neto: n("Fantasma", "👻", { speed: 5 }) },
+          { no: n("Passo Sem Som", "🐾", { speed: 10, defense: 5 }), neto: n("Vulto", "🌬", { speed: 4 }) },
+        ],
+      },
+      {
+        nome: "Veneno",
+        icone: "🧪",
+        bonus: { resource: 8 },
+        filhos: [
+          { no: n("Arco Envenenado", "🦟", { attack: 11, resource: 5 }), neto: n("Toxina", "☣", { resource: 5 }) },
+          { no: n("Cuba Lenta", "🧫", { resource: 10 }), neto: n("Sedimento", "⚗", { resource: 4 }) },
+        ],
+      },
+      {
+        nome: "Pele",
+        icone: "🍃",
+        bonus: { maxHp: 9 },
+        filhos: [
+          { no: n("Couro Leve", "🧤", { maxHp: 15 }), neto: n("Vigor", "💪", { maxHp: 5 }) },
+          { no: n("Cuticula", "🩹", { defense: 7, speed: 5 }), neto: n("Casca", "🪵", { defense: 4 }) },
+        ],
+      },
     ],
   },
 };
@@ -605,24 +760,82 @@ function montar(classeId, def) {
 
   fundacao.fundacao = true;
 
-  for (const [i, no] of def.abaixo.entries()) {
-    empurra(no, 4, [fundacao.id], i);
-  }
+  /**
+   * OS QUATRO RAMOS DE BAIXO, E O ESPELHO DOS QUATRO TRONCOS DE CIMA.
+   *
+   * ## POR QUE A MESMA CONSTRUÇÃO, E NÃO UM DESENHO NOVO
+   *
+   * Porque o jogador que understands o caminho da classe learns sem tentar:
+   * abre um ramo, escolhe entre dois filhos, fecha o ramo num neto, e o
+   * desenho faz o mesmo que ele ja fez três vezes acima. Uma fileira chapada
+   * embaixo — que era o que existia — quebrava isso: a arvore ficava legivel
+   * na metade de cima e inventava um vocabulario novo na de baixo
+   *
+   * E o ramo geral fica no fim, exigindo as QUATRO convergencias. E o que
+   * fecha o personagem: nao se compra um no geral tendo um ramo pela metade
+   */
+  const ramos = [];
 
-  for (const [i, no] of def.base.entries()) {
-    const vizinhos = [];
-    if (i > 0) vizinhos.push(nos[nos.length - 4 + (i - 1)].id);
-    if (i < def.base.length - 1) vizinhos.push(nos[nos.length - 4 + (i + 1)].id);
+  for (const [i, ramo] of (def.ramos ?? []).entries()) {
+    const noRamo = empurra(
+      {
+        nome: ramo.nome,
+        icone: ramo.icone,
+        bonus: ramo.bonus,
+        descricao: `Ramo de ${ramo.nome}.`,
+      },
+      4,
+      [fundacao.id],
+      i,
+    );
 
-    empurra(no, 5, vizinhos, i);
+    const filhos = [];
+
+    for (const [j, filho] of (ramo.filhos ?? []).entries()) {
+      filhos.push(empurra(filho.no, 5, [noRamo.id], i * 2 + j));
+    }
+
+    /**
+     * A CONVERGENCIA DO RAMO, e UM SO POR RAMO.
+     *
+     * O `🔻` de espelho e proposital: o tronco fecha com `🔺`, e os dois
+     * juntos mostram que o desenho subiu ate a Fundacao e esta descendo
+     */
+    empurra(
+      {
+        nome: ramo.filhos?.[0]?.neto ?? null,
+        icone: "🔻",
+        bonus: {},
+      },
+      6,
+      filhos.map((f) => f.id),
+      i,
+    );
+
+    const convergencia = nos[nos.length - 1];
+
+    convergencia.nome =
+      ramo.filhos?.[0]?.neto?.nome ?? convergencia.nome;
+    convergencia.icone =
+      ramo.filhos?.[0]?.neto?.icone ?? convergencia.icone;
+    convergencia.bonus = ramo.filhos?.[0]?.neto?.bonus ?? {};
+
+    ramos.push({ ramo: noRamo, filhos, convergencia });
   }
 
   /**
    * O RAMO GERAL, NO FIM DE TUDO.
    *
-   * Todos os quatro dependem da Fundacao desta classe, e nenhum dos outros
-   * tres. E a MESMA lista `GERAIS` em todas as arvores — o que os torna um
-   * no so, e nao quatro
+   * ## POR QUE UM NO GERAL EXIGE SÓ A CONVERGÊNCIA DO SEU PRÓPRIO RAMO
+   *
+   * Porque as quatro linhas viriam todas para o mesmo centro: exigindo as
+   * quatro, o SVG desenhava 16 retas em leque de baixo para cima, e o
+   * desenho embaixo da Fundação virava uma teia — exatamente o problema que a
+   * metade de cima não tem
+   *
+   * E não perde nada de sentido: o no geral continua exigindo um ramo inteiro
+   * fechado, e continua sendo o mesmo no nas quatro classes, porque o `prefixo`
+   * dele é `geral` e não o nome da classe
    */
   for (const [i, no] of GERAIS.entries()) {
     empurra(
@@ -630,14 +843,43 @@ function montar(classeId, def) {
         ...no,
         descricao: "Habilidade geral: vale para qualquer classe.",
       },
-      6,
-      [fundacao.id],
+      7,
+      [ramos[i].convergencia.id],
       i,
       PREFIXO_GERAL,
     );
   }
 
   return nos;
+}
+
+/**
+ * O ID VELHO DE UM NÓ, OU O PRÓPRIO — e por quê existe este desvio.
+ *
+ * ## O QUE QUEBROU
+ *
+ * O `id` de um nó é `${prefixo}_g${degrau}_${indice}`, e o número do degrau
+ * está no ID. O ramo geral saiu do degrau 6 para o 7 quando os quatro ramos
+ * entraram embaixo da Fundação, então `geral_g6_0` deixou de existir e virou
+ * `geral_g7_0`
+ *
+ * ## POR QUE ISSO APAGAVA COMPRA
+ *
+ * `nosConfiaveis` confere cada id do save contra a árvore atual e descarta o
+ * que não acha. Um personagem que tinha comprado um no geral veria ele sumir
+ * do painel, com o ponto gasto e sem o bônus — e o `custoTotalDaArvore`
+ * devolveria o ponto, porque ele conta os nós comprados
+ *
+ * ## E POR QUE SÓ O GERAL PRECISA DO DESVIO
+ *
+ * Porque os nós de classe que mudaram de grau (`_g4_` e `_g5_` de baixo) foram
+ * removidos de propósito: o pedido era tirar o que estava embaixo. Não há o
+ * que migrar deles
+ */
+function idAntigo(id) {
+  return /^geral_g6_/.test(id)
+    ? id.replace("geral_g6_", "geral_g7_")
+    : id;
 }
 
 /**
@@ -656,7 +898,9 @@ export function arvoreDaClasse(classeId) {
 
 /** Um no da arvore que existe e pertence a classe, ou `null`. */
 export function noDaArvore(classeId, noId) {
-  return arvoreDaClasse(classeId).find((no) => no.id === noId) ?? null;
+  return (
+    arvoreDaClasse(classeId).find((no) => no.id === noId) ?? null
+  );
 }
 
 /**
@@ -726,12 +970,47 @@ export function custoTotalDaArvore(classeId) {
  */
 export function nosConfiaveis(classeId, ids) {
   const confiaveis = new Set();
-  const lista = ids ?? [];
 
-  for (const id of lista) {
+  /**
+   * A TRADUÇÃO E MARCADA AQUI, e o "herdado" viaja JUNTO com o id.
+   *
+   * Marcar depois, por busca reversa, dá o resultado oposto do que se quer:
+   * o `geral_g7_0` procurado no formato antigo não existe, a busca volta vazio,
+   * e TODO geral novo — inclusive o de um save adulterado — passava como se
+   * fosse antigo. A verdade é que a herança é uma propriedade do ID que
+   * chegou, não de um id que se procura depois
+   */
+  const traduzidos = (ids ?? []).map((id) => {
+    const novo = idAntigo(id);
+
+    return { id: novo, herdado: novo !== id };
+  });
+
+  const lista = traduzidos.map((t) => t.id);
+
+  for (const { id, herdado } of traduzidos) {
     const no = noDaArvore(classeId, id);
 
     if (!no) continue;
+
+    /**
+     * O NO GERAL ANTIGO E HERDADO, E NAO EXIGIDO.
+     *
+     * Ele passou a depender de uma das convergencias novas do degrau 6 — uma
+     * ramificacao que o personagem nao tinha como construir, porque ela nao
+     * existia quando ele comprou. Cobrar o pre-requisito aqui apagava a
+     * compra: o no sumia do painel, o ponto gasto nao voltava, e o
+     * `custoTotalDaArvore` devolvia os pontos porque ele conta os nos salvos
+     *
+     * A concessao e estreita de proposito: vale so para o ID que o `idAntigo`
+     * acabou de traduzir, que sao quatro no total em todo o jogo. Um save
+     * adulterado no formato NOVO nao ganha nada por aqui — ele so teria o
+     * pre-requisito conferido como qualquer outro
+     */
+    if (herdado) {
+      confiaveis.add(id);
+      continue;
+    }
 
     const temTodosOsPreReq = (no.exige ?? []).every((r) => lista.includes(r));
 

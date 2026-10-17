@@ -6,7 +6,6 @@ import {
   lanceMinimoAtual,
   MODO_VENDA,
   MODO_VENDA_LABEL,
-  precoUnitario,
 } from "../../data/market/index.js";
 import { CHARACTER_CLASSES } from "../../data/characters/index.js";
 import { classesOfItem } from "../../data/craft/craftPorClasse.js";
@@ -72,25 +71,37 @@ export default function ListingCard({
   const podeLancar = podeComprar && leilao && lanceOk;
 
   /**
-   * O RESTRIÇÃO DE CLASSE do item, em nome de exibição.
+   * A CLASSE DO ITEM, em nome de exibição — e NÃO é uma trava.
    *
-   * E a PRIMEIRA coisa do projeto que le isto. O dado alimenta o
-   * `canClassUseItem` desde sempre, e aparecia no mundo so como um "não pode
-   * usar" DEPOIS da tentativa — agora o jogador lê ANTES de comprar, que é
-   * quando a informação vale
+   * ## POR QUE O "SOMENTE" SAIU
+   *
+   * Porque não existe mais trava de classe no mercado. `podeComprar` no
+   * `VitrineAba` só olha espaço no inventário e empilhamento, e o servidor
+   * nunca consultou `canClassUseItem` na compra: qualquer classe compra
+   * qualquer item. O texto dizia "Somente Arbalist" sobre um botão que
+   * funciona para todo mundo — o jogador lia uma regra que não existe
+   *
+   * ## POR QUE A ETIQUETA CONTINUA
+   *
+   * Porque "quem usa" ainda é informação boa: ela diz para quem a arma foi
+   * feita. Sem o "Somente", o rótulo é a classe do item — e não precisa mais
+   * prometer nada que o botão não cumpra
    *
    * E sai de `classesOfItem`, e nao de `item.classes`, por causa das ARMAS:
    * elas nao tem `classes`, tem `kind`, e e o `kind` que diz que espada é de
-   * Warrior. Lendo o campo errado, todo arma apareceria sem restrição — que
-   * e o item mais restrito do jogo aparecendo como o mais livre
+   * Warrior. Lendo o campo errado, toda arma apareceria sem dono — que
+   * e o item mais específico do jogo aparecendo como o mais genérico
    */
-  const restritoA = classesDe(listing.itemId);
+  const classeItem = classeDe(listing.itemId);
 
   return (
     <ItemCard entry={listing} className="mkt-listing">
-      {restritoA && (
-        <span className="mkt-listing__restricao">
-          {`Somente ${restritoA}`}
+      {classeItem && (
+        <span
+          className="mkt-listing__classe"
+          style={{ "--classe": classeItem.accent }}
+        >
+          {classeItem.nome}
         </span>
       )}
 
@@ -108,23 +119,6 @@ export default function ListingCard({
       )}
 
       {/*
-        O PREÇO. A unidade so aparece quando o anúncio tem mais de uma peça,
-        porque com uma peça "350.000/un" e "350.000" sao o mesmo numero dito
-        duas vezes — e o "/un" faz o jogador reler o valor maior
-      */}
-      <span className="mkt-listing__preco">
-        <IconeMoeda moeda={listing.currency} lado={16} />
-        <strong>{formatarMoedas(listing.price)}</strong>
-
-        {listing.count > 1 && (
-          <small>
-            {formatarMoedas(precoUnitario(listing.price, listing.count))}
-            /un
-          </small>
-        )}
-      </span>
-
-      {/*
         O MAIOR LANCE, quando existe. E a informação que faz um leilão ser um
         leilão: sem o valor atual, o jogador não sabe se o piso que ele vê
         é o primeiro lance ou um dispute já begun
@@ -139,15 +133,6 @@ export default function ListingCard({
       )}
 
       <BarraTempo restanteMs={listing.restanteMs} />
-
-      <span className="mkt-listing__rodape">
-        <span
-          className="mkt-listing__vendedor"
-          data-tip={listing.sellerName}
-        >
-          {listing.sellerName}
-        </span>
-      </span>
 
       {leilao ? (
         <div className="mkt-listing__lance">
@@ -181,7 +166,10 @@ export default function ListingCard({
       ) : (
         <button
           type="button"
-          className="mkt-item__buy mkt-listing__comprar"
+          className={[
+            "mkt-item__buy mkt-listing__comprar",
+            `mkt-listing__comprar--${listing.currency}`,
+          ].join(" ")}
           onClick={() => onBuy?.(listing.id)}
           disabled={!podeComprar}
           data-tip={
@@ -190,7 +178,29 @@ export default function ListingCard({
               : (motivoBloqueio ?? "Indisponível")
           }
         >
-          Comprar
+          {/*
+            O PRECO NO BOTAO, E A COR DO BOTAO E A DA MOEDA.
+
+            ## POR QUE SUMIU A LINHA DE PRECO
+
+            Porque o preco aparecia duas vezes: na linha `.mkt-listing__preco`
+            e no botao, como nome da acao. Com a arte da moeda no botao, o
+            numero repetido nao acrescenta nada — o jogador lia 350.000 duas
+            vezes antes de ler o que ele podia fazer com aquilo
+
+            ## E POR QUE A COR VEM DA MOEDA
+
+            Porque a moeda e a ultima coisa que se olha num anuncio, e a cor
+            e o que chega primeiro. Um botao verde que e ouro, um que e steel
+            e um que e diamante com a MESMA cor fazem o jogador clicar sem
+            olhar o valor
+
+            As tres cores nao sao escolhidas aqui: vem do `MOEDAS_ESPECIAIS`
+            de `data/loja/index.js`, que ja fixa ouro `#e6c47a`, steel
+            `#c9a0ff` e diamante `#8fd6f2`. O CSS so le o token `--moeda`
+          */}
+          <IconeMoeda moeda={listing.currency} lado={14} />
+          {formatarMoedas(listing.price)}
         </button>
       )}
     </ItemCard>
@@ -198,40 +208,54 @@ export default function ListingCard({
 }
 
 /**
- * OS NOMES DE EXIBIÇÃO das classes que o item restringe, ou `null`.
+ * OS NOMES DE EXIBIÇÃO das classes que o item tem, ou `null`.
  *
  * ## POR QUE ISSO NAO ESTA EM `ItemTooltip`
  *
  * Porque o `ItemTooltip` mostra o que o jogador PODE fazer com o item: nome,
- * raridade, afixo, skill do livro, e se ele tem os materiais. A restrição de
- * classe so interessa QUANDO VOCE ESTA OLHANDO PARA O MERCADO — no
- * inventário, todo item ali é seu, e a restrição não muda nada. Colocá-la no
- * tooltip faria ela aparecer em todo hover de todo item do jogo
+ * raridade, afixo, skill do livro, e se ele tem os materiais. A classe do item
+ * so interessa QUANDO VOCE ESTA OLHANDO PARA O MERCADO — no inventário, todo
+ * item ali é seu, e a classe não muda nada. Colocá-la no tooltip faria ela
+ * aparecer em todo hover de todo item do jogo
  *
  * ## POR QUE A LISTA INTEIRA DE CLASSES some
  *
  * Porque `classesOfItem` devolve todas as classes quando o item não tem dona
- * declarada — relíquia, poção, livro. Mostrar "Somente Arbalist, Lancer,
- * Sorcerer e Warrior" seria verdade literal e mentira de leitura: o jogador
- * leria como restrição e o item não tem nenhuma
+ * declarada — relíquia, poção, livro. Mostrar "Arbalist, Lancer, Sorcerer e
+ * Warrior" seria verdade literal e mentira de leitura: o jogador leria como
+ * aviso de classe restrita, e o item não tem dono nenhum
+ *
+ * ## POR QUE VOLTA O `accent`
+ *
+ * Porque a etiqueta precisa da COR, e a cor mora no `CHARACTER_CLASSES`.
+ * Returning so o nome obrigaria o CSS a adivinhar a classe pelo texto escrito,
+ * que quebra no primeiro item com duas classes. O `accent` é o mesmo valor que
+ * o chip do filtro usa — as duas cores saem do mesmo lugar, entao o jogador nao
+ * ve um Arbalist verde num lugar e roxo no outro
  */
-function classesDe(itemId) {
+function classeDe(itemId) {
   const ids = classesOfItem(itemId);
 
   if (!Array.isArray(ids) || ids.length === 0) return null;
 
-  const nomes = ids
-    .map((id) => CHARACTER_CLASSES.find((c) => c.id === id)?.name)
+  const classes = ids
+    .map((id) => CHARACTER_CLASSES.find((c) => c.id === id))
     .filter(Boolean);
 
-  if (nomes.length === 0) return null;
+  if (classes.length === 0) return null;
 
-  // cobre o item sem restrição: todas as classes não são restrição nenhuma
-  if (nomes.length === CHARACTER_CLASSES.length) return null;
+  // cobre o item sem dono: todas as classes não são informação nenhuma
+  if (classes.length === CHARACTER_CLASSES.length) return null;
 
   // uma classe so fica no singular; duas ou mais viram "A e B", que é como o
   // jogador falaria em voz alta
-  if (nomes.length === 1) return nomes[0];
+  const nome =
+    classes.length === 1
+      ? classes[0].name
+      : `${classes
+          .slice(0, -1)
+          .map((c) => c.name)
+          .join(", ")} e ${classes[classes.length - 1].name}`;
 
-  return `${nomes.slice(0, -1).join(", ")} e ${nomes[nomes.length - 1]}`;
+  return { nome, accent: classes[0].accent };
 }

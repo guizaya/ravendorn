@@ -1,5 +1,6 @@
-import { Fragment, useCallback, useEffect, useMemo, useState } from "react";
+import { Fragment, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import SkillSlot from "../Skills/SkillSlot.jsx";
+import BossPanel from "../Boss/BossPanel.jsx";
 import HudIcon from "../UI/HudIcon.jsx";
 import IconeMoeda from "../UI/IconeMoeda.jsx";
 import InventoryPanel from "../Inventory/InventoryPanel.jsx";
@@ -162,6 +163,7 @@ const PAINEL = {
   MARKET: "market",
   GUILD: "guild",
   ARVORE: "arvore",
+  BOSS: "boss",
 
   /**
    * A LOJA DO MERCADOR.
@@ -1609,6 +1611,15 @@ const abrirColecaoNoItem = useCallback((itemId) => {
   const guilda = snapshot?.guilda ?? null;
 
   /**
+   * O AVISO DA PASSAGEM PERTO.
+   *
+   * Vem do painel pelo mesmo caminho do `portal`, e e `null` quando nao ha
+   * passagem por perto — o estado normal do jogador, que so ve o aviso
+   * chegando na ponta da luz
+   */
+  const passagemPerto = snapshot?.passagemPerto ?? null;
+
+  /**
    * Abre o inventario, e antes tira do corpo o que esta no slot errado.
    *
    * Quem tem peca vestida na posicao errada vem de um save antigo:
@@ -1633,7 +1644,33 @@ const abrirColecaoNoItem = useCallback((itemId) => {
   }, [engineRef, intencao, alternarPainel]);
 
   /**
-   * O clique num NPC abre o painel que ELE vende.
+   * QUAL PAINEL ABRIU POR UM NPC, e de QUAL NPC.
+   *
+   * ## POR QUE UM `useRef`, E NAO `useState`
+   *
+   * Porque ninguem desenha este dado. Ele existe so para a comparacao do
+   * `onNpcLonge`, que roda 60 vezes por segundo dentro do motor. Num
+   * `useState` cada escrita re-renderizaria a tela inteira do HUD por causa de
+   * um dado que ninguem ve
+   *
+   * ## POR QUE GUARDA O PAR, E NAO SO O NPC
+   *
+   * Porque o painel pode ter mudado de maos no caminho. O jogador abre o bau,
+   * anda ate o portal e abre a loja: quando o motor avisar que o NPC ficou
+   * longe, fechar pela regua do NPC derrubaria a LOJA, que nao tem nada a ver
+   * com aquele mercador
+   *
+   * E por isso que o `onNpcLonge` so fecha quando `painelAberto` ainda e o
+   * painel que aquele NPC abriu
+   */
+  const painelDeNpc = useRef(null);
+
+  const marcarPainelDeNpc = useCallback((npcId, painel) => {
+    painelDeNpc.current = { npcId, painel };
+  }, []);
+
+  /**
+   * O CLIQUE NUM NPC abre o painel que ELE vende.
    *
    * O motor entrega a entidade inteira e nao um id, porque o que o NPC
    * faz viaja com ele: `acao` vem do catalogo do tipo. Passar so o id
@@ -1662,6 +1699,7 @@ const abrirColecaoNoItem = useCallback((itemId) => {
        */
       if (npc.acao === NPC_ACAO.POCOES) {
         abrirPainel(PAINEL.POCOES);
+        marcarPainelDeNpc(npc.id, PAINEL.POCOES);
         return;
       }
 
@@ -1676,6 +1714,7 @@ const abrirColecaoNoItem = useCallback((itemId) => {
        */
       if (npc.acao === NPC_ACAO.HABILIDADES) {
         abrirPainel(PAINEL.HABILIDADES);
+        marcarPainelDeNpc(npc.id, PAINEL.HABILIDADES);
         return;
       }
 
@@ -1690,9 +1729,10 @@ const abrirColecaoNoItem = useCallback((itemId) => {
        */
       if (npc.acao === NPC_ACAO.BAU) {
         abrirPainel(PAINEL.BAU);
+        marcarPainelDeNpc(npc.id, PAINEL.BAU);
       }
     },
-    [abrirPainel],
+    [abrirPainel, marcarPainelDeNpc],
   );
 
   /**
@@ -1741,14 +1781,115 @@ const abrirColecaoNoItem = useCallback((itemId) => {
      */
     engine.onPlayerClick = handlePlayerClick;
 
+    /**
+     * O JOGADOR SAIU DE ALCANCE DO NPC QUE ABRIU O PAINEL.
+     *
+     * ## POR QUE O MOTOR AVISA E NAO FECHA
+     *
+     * Porque o motor sabe qual NPC ficou longe, e nao sabe qual painel aquele
+     * NPC abriu — painel e coisa de tela. Fechar por dentro derrubaria o painel
+     * errado no caso em que o jogador abriu outro no caminho
+     *
+     * ## E POR QUE A COMPARACAO COM `painelAberto`
+     *
+     * E a mesma razao. O `painelDeNpc` diz qual painel o NPC abriu; o
+     * `painelAberto` diz qual esta aberto agora. Quando os dois concordam, e o
+     * painel que estava na mao do NPC — e o fecha. Quando nao concordam, o
+     * jogador trocou de painel e o aviso e sobre um painel que nao existe mais
+     */
+    engine.onNpcLonge = (npcId) => {
+      const marcado = painelDeNpc.current;
+
+      if (!marcado || marcado.npcId !== npcId) return;
+
+      /**
+       * A MARCA SO DESAPARECE QUANDO O PAINEL FECHA DE VERDADE.
+       *
+       * ## POR QUE A ORDEM IMPORTA
+       *
+       * A marca era limpa ANTES da comparacao com o `painelAberto`, e esse e
+       * o caminho que prendia painel na tela. O motor avisa UMA vez por NPC e
+       * depois esquece, entao um aviso descartado e perdido para sempre
+       *
+       * O caso que mordia: o aviso chega para um painel que ja nao esta mais
+       * na mao do jogador — ele abriu o bau do outro mercador no caminho. A
+       * tela limpava a marca e nao fechava nada. O painel que continuava
+       * aberto ficava sem dono, e nenhum aviso futuro podia fecha-lo, porque o
+       * aviso futuro e do NPC do painel novo — que a tela ja tinha
+       * esquecido. Da para o painel ficar aberto para sempre
+       *
+       * ## E POR QUE O MOTOR PODER AVISAR SEM A TELHA FECHAR
+       *
+       * Porque os dois guards cuidam de casos diferentes. `npcId` diferente e
+       * o aviso de um NPC antigo, e o painel nao e dele. `painelAberto`
+       * diferente e o painel do MESMO NPC, que o jogador trocou na mao e quer
+       * manter — e a marca fica, porque ela ainda descreve quem abriu o que
+       */
+      if (painelAberto !== marcado.painel) return;
+
+      painelDeNpc.current = null;
+      setPainelAberto(null);
+    };
+
+    /**
+     * O CLIQUE LONDE: o jogador quer aquele painel, e o caminho ate la e o
+     * que falta. A caminhada e um PEDIDO ao servidor — ele e quem resolve o
+     * desvio de parede e quem decide que chegou
+     */
+    engine.onNpcLongePedido = (npcId) => {
+      /*
+       * O `?.` no `intencao` e no metodo, e nao um excesso.
+       *
+       * A prop chega nula quando o jogo esta offline — e assim ela vem em
+       * varios testes. Sem o guarda, um clique num NPC fora de alcance
+       * quebraria o efeito inteiro, e os tres ganchos seguinte morreriam
+       * junto: o clique de longe pararia de pedir caminhada E o painel pararia
+       * de fechar
+       */
+      intencao?.irAteNpc?.(npcId);
+    };
+
+    /**
+     * CHEGOU. O painel que este NPC vende abre aqui, sozinho.
+     *
+     * E o mesmo `abrirPainel` do clique, e nao um caminho novo: um NPC e um
+     * NPC, e o que muda e como o jogador chegou nele — arrastando o mouse ou
+     * clicking. Se ele caminhou ate la, ele ja fez a escolha
+     */
+    engine.onChegouNoNpc = (npcId) => {
+      const npc = (engine.world?.npcs ?? []).find((n) => n.id === npcId);
+
+      if (!npc) return;
+
+      if (npc.acao === NPC_ACAO.POCOES) {
+        abrirPainel(PAINEL.POCOES);
+        marcarPainelDeNpc(npc.id, PAINEL.POCOES);
+        return;
+      }
+
+      if (npc.acao === NPC_ACAO.HABILIDADES) {
+        abrirPainel(PAINEL.HABILIDADES);
+        marcarPainelDeNpc(npc.id, PAINEL.HABILIDADES);
+        return;
+      }
+
+      if (npc.acao === NPC_ACAO.BAU) {
+        abrirPainel(PAINEL.BAU);
+        marcarPainelDeNpc(npc.id, PAINEL.BAU);
+      }
+    };
+
     return () => {
       // sem esta limpeza, o motor guardaria um callback de uma tela
       // desmontada, e clicar no NPC de outra tela abriria um painel
       // que nao existe mais
       engine.onNpcClick = null;
       engine.onPlayerClick = null;
+      engine.onNpcLonge = null;
+      engine.onNpcLongePedido = null;
+      engine.onChegouNoNpc = null;
     };
-  }, [engineRef, handleNpcClick, handlePlayerClick]);
+  }, [engineRef, handleNpcClick, handlePlayerClick, painelAberto, intencao, abrirPainel, marcarPainelDeNpc]);
 
   /**
    * O rank de quem esta conectado.
@@ -2218,38 +2359,6 @@ const handleGuildCofre = useCallback(
   (guildaId, acao, dados) => {
     if (intencao) {
       intencao.mexerNoCofre(guildaId, acao, dados);
-    }
-  },
-  [intencao],
-);
-
-/**
- * O BOTAO DA ARENA.
- *
- * Sem argumento: o sentido e o destino sao do SERVIDOR, e ele le o mapa
- * em que o jogador esta. O pedido e o mesmo tanto para entrar quanto para
- * sair, e e por isso que o botao nunca fica sem acao
- */
-const handleArena = useCallback(
-  () => {
-    if (intencao) {
-      intencao.irParaArena();
-    }
-  },
-  [intencao],
-);
-
-/**
- * O MAPA DE TESTE, o botao de ir e voltar.
- *
- * Sem argumento, pela mesma razao da arena: o sentido e o destino sao do
- * SERVIDOR. Ele e quem guarda de onde o jogador veio e quem devolve ele
- * para la, entao o botao nunca fica sem acao
- */
-const handleTeste = useCallback(
-  () => {
-    if (intencao) {
-      intencao.irParaTeste();
     }
   },
   [intencao],
@@ -2863,6 +2972,50 @@ const handleDash = useCallback(
       engineRef.current?.learnTreeNode(noId);
     },
     [engineRef, intencao],
+  );
+
+  /**
+   * AS QUATRO AÇÕES DE EXPEDIÇÃO DO CHEFE.
+   *
+   * ## POR QUE SÓ O CAMINHO `intencao`
+   *
+   * Porque expedição é estado do MUNDO, e no single player não existe mundo
+   * compartilhado — não há segundo motor para o grupo aparecer. O `engineRef`
+   * local é o motor da tela, e um grupo criado nele ficaria visível só para
+   * quem o criou, que é exatamente o comportamento que estamos consertando
+   *
+   * E sem o segundo caminho o botão fica inerte no offline: e é o mesmo
+   * `if (intencao)` que o `handleComprarNo` acima usa, com a diferença de que
+   * aqui não existe o que fazer sem conexão
+   */
+  const acaoExpedicao = useCallback(
+    (acao, ...args) => {
+      if (!intencao) return;
+
+      intencao[acao]?.(...args);
+    },
+    [intencao],
+  );
+
+  /**
+   * O OBJETO QUE O PAINEL RECEBE, e ele é memoizado.
+   *
+   * Porque um objeto literal `{ criar: ..., entrar: ... }` recriado a cada
+   * render vira um prop novo a cada quadro: o `BossPanel` entra no caminho de
+   * reconciliação inteiro de 4Hz, e o memo garante que só um clique o mexa
+   *
+   * E é um objeto — e não a própria função — porque o painel chama
+   * `intencao.criarExpedicao(...)` pelo nome da ação. Passar a função crua faria
+   * toda chamada cair no `undefined`
+   */
+  const intencaoExpedicao = useMemo(
+    () => ({
+      criarExpedicao: (dados) => acaoExpedicao("criarExpedicao", dados),
+      entrarExpedicao: (id) => acaoExpedicao("entrarExpedicao", id),
+      sairExpedicao: (id) => acaoExpedicao("sairExpedicao", id),
+      dissolverExpedicao: (id) => acaoExpedicao("dissolverExpedicao", id),
+    }),
+    [acaoExpedicao],
   );
 
   const handleCraftItem = useCallback(
@@ -3789,41 +3942,6 @@ const handleDeliverCollection = useCallback(
           <HudIcon iconId="guild" />
         </button>
 
-        <button
-            type="button"
-            className={[
-              "hud-btn",
-              "hud-btn--teste",
-              naTeste ? "is-active" : "",
-            ]
-              .filter(Boolean)
-              .join(" ")}
-            onClick={handleTeste}
-            disabled={!intencao}
-            data-tip={
-              naTeste
-                ? "Voltar para onde eu estava"
-                : "Entrar no Vale 1"
-            }
-            aria-label={
-              naTeste
-                ? "Voltar do Vale 1"
-                : "Entrar no Vale 1"
-            }
-          >
-            {/*
-              A ARTE MUDA COM O SENTIDO DO BOTAO.
-
-              `naTeste` vem do pacote do servidor: dentro do Vale 1 o
-              botao vira SAIR, e ele mostra a `sair`. Fora dele mostra a
-              `teste`, a prancheta de entrar
-
-              E o `is-active` que pinta a cor: roxo fora, vermelho dentro. A cor
-              segue o sentido do glifo em vez de contradize-lo
-            */}
-            <HudIcon iconId={naTeste ? "sair" : "teste"} />
-          </button>
-
         {/*
           O ENCANTAMENTO, SEGUNDO DEGRAU DA PRIMEIRA COLUNA.
 
@@ -3953,6 +4071,72 @@ const handleDeliverCollection = useCallback(
                     <i className="hud-btn__dot" />
                   )}
             </button>
+
+          {/*
+            A ARVORE DE HABILIDADE, ao lado da colecao.
+
+            ## POR QUE DEPOIS DA COLECAO E NAO EM OUTRO LUGAR
+
+            Porque as duas sao a mesma categoria de coisa: progresso que o
+            jogador acumula e gasta, em paineis de lista. Colocada entre o
+            craft e o mercado, ela entraria no meio dos botoes de "fazer
+            agora", que e o oposto do que e
+
+            ## POR QUE NAO TEM PONTO VERMELHO
+
+            Porque a colecao pergunta "tenho material suficiente para
+            entregar?" e a arvore nao pergunta nada: todo ponto de talento
+            disponivel e um botao que so precisa ser apertado, e um sinal
+            em cima dele seria o jogador sendo avisado de um clique
+          */}
+          <button
+            type="button"
+            className={[
+              "hud-btn",
+              "hud-btn--arvore",
+              painelAberto === PAINEL.ARVORE ? "is-active" : "",
+            ]
+              .filter(Boolean)
+              .join(" ")}
+            onClick={() => alternarPainel(PAINEL.ARVORE)}
+            data-tip="Arvore de Habilidade (H)"
+            aria-label="Abrir a arvore de habilidade"
+          >
+            <HudIcon iconId="arvore" />
+          </button>
+
+          {/*
+            O CHEFE, do lado da arvore.
+
+            ## POR QUE DEPOIS DA ARVORE E NAO PERTO DO BESTIARIO
+
+            Porque o bestiario e o bestiario: o jogador abre para ver CRIATURAS,
+            o que existe no mundo e o que ainda nao matou. O chefe e o oposto — e
+            um alvo, e a luta que esta acontecendo agora. Sao leituras
+            diferentes, e a prateleira ja separa "o que eu tenho" de "o que eu
+            sou" por essa ordem
+
+            ## E POR QUE NAO TEM TECLA
+
+            Porque ainda nao ha atalho para ele, e um `data-tip` com tecla que
+            nao existe e pior do que um sem tecla: o jogador aprende o atalho,
+            aperta, e nada acontece
+          */}
+          <button
+            type="button"
+            className={[
+              "hud-btn",
+              "hud-btn--boss",
+              painelAberto === PAINEL.BOSS ? "is-active" : "",
+            ]
+              .filter(Boolean)
+              .join(" ")}
+            onClick={() => alternarPainel(PAINEL.BOSS)}
+            data-tip="Chefe"
+            aria-label="Abrir o painel do chefe"
+          >
+            <HudIcon iconId="boss" />
+          </button>
         </nav>
       <div
         className="hud-coluna-mini"
@@ -4027,24 +4211,12 @@ const handleDeliverCollection = useCallback(
           quando matou o bicho, e a barra de vida do alvo fica com a tela
           inteira para ela
 
-          E ele e o ULTIMO filho do container, e nao o primeiro: o loot e o
-          que some depois de alguns segundos, e a party e o que fica. Se o
-          aviso viesse primeiro, cada loot empurraria a party para baixo
-          durante o tempo que ele fica na tela
+E ele e o ULTIMO filho do container, e nao o primeiro: o loot e o
+        que some depois de alguns segundos, e a party e o que fica. Se o
+        aviso viesse primeiro, cada loot empurraria a party para baixo
+        durante o tempo que ele fica na tela
         */}
-        {snapshot?.message && (
-          <div
-            className={[
-              "game-message",
-              snapshot.message.bad ? "is-error" : "",
-            ]
-              .filter(Boolean)
-              .join(" ")}
-          >
-            {snapshot.message.text}
-          </div>
-        )}
-      </div>
+        </div>
       </div>
 
         {/*
@@ -4226,41 +4398,6 @@ const handleDeliverCollection = useCallback(
           </button>
 
           {/*
-            O VALE 1, AO LADO DA CONFIGURACAO.
-            ## POR QUE VIZINHO E NAO EMPILHADO
-
-            Porque e o pedido, e porque os dois botoes ficam do mesmo tipo
-            lado a lado na prateleira. Empilhar os dois exigia um container
-            vertical no meio de um flex na horizontal, e essa parede ficava
-            comvida conforme os botoes de consulta sumiam — na arena e no
-            Vale 1 a prateleira encurta, e a parede mudava de lugar na tela
-            sem ninguem mexer nela
-
-            ## POR QUE AO LADO DA ENGRENAGEM E NAO NO MEIO
-
-            A configuracao e o botao de ACAO sobre o jogo — pausa, ajusta e
-            sai — e o Vale 1 e a unica viagem que existe. Os dois ficam na
-            ponta direita da prateleira, e a de consulta (bestiario, mercado,
-            colecao, oficina, rank) fica antes deles
-
-            ## POR QUE ELE NAO E UM PAINEL
-
-            Porque ele vai para um mapa e volta. Os outros botoes desta
-            prateleira abrem painel, e nao ha `PAINEL` para este nem painel
-            para fechar. Ele tambem nao tem atalho: os onze botoes com tecla
-            sao painel, e dar uma tecla a um botao de viagem faz o jogador
-            esperar painel onde nao ha nenhum
-
-            ## O ROTULO MUDA, E E O MAPA QUE DECIDE
-
-            `naTeste` vem do pacote do servidor. Ver o mesmo botao dizer
-            "Entrar" e "Voltar" e o que diz que o segundo clique tem
-            destino: sem a frase trocada, um botao que faz duas coisas
-            parece um botao quebrado
-          */}
-          
-
-          {/*
             A CONFIGURACAO DA PRATELEIRA, e ela ABRE O PAUSE de novo.
 
             ## POR QUE ISTO VOLTOU AO PAUSE
@@ -4427,22 +4564,30 @@ const handleDeliverCollection = useCallback(
           <PortalBox
             portal={snapshot?.portal ?? null}
             onTravel={handleTravelPortal}
-            onChefe={handleArena}
           />
 
         {/*
-          A `BossBox` SAIU DA HUD.
+          A SAIDA DA ARENA SAIU DA HUD JUNTO COM O BOTAO.
 
-          A saida da arena e a MESMA `handleArena` que o botao do portal usa
-          agora, e as duas caixas nunca apareciam juntas: a arena nao tem
-          portal, e o `dadosDoPortalNoPe` do motor nao acha nenhum la
+          ## POR QUE O `onChefe` SUMIU
 
-          Com o chefe virando a ultima missao do mapa 1, o jogador chega na
-          arena pelo PORTAL. La dentro nao ha portal, e a `BossBox` era o unico
-          lugar que dizia "sair"
+          Porque ele so aparecia com `portal.chefe`, que e o campo que a
+          trava preenche — e a trava vinha de `exigeMissaoDe` no portal da
+          floresta. Esse campo foi embora quando a passagem passou a ter dois
+          destinos: um para a arena, na missao do chefe, e outro para o mapa
+          2, depois dela. Nao ha mais um portal "selado" para a box marcar
 
-          Quem assume o papel e a `PortalBox`: do lado de fora, o portal
-          selado e o que oferece "Enfrentar o chefe"
+          ## POR QUE O CAMINHO TODO E AGORA O PORTAL
+
+          O jogador entra na arena pela passagem do topo do mapa 1, luta, e
+          sai pelo vao da parede de baixo — que leva direto para o mapa 2.
+          Nao ha botao no meio, e nao ha para onde o botao seria util: uma
+          segunda forma de sair da arena so criaria dois jeitos de fazer a
+          mesma coisa
+
+          E o `PortalBox` continua com o `onChefe = null` no default dele, e
+          o clique e `onChefe?.()` — ou seja, o componente sabe funcionar sem
+          o botao, e nao foi preciso tocar nele
         */}
         <BestiaryAutoBox
           hunt={snapshot?.bestiaryAuto ?? null}
@@ -4734,6 +4879,62 @@ const handleDeliverCollection = useCallback(
                 </output>
               )}
           </div>
+
+          {/*
+            O AVISO DA PASSAGEM, DEPOIS DA LINHA DE MOEDAS.
+
+            Aparece quando o jogador chega perto do COMECO da luz, e diz para
+            ONDE ele vai sair. E o aviso que substitui a caixa do portal: nao
+            ha botao, porque quem atravessa e chegar na outra ponta
+
+            ## POR QUE ESTA AQUI E NAO EM OUTRO LUGAR DO HUD
+
+            Porque as moedas estao sempre no mesmo lugar da tela, entao o
+            aviso tem um endereco fixo e o jogador aprende onde olhar. A caixa
+            do portal sumiu, e um aviso que aparecesse no lugar dela seria
+            procurado no vazio
+
+            ## POR QUE DEPENDE DE `temAlvo` E `moedasVisiveis`
+
+            Porque e o mesmo que esconde as tres moedas. Com um alvo em foco o
+            HUD troca esse bloco pelo painel dele, e o aviso aparecia sozinho
+            no lugar das moedas que nao estavam ali
+          */}
+{!temAlvo &&
+            moedasVisiveis &&
+            passagemPerto && (
+              <p className="hud-aviso-passagem" role="status">
+                <span>Ir para</span>
+                <strong>{passagemPerto.nome}</strong>
+              </p>
+            )}
+
+          {/*
+            A AVISO DE COLETA, DEBAIXO DO "IR PARA", E COMO TEXTO PURO.
+
+            ## POR QUE ESTA AQUI E NÃO EMBAIXO DA PARTY
+
+            Porque os dois avisos dizem a mesma coisa — "você vai para outro
+            lugar" — e embaixo da party eles ficavam em lados opostos da tela.
+            Separados por meia tela, o jogador lia os dois como mensagens de
+            coisas diferentes e não sabia qual responder
+
+            ## POR QUE A POSIÇÃO É FIXA
+
+            Porque as duas linhas dividem o MESMO bloco, o das moedas. Sem o
+            "Ir para" a notificação sobe para o topo do bloco — o endereço
+            é sempre o mesmo, e a ausência do outro aviso só a aproxima
+
+            E o `!temAlvo` NÃO esconde esta: ele esconde o aviso da passagem
+            porque o bloco das moedas sai da tela com alvo em foco. A
+            notificação é do bloco, e o bloco é do jogador — some o alvo,
+            some o bloco, e é a mesma regra que já existia para as moedas
+          */}
+          {snapshot?.message && (
+            <p className="hud-notificacao" role="status">
+              {snapshot.message.text}
+            </p>
+          )}
         </div>
 
       {/*
@@ -5348,6 +5549,45 @@ type="button"
             onClose={() => alternarPainel(PAINEL.ARVORE)}
           />
         )}
+
+      {/*
+        O PAINEL DO CHEFE.
+
+        ## O `classId` VAI JUNTO, E A RECOMPENSA DEPENDE DELE
+
+        Porque o pool de drop muda por classe: quem e arqueiro ve arco e
+        aljava na primeira linha da recompensa esperada, e quem e guerreiro ve
+        espada e escudo. Sem o `classId` o painel mostraria a peça de outra
+        classe, e o jogador iria para a expedicao esperando uma coisa que nao
+        vai receber
+
+        ## E O QUE AINDA NÃO VEM DO SERVIDOR
+
+        A lista de chefes, a dificuldade e a recompensa sao estado local. O
+        que existe de verdade no motor hoje e o `classId`, e ele ja estava no
+        painel do jogador: e o mesmo campo que a arvore e a ficha usam
+      */}
+      {painelAberto === PAINEL.BOSS && (
+        <BossPanel
+          classId={snapshot?.player?.classId ?? null}
+          nomeDoJogadorDoPainel={snapshot?.player?.name ?? null}
+          expedicoes={snapshot?.expedicoes?.lista ?? []}
+          minhaExpedicao={snapshot?.expedicoes?.minha ?? null}
+          erroExpedicao={snapshot?.expedicoes?.erro ?? null}
+          /**
+ * A PARTY TRAVA A EXPEDIÇÃO, e o painel pergunta pelo `partyId`.
+ *
+ * E o MESMO campo que o `PartyStore.snapshot` devolve, e não um
+ * `snapshot.party.ativa` inventado aqui. `partyId` é `null` quando o jogador
+ * não tem party e o id quando tem — e a checagem que barra de verdade é a do
+ * `GameServer`, no `case` do pedido. Esta linha só desliga os botões na tela,
+ * para o jogador não descobrir a trava com um clique
+ */
+emParty={Boolean(snapshot?.party?.partyId)}
+          intencao={intencaoExpedicao}
+          onClose={() => alternarPainel(PAINEL.BOSS)}
+        />
+      )}
 
 {painelAberto === PAINEL.COLECAO && (
   <CollectionPanel

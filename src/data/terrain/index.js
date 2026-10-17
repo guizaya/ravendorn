@@ -194,11 +194,24 @@ export const GROUND_TILES = {
  * quadrante espelhado, que e a propria borda esquerda da arte. Os
  * dois lados casam por definicao, entao a emenda some
  *
- * E por mapa e nao geral: a grama e o calcamento ja sao continuos, e
- * espelhar arte que ja fecha so mudaria o visual de dois mapas que
- * estao certos
+ * E POR MAPA, E POR QUE A CIDADE ENTROU
+ *
+ * A regra original era so para a neve, com o argumento de que a grama e o
+ * calcamento "ja sao continuos". A medicao do ladrilho de 64 px conta outra
+ * historia: a borda direita da textura reduzida e a borda esquerda, e elas
+ * NAO casam — o desvio medio e de 5,86 na horizontal e 6,44 na vertical. Sem
+ * espelhar, essa emenda se repete a cada 64 px e vira a grade visivel no chao
+ * da base
+ *
+ * O espelhar resolve pela definicao, e nao por ajuste: o quadrante de baixo e
+ * o de cima com o eixo Y invertido, entao a emenda vira o centro da arte, que
+ * ja era uma borda e nao uma costura
+ *
+ * Ficam de fora, de proposito, as texturas que nao estao em uso agora: `grama`,
+ * `boss` e `dark`. Se alguma delas mostrar a mesma grade, e so acrescentar a
+ * chave aqui
  */
-export const GROUND_TILE_ESPELHADO = new Set(["neve"]);
+export const GROUND_TILE_ESPELHADO = new Set(["neve", "cidade"]);
 
 /** O chao deste mapa precisa de ladrilho espelhado? */
 export function groundTileEspelhadoFor(map) {

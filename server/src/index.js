@@ -1,6 +1,7 @@
 import { createServer } from "node:http";
 import { randomBytes } from "node:crypto";
-import { resolve } from "node:path";
+import { existsSync } from "node:fs";
+import { basename, resolve } from "node:path";
 import express from "express";
 import { WebSocketServer } from "ws";
 import { ligarRedeDeSeguranca } from "./registroDeErros.js";
@@ -702,10 +703,285 @@ app.get("/index.html", (_request, response) => {
   response.sendFile(resolve(PASTA_DO_JOGO, "jogo.html"));
 });
 
+/**
+/**
+/**
+ * O ARQUIVO JA COMPRIMIDO, SEM NENHUMA MANIPULACAO DE STREAM.
+ *
+ * ## POR QUE NAO UM MIDDLEWARE DE GZIP COMUM
+ *
+ * ## Porque a versao que existia antes quebrou de tres jeitos seguidos
+ *
+ * A primeira versao trocava `res.write` e `res.end` para enfiar o `zlib` no
+ * meio da resposta. E o caminho que todo mundo escreve, e ele tem tres armadilhas
+ * que so aparecem em producao:
+ *
+ * 1. O `pipe` do Node nao guarda o `dest.write` no momento da ligacao — ele
+ *    procura `dest.write` a cada pedaco. Como o destino era a propria resposta,
+ *    que ja tinha o `write` trocado, o fluxo virava laco: o `gzip` escrevia,
+ *    o `write` trocado recebia, devolvia para o `gzip`, e ele morria com
+ *    "write after end"
+ *
+ * 2. O `pipe` tambem chama `dest.end()` quando acaba. Esse `end` era o trocado,
+ *    que chamava `gzip.end()` sobre um `zlib` ja encerrado, e a conexao nunca
+ *    fechava. Todo arquivo devolvia "timeout esperando cabecalho"
+ *
+ * 3. O `Content-Length` do Express e escrito DEPOIS do middleware. Com o
+ *    cabecalho antigo no lugar, o navegador cortava a resposta no byte errado,
+ *    e o sintoma era "erro de sintaxe" no bundle
+ *
+ * ## O QUE ESTA AQUI EM VEZ DISSO
+ *
+ * O arquivo comprimido ja e um arquivo. Nao entra stream nenhuma, nao se troca
+ * `write` nem `end`, e o Express continua respondendo por `sendFile` — com o
+ * mesmo `ETag`, o mesmo `Last-Modified` e o mesmo tratamento de `HEAD` de
+ * antes
+ *
+ * O unico preco e um arquivo `.gz` no `dist/`, que o build gera junto do
+ * original e ninguem pede sem `Accept-Encoding`
+ */
+function servirArquivoComprimido(request, response, next) {
+  if (!String(request.headers["accept-encoding"] ?? "").includes("gzip")) {
+    next();
+
+    return;
+  }
+
+  /**
+   * A BARRA DA FRENTE TEM QUE SAIR ANTES DO `resolve`.
+   *
+   * No Windows, `resolve("C:/jogo", "/assets/x.js")` devolve `C:\assets\x.js`:
+   * a barra inicial e lida como raiz da unidade, e o caminho inteiro da pasta
+   * do jogo se perde. O resultado era `existsSync` sempre falso e a compressao
+   * nunca acontecia — silenciosamente, com o build verde
+   *
+   * E o `join` nao resolveria: ele normaliza, mas `resolve` e `join` divergem
+   * justamente no `..` que o guarda abaixo precisa enxergar
+   */
+  const caminhoRelativo = request.path.replace(/^\/+/, "");
+
+  const original = resolve(PASTA_DO_JOGO, caminhoRelativo);
+
+  /**
+   * O `startsWith` IMPORTA MAIS DO QUE PARECE.
+   *
+   * Sem ele, um caminho como `/../../server/src/index.js` montaria um
+   * `original` fora da pasta do jogo, e o `existsSync` acharia o arquivo. A
+   * checagem e o que impede o gzip de virar um caminho para ler arquivo
+   * qualquer do servidor
+   */
+  if (!original.startsWith(resolve(PASTA_DO_JOGO))) {
+    next();
+
+    return;
+  }
+
+  const comprimido = `${original}.gz`;
+
+  if (!existsSync(comprimido)) {
+    next();
+
+    return;
+  }
+
+response.setHeader("Content-Encoding", "gzip");
+  response.setHeader("Vary", "Accept-Encoding");
+
+  /**
+   * O `Content-Type` VEM DO ARQUIVO ORIGINAL, E NAO DO `.gz`.
+   *
+   * ## O QUE ACONTECIA SEM ESTA LINHA
+   *
+   * O `sendFile` olha a EXTENSAO do arquivo que ele esta servindo. Servindo
+   * `main-DqX0xFTT.js.gz`, eleRespondia `Content-Type: application/gzip` — que e
+   * a verdade sobre os bytes, e a coisa mais inutil que um navegador pode ler
+   * para decidir o que fazer com eles
+   *
+   * E o navegador obedece a letra:
+   *
+   * - no `.js`, ele recusa o modulo. O erro no console e "Expected a JavaScript
+   *   module script but the server responded with a MIME type of
+   *   'application/gzip'", e o `main.jsx` nunca roda
+   * - no `.css`, ele ignora a folha de estilo
+   * - no `.html`, ele BAIXA o arquivo em vez de mostrar, porque `text/html` e o
+   *   que manda o navegador a renderizar
+   *
+   * Os tres sintomas sairam dai de uma vez: o jogo.html baixado em vez de
+   * aberto, o mundo preso em "Carregando o mundo" — porque o jogo nunca
+   * executou e nunca mandou o `pronto` —, e o CSS do front sem aplicar
+   *
+   * ## POR QUE `response.type` E NAO UM MAPA DE EXTENSAO
+   *
+   * Porque o proprio Express ja sabe transformar extensao em tipo, e e o mesmo
+   * que ele usaria se estivesse servindo o arquivo sem gzip. Passando o caminho
+   * ORIGINAL, o tipo sai certo por definicao e continua certo para qualquer
+   * extensao nova
+   */
+  /**
+   * SO O NOME DO ARQUIVO, E NAO O CAMINHO.
+   *
+   * O `res.type()` decide o que fazer olhando se o valor tem barra: com barra,
+   * ele entende que voce JA passou um tipo MIME e usa a string como esta. Passar
+   * `assets/main-X.js` fazia o servidor responder
+   * `Content-Type: assets/main-X.js`, que e o arquivo inteiro no cabecalho
+   *
+   * Sem barra, ele procura a extensao. E por isso que o `.js` e o `.css` sairam
+   * quebrados na primeira tentativa, e o `.html` saiu certo por acaso: era o
+   * unico dos tres sem barra no caminho
+   */
+  response.type(basename(caminhoRelativo));
+
+  /**
+   * A TRAVA, E O QUE ELA EVITA.
+   *
+   * ## O QUE ACONTECEU
+   *
+   * Uma versao anterior desta funcao passou o caminho inteiro para o `res.type`,
+   * e ele respondeu `Content-Type: application/gzip`. O navegador obedeceu: o
+   * JavaScript foi recusado por ser do tipo errado, o CSS foi ignorado, e o
+   * `jogo.html` foi BAIXADO em vez de aberto. O mundo travou em "Carregando o
+   * mundo" porque o jogo nunca executou
+   *
+   * E o que piorou muito: `application/gzip` era servido com
+   * `Cache-Control: immutable, max-age=31536000`. O navegador guardou a resposta
+   * quebrada por UM ANO, em uma URL que nao mudou, porque o defeito estava no
+   * servidor e nao no arquivo. Corrigir o servidor naocorrige o cache
+   *
+   * ## POR QUE ESTA TRAVA EXISTE
+   *
+   * Porque um `Content-Type` errado deixa de ser "o jogo nao abre" e vira "o
+   * cache do jogador segura o defeito por um ano". Nenhum teste de build pega
+   * isso: o arquivo sai certo, o hash e o mesmo, e o build verde
+   *
+   * Aqui o tipo errado nao chega na rede. O pedido cai para o `express.static`,
+   * que serve o arquivo SEM gzip e com o tipo certo. O jogador paga alguns KB a
+   * mais e o jogo abre — degradation em performance, nunca em funcionamento
+   */
+  const tipoDefinido = String(response.getHeader("Content-Type") ?? "");
+
+  if (
+    !tipoDefinido ||
+    tipoDefinido.includes("gzip") ||
+    tipoDefinido.includes("octet-stream")
+  ) {
+    next();
+
+    return;
+  }
+
+  /**
+   * O CACHE DE UM ANO TEM QUE VIR AQUI, E NAO SO NO `express.static`.
+   *
+   * ## O QUE ACONTECEU SEM ESTAS DUAS LINHAS
+   *
+   * O `immutable` estava configurado na montagem de `/assets`. Mas este caminho
+   * responde pelo `sendFile`, ANTES dela — e o `sendFile` nao herda opcao de
+   * `express.static`. O arquivo saia com `Cache-Control: public, max-age=0`:
+   *
+   *   - o navegador revalidava o `.gz` a cada visita
+   *   - e, como e o `.gz` que ele pede, o cache de um ano nao valia para NADA
+   *
+   * Era o ganho maior do trabalho inteiro, e o furo estava no caminho que todo
+   * navegador usa. Pior: nao dava erro nenhum, o gzip funcionava e o arquivo
+   * chegava — so que o cache nunca segurava
+   */
+  if (caminhoRelativo.startsWith("assets/")) {
+    response.setHeader(
+      "Cache-Control",
+      "public, max-age=31536000, immutable",
+    );
+  }
+
+  response.sendFile(comprimido, (erro) => {
+    /**
+     * O `sendFile` SEM CALLBACK RESPONDE 404 COM HTML.
+     *
+     * E um comportamento padrao do Express que nao serve aqui: o arquivo existe,
+     * e uma falha de disco neste ponto precisa aparecer no log, e nao como um
+     * 404 que o jogador le como "o jogo saiu do ar"
+     */
+    if (erro && !response.headersSent) next();
+  });
+}
+
+app.use(servirArquivoComprimido);
+
+/**
+ * O ASSET COM HASH, COM CACHE DE UM ANO.
+ *
+ * ## POR QUE SO `/assets`
+ *
+ * Porque o nome do arquivo dentro de `assets/` tem o hash do conteudo:
+ * `new_grama_mapa_1-m-_bFaYb.webp`. Mudou o arquivo, mudou o hash, mudou o
+ * nome — entao o nome novo e um arquivo que o navegador NUNCA viu, e o
+ * `immutable` nao corre risco nenhum
+ *
+ * ## E POR QUE O HTML PRECISA FICAR DE FORA
+ *
+ * Porque `jogo.html` e o unico arquivo cujo nome nao muda quando o conteudo
+ * muda. Com cache de um ano nele, um build novo continuaria servindo o bundle
+ * antigo — e o jogador veria uma tela quebrada com o JS novo pedindo arquivo
+ * que nao existe mais. E o pior defeito possivel num deploy: silencioso
+ *
+ * Por isso o `assets` tem uma montagem propria, e a raiz fica sem cache
+ */
+app.use(
+  "/assets",
+  express.static(resolve(PASTA_DO_JOGO, "assets"), {
+    immutable: true,
+    maxAge: "365d",
+    fallthrough: true,
+  }),
+);
+
 app.use(
   express.static(resolve(PASTA_DO_JOGO), {
-    // o `index.html` do jogo nao disputa a raiz com o proxy do front
-    index: "jogo.html",
+    /**
+     * `index: false`, E O COMMENTARIO ANTES DISSO ESTAVA AO CONTRARIO.
+     *
+     * ## O QUE ACONTECIA COM `index: "jogo.html"`
+     *
+     * A opcao `index` e o que faz o `express.static` responder a `/`. Com ela
+     * ligada, a montagem da raiz ganhava de todo mundo: `GET /` batia no
+     * `express.static`, servia o `jogo.html` e nunca chegava no
+     * `repassarParaOFront`, que esta DEPOIS
+     *
+     * O jogo tomava a raiz do site. Quem abria `http://localhost:8787` recebia
+     * o jogo direto, com a aba escrita "Eldoria" (o titulo do `jogo.html`),
+     * em vez da landing page
+     *
+     * ## O QUE O PROPRIO CODIGO PROMETIA, E NAO CUMPRIA
+     *
+     * O comentario logo acima diz, textualmente:
+     *
+     *   "E por isso que o `index` do static aponta para o `jogo.html`: nenhum
+     *    arquivo de entrada do jogo disputa a raiz com o proxy do front, e quem
+     *    responde `/` continua sendo o site"
+     *
+     * A intencao estava escrita. So que apontar o `index` para um arquivo faz
+     * exatamente o contrario: e ele que FAZ a raiz ser do jogo
+     *
+     * Para o arquivo nao disputar a raiz, ele nao pode ser o `index`
+     *
+     * ## POR QUE `false`, E NAO REMOVER A MONTAGEM
+     *
+     * Porque `/jogo.html` e `/assets/*` precisam continuar saindo daqui: e o
+     * iframe da rota `/jogo` do front aponta para eles, e precisam ser da MESMA
+     * origem do WebSocket. Com `index: false` a montagem continua servindo
+     * arquivo por nome, e so a RAIZ deixa de ser dela
+     */
+    index: false,
+
+    /**
+     * O HTML SEM CACHE LONGO, MAS COM REVALIDACAO.
+     *
+     * O `etag` faz o trabalho: o navegador manda o arquivo em uma requisicao
+     * de 304, que responde em bytes, e so baixa o HTML inteiro quando ele
+     * mudou de verdade
+     */
+    maxAge: 0,
+    etag: true,
+    lastModified: true,
   }),
 );
 
