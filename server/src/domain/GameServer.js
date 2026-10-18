@@ -2727,6 +2727,8 @@ this.engine.showMessage(
      */
     this.conectarChefe();
 
+    this.conectarMineracao();
+
     /**
      * Paga o que ficou pendido enquanto este jogador estava fora.
      *
@@ -3755,6 +3757,62 @@ const stack =
     return false;
   }
 
+  /**
+   * LIGA O PEDIDO DE MINERAR DO AUTO AO `minerar` DESTE SERVIDOR.
+   *
+   * ## POR QUE ISTO NAO EXISTIA, E O QUE ACONTECIA
+   *
+   * O `onMineClick` era ligado so pelo `GameCanvas`, que e a camada de CLIENTE
+   * e transforma o pedido em `op` no socket. No servidor ele ficava `undefined`
+   *
+   * E o online e justamente o caso em que o gancho e obrigatorio: o `update`
+   * do motor devolve cedo quando `networked`, ANTES do `updateAutoPlay` e do
+   * `runMineracao`. Quem roda o auto inteiro, online, e este servidor
+   *
+   * O efeito era um travamento silencioso, do tipo que so aparece na playteste:
+   *
+   * 1. o auto escolhe o `cristal_comum` mais proximo da chegada
+   * 2. o jogador atravessa o portal e caminha ate ele
+   * 3. a 200px da arte o `pedirMinerarNaPedida` chama `onMineClick?.()` — e o
+   *    `?.` engole o `undefined`
+   * 4. o `pedidoDeMinerar` fica marcado como "ja pedi", e o pedido NUNCA SAIU
+   * 5. o jogador chega no cristal e para, sem painel
+   *
+   * E por que o painel nunca aparecia, mesmo com o passo 3 corrigido: o
+   * `mineracaoPainel` devolve `null` enquanto `contando` nao e true, e o
+   * `contando` so vira true no primeiro tique em que o `alcancado` aparece. O
+   * `alcancado` e escrito pelo motor no `runMineracao` — que e justamente o que
+   * depends de `sessao.mineracao` existir. Sem o pedido, nada da cadeia andava
+   *
+   * ## POR QUE A SESSAO SAI DO MOTOR E NAO DE UM PARAMETRO
+   *
+   * Porque o motor e COMPARTILHADO entre os jogadores: o `update` dele itera as
+   * sessoes e chama cada uma dentro de um `withPlayer`, que troca o foco antes
+   * de rodar. No instante em que o auto chama este gancho, `world.session` ja e
+   * a sessao daquele jogador — e e a que o `minerar` precisa, porque e dela que
+   * sai o mapa onde a prop sera procurada
+   *
+   * Se o gancho recebesse uma sessao capturada na hora da ligacao, ele
+   * mineraria na pedra do jogador errado
+   */
+  conectarMineracao() {
+    this.engine.onMineClick = (prop) => {
+      const sessao = this.engine.world?.session;
+
+      if (!sessao || !prop?.id) return false;
+
+      /**
+       * O `minerar` E UM DOS SENTIDOS, e nao uma abertura.
+       *
+       * Quem decide e o servidor: se a sessao ja esta encostada em alguma
+       * pedra, este pedido e PARAR. E o que mantem o auto honesto — ele so
+       * chega aqui pelo `pedirMinerarNaPedida`, que tem o lache que impede uma
+       * segunda chamada enquanto o pedido anterior estiver de pe
+       */
+      return this.minerar(sessao, prop.id, this.relogio());
+    };
+  }
+
   conectarChefe() {
     /**
      * A VITORIA NAO TIRA NINGUEM DA ARENA.
@@ -4632,7 +4690,36 @@ if (steelDoTique > 0) {
 
       steelMaximo: steelMaximoDe(batidasDe(min.type)),
       steelAgora: sessao.inventory?.steel ?? 0,
-      proximoGolpeEm: min.proximoGolpeEm,
+
+      /**
+       * OS SEGUNDOS QUE FALTAM PARA A BATIDA EM CURSO, e nao o instante
+       * absoluto dela.
+       *
+       * ## POR QUE ISSO SUBSTITUI O `proximoGolpeEm`
+       *
+       * Porque o painel recebia um INSTANTE do relogio do SERVIDOR e o
+       * subtraia do `Date.now()` do NAVEGADOR. Sao dois relogios que nunca
+       * concordam: o do servidor pode estar atras, ou adiantado, e o painel
+       * herdava a diferenca
+       *
+       * Com o servidor atrasado, `proximoGolpeEm - Date.now()` dava negativo, o
+       * `Math.max(0, ...)` do cliente zerava, e a barra da batida em curso
+       * ficava parada em 0% com o numero vazio — enquanto a barra de cima,
+       * que sai de `batidasRestantes`, continuava andando normally. Era
+       * exatamente o sintoma de "a de cima funciona e a de baixo nao"
+       *
+       * Mandar a DURACAO tira o problema pela raiz: nao ha mais relogio
+       * nenhum no cliente, so um numero que ele conta para baixo com o
+       * relogio dele
+       *
+       * E o `ceil` porque o painel mostra segundos inteiros — e o `+1` do
+       * arredondamento para cima mantem o numero em 10 no instante em que a
+       * batida comeca, em vez de mostrar 9
+       */
+      segundosParaBatida: Math.max(
+        0,
+        Math.ceil((min.proximoGolpeEm - agora) / 1000),
+      ),
     };
   }
 
@@ -4994,6 +5081,18 @@ case PANEL_OPS.DASH:
           const entrada = this.expedicoes.entrar({
             jogadorId: sessao?.id ?? null,
             expedicaoId: pedido.expedicaoId,
+
+            /**
+             * O NOME ENTRA JUNTO COM A ENTRADA, e nao depois.
+             *
+             * E o que o botao "Info" da propria expedicao mostra. Sem ele o
+             * store teria a `id` de quem entrou e nenhuma legenda, e o roster
+             * apareceria como uma coluna de "Sem nome"
+             *
+             * Vem da SESSAO e nunca do pedido: o nome que o cliente manda nao
+             * interessa, e o do servidor e o que o resto do jogo mostra
+             */
+            jogadorNome: sessao?.name ?? sessao?.definition?.name ?? "",
           });
 
           this.engine.marcarErroDaExpedicao(entrada.erro ?? null);
@@ -6708,6 +6807,21 @@ case PANEL_OPS.DASH:
         // `hasTarget` sozinho mostraria o arco num buff em si mesmo
         acting: (p.attackAnimation ?? 0) > 0,
         hasTarget: Boolean(p.firingTargetId),
+
+        /**
+         * A POSE E DE BUFF, e nao de golpe.
+         *
+         * E o terceiro pedaco do mesmo quebra-cabeca, que `acting` e
+         * `hasTarget` nao resolvem sozinhos
+         *
+         * `acting` sozinho prenderia o cajado no ar; `hasTarget` sozinho
+         * trataria o buff e o golpe no chao como a mesma coisa, e o golpe no
+         * chao deixaria de animar — que e o sintoma que o jogador viu
+         *
+         * O `SkillSystem` e quem sabe disso: ele viu a `action`, e a acao
+         * sabe se o alvo e o proprio jogador. O cliente so recebe a resposta
+         */
+        poseDeBuff: p.poseDeBuff === true,
         selectedTargetId: sessao.selectedTargetId ?? null,
 
         /**
@@ -7074,6 +7188,57 @@ case PANEL_OPS.DASH:
     const px = client?.session?.player?.x ?? 0;
     const py = client?.session?.player?.y ?? 0;
 
+    /**
+     * OS PERIGOS DO CHAO, e o aviso da chuva que ainda nao virou perigo.
+     *
+     * ## POR QUE ELES PRECISAM VIR NO MESMO PACOTE
+     *
+     * Porque sao as duas unicas coisas do mundo que o motor SIMULA e o cliente
+     * so DESENHA — igual aos projeteis. Sem esta lista o jogador conjuraria a
+     * armadilha, veria o circulo no chao sumir e nao veria nada mais: ela esta
+     * no servidor, e o cliente so tem o que ele ganha por aqui
+     *
+     * E `armaEm` e `chuvaRestante` viajam porque sao o que muda o DESENHO dos
+     * dois: sem eles o cliente desenharia a armadilha ja armada e a nuvem sem
+     * os virotes caindo
+     */
+    for (const p of this.engine.world.perigos ?? []) {
+      const dx = p.x - px;
+      const dy = p.y - py;
+
+      if (dx * dx + dy * dy > INTERESSE_QUADRADO) continue;
+
+      lista.push({
+        id: `perigo_${p.id}`,
+        perigo: true,
+        kind: p.kind,
+        x: Math.round(p.x),
+        y: Math.round(p.y),
+        raio: Math.round(p.raio),
+        vida: Math.round(p.vida * 10) / 10,
+        armada: p.armada === true,
+        chuvaRestante: Math.round((p.chuvaRestante ?? 0) * 10) / 10,
+        cor: p.action?.color ?? null,
+      });
+    }
+
+    for (const a of this.engine.world.atrasados ?? []) {
+      const dx = a.point.x - px;
+      const dy = a.point.y - py;
+
+      if (dx * dx + dy * dy > INTERESSE_QUADRADO) continue;
+
+      lista.push({
+        id: `marcado_${a.action?.id ?? "chuva"}_${Math.round(a.point.x)}_${Math.round(a.point.y)}`,
+        perigo: true,
+        kind: "marca",
+        x: Math.round(a.point.x),
+        y: Math.round(a.point.y),
+        raio: Math.round(a.action?.radius ?? 160),
+        cor: a.action?.color ?? null,
+      });
+    }
+
     for (const p of this.engine.world.projectiles) {
       const dx = p.x - px;
       const dy = p.y - py;
@@ -7087,6 +7252,20 @@ case PANEL_OPS.DASH:
         radius: p.radius,
         velocityX: Math.round(p.velocityX),
         velocityY: Math.round(p.velocityY),
+
+        /**
+         * A IDADE DO TIRO, e nao so a posicao.
+         *
+         * Sem este campo o cliente remoto nao tem como escolher o quadro: ele
+         * receberia sempre `age` valendo zero e a esfera do sorcerer ficaria
+         * congelada no primeiro quadro da faixa, so com o rastro parado
+         *
+         * Arredondado em duas casas porque e um tempo em segundos usado para
+         * multiplicar um `fps` — a terceira casa nao muda nenhum quadro e
+         * custaria um caractere por projetil em cada pacote
+         */
+        age: Math.round((p.age ?? 0) * 100) / 100,
+
         style: p.action?.projectileStyle,
         color: p.action?.color,
         rain: Boolean(p.action?.rain),

@@ -125,6 +125,9 @@ export class ExpeditionStore {
    * e a tela decide o que isso significa
    */
   resumo(expedicao, jogadorId) {
+    const souDaExpedicao =
+      expedicao.lider === jogadorId || expedicao.membros.includes(jogadorId);
+
     return {
       id: expedicao.id,
       nome: expedicao.nome,
@@ -135,6 +138,33 @@ export class ExpeditionStore {
       lotada: expedicao.membros.length >= expedicao.max,
       souLider: expedicao.lider === jogadorId,
       estouAqui: expedicao.membros.includes(jogadorId),
+
+      /**
+       * QUEM ESTA DENTRO — e so na expedicao do proprio jogador.
+       *
+       * ## POR QUE SO A MINHA
+       *
+       * Porque a lista de busca mostra nome, dificuldade e quantos tem. Os
+       * NOMES ficam de fora de proposito: mandar o roster inteiro para cada
+       * jogador que procura grupo daria a lista de todo mundo para todo mundo
+       *
+       * Na MINHA expedicao o roster e meu: eu montei esse grupo e preciso saber
+       * quem entrou, senao o botao "Info" da linha nao teria o que mostrar
+       *
+       * ## POR QUE PERCORRE `membros` E NAO AS CHAVES DO `nomes`
+       *
+       * Porque `membros` e a lista de quem esta. O `nomes` e so a legenda, e
+       * um membro sem nome gravado — o `criar` antigo, ou um `entrar` sem o
+       * nome — cairia fora do `Object.keys` e apareceria na contagem sem
+       * aparecer na lista. O inverso é inofensivo
+       */
+      roster: souDaExpedicao
+        ? expedicao.membros.map((id) => ({
+            id,
+            nome: expedicao.nomes?.[id] ?? "Sem nome",
+            lider: expedicao.lider === id,
+          }))
+        : null,
     };
   }
 
@@ -272,6 +302,22 @@ export class ExpeditionStore {
       max: this.maximo,
       lider: jogadorId,
       membros: [jogadorId],
+
+      /**
+       * O NOME DE CADA MEMBRO, por id de sessao.
+       *
+       * ## POR QUE UM MAP PARALELO E NAO UM ARRAY DE OBJETOS
+       *
+       * Porque `membros` e lido como `includes(jogadorId)` em cinco lugares do
+       * store. Trocar o array por `[{ id, nome }]` faria cada uma dessas
+       * leituras virarem `.some((m) => m.id === ...)`, e o ganho seria um array
+       * a menos
+       *
+       * E o `membros` continua sendo a verdade de QUEM esta: o `nomes` e so a
+       * legenda. Se um dos dois se desalinhar, `resumo` reconstroi pelo
+       * `membros` e nao pelo `nomes` — a lista nunca mostra um membro que saiu
+       */
+      nomes: { [jogadorId]: jogadorNome },
     };
 
     this.expedicoes.set(expedicao.id, expedicao);
@@ -288,7 +334,7 @@ export class ExpeditionStore {
    * "você organizou essa" — três textos diferentes para o jogador, e um `null`
    * genérico transformaria os três no mesmo silêncio
    */
-  entrar({ jogadorId, expedicaoId }) {
+  entrar({ jogadorId, expedicaoId, jogadorNome = null }) {
     const expedicao = this.expedicoes.get(expedicaoId);
 
     if (!expedicao) return { erro: "expedicao nao existe" };
@@ -302,6 +348,11 @@ export class ExpeditionStore {
     }
 
     expedicao.membros.push(jogadorId);
+
+    /* o nome entra junto com a id: sem ele a expedicao do lider nao saberia
+       dizer quem chegou depois */
+    expedicao.nomes = { ...expedicao.nomes, [jogadorId]: jogadorNome };
+
     this.doJogador.set(jogadorId, expedicao.id);
 
     return { expedicao: this.resumo(expedicao, jogadorId) };
@@ -328,6 +379,13 @@ export class ExpeditionStore {
 
     expedicao.membros = expedicao.membros.filter((id) => id !== jogadorId);
     this.doJogador.delete(jogadorId);
+
+    /* o nome sai com a id. `resumo` percorre `membros`, nao `nomes`, entao um
+       nome sobrado aqui nunca apareceria — mas deixaria memoria presa na
+       expedicao enquanto ela existir */
+    expedicao.nomes = { ...expedicao.nomes };
+
+    delete expedicao.nomes[jogadorId];
 
     return { expedicao: this.resumo(expedicao, jogadorId) };
   }

@@ -53,7 +53,7 @@ export function createAction(name, type, configuration = {}) {
  *
  * ## O LIMITE
  *
- * Quatro, e o `ultimate` NAO conta: ele fica no botao proprio e nao ocupa
+ * Tres, e o `ultimate` NAO conta: ele fica no botao proprio e nao ocupa
  * um dos slots de habilidade
  *
  * ## POR QUE O CORTE E AQUI E NAO NAS LISTAS
@@ -62,7 +62,7 @@ export function createAction(name, type, configuration = {}) {
  * `slice(0, MAX_SKILLS)` no `createPack`. Isso e deliberado:
  *
  * - o que fica e sempre a PRIMEIRA metade, na ordem em que foi escrita, e
- *   o criterio "as quatro primeiras" fica visivel no dado
+ *   o criterio "as tres primeiras" fica visivel no dado
  * - trocar a ordem de uma lista muda o que o jogador recebe, e isso nao
  *   deve acontecer por acidente ao editar uma acao no meio do arquivo
  *
@@ -71,19 +71,28 @@ export function createAction(name, type, configuration = {}) {
  * uma classe nova, e apagar codigo que funciona e o jeito mais rapido de
  * perder trabalho
  *
- * ## POR QUE QUATRO, E COMO UMA CLASSE PERDE A SUA
+ * ## A HISTORIA DO CORTE, QUE E A MESMA REGRA DUAS VEZES
  *
- * Baixou de cinco para quatro por decisao do jogador. O que caiu NAO foi
- * sempre a mesma posicao: o Warrior, o Lancer e o Arbalist perderam o
- * TERCEIRO slot, e o Sorcerer perdeu o QUARTO
+ * Baixou de cinco para quatro, e depois para tres, sempre por decisao do
+ * jogador. O que caiu NAO foi sempre a mesma posicao, e essa e a parte que
+ * importa: o `slice` e por POSICAO, entao "remover o terceiro" e "deixar o
+ * terceiro de fora" sao coisas diferentes
  *
- * Isso e por isso que a acao removida foi MOVIDA para depois do limite em
- * vez de apagada. O `slice` e por posicao, entao "remover o terceiro" e
- * "deixar o terceiro de fora" sao coisas diferentes: apagando o codigo, o
- * quinto viraria o quarto e a classe ganharia uma habilidade nova sem
- * ninguem pedir
+ * Apagando o codigo, o quarto viraria o terceiro e a classe ganharia uma
+ * habilidade nova sem ninguem pedir. E por isso que a acao removida foi
+ * MOVIDA para depois do limite em vez de apagada — inclusive agora:
+ *
+ * | Classe   | Ficou (3)                       | Caiu fora          |
+ * |----------|---------------------------------|--------------------|
+ * | Warrior  | Void Slash, Splitting, Ground   | Gale Slash         |
+ * | Lancer   | Ravaging, Sweeping, Dragon Tail | Crescent Blade     |
+ * | Sorcerer | Flame Orb, Dark Vortex, Shield  | Frost Orb          |
+ * | Arbalist | Quick Shot, Illusion, Cloaking  | Venom Mist Shell   |
+ *
+ * O criterio de cada uma foi o MESMO arquétipo duplicado: o corte cai na skill
+ * que repete o tipo de uma que ficou ao lado
  */
-const MAX_SKILLS = 4;
+const MAX_SKILLS = 3;
 
 function createPack(prefix, actions, ultimateAction) {
   const skills = actions
@@ -137,6 +146,21 @@ export const SKILL_PACKS = {
         ],
       }),
 
+      /*
+       * A PARTIR DAQUI NINGUEM VIRA HABILIDADE.
+       *
+       * O `Gale Slash` era o QUARTO slot do Warrior, e saiu da fileira por
+       * decisao do jogador. Ele NAO foi apagado: virou uma das acoes alem do
+       * `MAX_SKILLS`, que e exatamente o que acontece com as acoes que sempre
+       * ficaram fora daqui
+       *
+       * Ele era o `circle` fraco da classe: 44 de dano em 3 golpes, contra os
+       * 108 do `Ground Smash` que ficou ao lado E ainda leva atordoamento. Sao
+       * dois circulos brutos competindo pelo mesmo slot, e o `Ground Smash`
+       * cobre mais
+       *
+       * Com ele fora, sobrou um de cada arquetipo: `line`, `cone` e `circle`
+       */
       createAction("Gale Slash", "circle", {
         damage: 44,
         cooldown: 10,
@@ -147,16 +171,8 @@ export const SKILL_PACKS = {
       }),
 
       /*
-       * A PARTIR DAQUI NINGUEM VIRA HABILIDADE.
-       *
-       * O `Body Check` era o TERCEIRO slot do Warrior, e saiu da fileira
-       * por decisao do jogador. Ele NAO foi apagado: virou uma das acoes
-       * alem do `MAX_SKILLS`, que e exatamente o que acontece com as
-       * acoes que sempre ficaram fora daqui
-       *
-       * Ele e o `dash` do Warrior — o unico da classe com `stun` curto e
-       * recuo curto. `Sweeping Storm` e `Dragon Tail` cobrem o avanco e
-       * o controle de linha sem custar um slot
+       * O `Body Check` tambem ja foi removido do mesmo jeito, no corte de cinco
+       * para quatro — e continua aqui embaixo pelo mesmo motivo
        */
       createAction("Body Check", "dash", {
         damage: 72,
@@ -268,16 +284,6 @@ export const SKILL_PACKS = {
         angle: 0.9,
       }),
 
-      createAction("Crescent Blade", "cone", {
-        damage: 65,
-        cooldown: 7,
-        resourceCost: 15,
-        range: 175,
-        angle: 1.8,
-        hits: 3,
-        hitInterval: 0.18,
-      }),
-
       createAction("Sweeping Storm", "circle", {
         damage: 61,
         cooldown: 9,
@@ -298,6 +304,30 @@ export const SKILL_PACKS = {
 
       /*
        * A PARTIR DAQUI NINGUEM VIRA HABILIDADE.
+       *
+       * O `Crescent Blade` era o SEGUNDO slot do Lancer, e saiu da fileira
+       * por decisao do jogador. Ele NAO foi apagado — virou acao de reserva,
+       * junto com as outras que o corte sempre deixou de fora
+       *
+       * Ele era o `cone` repetido: o `Ravaging Blow`, que ficou na posicao 1,
+       * e o mesmo arquetipo e sai mais barato — 3s de recarga e 8 de recurso
+       * contra 7s e 15. Os dois nao cabiam em tres slots
+       *
+       * Com ele fora, o Lancer ficou com `cone`, `circle` e `line`
+       */
+      createAction("Crescent Blade", "cone", {
+        damage: 65,
+        cooldown: 7,
+        resourceCost: 15,
+        range: 175,
+        angle: 1.8,
+        hits: 3,
+        hitInterval: 0.18,
+      }),
+
+      /*
+       * O `Nirvana Kick` tambem ja foi removido do mesmo jeito, no corte de
+       * cinco para quatro — e continua aqui pelo mesmo motivo
        *
        * O `Nirvana Kick` era o TERCEIRO slot do Lancer, e saiu da fileira
        * por decisao do jogador. Continua no arquivo como acao de reserva,
@@ -375,20 +405,169 @@ export const SKILL_PACKS = {
   sorcerer: createPack(
     "sorcerer",
     [
-      createAction("Flame Orb", "projectile", {
-        damage: 138,
+      /**
+       * SKILL 1 — LANÇA DE MANA.
+       *
+       * E o UNICO tiro do jogo que ATRAVESSA. Ela sai rapida, cruza uma
+       * linha de 8 tiles e leva TODOS os inimigos que estiver no caminho, e o
+       * dano CAI a cada um que ela toca — entao acertar um mob fraco primeiro
+       * e o grande depois e a leitura certa, e nao o contrario
+       *
+       * O `perfura` e o que muda a colisao: sem ele o projetil explode no
+       * primeiro acerto, e o `pierceQueda` e o quanto o dano multiplica a cada
+       * alvo. O alcance e a linha inteira, e nao um raio de explosao
+       */
+      createAction("Mana Lance", "projectile", {
+        cooldown: 5,
+        resourceCost: 16,
+        damage: 96,
         damageType: "magic",
-        cooldown: 6,
-        resourceCost: 19,
-        range: 500,
-        projectileSpeed: 390,
-        impactRadius: 105,
+
+        /** A LINHA INTEIRA: 8 tiles x 64 */
+        range: 512,
+
+        /** ESTREITA E LONGA: e o que faz ela parecer um raio e nao uma bomba */
+        projectileSpeed: 980,
+        radius: 34,
+        remaining: 0.75,
+
+        /** ATRAVESSA TUDO, e NAO EXPLODE NO PRIMEIRO ACERTO */
+        pierce: true,
+
+        /** O DANO CAI A CADA ALVO: 72% do anterior a cada acerto */
+        pierceQueda: 0.72,
+
         projectileStyle: "fire",
-        effects: [
-          { type: "burning", duration: 4, value: 15, tickInterval: 1 },
-        ],
       }),
 
+      /**
+       * SKILL 2 — NOVA DE CRISTAL.
+       *
+       * Cria um circulo no chao e NAO estoura: ele fica ali, dando lentidao em
+       * quem entrar. Quem ficar 3 segundos dentro do circulo leva um atordoamento
+       * de 1 segundo na saida
+       *
+       * ## POR QUE A REGRA E "FICAR DENTRO", E NAO "RECEBER"
+       *
+       * Porque e a leitura da skill: ela nao pune quem passa, so quem fica. Um
+       * inimigo que atravessa o circulado leva a lentidao e segue; um que para
+       * dentro de um mob lento perde a acao por 1 segundo
+       *
+       * E o `tempoDentro` e POR INIMIGO, nao do circulo. O circulo nao pode
+       * ter uma memoria so: sao tres mobs entrando em tempos diferentes, e cada
+       * um tem que cumprir os 3s dele
+       *
+       * O `duracao` de 8s e maior que os 3s do atordoamento de proposito: se o
+       * circulo durasse exatamente 3s, nunca haveria tempo de sair andando
+       */
+      createAction("Crystal Nova", "nova", {
+        cooldown: 9,
+        resourceCost: 22,
+        targetType: "ground",
+
+        /**
+         * ## O `range` NAO E OPCIONAL, E O MOTIVO E O PROTOCOLO
+         *
+         * O cliente nao manda a posicao do mouse: manda so uma DIRECAO
+         * normalizada (`aimX`/`aimY`, em `shared/protocol.js`), e o servidor
+         * reconstrói um ponto a `DISTANCIA_DE_MIRA` — 1000 unidades — do boneco
+         * (`GameServer.js`)
+         *
+         * Ou seja: o servidor nunca sabe onde o mouse esta. O `createAim`
+         * (`SkillSystem.js`) e quem conserta, cortando esse ponto de 1000 de
+         * volta para o `range`, na linha da mira
+         *
+         * Com `range: 0` o corte e `&& action.range > 0` — ou seja, NAO CORTA.
+         * O circulo nascia entao a 1000 unidades do conjurador, quase o dobro
+         * do alcance de qualquer outra skill de chao, e o dano e o atordoamento
+         * caíam la em cima em vez de sob o cursor
+         *
+         * E por isso que as duas tem `range`: e o que traduz a direcao numa
+         * posicao no chao. As outras de chao (`Thorn Trap` 340, `Venom Bolt
+         * Rain` 420, `Dragon Tornado` 460) continuam pelo mesmo motivo
+         */
+        range: 340,
+        radius: 150,
+
+        /** O CIRCULO FICA NO CHAO por 8s */
+        duracao: 8,
+
+        /** A LENTIDAO, renovada a cada tique enquanto o inimigo estiver dentro */
+        lentidao: { value: 0.45, duration: 0.5 },
+
+        /** QUANTO TEMPO DENTRO PARA LEVAR O ATORDOAMENTO */
+        tempoParaStun: 3,
+        stun: 1,
+
+        /** A CONTA DO TEMPO DENTRO, de 4 em 4 tiques — 0,2s */
+        tickInterval: 0.2,
+
+        color: "#7fd4ff",
+      }),
+
+      /**
+       * SKILL 3 — SINGULARIDADE.
+       *
+       * Um circulo na mira que, por 3 segundos, puxa os inimigos para o centro e
+       * dá dano alto. E a unica skill do jogo que tem forca de ARRANCAR: as
+       * outras juntam o mob no chao e passively, e esta arranca de longe
+       *
+       * ## POR QUE O PUXAO E NO `tick` E NAO NA CRIAÇÃO
+       *
+       * Porque o `pull` e uma velocidade aplicada no tique. Se valesse uma vez
+       * so, o inimigo entraria no centro e ficaria parado ali ate o fim da
+       * skill, e o circulo viraria uma area de dano quietinha — o oposto de
+       * singularidade
+       *
+       * O `pull` e fraco de proposito: um empurrao forte passaria por cima do
+       * colisor e atravessaria o mob, e a singularidade viraria um empurrao
+       * sem causa
+       */
+      createAction("Singularity", "singularidade", {
+        cooldown: 20,
+        resourceCost: 34,
+        targetType: "ground",
+
+        /**
+         * O `range` e o mesmo motivo da Nova: sem ele o protocolo so entrega a
+         * direcao, e o servidor marcaria o circulo a 1000 unidades do boneco
+         *
+         * 380 em vez dos 340 da Nova porque e o skill de mao pesada do
+         * conjurador: o alcance maior e o que paga a recarga de 20s e o custo
+         * de 34
+         */
+        range: 380,
+        radius: 170,
+        damage: 52,
+        damageType: "magic",
+
+        /** O CIRCULO EXISTE POR 3s */
+        duracao: 3,
+
+        /** O PUXAO, fraco e repetido a cada tique */
+        pull: 240,
+        tickInterval: 0.5,
+
+        color: "#b98cff",
+      }),
+
+      /*
+       * A PARTIR DAQUI NINGUEM VIRA HABILIDADE.
+       *
+       * O `Frost Orb` era o SEGUNDO slot do Sorcerer, e saiu da fileira por
+       * decisao do jogador. Ele NAO foi apagado — virou acao de reserva
+       *
+       * Ele era o `projectile` repetido: o `Flame Orb`, que ficou na posicao 1,
+       * e o mesmo arquetipo e sai mais barato. O que o gelo trazia de diferenca
+       * — o `slow` de 50% por 4s — foi o que empurou a escolha para o `venom`
+       * do arqueiro, e nao para o conjurador
+       *
+       * Repare que aqui a habilidade que caiu foi a SEGUNDA, e no corte de
+       * cinco para quatro tinha sido a QUARTA: o corte e por POSICAO, e cada
+       * classe perde uma diferente
+       *
+       * Com ele fora, o Sorcerer ficou com `projectile`, `circle` e `self`
+       */
       createAction("Frost Orb", "projectile", {
         damage: 98,
         damageType: "magic",
@@ -401,29 +580,9 @@ export const SKILL_PACKS = {
         effects: [{ type: "slow", duration: 4, value: 0.5 }],
       }),
 
-      createAction("Dark Vortex", "circle", {
-        damage: 34,
-        damageType: "magic",
-        cooldown: 13,
-        resourceCost: 32,
-        radius: 220,
-        hits: 5,
-        hitInterval: 0.3,
-        effects: [{ type: "pull", value: 230 }],
-      }),
-
-      createAction("Magic Shield", "self", {
-        cooldown: 14,
-        resourceCost: 28,
-        shield: 300,
-        shieldResourceCost: 18,
-        selfEffects: [
-          { type: "shieldMaintenance", duration: 6, value: 12 },
-        ],
-      }),
-
       /*
-       * A PARTIR DAQUI NINGUEM VIRA HABILIDADE.
+       * O `Thunderstorm` tambem ja foi removido do mesmo jeito, no corte de
+       * cinco para quatro — e continua aqui pelo mesmo motivo
        *
        * O `Thunderstorm` era o QUARTO slot do Sorcerer, e saiu da fileira
        * por decisao do jogador — Repare que aqui a habilidade que caiu foi
@@ -544,36 +703,143 @@ export const SKILL_PACKS = {
   arbalist: createPack(
     "arbalist",
     [
-createAction("Quick Shot", "projectile", {
-            damage: 49,
-            cooldown: 1.3,
-            resourceCost: 4,
-            range: 560,
-            projectileSpeed: 720,
-            projectileStyle: "arrow",
+      /**
+       * SKILL 1 — ARMADILHA DE ESPINHOS.
+       *
+       * E postada NA MIRA, arma em meio segundo, prende quem pisar por 2s e
+       * some sozinha depois de 15s. Duas no maximo ao mesmo tempo — o que
+       * transforma a recarga de 6s numa escolha de posicao: a segunda tem que
+       * ir para onde a primeira nao cobre
+       *
+       * E o `root` que segura, e ele ja existe: esta em `TRAVAM_MOVIMENTO` no
+       * `StatusSystem`, ao lado do `stun` e do `freeze`. Nenhum caso novo no
+       * sistema de status so para travar o inimigo
+       */
+      createAction("Thorn Trap", "armadilha", {
+        cooldown: 6,
+        resourceCost: 18,
+        range: 340,
+        targetType: "ground",
+        radius: 46,
+        damage: 34,
+        damageType: "physical",
 
-            /**
-             * O EFEITO DE VELOCIDADE, e so nesta skill.
-             *
-             * ## POR QUE PELA ACAO E NAO PELA ARTE
-             *
-             * As tres flechas do arquiro compartilham a MESMA imagem. Se o
-             * efeito estivesse na arte, as tres esticariam — e `Illusion Arrow`
-             * e `Arrow Rain` nao sao tiros rapidos: sao lentos, pesados e
-             * precisos. O que distingue a `Quick Shot` nao e a arte, e a
-             * velocidade, entao a marca vai na velocidade
-             *
-             * E o `720` acima e a prova: esta e a flecha mais rapida do jogo,
-             * e e a unica que precisa parecer estar correndo
-             *
-             * ## O QUE O MOTOR FAZ COM ISTO
-             *
-             * Estica a arte em 1,45x no eixo do tiro nos primeiros 90ms e
-             * desenha tres riscos atras dela. O eixo X do canvas ja e a
-             * direcao do projétil, entao nao ha conta de angulo nenhuma
-             */
-            speedEffect: true,
-          }),
+        /** MEIO SEGUNDO antes de morder: da tempo de sair de cima dela */
+        armaEm: 0.5,
+
+        /** 15s no chao, e some sozinha */
+        duracao: 15,
+
+        /** DUAS no mapa. A terceira toma a mais antiga */
+        limite: 2,
+
+        effects: [{ type: "root", duration: 2 }],
+        color: "#8fbf5a",
+      }),
+
+      /**
+       * SKILL 2 — SALVA EM LEQUE.
+       *
+       * Cinco virotes abertos num cone de 60 graus, e o dano cai com a
+       * DISTANCIA DO ARQUEIRO — e nao com a origem do virote. E o que faz a
+       * skill valer a pena de perto: de longe os cinco batem fraco, e nao ha
+       * com o que compensar, entao o caminho do jogador e chegar perto
+       */
+      createAction("Fan Volley", "projectile", {
+        cooldown: 7,
+        resourceCost: 20,
+        range: 380,
+        damage: 46,
+        projectileSpeed: 700,
+        projectileStyle: "arrow",
+
+        /** CINCO virotes abertos num cone de 60 graus */
+        count: 5,
+        spread: Math.PI / 3,
+
+        /**
+         * A QUEDA DE DANO, e ela e por DISTANCIA DO ARQUEIRO.
+         *
+         * E o que faz a skill valer a pena de perto: de longe os cinco batem
+         * fraco, e nao ha com o que compensar, entao o caminho do jogador e
+         * chegar perto
+         *
+         * Os dois numeros vao no `explodeProjectile`, que mede do DONO do tiro
+         * ate o ponto do impacto. Um virote que travelled 300px nao pode contar
+         * a distancia dele mesmo: ele sempre nasce na mao
+         */
+        falloffAlcance: 300,
+        falloffMinimo: 0.35,
+      }),
+
+      /**
+       * SKILL 3 — CHUVA DE VIROTES VENENOSOS.
+       *
+       * O chao e MARCADO num raio de 2,5 tiles, e 1 segundo depois os
+       * virotes comecam a cair durante 3s. Sobra uma nuvem de veneno que dura
+       * mais 4s
+       *
+       * O `delay` usa a fila de `delayedEffects` do motor — a mesma do
+       * telegraph do chefe — em vez de um timer novo: o marcado e a chuva sao
+       * o mesmo objeto em dois estados, e o jogador ve a diferenca na tela
+       */
+      createAction("Venom Bolt Rain", "chuva", {
+        cooldown: 20,
+        resourceCost: 34,
+        range: 420,
+        targetType: "ground",
+        radius: 160,
+        damage: 22,
+        damageType: "physical",
+        projectileStyle: "venom",
+
+        /** 2,5 tiles x 64 */
+        delay: 1,
+
+        /** quanto tempo cai virote antes da nuvem assumir */
+        chuvaDuracao: 3,
+        nuvemDuracao: 4,
+        tickInterval: 0.5,
+
+        effects: [{ type: "poison", duration: 6, value: 9, tickInterval: 1 }],
+        color: "#7bd45a",
+      }),
+      /*
+       * A PARTIR DAQUI NINGUEM VIRA HABILIDADE.
+       *
+       * As tres skills antigas do Arbalist sairam da fileira por decisao do
+       * jogador, no mesmo corte que levou as outras classes a tres slots. Nenhuma
+       * foi apagada: continuam escritas aqui como acao de reserva, como todas as
+       * que o corte sempre deixou de fora
+       */
+      createAction("Quick Shot", "projectile", {
+        damage: 49,
+        cooldown: 1.3,
+        resourceCost: 4,
+        range: 560,
+        projectileSpeed: 720,
+        projectileStyle: "arrow",
+
+        /**
+         * O EFEITO DE VELOCIDADE, e so nesta skill.
+         *
+         * As tres flechas do arquiro compartilham a MESMA imagem. Se o
+         * efeito estivesse na arte, as tres esticariam — e `Illusion Arrow`
+         * e `Arrow Rain` nao sao tiros rapidos: sao lentos, pesados e
+         * precisos. O que distingue a `Quick Shot` nao e a arte, e a
+         * velocidade, entao a marca vai na velocidade
+         *
+         * E o `720` acima e a prova: esta e a flecha mais rapida do jogo,
+         * e e a unica que precisa parecer estar correndo
+         *
+         * ## O QUE O MOTOR FAZ COM ISTO
+         *
+         * Estica a arte em 1,45x no eixo do tiro nos primeiros 90ms e
+         * desenha tres riscos atras dela. O eixo X do canvas ja e a
+         * direcao do projétil, entao nao ha conta de angulo nenhuma
+         */
+        speedEffect: true,
+      }),
 
       createAction("Illusion Arrow", "projectile", {
         damage: 72,
@@ -585,6 +851,16 @@ createAction("Quick Shot", "projectile", {
           { type: "speedBoost", duration: 1.5, value: 0.2 },
         ],
         projectileStyle: "arrow",
+      }),
+
+      createAction("Cloaking", "self", {
+        cooldown: 18,
+        resourceCost: 22,
+        duration: 5,
+        selfEffects: [
+          { type: "cloak", duration: 5 },
+          { type: "speedBoost", duration: 5, value: 0.15 },
+        ],
       }),
 
       createAction("Venom Mist Shell", "projectile", {
@@ -605,30 +881,6 @@ createAction("Quick Shot", "projectile", {
         ],
       }),
 
-      createAction("Cloaking", "self", {
-        cooldown: 18,
-        resourceCost: 22,
-        duration: 5,
-        selfEffects: [
-          { type: "cloak", duration: 5 },
-          { type: "speedBoost", duration: 5, value: 0.15 },
-        ],
-      }),
-
-      /*
-       * A PARTIR DAQUI NINGUEM VIRA HABILIDADE.
-       *
-       * O `Burst Shell` era o TERCEIRO slot do Arbalist, e saiu da fileira
-       * por decisao do jogador. Continua escrito, como as outras acoes
-       * que o corte deixa de fora
-       *
-       * ## POR QUE ISSO NAO QUEBRA O TESTE DO SPRITE
-       *
-       * `arbalistSprite.test.js` exige que a classe tenha uma habilidade
-       * `self`, e ela continua sendo o `Cloaking`. O que saiu foi o
-       * `dash`, nao o `self` — se o `Cloaking` tivesse sido o removido,
-       * o teste precisaria mudar junto
-       */
       createAction("Burst Shell", "dash", {
         damage: 96,
         cooldown: 8,
@@ -638,10 +890,10 @@ createAction("Quick Shot", "projectile", {
       }),
 
       createAction("Seeking Bolt", "projectile", {
-        damage: 107,
-        cooldown: 9,
-        resourceCost: 23,
-        range: 670,
+        damage: 44,
+        cooldown: 5,
+        resourceCost: 10,
+        range: 520,
         projectileSpeed: 470,
         homing: true,
         projectileStyle: "seeking",
@@ -676,28 +928,6 @@ createAction("Quick Shot", "projectile", {
 
 };
 
-/**
- * O NIVEL EM QUE A ULTIMATE LIBERA.
- *
- * ## POR QUE A ULTIMATE E A UNICA EXCECAO
- *
- * As quatro habilidades de slot sao ensinadas por livro, compradas com o
- * Mestre. A ultimate nao: ela libera por NÍVEL
- *
- * A razao e a diferenca de papel. As quatro slots sao o repertorio e sao
- * compradas — um livro e um item, entao o jogador sabe exatamente o que
- * falta e o preco. A ultimate e a assinatura da classe, e um livro
- * dela seria um item novo, com arte nova e preco novo, e a unica coisa
- * que ele ensinaria e "esperar mais um nivel"
- *
- * E o nivel 6 e o primeiro degrau do vale. Um personagem novo no hub nao
- * tem nada contra ninguem ainda, entao travar a ultimate ate la nao tira
- * nada de ninguem
- *
- * Quem consulta: `GameEngine.useUltimate` (a porta do servidor) e o HUD
- * (a tranca na tela). Os dois leem ESTE numero — se cada um tivesse o
- * seu, a tela diria "travada" com o servidor deixando passar
- */
 export const ULTIMATE_NIVEL = 6;
 
 /**

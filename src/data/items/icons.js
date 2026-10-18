@@ -122,8 +122,56 @@ export const ITEM_ICON_ASSET = {};
  * Os quatro itens estao no `ITEM_ICON_SIMPLES`, cada um com a sua arte
  */
 export const ITEM_ICON_SIMPLES = {
-  livro_quick_shot: new URL(
-    "../../assets/Items/book.png",
+  /**
+   * OS TRES LIVROS DO ARBALIST, e o arquivo e o do SLOT.
+   *
+   * `books/arbalist/1.png`, `2.png` e `3.png` — o mesmo criterio das artes de
+   * habilidade (`data/skillIcons.js`), e pela mesma razao: o arquivo nomeia a
+   * POSICAO na barra, e nao a skill que ele ensina
+   *
+   * Antes eles apontavam para `assets/Items/book.png`, o livro generico. Com
+   * tres skills e tres livros, o icome_generico nao distinguia um do outro — e
+   * o jogador tinha tres livros visualmente iguais na mochila
+   *
+   * Sao PNGs de ~200 a 270KB, e nao ha miniatura: o `ItemIcon` reduz no
+   * desenho, e uma segunda arte por item custaria o dobro do disco para
+   * mostrar 40px
+   */
+  livro_armadilha_espinhos: new URL(
+    "../../assets/Items/books/arbalist/1.png",
+    import.meta.url,
+  ).href,
+
+  livro_salva_leque: new URL(
+    "../../assets/Items/books/arbalist/2.png",
+    import.meta.url,
+  ).href,
+
+  livro_chuva_virotes: new URL(
+    "../../assets/Items/books/arbalist/3.png",
+    import.meta.url,
+  ).href,
+
+  /**
+   * OS TRES LIVROS DO SORCERER, e o arquivo e o do SLOT, pelo mesmo criterio
+   * dos do arbalist acima
+   *
+   * `books/sorcerer/1.png` = Lanca de Mana (slot 1)
+   * `books/sorcerer/2.png` = Nova de Cristal (slot 2)
+   * `books/sorcerer/3.png` = Singularidade (slot 3)
+   */
+  livro_lanca_mana: new URL(
+    "../../assets/Items/books/sorcerer/1.png",
+    import.meta.url,
+  ).href,
+
+  livro_nova_cristal: new URL(
+    "../../assets/Items/books/sorcerer/2.png",
+    import.meta.url,
+  ).href,
+
+  livro_singularidade: new URL(
+    "../../assets/Items/books/sorcerer/3.png",
     import.meta.url,
   ).href,
 

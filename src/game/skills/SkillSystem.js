@@ -150,12 +150,37 @@ export class SkillSystem {
      */
     this.player.attackAnimation = TEMPO_DA_ANIMACAO_DE_ATAQUE;
 
-    // a arte de tiro e direcional: so vale com alvo de verdade.
-    // um buff proprio aciona attackAnimation tambem, e nesse caso
-    // o arqueiro tem de continuar na pose de idle. guarda o id,
-    // e nao um booleano, porque o engine usa isso para virar o
-    // arqueiro para o alvo durante o tiro.
-    this.player.firingTargetId = aim.targetId ?? null;
+// a arte de tiro e direcional: so vale com alvo de verdade.
+// um buff proprio aciona attackAnimation tambem, e nesse caso
+// o arqueiro tem de continuar na pose de idle. guarda o id,
+// e nao um booleano, porque o engine usa isso para virar o
+// arqueiro para o alvo durante o tiro.
+this.player.firingTargetId = aim.targetId ?? null;
+
+    /**
+     * ESTA POSE E DE BUFF, e nao de golpe no ar.
+     *
+     * ## POR QUE O `firingTargetId` NAO DAVA PARA SABER
+     *
+     * Porque os dois casos devolvem `null`. O `createAim` monta um
+     * `targetId: null` explicito quando a acao e `targetType: "self"`, e
+     * devolve `target?.id ?? null` quando nao achou inimigo sob o ponteiro —
+     * que e o que acontece ao clicar no chao
+     *
+     * O motor so via os dois como a MESMA coisa, e a arte de tiro, que tem
+     * `needsTarget`, ficava de fora. O sintoma era o conjurador lancar a esfera
+     * no chao com o boneco parado em idle: o tiro saia, a pose nao
+     *
+     * ## POR QUE A ACAO E QUE RESPONDE
+     *
+     * Porque ela e a unica que sabe o que o jogador pediu. O `targetType` e o
+     * contrato da acao: `"self"` e um buff, e qualquer outra coisa e um golpe
+     * que sai na direcao da mira, tenha ou nao inimigo no fim dela
+     *
+     * E `=== "self"` em vez de truthy: um `targetType` ausente num acao mal
+     * formada nao pode virar buff e apagar a pose de novo
+     */
+    this.player.poseDeBuff = action.targetType === "self";
 
     if (action.castTime > 0) {
       this.player.cast = {
@@ -235,6 +260,20 @@ export class SkillSystem {
     this.updatePendingShots(deltaTime);
     this.updateDelayedPulses(deltaTime);
     this.updatePendingHits(deltaTime);
+
+    /**
+     * OS DOIS LAÇOS DE PERIGO, E SO OS DO JOGADOR EM FOCO.
+     *
+     * Pelo mesmo motivo do `updateProjectiles` que o comentario logo abaixo
+     * explica: este `update` roda DENTRO do laco por jogador do motor, e
+     * `world.perigos` e a lista COMPARTILHADA
+     *
+     * Sem o filtro, a armadilha do jogador A seria avancada duas vezes num tick
+     * de duas pessoas online — os 15s virariam 7,5s e a nuvem pingaria em
+     * duplicidade. O dono e a chave, e ele ja viaja em cada perigo
+     */
+    this.updateAtrasados(deltaTime);
+    this.updatePerigos(deltaTime);
 
     // `updateProjectiles` NAO e chamada aqui de proposito.
     //
@@ -360,6 +399,38 @@ export class SkillSystem {
 
       case "chain":
         this.applyChain(action, aim);
+        return;
+
+      /**
+       * A ARMADILHA E A CHUVA: as duas NAO sao um golpe, e sim uma COISA QUE
+       * FICA NO CHAO.
+       *
+       * Todo o resto deste `switch` resolve na hora e some. Estas duas criam uma
+       * entrada em `world.perigos` que o `updatePerigos` tira do caminho depois
+       * de alguns segundos — a armadilha esperando o inimigo, a nuvem pingando
+       * veneno
+       *
+       * E por isso que elas SCSam do `applyArea`: um `ground` resolveria o
+       * instante e esqueceria, e nao e o que o jogador pediu nestas duas
+       */
+      case "armadilha":
+        this.colocarArmadilha(action, aim);
+        return;
+
+      case "chuva":
+        this.marcarChuva(action, aim);
+        return;
+
+      /**
+       * A NOVA E A SINGULARIDADE, e as duas nao EXPLODEM: elas ficam.
+       *
+       * Same do motivo da armadilha e da chuva — um `applyArea` resolveria no
+       * instante da conjure e nao haveria nada esperando no chao. A diferenca
+       * para aquelas duas e que estas NAO tem `delay`: nascem prontas
+       */
+      case "nova":
+      case "singularidade":
+        this.colocarCirculoDeControle(action, aim);
         return;
 
       case "dash":
@@ -969,7 +1040,36 @@ export class SkillSystem {
         action,
         targetId: selectedTarget?.id ?? aim.targetId,
         destination,
-        remaining: 3,
+
+        /**
+         * O TEMPO DE VIDA, e a acao pode encurtar.
+         *
+         * O `3` e o padrao de todo tiro do jogo. A `Mana Lance` declara 0,75s,
+         * que e o tempo dela de percorrer os 8 tiles da linha a 980px/s — sem
+         * isso ela viveria tres vezes o necessario e atravessaria o mapa
+         * inteiro depois de ja ter saido da mira
+         */
+        remaining: action.remaining ?? 3,
+
+        /**
+         * OS INIMIGOS QUE ESTE TIRO JA TOCOU.
+         *
+         * E o que impede a Lanca de Mana de raspar o MESMO mob a cada tique
+         * enquanto passa por cima dele: sem esta lista, um tiro rapido que
+         * gasta 20px por quadro ficaria dentro do raio de um mob grande por
+         * varios quadros e o acerto sairia multiplicado
+         *
+         * E um ARRAY, e nao um `Set`, porque o objeto inteiro vai pelo
+         * `JSON.stringify` do pacote de estado no online — um `Set` viraria
+         * `{}` do outro lado e o cliente perderia o rastro
+         */
+        atingidos: [],
+
+        /** este tiro ATRAVESSA inimigos em vez de explodir no primeiro */
+        perfura: action.pierce === true,
+
+        /** o quanto o dano multiplica a cada alvo ja tocado */
+        pierceQueda: action.pierceQueda ?? 0.72,
 
     /**
      * A IDADE DO PROJETIL, contando PARA CIMA.
@@ -1146,16 +1246,86 @@ const projectile = this.world.projectiles[index];
         const inicio = { x: anteriorX, y: anteriorY };
         const fim = { x: projectile.x, y: projectile.y };
 
+        /**
+         * A CENA INTEIRA: PASSAR POR DENTRO, MAS NAO VOLTAR A TOCAR.
+         *
+         * ## POR QUE O PERFURANTE NAO SAI AQUI
+         *
+         * Porque todo o resto deste metodo assume que um tiro que tocou em
+         * alguem JA ACABOU — ele vira `exploded` e sai da lista no fim do
+         * tique. A `Mana Lance` e o tiro que nao pode acabar ai: ela cruza a
+         * linha inteira e leva todo mundo
+         *
+         * ## POR QUE O `atingidos` E POR INIMIGO
+         *
+         * Porque o teste varre o SEGMENTO do passo, e o tiro anda 49px por
+         * tique a 980px/s. Um mob de raio 30 ficaria dentro da janela por dois
+         * ou tres tiques seguidos, e o mesmo inimigo levaria o dano varias
+         * vezes de uma vez so
+         *
+         * E o `includes` em vez de um `Set` porque o array e pequeno — uma
+         * Lanca atravessa oito tiles e leva meia duzia de mobs no maximo — e
+         * porque o objeto inteiro e serializado no pacote de estado
+         */
         for (const enemy of this.enemies) {
           if (enemy.alive === false) continue;
+
+          /* ja levou dano deste tiro: e o mesmo mob, nao um novo */
+          if (projectile.atingidos.includes(enemy.id)) continue;
 
           const soma = raio + enemy.radius;
 
           if (
             segmentDistanceSquared(enemy, inicio, fim) <= soma * soma
           ) {
-            exploded = true;
-            break;
+            /**
+             * O DANO CAI A CADA ALVO, e e a MESMA REGRA do alcance da Fan Volley
+             * — porem medindo por ACERTOS e nao por distancia.
+             *
+             * A `Fan Volley` perde força com a distancia do arqueiro; a Lanca
+             * perde com quantos ja passaram por ela. E a leitura certa das duas:
+             * uma mede onde o inimigo esta, a outra mede quantos vem antes
+             *
+             * Por isso o dano NAO vem do `applyArea`: aqui o alvo e UM inimigo
+             * especifico, e o `applyHit` e o caminho que sabe aplicar efeito em
+             * uma entidade so
+             */
+            const queda = Math.pow(
+              projectile.pierceQueda,
+              projectile.atingidos.length,
+            );
+
+            this.applyHit(
+              {
+                ...projectile.action,
+                damage: (projectile.action.damage ?? 0) * queda,
+                impactShape: null,
+                radius: 0,
+              },
+              enemy,
+              {
+                point: { x: enemy.x, y: enemy.y },
+                direction: {
+                  x: projectile.directionX,
+                  y: projectile.directionY,
+                },
+              },
+              this.donoDoProjetil(projectile),
+            );
+
+            projectile.atingidos.push(enemy.id);
+
+            /**
+             * E AQUI QUE O PERFURANTE CONTINUA.
+             *
+             * Sem o `perfura`, a proxima linha marcaria `exploded` e o tiro
+             * morreria no primeiro inimigo — que e o comportamento de toda as
+             * outras flechas do jogo, e o certo para elas
+             */
+            if (!projectile.perfura) {
+              exploded = true;
+              break;
+            }
           }
         }
       }
@@ -1215,6 +1385,428 @@ const projectile = this.world.projectiles[index];
     return sessao?.player ?? null;
   }
 
+  /**
+   * A ARMADILHA DE ESPINHOS, postada na mira.
+   *
+   * ## POR QUE UM PERIGO E NAO UM GOLPE
+   *
+   * Porque ela tem que SOBREVIVER ao tique: o jogador anda ate o ponto, o inimigo
+   * entra nela 3 segundos depois. Um `applyArea` resolveria no instante da
+   * conjure e nao haveria nada esperando no chao
+   *
+   * ## O LIMITE DE DUAS, E O QUE ELE FAZ
+   *
+   * E o `limite` da acao. Com mais de duas no mapa, a armadilha vira um campo
+   * minado onde o jogador pode simplesmente marcar o chao e sair — e o limite
+   * e o que devolve a essa habilidade o que ela tem de￥ bom: escolher ONDE
+   *
+   * A que sai e a MAIS ANTIGA, e nao uma qualquer. As duas mais velhas sao as
+   * que o jogador ja esqueceu, e a terceira marca chao novo
+   *
+   * ## POR QUE O DONO VIAJA COM ELA
+   *
+   * Porque o abate vai para quem a ARMOU, e nao para quem estiver em foco
+   * quando o inimigo pisar nela — que em online quase nunca e a mesma pessoa
+   */
+  /**
+   * A NOVA DE CRISTAL E A SINGULARIDADE, as duas como um circulo de controle.
+   *
+   * ## POR QUE A SINGULARIDADE NAO E A ARMADILHA COM OUTRO NOME
+   *
+   * Porque elas se confundem em `updatePerigos` quando o `kind` e o que decide
+   * o que acontece dentro do tique. Duas entradas com o mesmo `kind` e
+   * comportamentos diferentes exigiriam um segundo `if` dentro do laco, e o
+   * proximoAdded skill do conjure nao teria onde entrar
+   *
+   * ## POR QUE A NOVA GUARDA TEMPO POR INIMIGO
+   *
+   * Porque a regra dela e "FICOU 3 SEGUNDOS dentro", e o tempo e de cada um.
+   * Tres mobs entram no mesmo circulo em tres momentos diferentes, e cada um
+   * tem de cumprir os 3s dele — um contador unico do circulo daria o atordoamento
+   * aos tres ao mesmo tempo, quando o segundo nem tinha chegado perto
+   *
+   * ## POR QUE A SINGULARIDADE GUARDA NADA
+   *
+   * Porque a regra dela e "esta dentro agora": o puxao e o dano valem a cada
+   * tique enquanto o inimigo estiver la. Nao ha tempo a acumular
+   */
+  colocarCirculoDeControle(action, aim) {
+    this.world.perigos.push({
+      id: `${action.id}_${this.world.time}`,
+      kind: action.type,
+      action,
+      x: aim.point.x,
+      y: aim.point.y,
+      raio: action.radius ?? 150,
+      vida: action.duracao ?? 3,
+      proximoTick: 0,
+
+      /* so a Nova usa isto: segundos que CADA inimigo já acumulou aqui dentro */
+      tempoDentro: new Map(),
+
+      ownerId: this.player?.id ?? null,
+    });
+  }
+
+  /**
+   * O TIQUE DA NOVA E DA SINGULARIDADE, e o que cada uma faz com quem entrou.
+   *
+   * Estao separadas do laco de `updatePerigos` pelo mesmo motivo que os outros
+   * casos estao: o laco cuida da VIDA (contar para baixo e apagar) e este metodo
+   * cuida do EFEITO. Misturar os dois deixaria o `switch` do laco com a regra
+   * de cada skill dentro dele
+   */
+  tiqueDoCirculo(perigo, dono) {
+    const { action } = perigo;
+
+    const area = {
+      ...action,
+      type: "circle",
+      radius: perigo.raio,
+    };
+
+    const mira = {
+      point: { x: perigo.x, y: perigo.y },
+      direction: { x: 1, y: 0 },
+    };
+
+    const dentro = this.enemies.filter(
+      (inimigo) =>
+        inimigo.alive &&
+        Math.hypot(inimigo.x - perigo.x, inimigo.y - perigo.y) <=
+          perigo.raio + inimigo.radius,
+    );
+
+    if (perigo.kind === "singularidade") {
+      /**
+       * A SINGULARIDADE PUXA E DANO, e nao EM RAIO.
+       *
+       * O `pull` entra como efeito de area, que o `applyEffect` ja sabe
+       * aplicar em toda entidade dentro do raio. E ele e FRACO de proposito:
+       * um empurrao forte passaria por cima do colisor e atravessaria o mob
+       */
+      this.applyArea(area, mira, { x: perigo.x, y: perigo.y }, false, dono);
+
+      return;
+    }
+
+    /* ---- a NOVA ---- */
+
+    for (const inimigo of dentro) {
+      const jaTeve = perigo.tempoDentro.get(inimigo.id) ?? 0;
+
+      const acumulado = jaTeve + (action.tickInterval ?? 0.2);
+
+      if (acumulado < (action.tempoParaStun ?? 3)) {
+        perigo.tempoDentro.set(inimigo.id, acumulado);
+
+        /**
+         * A LENTIDAO E A RECUSA DELE, e nao um efeito solto.
+         *
+         * A lentidao nao se acumula: a cada tique o inimigo recebe os mesmos
+         * 45%. E por isso que ela esta aqui e nao na lista `effects` da acao —
+         * aquela lista aplicaria uma vez, no primeiro tique, e o efeito
+         * DURACAO de meio segundo acabaria antes do segundo tique
+         */
+        this.applyEffect(
+          {
+            type: "slow",
+            duration: action.lentidao?.duration ?? 0.5,
+            value: action.lentidao?.value ?? 0.45,
+          },
+          inimigo,
+          mira,
+        );
+
+        continue;
+      }
+
+      /**
+       * CUMPRIU OS 3 SEGUNDOS.
+       *
+       * O atordoamento e aplicado UMA vez e o contador volta a zero, para que o
+       * mesmo inimigo possa tomar outro se ficar mais 3s. Sem o `delete`, o
+       * `>=` continuaria verdadeiro para sempre e ele ficaria preso em stun
+       */
+      this.applyEffect(
+        { type: "stun", duration: action.stun ?? 1 },
+        inimigo,
+        mira,
+      );
+
+      perigo.tempoDentro.delete(inimigo.id);
+    }
+
+    /* quem saiu do circulo perde a contagem — foi embora antes do tempo */
+    for (const [id, tempo] of perigo.tempoDentro) {
+      const aindaDentro = dentro.some((inimigo) => inimigo.id === id);
+
+      if (!aindaDentro) perigo.tempoDentro.delete(id);
+    }
+  }
+
+  colocarArmadilha(action, aim) {
+    const limite = action.limite ?? 2;
+    const daClasse = this.world.perigos.filter(
+      (p) => p.kind === "armadilha" && p.ownerId === (this.player?.id ?? null),
+    );
+
+    /* enquanto couber, nao sai nenhuma */
+    while (daClasse.length >= limite) {
+      const maisAntiga = daClasse[0];
+
+      this.world.perigos.splice(
+        this.world.perigos.indexOf(maisAntiga),
+        1,
+      );
+
+      daClasse.shift();
+    }
+
+    this.world.perigos.push({
+      id: `${action.id}_${this.world.time}`,
+      kind: "armadilha",
+      action,
+      x: aim.point.x,
+      y: aim.point.y,
+      raio: action.radius ?? 46,
+      vida: action.duracao ?? 15,
+      armaEm: action.armaEm ?? 0.5,
+      armada: false,
+      ownerId: this.player?.id ?? null,
+    });
+  }
+
+  /**
+   * A CHUVA DE VIROTES: marca o chao, espera, e so entao cai.
+   *
+   * ## POR QUE UM ATRASO E NAO UM EFEITO IMEDIATO
+   *
+   * Porque o segundo do jogo e o aviso. Marcar o chao e so isso: o jogador le
+   * "ali vai chover", sai da area se quiser, e quem nao sair leva
+   *
+   * E o atraso usa a fila de `atrasados`, que e a mesma ideia do
+   * `delayedEffects` com um payload diferente — ali a espera explode uma area,
+   * aqui a espera coloca uma nuvem no chao
+   */
+  marcarChuva(action, aim) {
+    this.world.atrasados.push({
+      restante: action.delay ?? 1,
+      action,
+      point: { x: aim.point.x, y: aim.point.y },
+      ownerId: this.player?.id ?? null,
+    });
+
+    this.world.effects.circle(
+      aim.point.x,
+      aim.point.y,
+      action.radius ?? 160,
+      action.color ?? "#7bd45a",
+      0.9,
+    );
+  }
+
+  /**
+   * O QUE ESPERA NA FILA DE ATRASADOS: o primeiro tique em que o relogio
+   * vence, a marca vira a coisa de verdade.
+   *
+   * A diferenca para `updateDelayedPulses` e o destino: ali explode uma area
+   * com dano, aqui nasce um perigo que fica pingando
+   */
+  updateAtrasados(deltaTime) {
+    const meuId = this.player?.id ?? null;
+
+    for (let i = this.world.atrasados.length - 1; i >= 0; i -= 1) {
+      const atrasado = this.world.atrasados[i];
+
+      /* so o dono conta o tempo do seu proprio atraso */
+      if (atrasado.ownerId !== meuId) continue;
+
+      atrasado.restante -= deltaTime;
+
+      if (atrasado.restante > 0) continue;
+
+      this.world.atrasados.splice(i, 1);
+
+      const { action } = atrasado;
+
+      this.world.perigos.push({
+        id: `${action.id}_${this.world.time}`,
+        kind: "chuva",
+        action,
+        x: atrasado.point.x,
+        y: atrasado.point.y,
+        raio: action.radius ?? 160,
+        vida: (action.chuvaDuracao ?? 3) + (action.nuvemDuracao ?? 4),
+        chuvaRestante: action.chuvaDuracao ?? 3,
+        proximoTick: 0,
+        ownerId: atrasado.ownerId,
+      });
+    }
+  }
+
+  /**
+   * OS PERIGOS DO CHAO, um por quadro.
+   *
+   * ## POR QUE UM LACO SO PARA OS DOIS TIPOS
+   *
+   * Porque eles dividem a mesma lista, a mesma contagem de vida e o mesmo
+   * desenho do chao. Separa-los em duas listas daria dois lacos com a mesma
+   * forma, e o `kind` e o que diferencia o que acontece dentro
+   *
+   * ## POR QUE A ARMADILHA SAI DEPOIS DE MORDER
+   *
+   * Porque ela e de uso unico. Uma armadilha que prende duas vezes faria o
+   * `root` de 2s virar um controle infinito, e o jogador perderia o controle
+   * da propria build
+   */
+  updatePerigos(deltaTime) {
+    const meuId = this.player?.id ?? null;
+
+    for (let i = this.world.perigos.length - 1; i >= 0; i -= 1) {
+      const perigo = this.world.perigos[i];
+
+      /**
+       * O TEMPO DE CADA PERIGO CORRE UMA VEZ SO.
+       *
+       * E o filtro que o `update` documenta: o laco passa por este metodo uma
+       * vez por jogador, e a lista e compartilhada. Sem esta linha a armadilha
+       * do jogador A perderia a vida duas vezes num tick com duas pessoas
+       */
+      if (perigo.ownerId !== meuId) continue;
+
+      perigo.vida -= deltaTime;
+
+      if (perigo.vida <= 0) {
+        this.world.perigos.splice(i, 1);
+        continue;
+      }
+
+      const { action } = perigo;
+
+      const dono =
+        perigo.ownerId === null
+          ? this.player
+          : this.world.players.get(perigo.ownerId)?.player ?? this.player;
+
+      const mira = {
+        point: { x: perigo.x, y: perigo.y },
+        direction: { x: 1, y: 0 },
+      };
+
+      if (perigo.kind === "armadilha") {
+        if (!perigo.armada) {
+          perigo.armaEm -= deltaTime;
+
+          if (perigo.armaEm <= 0) perigo.armada = true;
+
+          continue;
+        }
+
+        const pegou = this.enemies.find(
+          (inimigo) =>
+            inimigo.alive &&
+            Math.hypot(inimigo.x - perigo.x, inimigo.y - perigo.y) <=
+              perigo.raio + inimigo.radius,
+        );
+
+        if (!pegou) continue;
+
+        this.applyHit(action, pegou, mira, dono);
+
+        this.world.perigos.splice(i, 1);
+        continue;
+      }
+
+      /**
+       * A NOVA E A SINGULARIDADE, e elas nao tem `chuvaRestante` nem `armaEm`.
+       *
+       * O `kind` decide qual das duas regras roda dentro do tique, e por isso o
+       * metodo `tiqueDoCirculo` existe separado: e o que mantem este laco
+       * responsável so pela VIDA (contar para baixo e apagar) e nao pelos
+       * efeitos de cada skill
+       */
+      if (perigo.kind === "nova" || perigo.kind === "singularidade") {
+        perigo.proximoTick -= deltaTime;
+
+        if (perigo.proximoTick > 0) continue;
+
+        perigo.proximoTick = action.tickInterval ?? 0.2;
+
+        this.tiqueDoCirculo(perigo, dono);
+        continue;
+      }
+
+      /**
+       * A CHUVA VIRA NUVEM, E A NUVEM CONTINUA.
+       *
+       * Os primeiros segundos sao virotes caindo — o `chuvaRestante` e o que o
+       * desenho usa para saber se ainda cai raio. Depois disso sobra so a nuvem
+       * de veneno, que e a parte que dura os 4 segundos do fim
+       */
+      if (perigo.chuvaRestante > 0) {
+        perigo.chuvaRestante -= deltaTime;
+      }
+
+      perigo.proximoTick -= deltaTime;
+
+      if (perigo.proximoTick > 0) continue;
+
+      perigo.proximoTick = action.tickInterval ?? 0.5;
+
+      const area = {
+        ...action,
+        type: "circle",
+        radius: perigo.raio,
+      };
+
+      this.applyArea(area, mira, { x: perigo.x, y: perigo.y }, false, dono);
+    }
+  }
+
+  /**
+   * A SALVA EM LEQUE: cinco virotes, e o dano cai com a distancia do ARQUEIRO.
+   *
+   * E so a leitura de `falloffAlcance` no `explodeProjectile`, que mede do dono
+   * do tiro ate o ponto do impacto. Nada aqui: os cinco virotes saem pelo
+   * `spawnProjectiles` de sempre, que ja le `count` e `spread`
+   */
+  /**
+   * A QUEDA DE DANO DA SALVA, e ela volta o `damage` original quando a skill
+   * nao tem queda.
+   *
+   * ## POR QUE A DISTANCIA E DO DONO, E NAO DO VIROTE
+   *
+   * Porque um virote sempre nasce na mao do arqueiro. Se a conta usasse o
+   * caminho que ele percorreu, os cincoCOOLETOS sairiam com distancias
+   * diferentes e o leque nao valeria mais nada — o dano dependeria de qual
+   * angulo acertou primeiro
+   *
+   * O que o jogador controla e a distancia DELE ate o alvo, entao e essa a
+   * medida. Perto a salva bate forte; longe os cinco batem no minimo e nao ha
+   * com o que compensar
+   */
+  danoComQueda(action, projectile, center) {
+    const alcance = action.falloffAlcance ?? 0;
+
+    if (!alcance) return action.damage ?? 0;
+
+    const dono =
+      projectile.ownerId === null
+        ? this.player
+        : this.world.players.get(projectile.ownerId)?.player ?? this.player;
+
+    const distancia = Math.hypot(center.x - dono.x, center.y - dono.y);
+
+    const fracao = Math.max(0, Math.min(1, 1 - distancia / alcance));
+    const piso = action.falloffMinimo ?? 0.35;
+
+    /* interpola entre o piso e 1: perto e o dano cheio, longe e o piso */
+    const escala = piso + (1 - piso) * fracao;
+
+    return (action.damage ?? 0) * escala;
+  }
+
   explodeProjectile(projectile) {
     const action = projectile.action;
     const center = {
@@ -1246,6 +1838,7 @@ const projectile = this.world.projectiles[index];
         ...action,
         type: action.impactShape ?? "circle",
         radius: action.impactRadius ?? action.radius ?? 70,
+        damage: this.danoComQueda(action, projectile, center),
       },
       {
         point: center,

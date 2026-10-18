@@ -90,26 +90,52 @@ export function resolveAnimation(player, definition) {
  * sai. Deixa-lo correndo em loop prenderia o tiro dentro da primeira animacao
  * de 0,22s e o arqueiro atiraria sem parar. Aqui so muda QUAL POSE e desenhada
  *
- * ## E POR QUE O LOOP ABRE O `needsTarget` DAS DUAS CLASSES DE TIRO
- *
- * Porque o portao existe para a arte de tiro "nao bater no ar" quando o
- * jogador usa um buff. No loop o alvo e garantido — ele vem do
- * `alvoDoGolpeEmLoop`, que ja devolveu um inimigo vivo e dentro do alcance.
- * Sem abrir o portao, o conjurador e o arqueiro ficariam parados em idle
- * durante o loop, que e exatamente o sintoma que o jogador viu
- */
-const emLoop = player.attackLoop === true;
+* ## E POR QUE O LOOP ABRE O `needsTarget` DAS DUAS CLASSES DE TIRO
+   *
+   * Porque o portao existe para a arte de tiro "nao bater no ar" quando o
+   * jogador usa um buff. No loop o alvo e garantido — ele vem do
+   * `alvoDoGolpeEmLoop`, que ja devolveu um inimigo vivo e dentro do alcance.
+   * Sem abrir o portao, o conjurador e o arqueiro ficariam parados em idle
+   * durante o loop, que e exatamente o sintoma que o jogador viu
+   *
+   * ## E POR QUE O BUFF GANHOU O SEU proprio CAMPO
+   *
+   * Porque o portao nao podia continuar lendo "o alvo e nulo" para decidir. Um
+   * golpe mirado no chao tambem chega sem alvo — nao havia inimigo sob o
+   * cursor — e ele ERA um golpe: a esfera saiu, e o boneco devia levantar o
+   * cajado junto
+   *
+   * Ler "o que o jogador pediu" (`poseDeBuff`) separa os dois casos sem
+   * depender do ponteiro, que nao sabe nada sobre a acao
+   */
+  const emLoop = player.attackLoop === true;
 
-if (player.attackAnimation > 0 || emLoop) {
+  /**
+   * A PODE SER DE BUFF, e so ela nao desenha a arte de tiro.
+   *
+   * O `=== true` e o que mantem o campo ausente valendo "nao e buff": um
+   * jogador vindo de um save antigo, ou um mob, nao tem o campo — e nao podem
+   * ficar presos em idle por causa disso
+   */
+  const eBuff = player.poseDeBuff === true;
+
+  if (player.attackAnimation > 0 || emLoop) {
     if (!animations) return "attack";
 
     const attack = animations.attack;
 
-    // needsTarget marca arte de tiro: ela so entra quando ha
-    // alvo de verdade. um buff proprio passa por aqui tambem, e
-    // nesse caso o personagem tem de ficar em walk/idle. sem arte
-    // de ataque propria, cai para walk/idle do mesmo jeito.
-    if (attack && (!attack.needsTarget || player.firingTargetId || emLoop)) {
+    /**
+     * O PORTAO DA ARTE DE TIRO.
+     *
+     * Tres caminhos chegam com a pose ligada:
+     *
+     * - `firingTargetId`: ha inimigo de verdade embaixo do tiro
+     * - `emLoop`: o alvo do golpe em loop ja foi confirmado vivo e no alcance
+     * - `!eBuff`: e um golpe mirado no chao, e o tiro saiu mesmo sem alvo
+     *
+     * O que sobra e o buff, e ele tem de ficar em walk/idle
+     */
+    if (attack && (!attack.needsTarget || player.firingTargetId || emLoop || !eBuff)) {
       return "attack";
     }
   }

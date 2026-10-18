@@ -1332,7 +1332,7 @@ jogador ler principal e secundaria do mesmo jeito
 
 /* mensagem */
 .game-message {
-  border: 1px solid rgba(229$1187$2104, 0.35);
+  border: 1px solid rgba(229, 1187, 2104, 0.35);
   color: var(--t-positive);
   background: linear-gradient(180deg, #272217 0%, #1b1710 100%);
   box-shadow: var(--t-bevel), var(--t-drop-sm);
@@ -1487,7 +1487,7 @@ jogador ler principal e secundaria do mesmo jeito
 }
 
 .qst-tracker__row.is-auto {
-  border-color: rgba(229$1187$2104, 0.6);
+  border-color: rgba(229, 1187, 2104, 0.6);
   background: linear-gradient(180deg, #272217 0%, #1b1710 100%);
 }
 
@@ -1568,7 +1568,7 @@ jogador ler principal e secundaria do mesmo jeito
 }
 
 .qst-row.is-done {
-  border-color: rgba(229$1187$2104, 0.35);
+  border-color: rgba(229, 1187, 2104, 0.35);
   color: var(--t-text-faint);
 }
 
@@ -1602,7 +1602,7 @@ jogador ler principal e secundaria do mesmo jeito
 }
 
 .qst-row__done {
-  border: 1px solid rgba(229$1187$2104, 0.35);
+  border: 1px solid rgba(229, 1187, 2104, 0.35);
   color: var(--t-positive);
   background: rgba(0, 0, 0, 0.3);
   cursor: default;
@@ -1659,7 +1659,7 @@ jogador ler principal e secundaria do mesmo jeito
 }
 
 .qst-auto.is-on {
-  border-color: rgba(229$1187$2104, 0.6);
+  border-color: rgba(229, 1187, 2104, 0.6);
   background: linear-gradient(180deg, #272217 0%, #1b1710 100%);
 }
 
@@ -1739,12 +1739,12 @@ jogador ler principal e secundaria do mesmo jeito
 }
 
 .bst-entry.is-done {
-  border-color: rgba(229$1187$2104, 0.35);
+  border-color: rgba(229, 1187, 2104, 0.35);
 }
 
 .bst-entry.is-hunting {
-  border-color: rgba(229$1187$2104, 0.6);
-  box-shadow: 0 0 0 1px rgba(229$1187$2104, 0.25);
+  border-color: rgba(229, 1187, 2104, 0.6);
+  box-shadow: 0 0 0 1px rgba(229, 1187, 2104, 0.25);
 }
 
 .bst-entry__head {
@@ -1794,7 +1794,7 @@ jogador ler principal e secundaria do mesmo jeito
 }
 
 .bst-hunt.is-done {
-  border-color: rgba(229$1187$2104, 0.3);
+  border-color: rgba(229, 1187, 2104, 0.3);
 }
 
 .bst-hunt__title {
@@ -1840,7 +1840,7 @@ jogador ler principal e secundaria do mesmo jeito
 
 /* box do auto do bestiario */
 .bst-auto {
-  border: 2px solid rgba(229$1187$2104, 0.55);
+  border: 2px solid rgba(229, 1187, 2104, 0.55);
   background: linear-gradient(180deg, #272217 0%, #1b1710 100%);
   color: var(--t-text);
 }
@@ -1858,7 +1858,7 @@ jogador ler principal e secundaria do mesmo jeito
 }
 
 .bst-auto__stop {
-  border: 1px solid rgba(229$1187$2104, 0.5);
+  border: 1px solid rgba(229, 1187, 2104, 0.5);
   border-radius: var(--t-radius-sm);
   color: var(--t-positive);
 }
@@ -1866,10 +1866,10 @@ jogador ler principal e secundaria do mesmo jeito
 @keyframes bst-auto-pulse {
   0%,
   100% {
-    box-shadow: 0 10px 26px rgba(0, 0, 0, 0.6), 0 0 0 0 rgba(229$1187$2104, 0.45);
+    box-shadow: 0 10px 26px rgba(0, 0, 0, 0.6), 0 0 0 0 rgba(229, 1187, 2104, 0.45);
   }
   50% {
-    box-shadow: 0 10px 26px rgba(0, 0, 0, 0.6), 0 0 0 4px rgba(229$1187$2104, 0);
+    box-shadow: 0 10px 26px rgba(0, 0, 0, 0.6), 0 0 0 4px rgba(229, 1187, 2104, 0);
   }
 }
 

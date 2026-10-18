@@ -19,6 +19,7 @@
     "sprites:arbalist": "node tools/gif-to-sheet.mjs",
     "sprites:warrior": "node tools/gif-to-sheet.mjs warrior",
     "sprites:sorcerer": "node tools/gif-to-sheet.mjs sorcerer",
+    "sprites:sorcerer-projetil": "node tools/gerar-projetil-sorcerer.mjs",
     "sprites:lancer": "node tools/gif-to-sheet.mjs lancer",
     "sprites:rato": "node tools/gif-to-sheet.mjs rato_da_toca",
     "sprites:sentinela": "node tools/gif-to-sheet.mjs sentinela_esqueletica",

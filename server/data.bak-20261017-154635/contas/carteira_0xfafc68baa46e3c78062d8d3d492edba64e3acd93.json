@@ -1,0 +1,17 @@
+{
+  "id": "carteira_0xfafc68baa46e3c78062d8d3d492edba64e3acd93",
+  "tipo": "carteira",
+  "email": null,
+  "carteira": "carteira_0xfafc68baa46e3c78062d8d3d492edba64e3acd93",
+  "diamantes": 1000,
+  "unlockedSlots": 1,
+  "personagens": [
+    {
+      "id": "c484931c-e893-483c-8209-29ccd269b856",
+      "nome": "tgtyu",
+      "classe": "arbalist",
+      "criadoEm": 1792257182739
+    }
+  ],
+  "criadoEm": 1792257179193
+}

@@ -313,3 +313,41 @@ export function tiledDoMapa(mapId) {
 export function temCamadaDeTile(mapId) {
   return registro.has(mapId);
 }
+
+/**
+ * TODAS AS FOLHAS DE TILE REGISTRADAS, EM TODOS OS MAPAS.
+ *
+ * ## PARA QUE ISTO EXISTE
+ *
+ * O motor ja precarrega a arte do mapa de DESTINO antes do `setMap`, e isso
+ * resolve o chao sumindo na travessia. Mas as folhas dos MOBS sao outra coisa:
+ * elas nao tem `precarregar`, e sao pedidas por `new Image()` na hora em que o
+ * mob entra em cena. O sintoma era o jogador atravessando do mapa da base para
+ * o mapa 1 e ver os bichos aparecendo aos poucos, um por um, enquanto a luta ja
+ * tinha comecado
+ *
+ * ## PORQUE LER DO REGISTRO, E NAO TER UMA LISTA AQUI
+ *
+ * Porque a lista de mapa novo e problema de quem escreve o mapa. Este registro
+ * ja e a fonte da verdade: cada `camada*.js` se registra com as imagens dele
+ * quando o modulo e importado. Um mapa novo entra no preload sozinho, sem ninguem
+ * lembrar de acrescentar o nome aqui
+ *
+ * ## E POR QUE DEVOLVER UM CONJUNTO, E NAO UM ARRAY
+ *
+ * Porque `boss_1/dungeon.png` e `map_1/dungeon.png` tem o mesmo nome de arquivo
+ * e as URLs no bundle sao diferentes (o hash do conteudo entra nelas). Sao
+ * entradas distintas do registro, e o `Set` so remove o que e de fato o mesmo
+ * arquivo duas vezes
+ */
+export function folhasDeTodosOsMapas() {
+  const folhas = new Set();
+
+  for (const entrada of registro.values()) {
+    for (const url of Object.values(entrada?.imagens ?? {})) {
+      if (typeof url === "string" && url) folhas.add(url);
+    }
+  }
+
+  return folhas;
+}

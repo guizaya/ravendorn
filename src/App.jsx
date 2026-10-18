@@ -3,6 +3,7 @@ import TestMapScene from "./scenes/TestMapScene/TestMapScene.jsx";
 import { fallbackName } from "./data/characterName.js";
 import { getCharacterDefinition } from "./data/characters/index.js";
 import { ESPERA_PELO_TOKEN_MS, voltarParaOFront } from "./front.js";
+import { precarregarArteDoMundo } from "./game/preload.js";
 
 class AppErrorBoundary extends Component {
   constructor(props) {
@@ -261,6 +262,30 @@ export default function App() {
    * exatamente o defeito
    */
   const avisarQueOMundoDesenhou = useCallback(() => {
+    /**
+     * O PRELOAD COMECA AQUI, E NAO ANTES.
+     *
+     * ## POR QUE ESTE EXATO MOMENTO
+     *
+     * Porque e o primeiro instante em que o jogo esta DESENHANDO. O preload de
+     * fundo existe para o jogador nao esperar na travessia do mapa, e ele nao
+     * pode atrapalhar a primeira pintura: 22 folhas somando quase 2 MB baixadas
+     * junto com o primeiro quadro atrasariam todo mundo na entrada, e o unico
+     * que pagaria por isso e o jogador que depois vai andar para o proximo mapa
+     *
+     * Aqui o mapa da base ja esta na tela e o personagem ja andou. O preload
+     * roda na janela ociosa — a que existe enquanto o jogador ainda nao fez
+     * nada no mapa novo — e some antes de ele chegar no portal
+     *
+     * ## E POR QUE ANTES DO `postMessage`
+     *
+     * Porque o `mundo:pronto` e o sinal de que a tela de espera do site pode
+     * sair. O que vier DEPOIS nao atrasa mais nada: a reserva de uma aba, o
+     * jogador apontando o mouse. Um preload que comecasse ali seria o jogador
+     * vendo o jogo engasgar no primeiro segundo de liberdade
+     */
+    precarregarArteDoMundo();
+
     if (typeof window === "undefined" || window.parent === window) return;
 
     window.parent.postMessage({ tipo: "mundo:pronto" }, "*");

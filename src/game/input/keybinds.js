@@ -29,18 +29,23 @@
  * esquerda, e `setas` tambem. Com um valor so, trocar a bind de andar
  * apagaria as setas
  *
- * ## E POR QUE `slot1` E `slot4` SAO QUATRO ACOES, E NAO UMA
- *
- * Porque sao quatro teclas de verdade, em slots de verdade, e o jogador pode
- * trocar so a terceira sem mexer nas outras tres. Uma acao "habilidades" com
- * quatro valores seria uma so bind para quatro slots
- *
- * ## E POR QUE NAO VAI ATE O OITO
- *
- * Porque `MAX_SKILLS` e 4 em `data/skills/index.js`, e nenhuma classe tem a
- * quinta. Listar ate oito colocava no painel quatro linhas que o jogador
- * nunca usaria e que ele nao conseguiria nem deduzir a que botao correspondem
- *
+* ## E POR QUE `slot1` A `slot3` SAO TRES ACOES, E NAO UMA
+   *
+   * Porque sao tres teclas de verdade, em slots de verdade, e o jogador pode
+   * trocar so a segunda sem mexer nas outras. Uma acao "habilidades" com tres
+   * valores seria uma so bind para tres slots
+   *
+   * ## POR QUE NAO VAI ATE O OITO
+   *
+   * Porque `MAX_SKILLS` e 3 em `data/skills/index.js`, e nenhuma classe tem a
+   * quarta. Listar ate oito colocava no painel cinco linhas que o jogador nunca
+   * usaria e que ele nao conseguiria nem deduzir a que botao correspondem
+   *
+   * O `slot4` saiu daqui junto com a quarta skill. Ele NAO foi renomeado nem
+   * reaproveitado para outra coisa: um save antigo que tenha `slot4` gravado
+   * continua com ele no `localStorage`, e `lerBinds` so le acoes que existem no
+   * catalogo — entao ele para de ser usado sem erro
+   *
  * ## E O QUE ACONTECE COM UM SAVE ANTIGO
  *
  * Nada: `lerBinds` so le acoes que existem no catalogo, entao um `slot5`
@@ -122,13 +127,6 @@ export const ACOES = [
     teclas: ["Digit3"],
     padrao: ["Digit3"],
     rotulo: "Habilidade 3",
-  },
-  {
-    id: "slot4",
-    grupo: "Habilidades",
-    teclas: ["Digit4"],
-    padrao: ["Digit4"],
-    rotulo: "Habilidade 4",
   },
 
   {

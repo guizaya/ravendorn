@@ -275,16 +275,6 @@ const CATALOGO = {
           { no: n("Passo ao Lado", "👣", { speed: 15 }), neto: n("Pique", "🦵", { speed: 5 }) },
         ],
       },
-      {
-        nome: "Lamina de Vento",
-        icone: "🌪",
-        skillId: "warrior_gale_slash",
-        bonus: { attack: 6, speed: 7 },
-        filhos: [
-          { no: n("Ciclone", "🍃", { speed: 12 }), neto: n("Redemoinho", "🌀", { speed: 5 }) },
-          { no: n("Vendaval", "💨", { attack: 9, speed: 9 }), neto: n("Rajada", "🌬", { speed: 5, attack: 3 }) },
-        ],
-      },
     ],
     fundacao: n("Fundacao", "🗿", { maxHp: 14, defense: 9 }),
 
@@ -345,16 +335,6 @@ const CATALOGO = {
         filhos: [
           { no: n("Estocada Larga", "🗡", { attack: 11 }), neto: n("Estocada Dupla", "⚔", { attack: 5 }) },
           { no: n("Alcance de Braco", "✋", { speed: 11 }), neto: n("Cotovelo", "💪", { speed: 5 }) },
-        ],
-      },
-      {
-        nome: "Lamina Crescente",
-        icone: "🌙",
-        skillId: "lancer_crescent_blade",
-        bonus: { attack: 5, maxHp: 9 },
-        filhos: [
-          { no: n("Meia-Lua", "🌛", { attack: 14 }), neto: n("Lua Cheia", "🌕", { attack: 5 }) },
-          { no: n("Pele Dura", "🩸", { maxHp: 18 }), neto: n("Casco", "🛡", { defense: 5 }) },
         ],
       },
       {
@@ -433,16 +413,6 @@ const CATALOGO = {
         ],
       },
       {
-        nome: "Orbe de Gelo",
-        icone: "❄",
-        skillId: "sorcerer_frost_orb",
-        bonus: { maxHp: 11 },
-        filhos: [
-          { no: n("Geada Profunda", "🧊", { maxHp: 19 }), neto: n("Corrente Fria", "🧣", { maxHp: 5 }) },
-          { no: n("Pele Fria", "🛡", { defense: 12 }), neto: n("Toque", "🖐", { defense: 4, resource: 4 }) },
-        ],
-      },
-      {
         nome: "Vortice Sombrio",
         icone: "🌀",
         skillId: "sorcerer_dark_vortex",
@@ -515,16 +485,6 @@ const CATALOGO = {
         filhos: [
           { no: n("Mao Firme", "✊", { attack: 12 }), neto: n("Dedo Leve", "👆", { attack: 5 }) },
           { no: n("Olho de Aquila", "🦅", { speed: 13 }), neto: n("Alcance", "🔭", { speed: 5 }) },
-        ],
-      },
-      {
-        nome: "Casco de Bruma",
-        icone: "☠",
-        skillId: "arbalist_venom_mist_shell",
-        bonus: { speed: 8 },
-        filhos: [
-          { no: n("Arco Envenenado", "🧪", { attack: 12 }), neto: n("Picada", "🦟", { attack: 5 }) },
-          { no: n("Capa Curtissima", "🧥", { speed: 15 }), neto: n("Manga", "🧤", { speed: 5 }) },
         ],
       },
       {

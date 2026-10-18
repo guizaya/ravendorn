@@ -544,16 +544,101 @@ export const ITEMS = {
    * entre jogadores. O preco do Mestre fica no catalogo de livros, e o
    * `value` existe so porque `createItem` exige o campo
    */
-  livro_quick_shot: createItem({
-    id: "livro_quick_shot",
-    name: "Livro: Quick Shot",
+  /**
+   * OS TRES LIVROS DO ARBALIST, um por slot.
+   *
+   * ## POR QUE O `livro_quick_shot` SUMIU
+   *
+   * Porque ele ensinava `arbalist_quick_shot`, que saiu dos tres slots quando
+   * a classe foi para tres habilidades. Ele virou o item mais enganoso do
+   * catalogo: nao ensinava nada, e o `aprenderHabilidade` devolvia `false`
+   * para a skill inexistente — o que IMPEDIA o consumo, e o jogador ficava
+   * com um livro que so nao sumia da mochila
+   *
+   * ## O NOME DO ARQUIVO E O DO SLOT
+   *
+   * `books/arbalist/1.png`, `2.png` e `3.png`: o arquivo e o SLOT que a arte
+   * ocupa, e nao o id da skill. E o mesmo criterio do catalogo de icones de
+   * habilidade (`data/skillIcons.js`), e pela mesma razao — skill nova entra
+   * no lugar do arquivo, e nao do id
+   */
+  livro_armadilha_espinhos: createItem({
+    id: "livro_armadilha_espinhos",
+    name: "Livro: Armadilha de Espinhos",
     description:
-      "Ensina a habilidade Quick Shot. Use o livro para aprender.",
+      "Ensina Armadilha de Espinhos: uma armadilha que prende quem pisar. Use o livro para aprender.",
     icon: "§",
     rarity: RARITY.RARE,
     type: ITEM_TYPE.BOOK,
     value: 0,
-    use: { teachSkill: "arbalist_quick_shot" },
+    use: { teachSkill: "arbalist_thorn_trap" },
+  }),
+
+  livro_salva_leque: createItem({
+    id: "livro_salva_leque",
+    name: "Livro: Salva em Leque",
+    description:
+      "Ensina Salva em Leque: cinco virotes que batem mais forte de perto. Use o livro para aprender.",
+    icon: "§",
+    rarity: RARITY.RARE,
+    type: ITEM_TYPE.BOOK,
+    value: 0,
+    use: { teachSkill: "arbalist_fan_volley" },
+  }),
+
+  livro_chuva_virotes: createItem({
+    id: "livro_chuva_virotes",
+    name: "Livro: Chuva de Virotes Venenosos",
+    description:
+      "Ensina Chuva de Virotes Venenosos: o chão é marcado e depois vira nuvem de veneno. Use o livro para aprender.",
+    icon: "§",
+    rarity: RARITY.RARE,
+    type: ITEM_TYPE.BOOK,
+    value: 0,
+    use: { teachSkill: "arbalist_venom_bolt_rain" },
+  }),
+
+  /**
+   * OS TRES LIVROS DO SORCERER. Mesmo padrao dos do arbalist: um livro por
+   * skill, e o NOME DO ARQUIVO e o SLOT, nao a skill que ele ensina
+   *
+   * `books/sorcerer/1.png`, `2.png` e `3.png` — slot 1 = Lanca de Mana,
+   * slot 2 = Nova de Cristal, slot 3 = Singularidade
+   */
+  livro_lanca_mana: createItem({
+    id: "livro_lanca_mana",
+    name: "Livro: Lança de Mana",
+    description:
+      "Ensina Lança de Mana: um disparo de cristal que perfura uma linha inteira e perde força a cada alvo. Use o livro para aprender.",
+    icon: "§",
+    rarity: RARITY.RARE,
+    type: ITEM_TYPE.BOOK,
+    value: 0,
+    use: { teachSkill: "sorcerer_mana_lance" },
+  }),
+
+  livro_nova_cristal: createItem({
+    id: "livro_nova_cristal",
+    name: "Livro: Nova de Cristal",
+    description:
+      "Ensina Nova de Cristal: uma área de cristal que renova a lentidão e atordoa quem ficar dentro por tempo demais. Use o livro para aprender.",
+    icon: "§",
+    rarity: RARITY.RARE,
+    type: ITEM_TYPE.BOOK,
+    value: 0,
+    use: { teachSkill: "sorcerer_crystal_nova" },
+  }),
+
+  livro_singularidade: createItem({
+    id: "livro_singularidade",
+    name: "Livro: Singularidade",
+    description:
+      "Ensina Singularidade: um vórtice que suga tudo para o centro e causa dano pesado. Use o livro para aprender.",
+    icon: "§",
+    rarity: RARITY.RARE,
+    type: ITEM_TYPE.BOOK,
+    value: 0,
+    use: { teachSkill: "sorcerer_singularity" },
   }),
 
 

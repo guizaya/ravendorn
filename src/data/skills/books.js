@@ -20,13 +20,48 @@ import { SKILL_PACKS } from "./index.js";
  * precisa ser uma skill de verdade da classe — as duas coisas sao
  * conferidas por `validarLivros`, na leitura deste arquivo, e nao no
  * servidor a cada compra
+ *
+ * ## POR QUE O PRECO SOBE DE LIVRO PARA LIVRO
+ *
+ * Porque o preco e o do ENSINO, e as tres skills nao valem o mesmo: a
+ * armadilha e um controle pontual, a salva e um dano que depende de onde o
+ * jogador esta, e a chuva e a unica que ocupa o chao por 7 segundos. Um
+ * preco igual nos tres diria que as tres sao equivalentes, e nao sao
  */
 const LIVROS = {
   arbalist: [
     {
-      itemId: "livro_quick_shot",
-      skillId: "arbalist_quick_shot",
+      itemId: "livro_armadilha_espinhos",
+      skillId: "arbalist_thorn_trap",
       preco: 150,
+    },
+    {
+      itemId: "livro_salva_leque",
+      skillId: "arbalist_fan_volley",
+      preco: 220,
+    },
+    {
+      itemId: "livro_chuva_virotes",
+      skillId: "arbalist_venom_bolt_rain",
+      preco: 300,
+    },
+  ],
+
+  sorcerer: [
+    {
+      itemId: "livro_lanca_mana",
+      skillId: "sorcerer_mana_lance",
+      preco: 150,
+    },
+    {
+      itemId: "livro_nova_cristal",
+      skillId: "sorcerer_crystal_nova",
+      preco: 220,
+    },
+    {
+      itemId: "livro_singularidade",
+      skillId: "sorcerer_singularity",
+      preco: 300,
     },
   ],
 
@@ -39,7 +74,6 @@ const LIVROS = {
    */
   warrior: [],
   lancer: [],
-  sorcerer: [],
 };
 
 /**

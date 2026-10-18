@@ -71,7 +71,7 @@ import {
   acaoDaTecla,
   vetorDeMovimento,
 } from "../input/keybinds.js";
-import { portalsOf } from "../../data/portais/index.js";
+import { PORTALS, portalsOf } from "../../data/portais/index.js";
 import {
   MIRA,
   MIRA_TAMANHO,
@@ -307,6 +307,7 @@ import {
 import {
   getClassSprite,
   ARBALIST_FLECHA,
+  SORCERER_PROJETIL,
 } from "../../data/sprites/index.js";
 import { getEnemySprite } from "../../data/sprites/enemies.js";
 import { temMorte } from "../../data/sprites/enemyLayout.js";
@@ -1842,6 +1843,26 @@ this.npcHover = null;
    */
   this.onChefeDerrotado = null;
 
+  /**
+   * QUEM ABRE A PEDIDA DE MINERAR, em cada um dos dois lugares.
+   *
+   * No cliente e o `GameCanvas`, que transforma em `op` no socket. No
+   * servidor e o proprio `GameServer`, que ja tem a sessao em maos
+   *
+   * ## POR QUE ISTO PRECISA EXISTIR DOS DOIS LADOS
+   *
+   * Porque o `update` do motor sai cedo no modo rede: com `networked`, ele
+   * devolve antes do `updateAutoPlay` e do `runMineracao`. Ou seja, online o
+   * auto INTEIRO — a caminhada ate a pedra e o pedido de minerar — roda no
+   * servidor, nao no cliente
+   *
+   * Sem o gancho ligado no servidor, o `?.` do `pedirMinerarNaPedida` engolia a
+   * chamada em silencio: o auto levava o jogador ate o cristal, parava, e o
+   * painel de mineracao nunca abria — porque `contando` so vira true depois do
+   * `alcancado`, e o `alcancado` e o proprio pedido que nunca saiu
+   */
+  this.onMineClick = null;
+
     // identidade do personagem. `playerId` precisa ser unico por
     // sessao: no single player o id da classe bastava, mas com
     // varios jogadores online dois "warrior" teriam o mesmo id e
@@ -2061,6 +2082,34 @@ this.npcHover = null;
       npcs: [],
 
       projectiles: [],
+
+      /**
+       * O QUE FICA NO CHAO E DURA ALGUM SEGUNDO.
+       *
+       * ## POR QUE NAO ENTRA EM `projectiles`
+       *
+       * Porque um projetil e um tiro que viaja e some no impacto. Um perigo e o
+       * contrario: ele NAO viaja, e ele e o que fica — a armadilha esperando o
+       * inimigo chegar, a nuvem pingando veneno ate a vida dela acabar
+       *
+       * Sao listas do mundo compartilhado, e cada entrada carrega o `ownerId`
+       * porque o `updatePerigos` roda uma vez por jogador: sem o dono, a
+       * armadilha de um perderia a vida duas vezes num tick com duas pessoas
+       */
+      perigos: [],
+
+      /**
+       * O QUE AINDA ESPERA O SEGUNDO DA CONJURACAO.
+       *
+       * E a fila que da aviso a chuva: enquanto o item esta aqui, o jogador ve
+       * o circulo marcado no chao e sai da area se quiser. Quando o relogio
+       * vence, o item vira um perigo de verdade
+       *
+       * Diferente do `delayedEffects` no destino: ali a espera EXPLODE uma area
+       * com dano, aqui a espera COLOCA uma coisa no chao
+       */
+      atrasados: [],
+
       pendingPulses: [],
       delayedEffects: [],
       drops: [],
@@ -2492,6 +2541,33 @@ this.npcHover = null;
 
     if (this.flechaSprite) {
       this.flechaSprite.src = ARBALIST_FLECHA.src;
+    }
+
+    /**
+     * AS ARTES DE PROJETIL, POR CLASSE.
+     *
+     * ## POR QUE UM MAP E NAO UM CAMPO SO
+     *
+     * Porque `drawProjectiles` desenha o `world.projectiles` INTEIRO — e ele
+     * mistura os tiros de todo mundo. Em online, um guerreiro ve o tiro de
+     * sorcerer do outro jogador passar na tela, entao a arte do sorcerer
+     * precisa existir na MAQUINA de quem nao e sorcerer
+     *
+     * A `flechaSprite` acima e o oposto: so existe quando a classe local e a do
+     * arqueiro, e por isso o tiro de um arqueiro alheio cai no vetorial. Nao
+     * repetimos esse erro aqui
+     *
+     * ## O VALOR `null` SIGNIFICA "JA TENTEI"
+     *
+     * O Map guarda a imagem quando ela carrega, e `null` enquanto o download
+     * esta andando ou se falhou. E o `has` que impede de refazer a tentativa a
+     * cada quadro
+     */
+    this.projeteisArtes = new Map();
+
+    /* quem e sorcerer ja sai com o tiro pronto, sem esperar o primeiro golpe */
+    if (classDefinition.id === SORCERER_PROJETIL.classId) {
+      this.carregarArteDoProjetil("sorcerer");
     }
 
     this.enemySprites = new Map();
@@ -9203,19 +9279,32 @@ return {
    * existe. Um id errado aqui viraria "os cristais do hub", que tem nenhum,
    * e o auto voltaria a ficar parado sem nenhuma pista do motivo
    *
-   * ## A ESCOLHA E A MAIS PROXIMA DO JOGADOR
+   * ## A ESCOLHA E A MAIS PROXIMA DO PORTAL DE ENTRADA
    *
-   * Porque o vale tem 23 cristais comuns espalhados e o jogador pode
-   * atravessar em qualquer ponto. A mais proxima e a que o auto cruza
-   * primeiro, e nenhum cristal e tao longe do outro que a escolha mude o
-   * tempo da missao
+   * ## E NAO A MAIS PROXIMA DO JOGADOR — QUE ERA O DEFEITO
    *
-   * ## POR QUE A PEDIDA GASTA SAI DA LISTA
+   * A escolha media a distancia do jogador. E o jogador, no momento em que
+   * essa escolha e consultada, ainda esta NO MAPA ANTERIOR: o auto monta o
+   * plano de viagem antes de atravessar, entao `player.x` e `player.y` sao
+   * coordenadas da base, comparadas com as coordenadas de um cristal do vale
    *
-   * Porque uma pedra que o jogador acabou de minerar volta em 120s
-   * (`PEDRA_VOLTA_EM_S`). Sem este filtro, o auto poderia ir ate uma
-   * pedra que o servidor recusa, ficar em cima dela sem minerar nada, e o
-   * tutorial nunca fecharia
+   * ## As duas medidas nao falam a mesma língua
+   *
+   * O vale tem origem e escala proprias. Comparar um ponto do vale com um ponto
+   * da base nao da "distancia nenhuma": da um numero que depende so da posicao
+   * do cristal em relacao a ZERO. Na pratica o auto escolhia o cristal mais a
+   * esquerda do mapa — que e o mais distante da chegada — e o jogador
+   * atravessava o vale andando ate ele
+   *
+   * ## POR QUE O PONTO DE CHEGADA, E NAO UM PONTO FIXO
+   *
+   * Porque o que o jogador quer e o primeiro cristal que ele ENCONTRA. Ele sai
+   * do portal, e o cristal mais proximo dali e o primeiro que ele vera. A
+   * distancia e medida do ponto em que ele vai pisar
+   *
+   * E, com o jogador JA dentro do vale, a medida volta a ser a partir dele:
+   * assim, se ele se afastar do cristal escolhido, o auto pode reavaliar sem
+   * ficar preso no que foi decidido do outro lado do portal
    */
   cristalParaMinerar() {
     const vale = findMap(MAP_TESTE_ID);
@@ -9223,7 +9312,9 @@ return {
     if (!vale) return null;
 
     const esgotadas = this.pedidasForaDoMapa;
-    const player = this.world.player;
+    const origem = this.origemDaMedidaNoVale(vale);
+
+    if (!origem) return null;
 
     let melhor = null;
     let melhorDist = Infinity;
@@ -9234,17 +9325,10 @@ return {
       if (esgotadas instanceof Set && esgotadas.has(prop.id)) continue;
 
       const distancia = Math.hypot(
-        prop.x - player.x,
-        prop.y - player.y,
+        prop.x - origem.x,
+        prop.y - origem.y,
       );
 
-      /**
-       * A DISTANCIA DE OUTRO MAPA NAO E A DISTANCIA DE PERCURSO
-       *
-       * O jogador no mapa 1 e a pedra no vale nao dividem tela, e a
-       * distancia crua serve so para ordenar as 23. O que decide o
-       * caminho e o planejador de viagem, que sabe onde esta o portal
-       */
       if (distancia < melhorDist) {
         melhorDist = distancia;
         melhor = prop;
@@ -10501,9 +10585,31 @@ const overridePortal =
 
     if (distancia > PEDIDA_MINERAR_DIST) return false;
 
+    /**
+     * SEM QUEM OUCA, O PEDIDO NAO SAI — E O LACHE NAO FECHA.
+     *
+     * ## O QUE ESTAVA ERRADO
+     *
+     * O lache era escrito ANTES da chamada, e a chamada era `this.onMineClick?.`
+     * — que engole o `undefined` e devolve `undefined` como se nada tivesse
+     * acontecido. Com o gancho ausente, o motor guardava "ja pedi" para uma
+     * pedra que ninguem jamais soube que ele queria, e o `?` do lache era
+     * eterno: o auto nao tornava a pedir
+     *
+     * ## POR QUE A ORDEM CONTA
+     *
+     * O lache existe para nao repetir o pedido a CADA TIQUE. Ele vale enquanto
+     * ha quem receba o pedido. Sem receptor, ele vira a garantia de que nada
+     * mais sera tentado — que e o contrario do que o `return false` faz
+     *
+     * E o `typeof` e nao um `if (!this.onMineClick)`: o `GameCanvas` desliga o
+     * gancho com `= null`, e `typeof null` e `object`
+     */
+    if (typeof this.onMineClick !== "function") return false;
+
     this.pedidoDeMinerar = prop.id;
 
-    this.onMineClick?.(prop);
+    this.onMineClick(prop);
 
     return true;
   }
@@ -12174,6 +12280,45 @@ if (player.attackAnimation > 0 && player.firingTargetId) {
       aimed.y - player.y,
     );
   }
+}
+
+/**
+ * SEM ALVO, O GOLPE VIRA PARA A MIRA.
+ *
+ * ## O QUE FALTAVA
+ *
+ * As duas regras de virar acima so tratam de ALVO: o tiro com alvo e o loop.
+ * Um golpe disparado no chao nao tem alvo nenhum, e nao caia em nenhuma das
+ * duas — entao o `facing` continuava sendo o do ULTIMO PASSO, e o boneco
+ * levantava o cajado virado para onde tinha andado
+ *
+ * O jogador clica na direcao em que quer atirar. O tiro sai para la. A pose
+ * precisa sair para la tambem, senao a arte de 8 direcoes mostra north-east
+ * com a esfera indo para o norte
+ *
+ * ## POR QUE A MIRA E NAO O PONTEIRO
+ *
+ * Porque o `aimDirection` ja e o vetor que a acao usou: ele junta o
+ * `autoFacing` do piloto com o `pointerFacing` do cliente, e e o mesmo valor
+ * que o `createAim` transformou em direcao do tiro. Ler o ponteiro de novo
+ * aqui seria medir a mesma coisa duas vezes, e as duas medidas nao fecham
+ *
+ * ## POR QUE SO NO GOLPE, E SEMPRE
+ *
+ * E a mesma janela das regras de alvo: vale enquanto a pose esta no ar. Fora
+ * dela o boneco volta a olhar para onde anda, que e a regra do jogo inteiro
+ *
+ * E nao ha medo de virar as costas para o inimigo: quando existe alvo, a
+ * regra de cima roda DEPOIS desta e tem a palavra final
+ */
+if (
+  player.attackAnimation > 0 &&
+  !player.firingTargetId &&
+  player.poseDeBuff !== true &&
+  player.aimDirection &&
+  (player.aimDirection.x !== 0 || player.aimDirection.y !== 0)
+) {
+  player.facing = player.aimDirection;
 }
 
 /**
@@ -15152,6 +15297,213 @@ drawWorldSorted(context) {
     }
 
     this.drawProjectiles(context);
+
+    /**
+     * OS PERIGOS E A MARCA DA CHUVA, e nao ao lado dos projeteis porque tem
+     * outro significado na tela: o projetil e o que ESTA VOANDO, e o perigo e o
+     * que esta NO CHAO esperando. Por isso ele vem depois de toda a fila de
+     * entidades ordenada por Y — um chão marcado nao pode ficar atras de um
+     * mob que passou por cima dele
+     */
+    this.drawPerigos(context);
+  }
+
+  /**
+   * DESENHA O QUE ESTA NO CHAO: a marca da chuva, a armadilha e a nuvem.
+   *
+   * ## POR QUE UM METODO SO
+   *
+   * Porque os tres dividem a mesma lista e a mesma forma circular. O que muda
+   * e o preenchimento e o tracado, e ai o `kind` escolhe
+   *
+   * ## A MARCA VEM DE `atrasados`, E NAO DE `perigos`
+   *
+   * Porque enquanto a chuva espera o segundo, o que existe no chao e um AVISO
+   * — um circulo tracejado que ainda nao faz dano. Se o aviso so aparecesse
+   * junto com a nuvem, o jogador veria o mesmo desenho nos dois momentos e nao
+   * saberia que deu tempo de sair da area
+   */
+  drawPerigos(context) {
+    context.save();
+
+    for (const atraso of this.world.atrasados ?? []) {
+      const raio = atraso.action.radius ?? 160;
+      const cor = atraso.action.color ?? "#7bd45a";
+
+      context.strokeStyle = cor;
+      context.globalAlpha = 0.55;
+      context.lineWidth = 2;
+      context.setLineDash([10, 8]);
+
+      context.beginPath();
+      context.arc(atraso.point.x, atraso.point.y, raio, 0, Math.PI * 2);
+      context.stroke();
+
+      context.setLineDash([]);
+      context.globalAlpha = 0.12;
+      context.fillStyle = cor;
+
+      context.fill();
+    }
+
+    context.globalAlpha = 1;
+
+    for (const perigo of this.world.perigos ?? []) {
+      const { x, y, raio, kind, action } = perigo;
+
+      const cor = action.color ?? (kind === "armadilha" ? "#8fbf5a" : "#7bd45a");
+
+      context.save();
+      context.translate(x, y);
+
+      if (kind === "armadilha") {
+        /**
+         * A ARMADILHA ANDA DO ARMADO.
+         *
+         * Antes dos 0,5s ela e um circulo tracejado fraco — e o que diz ao
+         * jogador que da tempo de sair de cima. Armada, vira chao solido com
+         * os espinhos para fora
+         *
+         * E ela some depois de morder, entao nunca ha duas no mesmo ponto
+         */
+        if (!perigo.armada) {
+          context.globalAlpha = 0.45;
+          context.strokeStyle = cor;
+          context.lineWidth = 1.5;
+          context.setLineDash([5, 5]);
+
+          context.beginPath();
+          context.arc(0, 0, raio, 0, Math.PI * 2);
+          context.stroke();
+
+          context.setLineDash([]);
+          context.restore();
+          continue;
+        }
+
+        context.globalAlpha = 0.22;
+        context.fillStyle = cor;
+
+        context.beginPath();
+        context.arc(0, 0, raio, 0, Math.PI * 2);
+        context.fill();
+
+        context.globalAlpha = 0.9;
+        context.strokeStyle = cor;
+        context.lineWidth = 2;
+
+        /* oito espinhos para fora: o desenho que diz "isto morde" */
+        for (let i = 0; i < 8; i += 1) {
+          const ang = (i / 8) * Math.PI * 2;
+          const dentro = raio * 0.35;
+          const fora = raio;
+
+          context.beginPath();
+          context.moveTo(Math.cos(ang) * dentro, Math.sin(ang) * dentro);
+          context.lineTo(Math.cos(ang) * fora, Math.sin(ang) * fora);
+          context.stroke();
+        }
+      } else if (kind === "nova" || kind === "singularidade") {
+        /**
+         * A NOVA E A SINGULARIDADE, e o desenho delas diz o que cada uma FAZ.
+         *
+         * ## POR QUE UM BRACO NOVO E NAO REUSAR A NUVEM
+         *
+         * Porque as tres se confundem num `else` so, e o jogador precisa ler a
+         * diferença DE OLHO. A nuvem e uma mancha parada; a nova e um circulo de
+         * contencao com um anel girando; a singularidade e um disco que engole
+         * luz
+         *
+         * ## A NOVA: O ANEL GIRA MAIS QUANTO MAIS PERTO DO STUN
+         *
+         * E o que faz a skill ser lida sem texto. O anel gira na velocidade da
+         * lentidao que ela da — e quando o inimigo ja cumpriu os 3s e vai levar
+         * o atordoamento, o anel dispara de repente. O jogador ve que o
+         * atordoamento vem chegando antes de ele acontecer
+         */
+        const ehSingularidade = kind === "singularidade";
+
+        context.globalAlpha = ehSingularidade ? 0.26 : 0.16;
+        context.fillStyle = cor;
+
+        context.beginPath();
+        context.arc(0, 0, raio, 0, Math.PI * 2);
+        context.fill();
+
+        context.globalAlpha = 0.7;
+        context.strokeStyle = cor;
+        context.lineWidth = 2;
+
+        context.setLineDash(ehSingularidade ? [3, 7] : [10, 9]);
+
+        /* A SINGULARIDADE PUXA PARA DENTRO, entao o tracejado CORRE para o centro */
+        const sentido = ehSingularidade ? 1 : -1;
+        const girando = (this.world.time * (ehSingularidade ? 90 : 40) * sentido) % 26;
+
+        context.lineDashOffset = -girando;
+
+        context.beginPath();
+        context.arc(0, 0, raio * 0.86, 0, Math.PI * 2);
+        context.stroke();
+
+        context.setLineDash([]);
+        context.lineDashOffset = 0;
+
+        /**
+         * O PONTO CENTRAL DA SINGULARIDADE.
+         *
+         * E um disco pequeno e denso no meio, porque e para la que o inimigo e
+         * arrancado. Sem ele o circulo parece so uma area com efeito
+         */
+        if (ehSingularidade) {
+          context.globalAlpha = 0.5;
+          context.fillStyle = cor;
+
+          context.beginPath();
+          context.arc(0, 0, raio * 0.14, 0, Math.PI * 2);
+          context.fill();
+        }
+      } else {
+        /**
+         * A NUVEM DE VENENO, e ela muda de figura conforme o tempo.
+         *
+         * Nos primeiros segundos ainda cai virote, e o tracejado girando e o
+         * que diz isso. Depois sobra so a nuvem parada
+         */
+        const caindo = perigo.chuvaRestante > 0;
+
+        context.globalAlpha = caindo ? 0.3 : 0.2;
+        context.fillStyle = cor;
+
+        context.beginPath();
+        context.arc(0, 0, raio, 0, Math.PI * 2);
+        context.fill();
+
+        context.globalAlpha = caindo ? 0.75 : 0.45;
+        context.strokeStyle = cor;
+        context.lineWidth = 2;
+
+        if (caindo) {
+          context.setLineDash([14, 12]);
+          context.lineDashOffset = -(this.world.time * 40) % 26;
+
+          context.beginPath();
+          context.arc(0, 0, raio * 0.72, 0, Math.PI * 2);
+          context.stroke();
+
+          context.setLineDash([]);
+          context.lineDashOffset = 0;
+        } else {
+          context.beginPath();
+          context.arc(0, 0, raio * 0.9, 0, Math.PI * 2);
+          context.stroke();
+        }
+      }
+
+      context.restore();
+    }
+
+    context.restore();
   }
 
 /**
@@ -15636,8 +15988,57 @@ dadosDaPassagemPerto() {
       };
     }
 
-    return melhor;
-}
+return melhor;
+  }
+
+  /**
+   * DE ONDE SE MEDE A DISTANCIA ATE O CRISTAL.
+   *
+   * ## A REGRA
+   *
+   * - jogador JA dentro do vale → a posição dele
+   * - jogador ainda fora → o ponto de chegada do portal que leva ao vale
+   *
+   * ## POR QUE DUAS REGRAS, E NAO SO UMA
+   *
+   * Porque sao dois momentos com respostas diferentes. Antes de
+   * atravessar, o que interessa e "qual é o primeiro cristal que o jogador vai
+   * encontrar saindo do portal" — e isso se mede da chegada. Depois de
+   * atravessar, o que interessa e "qual é o cristal mais próximo AGORA" — e isso
+   * se mede dele, que já pode ter mudado de rumo
+   *
+   * ## E POR QUE ISSO CONSERTA O "CHEGA E FICA PARADO"
+   *
+   * Porque a escolha virava um alvo INSTÁVEL. Com a distância medida de um
+   * ponto do outro mapa, o "mais próximo" podia mudar de tique para tique sem
+   * que o jogador tivesse se movido: o alvo andava, o passo da rota também, e
+   * o pedido de minerar ficava esperando uma pedra que o piloto não alcançava
+   *
+   * Com uma origem estável, o mesmo cristal é escolhido do primeiro ao último
+   * tique, o caminho termina, e o `pedirMinerarNaPedida` tem a pedra à frente
+   *
+   * ## E POR QUE O `chegadaDe`, E NAO A POSIÇÃO LITERAL DO PORTAL
+   *
+   * Porque o `chegadaDe` já devolve o ponto com o recuo de 3 tiles que a
+   * travessia usa de verdade. Medir a partir do centro do portal mediria de um
+   * lugar que o jogador não pisa — e a diferença de 192px decide qual cristal
+   * é o primeiro
+   */
+  origemDaMedidaNoVale(vale) {
+    const player = this.world.player;
+
+    // Dentro do vale: a medida é a partir dele, que é quem vai andar
+    if (this.world.map?.id === MAP_TESTE_ID) {
+      return player ?? null;
+    }
+
+    // Fora: o portal que abre o vale é procurado no catálogo inteiro
+    const entrada = PORTALS.find((portal) => portal.destino === MAP_TESTE_ID);
+
+    if (!entrada) return null;
+
+    return this.chegadaDe(entrada, vale);
+  }
 
 dadosDoPortalNoPe() {
     const emCima = this.portalSobOsPes();
@@ -17551,6 +17952,50 @@ id: `${enemy.id}_flecha_${this.world.time}`,
     return null;
   }
 
+  /**
+   * Carrega a arte de projetil de uma classe, uma vez so.
+   *
+   * ## POR QUE SO PARA O SORCERER
+   *
+   * Porque e a unica classe com arte de tiro guiada por tempo de quadro. A
+   * flecha do arqueiro tem um quadro so, e o proprio `flechaSprite` resolve
+   *
+   * ## POR QUE ISTO E UM METODO E NAO UM `if` NO DESENHO
+   *
+   * Porque quem chama e o `drawProjectiles`, e ele roda a cada quadro de cada
+   * projetil. Criar `new Image()` e atribuir `src` dentro do laço faria o
+   * navegador buscar o arquivo varias vezes por segundo
+   *
+   * O `typeof Image` e o mesmo guarda da mira e da flecha: o motor roda no
+   * Node, no servidor e nos testes, onde `Image` nao existe
+   */
+  carregarArteDoProjetil(classe) {
+    if (this.projeteisArtes.has(classe)) return;
+    if (typeof Image === "undefined") return;
+
+    const definicao =
+      classe === SORCERER_PROJETIL.classId ? SORCERER_PROJETIL : null;
+
+    if (!definicao) return;
+
+    /* `null` marca "ja tentei" — e o que impede o refetch a cada quadro */
+    this.projeteisArtes.set(classe, null);
+
+    const arte = new Image();
+
+    arte.decoding = "async";
+    arte.src = definicao.src;
+
+    arte.onload = () => {
+      this.projeteisArtes.set(classe, arte);
+    };
+
+    arte.onerror = () => {
+      /* deixa em `null`: o tiro cai no vetorial e o jogo segue */
+      this.projeteisArtes.set(classe, null);
+    };
+  }
+
   drawProjectiles(context) {
     for (const projectile of this.world.projectiles) {
       const action = projectile.action;
@@ -17602,6 +18047,35 @@ const style = action.projectileStyle;
           );
 
           if (quadro) {
+            context.restore();
+
+            continue;
+          }
+        }
+
+        /**
+         * A ESFERA DO SORCERER, COM ARTE.
+         *
+         * ## POR QUE FICA DEPOIS DA FLECHA E NAO ANTES
+         *
+         * Porque os dois `if` sao de estilos diferentes — `"arrow"` e `"fire"` —
+         * e a ordem nao muda nada. O que importa e vir ANTES do `else` final,
+         * que e a bola branca vetorial de todo mundo
+         *
+         * ## POR QUE `age` E NAO `time`
+         *
+         * Porque `projectile.age` zera quando o tiro nasce, e e ele que decide
+         * o quadro da faixa. Ler o tempo do mundo mostraria um trecho qualquer
+         * da animacao, e a esfera entraria no jogo ja no meio do laco
+         */
+        if (style === "fire") {
+          this.carregarArteDoProjetil(SORCERER_PROJETIL.classId);
+
+          const arte = this.projeteisArtes.get(
+            SORCERER_PROJETIL.classId,
+          );
+
+          if (this.drawProjetilSorcerer(context, projectile, arte)) {
             context.restore();
 
             continue;
@@ -17792,6 +18266,91 @@ const style = action.projectileStyle;
      */
     context.shadowColor = color;
     context.shadowBlur = 18;
+
+    return true;
+  }
+
+  /**
+   * Desenha a esfera do sorcerer, no ponto do projetil.
+   *
+   * Devolve `false` sem desenhar nada quando a arte ainda nao carregou, para
+   * quem chamou cair na bola branca vetorial. E o caminho que mantem o jogo
+   * jogavel no primeiro quadro depois do load
+   */
+  drawProjetilSorcerer(context, projectile, arte) {
+    if (!arte?.complete || !arte.naturalWidth) return false;
+
+    const {
+      frameWidth,
+      frameHeight,
+      frames,
+      fps,
+      scale,
+      ancorasPorQuadro,
+    } = SORCERER_PROJETIL;
+
+    /**
+     * O TEMPO DO PROJETIL, e nao o do mundo.
+     *
+     * `projectile.age` zera quando o tiro nasce, entao a esfera sempre entra
+     * pelo comeco do rastro — ela nunca aparece no meio da animacao porque o
+     * jogador abriu o jogo
+     *
+     * ## POR QUE `% frames` E NAO `Math.min`
+     *
+     * Porque a arte e um LACO de voo: ela tem de voltar ao primeiro quadro
+     * depois do ultimo. O `Math.min` da flecha existe porque a arte dela tem um
+     * quadro so, e nao ha o que repetir
+     */
+    const tempo = Math.max(0, projectile.age ?? 0);
+    const quadro = Math.floor(tempo * fps) % frames;
+
+    /**
+     * A ANCORA DESTE QUADRO, e nao um ponto fixo da folha.
+     *
+     * E o que prende a esfera no ponto do projetil. A esfera viaja dentro do
+     * quadro — de x=30,5 a x=109,5 — entao ancorar sempre no mesmo lugar a faria
+     * ela passear em volta do tiro e o tiro pareceria errar o alvo
+     *
+     * A lista vem medida do proprio gif (`tools/gerar-projetil-sorcerer.mjs`).
+     * O `[frameWidth / 2, frameHeight / 2]` e so uma rede de seguranca para o
+     * caso de a lista vir curta: melhor um tiro no meio da arte do que um tiro
+     * jogado para longe
+     */
+    const ancora =
+      ancorasPorQuadro[quadro] ?? [frameWidth / 2, frameHeight / 2];
+
+    /**
+     * SEM SOMBRA, E DE PROPOSITO.
+     *
+     * O `drawProjectiles` liga um `shadowBlur` de 18px antes dos ramos, pensado
+     * para o tiro vetorial — uma bola chapada que precisa de brilho. Aqui a
+     * esfera ja vem pintada com o proprio brilho e as faiscas do rastro, e uma
+     * sombra de 18px em volta de uma faixa de 146px de comprimento so faria
+     * borrar a arte inteira
+     */
+    context.shadowBlur = 0;
+
+    /**
+     * O `context` JA ESTA GIRADO pelo `atan2` do projetil.
+     *
+     * Entao o eixo X do canvas e a direcao do tiro, e a arte — que aponta para
+     * a direita, com a cabeca na frente e o rastro atras — acompanha sem nenhuma
+     * conta de angulo. O rastro fica sempre do lado oposto ao movimento
+     */
+    context.drawImage(
+      arte,
+      quadro * frameWidth,
+      0,
+      frameWidth,
+      frameHeight,
+
+      /* o canto do quadro, com a esfera alinhada no ponto que voa */
+      -ancora[0] * scale,
+      -ancora[1] * scale,
+      frameWidth * scale,
+      frameHeight * scale,
+    );
 
     return true;
   }

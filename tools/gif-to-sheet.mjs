@@ -2033,9 +2033,40 @@ if (querDeath) {
     : { alvo: 0, cortes: [] };
 
   // as direcoes mantem a contagem de frames porque o ciclo de
-  // caminhada e compartilhado; o idle descarta os corrompidos
-  // porque o ciclo dele e so dele
+  // todo grupo passa pelo reparo antes do descarte
   const repairs = [
+    /**
+     * O IDLE TAMBEM ENTRA NO REPARO, e e o que fecha o quadro que faltava.
+     *
+     * ## O QUE ESTAVA ERRADO
+     *
+     * O idle era o UNICO grupo que nao passava por aqui: ele ia direto para o
+     * `dropTruncatedFrames`, que DESCARTA o quadro corrompido em vez de
+     * reconstruir
+     *
+     * ## POR QUE O SINTOMA ERA O PERSONAGEM SUMINDO, E NAO UM QUADRO A MENOS
+     *
+     * Porque o `normalizarFrames` roda ANTES, e ele conta os 8 quadros do gif
+     * truncado — ele nao sabe que dois deles estao corrompidos. A folha era
+     * entao montada com 8 colunas, e so 6 delas recebiam pixels: as duas do
+     * fim ficavam TRANSPARENTES
+     *
+     * O layout, que le `IDLE_FRAMES = 8`, continuava ciclando os 8. O
+     * `resolveFrame` chegava na coluna vazia, desenhava nada, e o boneco
+     * desaparecia por um quadro antes de voltar
+     *
+     * ## POR QUE REPARAR E A CERTEZA AQUI, E NAO UM PALPITE
+     *
+     * Porque os quadros do idle sao TODOS IGUAIS — e uma pose parada repetida
+     * em laco. O `repairTruncatedFrames` copia o quadro valido mais proximo, e
+     * como nao ha diferenca entre eles, o resultado e byte a byte o que um gif
+     * inteiro daria. Descartar, esse, so produzia a celula vazia
+     *
+     * Foi assim que o north-west e o north-east do guerreiro perderam 2 quadros
+     * cada, e o do conjurador 1 — e sao exatamente as duas direcoes em que o
+     * LZW desses gifs veio truncado
+     */
+    ...repairTruncatedFrames(idle),
     ...repairTruncatedFrames(walk),
     ...(querShoot ? repairTruncatedFrames(shoot) : []),
     ...(querDeath ? repairTruncatedFrames(death) : []),
@@ -2044,6 +2075,13 @@ if (querDeath) {
 
   const drops = [];
 
+  /**
+   * O DESCARTE DO IDLE, e POR QUE AGORA ELE NAO DESCARTA NADA.
+   *
+   * O `repairTruncatedFrames` acima ja reconstruiu o que faltava, entao aqui
+   * nao sobra nenhum corrompido para cair fora — e o `lane.frames` continua
+   * sendo promovido por esta chamada, que e o que a montagem da folha le
+   */
   for (const lane of idle) {
     drops.push(...dropTruncatedFrames(lane));
   }

@@ -104,6 +104,20 @@ isMoving: false,
       walkBlend: 0,
       attackAnimation: 0,
       firingTargetId: null,
+
+      /**
+       * A POSE ATUAL VIROU UM BUFF PROPRIO.
+       *
+       * E o que separa "o conjurador lancou no chao" de "o conjurador se
+       * abencoou". Os dois passam pelo mesmo `attackAnimation`, e os dois
+       * chegam com `firingTargetId` nulo — porque no primeiro nao havia inimigo
+       * sob o cursor, e no segundo o alvo e o proprio jogador
+       *
+       * E o que o `needsTarget` da arte de tiro realmente precisa saber. So
+       * o buff tem de ficar em idle: no chao a pose tem de sair, porque o tiro
+       * saiu
+       */
+      poseDeBuff: false,
       hitFlash: 0,
       cast: null,
 

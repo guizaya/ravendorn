@@ -1200,6 +1200,15 @@ export function refillVitals(sessao) {
   player.firingTargetId = null;
 
   /**
+   * A POSE DE BUFF E "O QUE ESTAVA ACONTECENDO", e nao progresso.
+   *
+   * Pela mesma razao das duas linhas acima: se o saveaccao um buff e o
+   * jogador recarrega o jogo, o primeiro desenho viria com a pose de conjurador
+   * levantando o cajado e sem nenhum alvo em vista
+   */
+  player.poseDeBuff = false;
+
+  /**
    * O GOLPE EM LOOP TAMBEM NAO E PROGRESSO.
    *
    * E a mesma razao das duas linhas acima: `attackAnimation` e

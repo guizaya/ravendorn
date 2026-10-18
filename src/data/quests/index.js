@@ -680,15 +680,25 @@ const PREPARA_PARA = {
     /**
      * O LIVRO DE HABILIDADE, e ele NAO DROPA DE NINGUEM.
      *
-     * `livro_quick_shot` esta no catalogo e nao esta em nenhum pool de loot do
+     * Este livro esta no catalogo e nao esta em nenhum pool de loot do
      * jogo. Sem esta entrega o tutorial de habilidade e IMPOSSIVEL de
      * concluir, por mais que o jogador caque ate o topo da campanha
      *
      * E a unica entrega garantida do jogo, e o motivo e esse: nao ha drop
      * para usar. A raridade e `rare` porque e o que o catalogo declara, e nao
      * porque foi pensado para o tier do degrau
+     *
+     * ## POR QUE ELE TROCAU DE NOME
+     *
+     * Era o `livro_quick_shot`, que ensinava a Quick Shot. Quando o Arbalist
+     * foi para tres skills, a Quick Shot saiu dos slots e o livro virou um
+     * item morto — nao ensinava nada, e o `aprenderHabilidade` recusava a skill
+     * inexistente, o que impedia ate o consumo
+     *
+     * A entrega passou a ser o livro do PRIMEIRO slot, que e o que o jogador
+     * precisa para comecar. Os outros dois ficam na loja do Mestre
      */
-    extra: [{ itemId: "livro_quick_shot", count: 1 }],
+    extra: [{ itemId: "livro_armadilha_espinhos", count: 1 }],
   },
 };
 

@@ -193,6 +193,54 @@ const MAPO_INICIAL = MAPAS_RAIL[0].id;
  * de zona. Uma missao de `treino` conta no mapa 1 e uma de `m2_treino`
  * conta no mapa 2
  */
+/**
+ * A ORDEM DA LISTA: RECEBIDA EM CIMA, FINALIZADA EMBAIXO.
+ *
+ * ## O QUE MUDOU
+ *
+ * A lista vinha na ordem em que o catalogo declara. Isso punha a missao que o
+ * jogador esta fazendo no meio do nada, entre tres que ele nem habilitou ainda,
+ * e deixava as concluidas — que ele nunca mais vai fazer — no meio da lista
+ *
+ * ## AS TRES FAIXAS
+ *
+ *   0  recebida (em andamento)      — em CIMA. E o que o jogador esta fazendo
+ *   1  ainda nao concluida          — no meio, na ordem de sempre
+ *   2  recebida e finalizada        — EMBAIXO. Nao some, so deixa de ocupar o topo
+ *
+ * ## E POR QUE A CONCLUIDA NAO DESAPARECE
+ *
+ * Porque ela e o registro do que o jogador fez. Uma lista so com o que falta
+ * perde a unica informacao que a tela tem de "quanto desse mundo eu ja atravessei"
+ *
+ * ## E POR QUE DENTRO DE CADA FAIXA A ORDEM ANTIGA VALE
+ *
+ * Porque a faixa so responde "onde", e a ordem dentro dela responde "em que
+ * sequencia". Um passo da campanha que vem antes de outro continua aparecendo
+ * antes; a faixa apenas decide em qual bloco ele cai. O `indice` do `map` e o
+ * que garante isso — sem ele, o `sort` reordena dentro da faixa e a campanha
+ * perde a linha do tempo
+ *
+ * ## E POR QUE UM MAP E UM SORT
+ *
+ * Porque `sort` muta o array. A lista vem do snapshot do servidor, que e
+ * lido por varios outros lugares do painel, e ordenar no lugar faria a mudança
+ * aparecer em todos eles
+ */
+function ordenarParaExibicao(lista, { recebida, finalizada }) {
+  const faixa = (item) =>
+    recebida(item) ? 0 : finalizada(item) ? 2 : 1;
+
+  return [...lista]
+    .map((item, indice) => ({ item, indice }))
+    .sort((a, b) => {
+      const diferenca = faixa(a.item) - faixa(b.item);
+
+      return diferenca !== 0 ? diferenca : a.indice - b.indice;
+    })
+    .map((entrada) => entrada.item);
+}
+
 function contarPendentes(data, mapaId) {
   if (!data) return 0;
 
@@ -1003,6 +1051,43 @@ export default function QuestPanel({
     resgataveis.find((entrada) => entrada.id === questId) ??
     null;
 
+  /**
+   * AS DUAS LISTAS, ORDENADAS.
+   *
+   * ## POR QUE ESTAQUI, E NAO AO LADO DO `passosDaAba`
+   *
+   * Porque a regra precisa da `resgataveisDaAba`, que e declarada mais abaixo:
+   * a lista sobe e desce tambem pelo "resgatavel", e ler essa variavel antes da
+   * declaracao e o erro de "acesso antes da inicializacao" — que so aparece em
+   * tempo de execucao, nunca no build
+   *
+   * ## E POR QUE RESGATAVEL CONTA COMO FINALIZADA
+   *
+   * Porque uma missao com recompensa a resgatar ja cumpriu o que o jogador
+   * queria dela. O botao [RESGATAR] e a ultima coisa que ela faz, e enquanto ele
+   * existe a missao nao voltou a ser "pendencia": ela desce junto com as
+   * concluidas, e nao sobe junto com a recebida
+   *
+   * ## E A SECUNDARIA RECEBIDA
+   *
+   * Ela ja vivia num bloco separado acima da lista, que e a faixa 0 da regra. O
+   * bloco e a garantia de que so existe UMA secundaria em andamento — regra do
+   * jogo, nao escolha de ordem
+   */
+  const passosOrdenados = ordenarParaExibicao(passosDaAba, {
+    recebida: (step) => data.main.current?.id === step.id,
+    finalizada: (step) =>
+      step.state === "done" ||
+      Boolean(resgataveisDaAba.find((entrada) => entrada.id === step.id)),
+  });
+
+  const sideOrdenada = ordenarParaExibicao(sideDaAba, {
+    recebida: (quest) => Boolean(quest.active),
+    finalizada: (quest) =>
+      Boolean(quest.done) ||
+      Boolean(resgataveisDaAba.find((entrada) => entrada.id === quest.id)),
+  });
+
   return (
     <section className="qst-panel">
       <header className="qst-panel__head">
@@ -1171,7 +1256,7 @@ export default function QuestPanel({
         {ativa === "main" ? (
           <section className="qst-group">
             <ul className="qst-list">
-              {passosDaAba.map((step) => {
+              {passosOrdenados.map((step) => {
                 const current =
                   data.main.current?.id === step.id;
 
@@ -1252,7 +1337,7 @@ export default function QuestPanel({
             )}
 
             <ul className="qst-list">
-              {sideDaAba.map((quest) => {
+              {sideOrdenada.map((quest) => {
                 /**
                  * A missao ativa JA esta desenhada no bloco de
                  * cima, com o botao de abandonar e o de auto.

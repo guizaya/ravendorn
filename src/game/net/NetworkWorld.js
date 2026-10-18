@@ -251,12 +251,33 @@ jogador.isMoving = Boolean(dado.isMoving);
       jogador.moveDirection = dado.facing;
     }
 
-    // so um alvo de verdade entra na arte de tiro. `needsTarget`
-    // existe para o arco nao aparecer quando o arqueiro esta
-    // lancando um buff em si mesmo
-    if (dado.acting && dado.hasTarget) {
+    /**
+     * A POSE DE TIRO, e os TRES campos que a decidem.
+     *
+     * ## O QUE ESTAVA ERRADO
+     *
+     * A pose inteira estava dentro de `dado.acting && dado.hasTarget`. Com o
+     * clique no chao o servidor manda `acting: true` e `hasTarget: false` — o
+     * tiro saiu, mas o cliente nao recebia `attackAnimation` NENHUMA VEZ, e o
+     * conjurador ficava em idle com a esfera no ar
+     *
+     * ## POR QUE OS TRES SAO SEPARADOS
+     *
+     * - `acting`: o cajado levantou. So isso ja e a pose
+     * - `hasTarget`: ha inimigo de verdade. E o que o motor usa para virar o
+     *   boneco na direcao de quem leva o tiro
+     * - `poseDeBuff`: e um buff. E o unico caso que NAO desenha a arte de
+     *   tiro, porque nao ha nada para lancar
+     *
+     * Os tres vinham prontos do servidor: ele e quem viu a acao. Aqui eles so
+     * sao aplicados, sem que o cliente precise adivinhar nada
+     */
+    if (dado.acting) {
       jogador.attackAnimation = REMOTO_ATAQUE;
-      jogador.firingTargetId = "alvo";
+
+      jogador.firingTargetId = dado.hasTarget ? "alvo" : null;
+
+      jogador.poseDeBuff = dado.poseDeBuff === true;
     }
 
     // O alvo ESCOLHIDO, que e diferente do alvo do tiro.
@@ -453,7 +474,56 @@ this.intencao.y = intencao?.y ?? 0;
 
     const porId = new Map();
 
+    /**
+     * OS PERIGOS E AS MARCAS VEM EM DUAS LISTAS, e nao na do projetil.
+     *
+     * A `world.projectiles` e trocada INTEIRA a cada pacote, e por isso que os
+     * projeteis saem de la e nada mais entra. Os perigos nao podem usar a mesma
+     * lista: a marca da chuva e o perigo que vai nascer 1 segundo depois sao
+     * coisas diferentes com ids diferentes, e um circulo tracejado nao pode
+     * sobreviver no lugar de uma nuvem
+     *
+     * As duas sao trocadas inteiras tambem, pelo mesmo motivo dos projeteis: o
+     * servidor manda tudo que esta no raio de interesse a cada pacote, entao
+     * uma lista parcial so faria a armadilha piscar quando o jogador andasse
+     */
+    const perigos = [];
+    const marcas = [];
+
     for (const dado of lista) {
+      /**
+       * O QUE ESTA NO CHAO CHEGA COM `perigo: true`, e nao como projetil.
+       *
+       * E o mesmo pacote, e por isso que o `if` vem antes do resto: um perigo
+       * tem `kind` e um projetil nao tem
+       */
+      if (dado.perigo) {
+        if (dado.kind === "marca") {
+          marcas.push({
+            id: dado.id,
+            point: { x: dado.x, y: dado.y },
+            action: { radius: dado.raio, color: dado.cor },
+            restante: 0,
+            ownerId: null,
+          });
+        } else {
+          perigos.push({
+            id: dado.id,
+            kind: dado.kind,
+            x: dado.x,
+            y: dado.y,
+            raio: dado.raio,
+            vida: dado.vida,
+            armada: dado.armada === true,
+            chuvaRestante: dado.chuvaRestante ?? 0,
+            action: { color: dado.cor },
+            ownerId: null,
+          });
+        }
+
+        continue;
+      }
+
       porId.set(dado.id, {
         id: dado.id,
         x: dado.x,
@@ -461,6 +531,17 @@ this.intencao.y = intencao?.y ?? 0;
         radius: dado.radius ?? 10,
         velocityX: dado.velocityX ?? 0,
         velocityY: dado.velocityY ?? 0,
+
+        /**
+         * A IDADE DO TIRO, que o servidor manda.
+         *
+         * E o que escolhe o quadro da arte de projetil. Sem ela, `drawProjectiles`
+         * receberia `age` valendo zero e a esfera do sorcerer ficaria parada no
+         * primeiro quadro durante todo o voo
+         *
+         * O `?? 0` cobre o servidor velho, que manda o pacote sem o campo
+         */
+        age: dado.age ?? 0,
 
         // `drawProjectiles` le o estilo em `action.projectileStyle`.
         // no servidor esse objeto vem inteiro da definicao da
@@ -479,6 +560,17 @@ this.intencao.y = intencao?.y ?? 0;
     }
 
     world.projectiles = [...porId.values()];
+
+    /**
+     * E AS DUAS LISTAS DO CHAO, trocadas juntas com a de projeteis.
+     *
+     * O cliente nao simula nada disso: a armadilha que ele ve foi armada pelo
+     * servidor, e a nuvem que pinga esta pingando la. Ele so precisa saber o
+     * que desenhar — por isso o `updatePerigos` NAO roda aqui, e o `vida` e o
+     * `chuvaRestante` chegam prontos
+     */
+    world.perigos = perigos;
+    world.atrasados = marcas;
   }
 
   aplicarInimigos(lista) {

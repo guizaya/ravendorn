@@ -16,12 +16,13 @@
  *
  * Porque o painel chega a 4Hz. Se ele descontasse um segundo por tique, o
  * numero passaria 250ms parado entre "1min20" e "1min19" e a barra
- * andaria aos trancos. O componente recebe o `proximoGolpeEm` do SERVIDOR e
- * faz a conta com o relogio dele, entao o tempo anda sozinho e o numero de
- * batidas continua vindo pronto — esse e inteiro e nao muda entre tiques
+ * andaria aos trancos. O componente recebe do SERVIDOR a DURACAO que falta
+ * (`segundosParaBatida`), ancora no instante local em que a batida comecou e
+ * conta para baixo com o relogio dele — entao o tempo anda sozinho e o numero
+ * de batidas continua vindo pronto, esse e inteiro e nao muda entre tiques
  */
 
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 
 import {
   SEGUNDOS_POR_BATIDA,
@@ -92,9 +93,10 @@ export default function MineracaoPanel({ mineracao }) {
   /**
    * O RELOGIO LOCAL SOBE A CADA SEGUNDO, e nao a cada tique do painel.
    *
-   * A conta do tempo que resta nao muda — quem a faz e o `proximoGolpeEm`
-   * do servidor. O que este efeito da e um gancho para o numero mudar de
-   * 1 em 1 segundo, e nao a cada 250ms, quando chegaria o pacote
+   * A conta do tempo que resta nao muda — quem a faz e o `segundosParaBatida`
+   * que o servidor mandou, lido uma vez quando a batida nasce. O que este
+   * efeito da e um gancho para o numero mudar de 1 em 1 segundo, e nao a cada
+   * 250ms, quando chegaria o pacote
    *
    * ## POR QUE A DEPENDENCIA E O ID DA PEDIDA, E NAO O OBJETO
    *
@@ -163,18 +165,91 @@ useEffect(() => {
     return () => clearTimeout(tempo);
   }, [mineracao?.steelNoTique]);
 
+  /**
+ * A BATIDA EM CURSO CONTA PARA BAIXO AQUI, e nao pela diferenca de relogios.
+ *
+ * ## O QUE ESTAVA ERRADO
+ *
+ * O componente recebia `proximoGolpeEm` — um INSTANTE do relogio do SERVIDOR —
+ * e subtraia do `Date.now()`, que e o relogio do NAVEGADOR. Sao dois relogios
+ * que nunca concordam
+ *
+ * Quando o do servidor estava atras, a diferenca dava negativa, o
+ * `Math.max(0, ...)` zerava, e a barra da batida ficava parada: numero vazio e
+ * 0% de largura, para sempre. A barra de cima nao era afetada porque sai de
+ * `batidasRestantes`, que e um numero inteiro e nao uma diferenca de horas —
+ * e por isso que so a de baixo aparecia quebrada
+ *
+ * Agora o servidor manda a DURACAO (`segundosParaBatida`) e nao o instante, e o
+ * cliente conta para baixo com o relogio dele. Nao ha mais relogio cruzado
+ *
+ * ## POR QUE UM GANCHO, E NAO SO O VALOR DO PACOTE
+ *
+ * Porque o painel chega a 4Hz. Contando direto do valor do pacote, a barra
+ * repetiria os mesmos 250ms quatro vezes por segundo e nunca passaria de uns
+ * 10% de largura
+ *
+ * O `ancora` e o instante LOCAL em que a batida comecou, com o tanto que
+ * faltava nela. O pacote so reassina a ancora quando nasce uma batida nova — o
+ * `segundosParaBatida > local + 1` — e de la em diante quem corre e o relogio
+ * do jogador, a cada 100ms
+ *
+ * ## POR QUE ISTO VEM ANTES DO `return null`
+ *
+ * Porque `useRef` e `useEffect` sao hooks, e hook depois de um retorno
+ * antecipado quebra a ordem em que o React os chama: o painel fechando e
+ * abrindo mudaria a quantidade de hooks entre dois renders
+ */
+const ancora = useRef(null);
+
+useEffect(() => {
+  /* painel fechado: nenhuma ancora velha sobrevive para a proxima pedra */
+  if (!pedidaId) {
+    ancora.current = null;
+
+    return;
+  }
+
+  const segundos = mineracao?.segundosParaBatida ?? 0;
+
+  if (!segundos) return;
+
+  const atual = ancora.current;
+
+  const local =
+    atual === null
+      ? 0
+      : Math.max(0, atual.valor - (Date.now() - atual.em) / 1000);
+
+  /* o servidor falou MAIS do que faltava: nasce uma batida nova */
+  if (segundos > local + 1) {
+    ancora.current = { valor: segundos, em: Date.now() };
+  }
+}, [mineracao?.segundosParaBatida, pedidaId]);
+
   if (!mineracao || !mineracao.encostado) return null;
 
   const {
     type,
     batidas,
     batidasRestantes,
-    proximoGolpeEm,
+    segundosParaBatida,
     steelNoTique,
   } = mineracao;
 
-  const cor = COR_DA_RARIDADE[type] ?? "#8a8f96";
-  const nome = NOME_DA_RARIDADE[type] ?? "Cristal";
+  /**
+   * QUANTO FALTA PARA A BATIDA CAIR, em segundos.
+   *
+   * O `Math.max` continua aqui porque e ele que segura a barra em 100% no
+   * instante em que a batida cai, ate o pacote novo chegar
+   */
+  const emCurso =
+    ancora.current === null
+      ? 0
+      : Math.max(
+          0,
+          ancora.current.valor - (agora - ancora.current.em) / 1000,
+        );
 
   /**
    * O TEMPO QUE FALTA E A SOMA DE DUAS COISAS, e nao so das batidas.
@@ -184,10 +259,8 @@ useEffect(() => {
    * painel prometeria "faltam 3 batidas = 30s" enquanto o jogador esta a 1s
    * de receber a primeira, e ele contaria mentalmente errado
    */
-  const emCurso = Math.max(
-    0,
-    (proximoGolpeEm - agora) / 1000,
-  );
+  const cor = COR_DA_RARIDADE[type] ?? "#8a8f96";
+  const nome = NOME_DA_RARIDADE[type] ?? "Cristal";
 
   const segundos = Math.ceil(
     batidasRestantes * SEGUNDOS_POR_BATIDA - (SEGUNDOS_POR_BATIDA - emCurso),
@@ -220,7 +293,7 @@ useEffect(() => {
    * Invertido, a barra enche — que e o que "batendo" quer dizer
    *
    * E o `travado` no limite: no instante em que a batida cai, o servidor ja
-   * mandou o proximo `proximoGolpeEm`, e sem travar a barra dava um pulo
+   * mandou o `segundosParaBatida` da proxima, e sem travar a barra dava um pulo
    * para 100% e voltava a 0 no mesmo quadro, piscando
    */
   const avancoBatida = Math.min(

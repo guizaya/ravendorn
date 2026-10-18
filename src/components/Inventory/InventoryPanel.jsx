@@ -1162,6 +1162,44 @@ onFilterPrune,
     onEnhance?.(entry);
   };
 
+  /**
+   * O "EQUIPAR" E O "DESEQUIPAR", e o `closeMenu` vem antes como nos outros.
+   *
+   * ## POR QUE ESTES DOIS ERAM OS ÚNICOS SEM O `closeMenu`
+   *
+   * Todas as outras ações do menu passam por um embrulho que fecha a caixa
+   * primeiro: `useItem`, `enchantItem`, `enhanceItem`, `venderNoMercado`,
+   * `discardItem`, `discardEquipped`. O `onEquip` e o `onUnequip` entravam
+   * crus — e eles ficam presos na tela
+   *
+   * ## O QUE ACONTECIA
+   *
+   * A peca vestida CONTINUA NA PILHA (e so ganha `slotId` e `equipped`), entao
+   * o `uid` que o `menu` guarda continua batendo com o slot, e a caixa nao
+   * desmonta: ela fica aberta
+   *
+   * E uma caixa aberta e um obstaculo: o `.inv-menu--float` e `position: fixed`
+   * com `z-index: 900` e SEM `pointer-events: none` — ao contrario do
+   * `ItemTooltip`, que atravessa o mouse de proposito. Sobreposta a grade, ela
+   * engole o `pointerenter` dos slots que esta embaixo
+   *
+   * O sintoma era o que o jogador descreveu: depois de vestir uma peca, passar
+   * o mouse sobre os outros itens nao abria mais nenhuma dica
+   *
+   * E nao havia como sair disso: o clique fora que fecharia a caixa e o
+   * `listener` de `document` do `SlotMenuFloat`, que so existe quando o
+   * `fechar` chega nele — e a mochila nao passa esse prop
+   */
+  const equipItem = (entry) => {
+    closeMenu();
+    onEquip?.(entry);
+  };
+
+  const unequipItem = (slotId) => {
+    closeMenu();
+    onUnequip?.(slotId);
+  };
+
   const changeFilter = (key, value) => {
     closeMenu();
     onFilterChange?.(key, value);
@@ -1530,8 +1568,8 @@ onFilterPrune,
             <EquipmentDoll
 equipment={equipment}
                   menu={menu}
-                  onToggleMenu={toggleMenu}
-                  onUnequip={onUnequip}
+onToggleMenu={toggleMenu}
+              onUnequip={unequipItem}
     onDiscardEquipped={discardEquipped}
               onEnchant={enchantItem}
               onEnhance={enhanceItem}
@@ -1682,7 +1720,15 @@ onClick={() => {
                    * clique abria o card e nao aparecia nada
                    */
 const acoes = buildItemActions(entry, {
-                      onEquip,
+                      /**
+                       * O EMBRULHO, e nao o `onEquip` cru.
+                       *
+                       * E o mesmo embrulho que `useItem`, `enchantItem` e
+                       * `enhanceItem` recebem: fecha a caixa antes de agir. Sem
+                       * ele a caixa fica presa sobre a grade depois de vestir a
+                       * peca — e e ela que impedia a dica de aparecer
+                       */
+                      onEquip: equipItem,
                       onDiscardItem: discardItem,
   onUseItem: useItem,
         onEnchant: enchantItem,

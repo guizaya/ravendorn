@@ -1096,8 +1096,66 @@ const vivos = new Set();
  */
 const nasceuEm = new WeakMap();
 
+/**
+ * A CAUSA DO FECHAMENTO, POR SOCKET.
+ *
+ * ## POR QUE UM `WeakMap` E NAO UM `Map`
+ *
+ * Porque e a mesma razao do `nasceuEm`: a chave e o socket, e o valor so
+ * importa enquanto ele existe. Um `Map` seguraria o socket forte e a entrada
+ * depois que o `close` passou por aqui — vazamento que cresce com o numero de
+ * conexoes da vida do processo
+ *
+ * ## O QUE VAI AQUI
+ *
+ * A descricao em portugues do que o SERVIDOR fez, escrita no instante da
+ * decisao. E o unico lugar do codigo onde a causa ainda existe: depois que o
+ * `close` chega, o `code` sozinho ja nao conta
+ */
+const motivosDoSocket = new WeakMap();
+
 wss.on("connection", (socket) => {
   nasceuEm.set(socket, Date.now());
+
+/**
+   * POR QUE ESTE SOCKET FECHOU, DO PONTO DE VISTA DO SERVIDOR.
+   *
+   * ## O QUE ELE RESOLVE
+   *
+   * O `1005` e um codigo que NUNCA vai pelo fio: e o que a biblioteca inventa
+   * quando o socket fecha sem close frame. O `close` chega aqui com `code` e
+   * `motivo` vazios, e o log antigo so tinha isso para trabalhar — ele acabava
+   * avisando sobre `1006` e `1011` em cima de um evento que nao era nenhum dos
+   * dois
+   *
+   * ## POR QUE A CAUSA SE PERDE SO NESSAS SITUACOES
+   *
+   * Quando o SERVIDOR fecha, o codigo existe: `socket.close(1009, ...)` manda
+   * 1009, `socket.close(1011, ...)` manda 1011. Quando fecha sem codigo nenhum
+   * e o `terminate()`, do batimento — ele nao manda frame nenhum, porque a
+   * ideia dele e matar na hora
+   *
+   * Entao: quando o codigo vem, a causa ja esta no codigo. Quando nao vem
+   * (1005), a unica forma de saber se foi o servidor e o no TER MARCADO antes
+   *
+   * ## E POR QUE ISSO E PRECISO, E NAO UM LUXO
+   *
+   * Porque um `1005` repetido, sem nenhuma pista, e indistinguivel de uma queda
+   * real. Quem le o terminal nao sabe se deve investigar ou ignorar. Marcar o
+   * motivo no ponto em que a decisao e tomada e o unico lugar onde ele ainda
+   * existe
+   *
+   * ## E POR QUE O NOME NAO E `motivo`
+   *
+   * Porque o `close` e o `error` ja usam `motivo` como parametro, para o texto
+   * que veio no frame. Somar um `motivo()` aqui seria a mesma variavel com dois
+   * papeis — e o `mapa` e uma `const` de fora do callback, que sobreviveria,
+   * enquanto o parametro nao
+   */
+  const marcar = (descricao) => {
+    motivosDoSocket.set(socket, descricao);
+  };
+
   const client = new Client(socket);
 
   /**
@@ -1123,6 +1181,7 @@ wss.on("connection", (socket) => {
     // so DEPOIS de o servidor ter lido a string inteira. o limite
     // e o que impede o estouro de memoria
     if (bruto.length > LIMITE_MENSAGEM) {
+      marcar(`a mensagem passou de ${LIMITE_MENSAGEM} bytes`);
       socket.close(1009, "Mensagem grande demais");
       return;
     }
@@ -1152,6 +1211,7 @@ wss.on("connection", (socket) => {
       // uma regra com bug nao pode derrubar o mundo para os
       // outros jogadores. o jogador ruim perde a conexao
       console.error("[ws] erro ao tratar mensagem:", erro);
+      marcar(`erro ao tratar a mensagem: ${erro?.message ?? erro}`);
       socket.close(1011, "Erro interno");
     }
   });
@@ -1173,20 +1233,108 @@ wss.on("connection", (socket) => {
    * terminal. A pista de que o jogo trava vinha do Vite (`ECONNRESET`), que
    * e o LADO DO CLIENTE do proxy — e nao dizia nada sobre quem derrubou
    */
-  socket.on("close", (code, motivo) => {
-    const durou = Math.round((Date.now() - (nasceuEm.get(socket) ?? Date.now())) / 1000);
+  /**
+ * O FECHAMENTO, COM A CAUSA QUE O SERVIDOR CONSEGUE SABER.
+ *
+ * ## A REGRA DOS TRES FAIXAS
+ *
+ * - fechou com codigo (1000, 1001, 1008, 1009, 1011): o `code` JA e a causa.
+ *   Sai em `info`, e so vira `warn` nos tres que indicam defeito
+ * - 1005 e o servidor tinha marcado um motivo: e o batimento ou o
+ *   desligamento. Sai em `warn`, porque aqui a queda foi de verdade
+ * - 1005 sem motivo marcado: NAO foi o servidor. O navegador fechou. Sai em
+ *   `info`, com o texto dizendo isso
+ *
+ * ## POR QUE O 1005 SEM MOTIVO DESCE PARA `info`
+ *
+ * Porque e o caso comum e ele nao indica nada de errado. F5, navegar para
+ * outra rota e fechar a aba produzem exatamente isto. Com o `warn` antigo,
+ * um simples reload enchia o terminal de aviso que parecia queda de servidor —
+ * e o primeiro sintoma de um problema real passou a ser ignorado
+ *
+ * ## E POR QUE A CAUSA VAI NO LOG, E SO O CODIGO
+ *
+ * Porque o `1005` nao carrega informacao nenhuma: ele e literalmente "nao
+ * houve codigo". Quem sabe o motivo e o servidor, no instante em que escolhe
+ * fechar. O log antigo recebia o `code` e gastava a unica pista que ele tinha
+ * *(o codigo)*, sem nunca olhar o lado do servidor
+ */
+socket.on("close", (code, motivoBruto) => {
+    const durou = Math.round(
+      (Date.now() - (nasceuEm.get(socket) ?? Date.now())) / 1000,
+    );
+
+/**
+     * O MOTIVO CHEGA COMO BUFFER, E O BUFFER VAZIO E `truthy`.
+     *
+     * ## O QUE ISSO CAUSAVA
+     *
+     * O `ws` entrega o segundo argumento do `close` como `Buffer`, e nao como
+     * string. Um `Buffer` vazio e um OBJETO, e objeto em JavaScript e sempre
+     * `truthy` - mesmo sem um byte dentro
+     *
+     * Entao a cadeia de causa parava no primeiro `||` que encontrava o motivo
+     * vazio, e o resultado era um `Buffer` de zero bytes. Interpolado num
+     * template string ele vira `""`: o log saia com `CAUSA:` e nada depois, em
+     * qualquer fechamento
+     *
+     * ## POR QUE A CONVERSAO VEM AQUI, E NAO NO USO
+     *
+     * Porque e o `Buffer` que engana o `||`, e nao o `console`. Converter uma vez
+     * no comeco do handler deixa `texto` com o tipo certo para o log inteiro -
+     * inclusive no `motivo="..."`, que tinha o mesmo defeito e imprimia
+     * `motivo=""` em vez de dizer que o cliente nao mandou motivo
+     */
+    const texto = motivoBruto?.toString?.() ?? "";
+
+    /**
+     * A CAUSA E LIDA ANTES DE QUALQUER `delete`.
+     *
+     * O `motivosDoSocket.delete` vem logo abaixo, e ler depois dele devolve
+     * sempre `undefined` - o log sairia com "CAUSA: o cliente..." para um
+     * fechamento que o servidor tinha marcado como dele
+     *
+     * E o `||` e nao o `??`: com `texto` ja convertido em string, `""` e o
+     * caso comum, e `"" ?? x` devolveria `""`, esvaziando a causa de novo
+     */
+    const causa = motivosDoSocket.get(socket) || texto || null;
 
     vivos.delete(socket);
+    motivosDoSocket.delete(socket);
     jogo.desconectar(client);
 
+    // saidas limpas: quem mandou foi o cliente e o motivo e o de sempre
     if (code === 1000 || code === 1001) return;
 
-    console.warn(
-      `[ws] socket fechado com code ${code}` +
-        (motivo ? ` motivo="${motivo}"` : " (sem motivo)") +
-        ` — conexao durou ${durou}s. ` +
-        "Se 1006, o processo morreu; se 1011, ha um erro em [ws] acima.",
-    );
+    const onde =
+      ` [ws] socket fechado: code ${code}` +
+      (texto ? ` motivo="${texto}"` : " (o cliente nao mandou motivo)") +
+      ` — durou ${durou}s`;
+
+    if (code === 1005) {
+      if (causa) {
+        console.warn(`${onde} — CAUSA: ${causa}. O servidor fechou este socket.`);
+      } else {
+        console.info(
+          `${onde} — CAUSA: o cliente fechou sem avisar. ` +
+            "Reload, navegacao ou aba fechada. Nao e falha do servidor.",
+        );
+      }
+
+      return;
+    }
+
+    if (code === 1006 || code === 1008 || code === 1011) {
+      console.warn(
+        `${onde} — CAUSA: ${
+          causa ?? "o cliente abortou a conexao sem mandar close frame"
+        }.` + (code === 1011 ? " Ha um erro logo acima." : ""),
+      );
+
+      return;
+    }
+
+    console.info(`${onde} — CAUSA: ${causa ?? "sem registro"}.`);
   });
 
   socket.on("error", (erro) => {
@@ -1213,6 +1361,19 @@ const batimento = setInterval(() => {
      * painel que o `bufferedAmount` pode ter acumulado
      */
     if (socket.isAlive === false) {
+      /**
+       * `motivosDoSocket.set` DIRETO, E NAO O `marcar`.
+       *
+       * O `marcar` e um atalho criado DENTRO de `wss.on("connection")`, e este
+       * `setInterval` roda FORA dele. Usar `marcar` aqui daria ReferenceError no
+       * primeiro tique de heartbeat — o servidor cairia logo depois de subir
+       */
+      motivosDoSocket.set(
+        socket,
+        `o cliente nao respondeu ao ping em ${
+          Math.round(BATIMENTO_MS / 1000)
+        }s — derrubei sem avisar, por isso o codigo 1005`,
+      );
       socket.terminate();
       continue;
     }
@@ -1316,6 +1477,22 @@ subir(SERVER_CONFIG.host);
  */
 function encerrar() {
   jogo.stop();
+
+  /**
+   * O DESLIGAMENTO MARCA CADA SOCKET, E POR QUE ISSO IMPORTA.
+   *
+   * O `wss.close()` deixa os sockets abertos morrerem sozinhos, sem close frame.
+   * O `close` de cada um chega como 1005, sem motivo, sem nada que diga que
+   * aquilo foi um `Ctrl+C` e nao uma queda
+   *
+   * Que e a pior hora para o log mentir: o operador acabou de mandar o processo
+   * embora, e o terminal mostra tres avisos de "1005" sem explicacao logo em
+   * seguida — a leitura natural e "o servidor caiu sozinho"
+   */
+  for (const socket of vivos) {
+    motivosDoSocket.set(socket, "o servidor foi encerrado (SIGINT/SIGTERM)");
+  }
+
   wss.close();
   http.close(() => process.exit(0));
 

@@ -7635,10 +7635,35 @@ color:var(--t-gold-bright)}
     16,
     0.6);
 }
+/**
+ * A BORDA VERDE DA MISSAO CONCLUIDA.
+ *
+ * ## POR QUE VERDE, E O UNICO VERDE DESTE PAINEL
+ *
+ * O painel inteiro e dourado: ativa, bloqueada, a resgatar — tudo no mesmo tom.
+ * Com a concluida tambem dourada, a linha nao distinguia "pronto" de "para
+ * fazer", e era a unica informacao que o jogador nao tinha a olhar
+ *
+ * ## E POR QUE ESTE VERDE E NAO OUTRO
+ *
+ * Porque `#7fd88f` ja e a verde semantica do projeto — a da raridade incomum.
+ * Usar um verde novo aqui criaria uma cor que so existe neste painel, e a
+ * proxima tela que precisar de um "deu certo" nao teria o que reaproveitar
+ *
+ * ## E POR QUE O DOURADO CONTINUA NO RESGATAVEL
+ *
+ * Porque resgatar ainda e uma ACAO do jogador: a missao cumpriu o objetivo,
+ * mas ele ainda tem um botao para clicar. Verde ali diria "acabou" com um
+ * passo faltando
+ *
+ * ## E POR QUE A OPACIDADE CONTINUA 0.62
+ *
+ * Porque a concluida continua sendo registro, nao tarefa. Verde na borda
+ * entrega o "acabou" sem precisar devolver a lista ao peso das pendencias
+ */
 .qst-row.is-done {
-  border-left-color: rgba(229$1187$2104,
-    0.5);
-    opacity: 0.62;
+  border-left-color: #7fd88f;
+  opacity: 0.62;
 }
 .qst-row.is-locked {
   opacity: 0.42;
@@ -8005,10 +8030,10 @@ color:var(--t-text)}
  */
 .qst-action--done {
   padding: 5px 9px;
-  border: 1px solid rgba(229$1187$2104, 0.35);
+  border: 1px solid rgba(229, 1187, 2104, 0.35);
   border-radius: 4px;
   color: #e5bb68;
-  background: rgba(40$133$116, 0.55);
+  background: rgba(40, 133, 116, 0.55);
   font-size: 8px;
   font-weight: 900;
   letter-spacing: 0.06em;
@@ -9863,11 +9888,11 @@ color:var(--need, var(--t-text-dim))}
 color:var(--t-text-dim)}
 
 .bst-entry.is-hunting {
-  border-color: rgba(229$1187$2104,
+  border-color: rgba(229, 1187, 2104,
     0.6);
-    box-shadow: 0 0 0 1px rgba(229$1187$2104,
+    box-shadow: 0 0 0 1px rgba(229, 1187, 2104,
     0.25),
-    0 0 18px rgba(229$1187$2104,
+    0 0 18px rgba(229, 1187, 2104,
     0.18);
 }
 .bst-entry__go {
@@ -9914,7 +9939,7 @@ color:var(--t-text-dim)}
     cursor: not-allowed;
 }
 .bst-entry.is-hunting .bst-entry__go {
-  border-color: rgba(229$1187$2104,
+  border-color: rgba(229, 1187, 2104,
     0.7);
     color: #1a1208;
     background: #e5bb68;
@@ -9929,7 +9954,7 @@ color:var(--t-text-dim)}
   align-items: center;
   gap: 8px;
   padding: 8px 10px;
-  border: 1px solid rgba(229$1187$2104,
+  border: 1px solid rgba(229, 1187, 2104,
     0.55);
     border-radius: 10px;
     color: #d6dde5;
@@ -9950,7 +9975,7 @@ color:var(--t-text-dim)}
     animation: bst-auto-pulse 1.6s ease-in-out infinite;
 }
 .bst-auto:hover {
-  border-color: rgba(229$1187$2104,
+  border-color: rgba(229, 1187, 2104,
     0.9);
 }
 @keyframes bst-auto-pulse {
@@ -9959,7 +9984,7 @@ color:var(--t-text-dim)}
     0,
     0,
     0.4),
-      0 0 0 0 rgba(229$1187$2104,
+      0 0 0 0 rgba(229, 1187, 2104,
     0.45);
 }
 50% {
@@ -9967,7 +9992,7 @@ color:var(--t-text-dim)}
     0,
     0,
     0.4),
-      0 0 0 4px rgba(229$1187$2104,
+      0 0 0 4px rgba(229, 1187, 2104,
     0);
 }
 }
@@ -10010,7 +10035,7 @@ color:var(--t-text-dim)}
 .bst-auto__stop {
   flex: none;
   padding: 3px 7px;
-  border: 1px solid rgba(229$1187$2104,
+  border: 1px solid rgba(229, 1187, 2104,
     0.5);
     border-radius: 5px;
     color: #e5bb68;
@@ -15678,7 +15703,7 @@ background:linear-gradient(90deg,#8c2328,#c8403a)}
 .target-panel small {
 color:var(--t-text-dim)}
 .game-message {
-border:1px solid rgba(229$1187$2104,.35);
+border:1px solid rgba(229, 1187, 2104,.35);
 color:var(--t-positive);
 background:linear-gradient(180deg,#272217,#1b1710);
 box-shadow:var(--t-bevel),var(--t-drop-sm)}
@@ -17563,6 +17588,39 @@ background:linear-gradient(180deg,#2a1414,#1a0d0d)}
     border-radius: 50%;
     pointer-events: none;
 }
+
+/**
+ * A MOLDURA INTERNA SAI NOS SLOTS QUE TEM ARTE.
+ *
+ * ## PARA QUE ELA EXISTIA
+ *
+ * Para emoldurar o GLOFO. O slot guardava duas letras (`QS`, `IA`) e essa
+ * moldura de 1px a 3px da borda era o que segurava o texto no meio do
+ * circulo — sem ela, o glifo boiava solto
+ *
+ * ## POR QUE ELA VIROU UM PROBLEMA
+ *
+ * Porque a arte do arqueiro PREENCHE o slot inteiro: com o `object-fit: cover`
+ * o desenho ocupa os 54x54 de ponta a ponta, e ele ja tem a propria moldura
+ * desenhada dentro do PNG
+ *
+ * A moldura ficava entao atras da arte (`z-index: 1`, arte em `2`), e aparecia
+ * como uma bordinha solta atravessando a parte de cima e de baixo do icone —
+ * uma segunda borda dentro de um slot que ja tem a externa
+ *
+ * ## POR QUE `:has` E NAO UMA CLASSE NO JSX
+ *
+ * Porque o `SkillSlot` nao sabe se a skill tem arte — quem sabe e o
+ * `SkillIcon`, que consulta o catalogo. Passar isso para cima seria prop
+ * so para isto. O `skill-icon--glyph` ja e a marca de "sem arte", e ele esta
+ * dentro do slot: o `:has` le direto
+ *
+ * E o `:not` do glifo e o que mantem a moldura nos outros slots, que sao
+ * nove glifos de tres classes
+ */
+.skill-slot:not(:has(.skill-icon--glyph)) .skill-slot__frame {
+  display: none;
+}
 .skill-slot.is-ready {
   border-color: color-mix(    in srgb,
     var(--skill-color) 65%,
@@ -17788,12 +17846,40 @@ background:linear-gradient(180deg,#2a1414,#1a0d0d)}
   aparecia mais
 */
 .skill-slot__icon {
-  position: relative;
   z-index: 2;
   display: grid;
-  width: 100%;
-  height: 100%;
   place-items: center;
+
+  /**
+   * A ARTE SAI DA CAIXA DE CONTEUDO E VAI ate A BORDA DO SLOT.
+   *
+   * ## O QUE FAZIA O ICONE FICAR MENOR QUE O SLOT
+   *
+   * O reset global do projeto e `box-sizing: border-box`, entao o
+   * `border: 1px` do `.skill-slot` entra DENTRO dos 54px dele: a area de
+   * conteudo e 52px, nao 54
+   *
+   * E o icone e `100%` em tres niveis — `.skill-slot__icon`, `.skill-icon` e o
+   * `img` — entao os tres mediam 52px dentro de um slot de 54px. Com o
+   * `object-fit: cover` a arte preenchia esses 52px cheios, e sobrava 1px de
+   * folga em cima e em baixo (e nas laterais). Era a "bordinha" que o jogador
+   * viu: nao era moldura nenhuma, era o proprio slot aparecendo por fora da arte
+   *
+   * ## POR QUE `inset: -1px` E NAO `width: 54px`
+   *
+   * Porque o `54px` aqui seria um numero a mais, e o `--slot` e declarado em
+   * tres lugares do arquivo (54, 58 e 64px, o ultimo na ultimate). Um `inset`
+   * negativo acompanha o `--slot` sozinho, e vira `-1px` ou `-2px` se um dia
+   * a borda do slot mudar
+   *
+   * ## POR QUE ABSOLUTO
+   *
+   * Porque e o que os outros sete filhos do slot ja fazem: moldura, cooldown,
+   * tecla, cadeado, relogio, selo do auto e dica do arraste. O icone era o
+   * unico `relative` no meio de todos absolutos, e `inset` so vale em absoluto
+   */
+  position: absolute;
+  inset: -1px;
 }
 
 /*
@@ -17817,7 +17903,36 @@ background:linear-gradient(180deg,#2a1414,#1a0d0d)}
   display: block;
   width: 100%;
   height: 100%;
-  object-fit: contain;
+
+  /**
+   * `cover`, E NAO `contain`.
+   *
+   * ## O QUE O `contain` FAZIA
+   *
+   * As artes do arqueiro sao composicoes LARGAS: 305x285, 331x284 e 310x284,
+   * dentro de um canvas de 311x291, 337x290 e 316x290. Num slot QUADRADO de
+   * 54px, o `contain` reduz pela largura e sobra faixa vazia na vertical
+   *
+   * E o valor dessa faixa mudava por arte: 49,5px na armadilha, 45,5 na salva
+   * e 48,5 na chuva. Tres slots do mesmo tamanho com tres icones de alturas
+   * diferentes ao lado — que e o que o jogador viu como "altura bugada"
+   *
+   * ## POR QUE PREENCHER E O QUE FOI PEDIDO
+   *
+   * O `cover` reduz pela MAIOR dimensao e preenche o quadrado inteiro. A arte
+   * fica sempre com a altura cheia do slot, e o que sobra e cortado nas
+   * LATERAIS — que e o corte que menos dói nestas composicoes, porque o
+   * desenho e largo de proposito e o espaco vazio das pontas e o que some
+   *
+   * ## O PRECO DISSO, E E UM PRECO REAL
+   *
+   * A salva e um arco de CINCO setas, e a composicao e a mais larga (1,16:1).
+   * Com o `cover` ela perde uns 4px de cada lado, que e onde estao as setas de
+   * fora. Se isso incomodar mais do que a faixa vazia, o caminho e `fill` —
+   * que preenche tambem, mas deforma 16% na vertical
+   */
+  object-fit: cover;
+
   image-rendering: auto;
 }
 
@@ -23167,7 +23282,7 @@ opacity:1}
 .cdx-ir.is-on {
   border-color: var(--t-positive);
   color: var(--t-positive);
-  background: rgba(229$1187$2104, 0.12);
+  background: rgba(229, 1187, 2104, 0.12);
 }
 
 /* ============================================================

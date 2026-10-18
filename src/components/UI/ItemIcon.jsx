@@ -53,9 +53,42 @@ export default function ItemIcon({
   // O `alt` vazio e deliberado: o nome do item ja esta no `title` do
   // slot e no rotulo do botao, e um leitor de tela announcing o
   // mesmo texto duas vezes enche o inventario de repeticao
+
+  /**
+   * `loading="lazy"` E `decoding="async"`, E O MOTIVO DE ESTAR AQUI.
+   *
+   * ## O QUE ACONTECIA SEM
+   *
+   * O painel de craft lista os itens numa grade que rola. Cada `<img>` sem
+   * `loading` e baixado no instante em que entra no DOM — inclusive o que esta
+   * seis telas abaixo da dobra. Sao 83 icones no `dist/`, somando 2,2 MB, e o
+   * painel abria esperando tudo isso ao mesmo tempo
+   *
+   * O sintoma era o jogador entrando pela primeira vez e vendo a tela de craft
+   * "demorar para carregar", sem nenhum erro: era rede, e a rede estava certa
+   *
+   * ## POR QUE NAO ATRASAR O PAINEL INTEIRO
+   *
+   * Porque o painel ainda tem que aparecer na hora. O `lazy` nao esconde o
+   * painel: ele so diz ao navegador para pegar PRIMEIRO o que esta visivel e ir
+   * buscar o resto conforme o jogador rola. Quem esta na tela aparece na hora,
+   * que e o que importa
+   *
+   * ## E POR QUE `decoding="async"`
+   *
+   * Porque o decodificar imagem trava a thread principal. Com uma tela cheia
+   * de icones, o decode em serie segura o `requestAnimationFrame` e o jogo
+   * engasga no meio da rolagem — a arte chegava, mas o canvas parava
+   */
   return (
     <span className={classNames}>
-      <img src={src} alt={alt} draggable={false} />
+      <img
+        src={src}
+        alt={alt}
+        draggable={false}
+        loading="lazy"
+        decoding="async"
+      />
     </span>
   );
 }

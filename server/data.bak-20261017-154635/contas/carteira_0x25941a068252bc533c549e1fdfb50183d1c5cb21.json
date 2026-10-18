@@ -1,0 +1,29 @@
+{
+  "id": "carteira_0x25941a068252bc533c549e1fdfb50183d1c5cb21",
+  "tipo": "carteira",
+  "email": null,
+  "carteira": "carteira_0x25941a068252bc533c549e1fdfb50183d1c5cb21",
+  "diamantes": 80,
+  "unlockedSlots": 3,
+  "personagens": [
+    {
+      "id": "fc0aa91e-abad-4a14-89f7-efcbf96a08ef",
+      "nome": "teste",
+      "classe": "arbalist",
+      "criadoEm": 1792087528676
+    },
+    {
+      "id": "ff8009c4-458e-4f69-8ec6-d5bb801b32de",
+      "nome": "teee",
+      "classe": "sorcerer",
+      "criadoEm": 1792097528366
+    },
+    {
+      "id": "c8c1a6b3-ddd5-4097-9e01-af45a609a961",
+      "nome": "gtt",
+      "classe": "arbalist",
+      "criadoEm": 1792105090152
+    }
+  ],
+  "criadoEm": 1792087525459
+}

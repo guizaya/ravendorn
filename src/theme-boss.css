@@ -1003,6 +1003,18 @@
   border: 1px solid var(--t-line);
   background: var(--t-sunken);
   transition: border-color 150ms ease;
+
+  /**
+   * O `flex-wrap` E O QUE DEIXA O ROSTER DESCER PARA A LINHA DE BAIXO.
+   *
+   * Sem ele a caixa de quem esta na expedicao seria um item flex ao lado do
+   * nome e da contagem, espremida num `min-width: 0` e com o texto quebrado em
+   * duas palavras por membro
+   *
+   * E nao muda nada na linha de cima: ela ja cabia, entao nao ha o que quebrar.
+   * O wrap so age quando o conteudo nao cabe — que e exatamente o roster
+   */
+  flex-wrap: wrap;
 }
 
 .boss-linha:hover {
@@ -1012,6 +1024,49 @@
 .boss-linha.is-minha {
   border-color: var(--t-gold-line);
   background: linear-gradient(90deg, #2a2318 0%, var(--t-sunken) 70%);
+}
+
+/**
+ * O ROSTER DA MINHA EXPEDIÇÃO.
+ *
+ * ## POR QUE `flex-basis: 100%` E NÃO `width: 100%`
+ *
+ * Porque o `width` de um item flex compete com o conteudo — o navegador
+ * encolhe a caixa para caber junto com o nome e a contagem. O `flex-basis` diz
+ * que este item ocupa a linha INTEIRA, e o wrap que o `boss-linha` ganhou
+ * manda ele para baixo de tudo
+ *
+ * ## POR QUE ELE NAO E UM PORTAL
+ *
+ * Ao contrario da dica do item, que precisa atravessar o `overflow` da mochila,
+ * o roster cabe na propria linha: ele e um bloco curto com ate cinco nomes, e
+ * nao compete com nada. Um portal aqui custaria um medidor e um `body` sujo
+ * para um elemento que nunca sai do card
+ */
+.boss-linha__roster {
+  flex-basis: 100%;
+  display: grid;
+  gap: 2px;
+  margin-top: 4px;
+  padding-top: 6px;
+  border-top: 1px dashed var(--t-line);
+}
+
+/**
+ * O NOME DE UM MEMBRO.
+ *
+ * O `strong` do lider e a unica distincao: quem organiza o grupo e quem
+ * dissolves ele, e o jogador precisa saber qual dos cinco e o dono sem ler
+ * duas vezes a lista
+ */
+.boss-roster__membro {
+  font-size: 11px;
+  line-height: 1.5;
+  color: var(--t-text-dim);
+}
+
+.boss-roster__membro strong {
+  color: var(--t-gold-line);
 }
 
 /**

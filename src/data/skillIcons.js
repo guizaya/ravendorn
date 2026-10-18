@@ -49,43 +49,67 @@ export const SKILL_ICON_FILE = {
  * num circulo de 40px e pior do que duas letras
  */
 const SKILL_ICON_GLYPH = {
-  arbalist_quick_shot: "QS",
-  arbalist_illusion_arrow: "IA",
-  arbalist_venom_mist_shell: "VM",
-  arbalist_cloaking: "C",
+  arbalist_thorn_trap: "AT",
+  arbalist_fan_volley: "SV",
+  arbalist_venom_bolt_rain: "CV",
   arbalist_arrow_rain: "AR",
+  sorcerer_mana_lance: "LM",
+  sorcerer_crystal_nova: "NC",
+  sorcerer_singularity: "SG",
+  sorcerer_dragon_tornado: "DT",
 };
 
+/**
+ * AS ARTES, E O NOME DELAS E O DO SLOT.
+ *
+ * ## POR QUE `skill_1` E NAO `thorn_trap`
+ *
+ * Porque o nome do arquivo e o do SLOT que a arte ocupa, e nao o da skill. As
+ * tres, que ocupam os slots `1` a `3` do arqueiro, entao seguem o numero; a
+ * ultimate e a unica com nome proprio (`ult.jpg`), porque o slot dela e o `R`
+ *
+ * E o que mantem o catalogo inteiro em ordem: slot 1, slot 2, slot 3, e a
+ * ultimate. Se uma skill entrar antes de outra no `SKILL_PACKS`, e o nome da
+ * arte que precisa trocar de lugar — e nao o id
+ */
 const SKILL_ICON_URL = {
-  arbalist_quick_shot: new URL(
-    "../assets/skills/arbalist/quick_shot.jpg",
+  sorcerer_mana_lance: new URL(
+    "../assets/skills/sorcerer/skill_1.png",
     import.meta.url,
   ).href,
 
-  arbalist_illusion_arrow: new URL(
-    "../assets/skills/arbalist/illusion_arrow.jpg",
+  sorcerer_crystal_nova: new URL(
+    "../assets/skills/sorcerer/skill_2.png",
     import.meta.url,
   ).href,
 
-  arbalist_venom_mist_shell: new URL(
-    "../assets/skills/arbalist/venom_mist_shell.jpg",
+  sorcerer_singularity: new URL(
+    "../assets/skills/sorcerer/skill_3.png",
     import.meta.url,
   ).href,
 
-  arbalist_cloaking: new URL(
-    "../assets/skills/arbalist/cloaking.jpg",
+  arbalist_thorn_trap: new URL(
+    "../assets/skills/arbalist/skill_1.png",
+    import.meta.url,
+  ).href,
+
+  arbalist_fan_volley: new URL(
+    "../assets/skills/arbalist/skill_2.png",
+    import.meta.url,
+  ).href,
+
+  arbalist_venom_bolt_rain: new URL(
+    "../assets/skills/arbalist/skill_3.png",
     import.meta.url,
   ).href,
 
   /**
-   * A ULTIMATE, e o unico arquivo cujo nome nao segue o id.
+   * A ULTIMATE, e o unico arquivo cujo nome nao segue o slot.
    *
-   * `ult.jpg` em vez de `arrow_rain.jpg`: o nome do arquivo e do slot que a
-   * arte ocupa na barra, e o slot da ultimate e o `R`. A das outras quatro
-   * segue o id porque elas ocupam o `1` ao `4` e cada uma tem um nome seu
-   *
-   * A entrada em `SKILL_ICON_GLYPH` e a que mantem o `AR` de reserva, entao
-   * a diferenca de nome fica visivel num lugar so
+   * `ult.jpg` em vez de `skill_4.jpg`: a arte ocupa o botao proprio, o `R`, e
+   * nao um dos tres slots numerados. A entrada em `SKILL_ICON_GLYPH` e a que
+   * mantem o `AR` de reserva, entao a diferenca de nome fica visivel num lugar
+   * so
    */
   arbalist_arrow_rain: new URL(
     "../assets/skills/arbalist/ult.jpg",

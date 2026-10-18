@@ -116,6 +116,89 @@ export const ARBALIST_FLECHA = {
   classId: "arbalist",
 };
 
+/**
+ * O PROJETIL BASICO DO SORCERER: a esfera azul com o rastro de faiscas.
+ *
+ * ## O QUE ESTA ARTE E, E POR QUE NAO E UM SPRITE DE PERSONAGEM
+ *
+ * A pasta `attack/` do sorcerer ja tem a pose de oito direcoes, e ela continua
+ * valendo — o boneco continua levantando o cajado como sempre. O que esta aqui
+ * e o QUE VOA: a esfera que sai da mao
+ *
+ * ## POR QUE A FOLHA E UMA FAIXA E NAO UMA GRADE
+ *
+ * Porque o gif e uma faixa de VFX em laco, nao uma pose. Sao 122x25 por quadro,
+ * e dentro de cada quadro a esfera atravessa da esquerda para a direita: a
+ * cabeca vai de x=30,5 no primeiro quadro a x=109,5 no ultimo, em passos de
+ * ~11,3px. Eixo X e tempo, entao a folha e uma linha so
+ *
+ * Gerada por `tools/gerar-projetil-sorcerer.mjs`, no mesmo formato da flecha
+ */
+export const SORCERER_PROJETIL = {
+  src: new URL(
+    "../../assets/sprites/sorcerer-projetil-sheet.png",
+    import.meta.url,
+  ).href,
+
+  frameWidth: 122,
+  frameHeight: 25,
+
+  frames: 8,
+
+  /**
+   * O `fps` E O DO PROPRIO GIF: oito quadros de 80ms, 0,64s por ciclo.
+   *
+   * Ler o delay real em vez de inventar um numero e o que mantem a arte com a
+   * cadencia que o desenho tem — e o ciclo fecha certo em 0,64s
+   */
+  fps: 12.5,
+
+  /**
+   * A ESCALA. A esfera mede 12x16 na arte, e aqui ela vira ~14x19 na tela.
+   *
+   * E de proposito proximo do tiro vetorial antigo, que era uma bola de raio 10
+   * — 20px de diametro. Uma esfera de ataque basico maior que isso comeca a
+   * cobrir o mob que ela acerta, e um tiro que esconde o alvo e pior do que um
+   * tiro pequeno
+   *
+   * A faixa inteira tem 146px, mas quase tudo e transparente: o conteudo
+   * visivel de cada quadro ocupa 43 a 56px, que e o comprimento do cometa
+   */
+  scale: 1.2,
+
+  /**
+   * A POSICAO DA ESFERA EM CADA QUADRO — e nao um `anchorX` so.
+   *
+   * ## POR QUE UM ANCOR POR QUADRO E NAO UM PONTO FIXO
+   *
+   * Porque a esfera NAO esta parada dentro do quadro: ela viaja. Ancorando no
+   * centro da celula (x=61), a esfera passaria de 30,5 a 109,5 e passearia
+   * ~45px para um lado e para o outro em volta do ponto do projetil. O tiro
+   * pareceria errar o alvo e voltar
+   *
+   * ## O QUE FAZ ESTA LISTA
+   *
+   * Prende a esfera no ponto do projetil e deixa o rastro pulsar atras. E o
+   * classico cometa: a cabeca fica, a cauda brilha
+   *
+   * Os valores sao medidos pelo `tools/gerar-projetil-sorcerer.mjs`, que acha a
+   * cabeca pela ALTURA da coluna — a esfera e alta (~16px) e o rastro e fino
+   * (~5px). Nao sao numeros escritos a mao
+   */
+  ancorasPorQuadro: [
+    [30.5, 11.5],
+    [41.5, 12.5],
+    [53, 11.5],
+    [64.5, 11.5],
+    [75.5, 11.5],
+    [86.5, 11],
+    [98, 11.5],
+    [109.5, 11.5],
+  ],
+
+  classId: "sorcerer",
+};
+
 const WARRIOR_SHEET = new URL(
   "../../assets/sprites/warrior-sheet.png",
   import.meta.url,

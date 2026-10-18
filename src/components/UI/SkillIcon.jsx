@@ -54,7 +54,22 @@ const texto = glyph ?? skillIconGlyph(skillId);
 
   return (
     <span className={classNames}>
-      <img src={src} alt="" draggable={false} />
+      {/*
+       * `loading="lazy"` pelo mesmo motivo do `ItemIcon`: a arvore de
+       * habilidades e uma painel que rola, com 37 nos por classe, e cada um
+       * com um icone. Sem o lazy, abrir a arvore baixa a coluna inteira antes
+       * de o jogador ver a primeira linha.
+       *
+       * No slot da barra de acoes, que fica sempre na tela, o lazy nao muda
+       * nada — o navegador pede o que esta visivel de qualquer jeito
+       */}
+      <img
+        src={src}
+        alt=""
+        draggable={false}
+        loading="lazy"
+        decoding="async"
+      />
     </span>
   );
 }

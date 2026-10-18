@@ -204,6 +204,25 @@ function CapaBuscar({
   aoFechar,
 }) {
   /**
+   * DE QUE EXPEDIÇÃO O "INFO" ESTÁ ABERTO.
+   *
+   * ## POR QUE FICA NESTA CAMADA E NÃO NO PAINEL
+   *
+   * Porque a lista e renderizada aqui, dentro do `CapaBuscar`. O estado no
+   * componente de cima exigiria descer por prop um `infoAberta` e um
+   * `setInfoAberta` que so esta camada usa
+   *
+   * ## POR QUE GUARDA O ID E NÃO UM BOOLEANO
+   *
+   * Porque a lista mostra varias linhas, e cada uma tem o seu "Info". Com um
+   * booleano, abrir o da segunda linha continuaria mostrando o da primeira — o
+   * jogador leria o roster errado, que e pior do que nenhum
+   *
+   * E um ID, e nao o objeto inteiro: o roster chega no pacote de 4Hz, e um
+   * objeto guardado em estado viraria uma segunda copia, desatualizada
+   */
+  const [infoAberta, setInfoAberta] = useState(null);
+  /**
    * O STORE JÁ ORDENOU, E AQUI NÃO SE ORDENA DE NOVO.
    *
    * Antes desta tela ter servidor, a ordenação era feita no componente: o meu
@@ -344,7 +363,13 @@ function CapaBuscar({
                       <button
                         type="button"
                         className="boss-btn-pequeno"
-                        disabled
+                        aria-expanded={infoAberta === e.id}
+                        data-tip="Quem está nesta expedição"
+                        onClick={() =>
+                          setInfoAberta((atual) =>
+                            atual === e.id ? null : e.id,
+                          )
+                        }
                       >
                         Info
                       </button>
@@ -352,9 +377,14 @@ function CapaBuscar({
                       <button
                         type="button"
                         className="boss-btn-pequeno boss-btn-pequeno--perigo"
-                        onClick={() =>
-                          e.souLider ? aoDissolver(e.id) : aoSair(e.id)
-                        }
+                        onClick={() => {
+                          /* o grupo muda: a caixa nao sobrevive a quem saiu */
+                          setInfoAberta(null);
+
+                          e.souLider
+                            ? aoDissolver(e.id)
+                            : aoSair(e.id);
+                        }}
                       >
                         {e.souLider ? "Dissolver" : "Sair"}
                       </button>
@@ -373,6 +403,42 @@ function CapaBuscar({
                     </button>
                   )}
                 </div>
+
+                {/**
+                 * O ROSTER DA MINHA EXPEDIÇÃO.
+                 *
+                 * Só existe na linha em que o jogador esta — o servidor manda
+                 * `roster` apenas nas expedicoes das quais ele participa, e
+                 * `null` nas outras. E `null` e o que segura a informacao de
+                 * dentro do grupo, sem virar uma lista de nomes de todo mundo
+                 * para quem so esta procurando
+                 *
+                 * E a lista sai do `roster` cru, e nao de um filtro no nome da
+                 * expedicao: o `id` e o que o servidor e o painel falam
+                 */}
+                {infoAberta === e.id && e.roster && (
+                  <div className="boss-linha__roster">
+                    {e.roster.map((m) => (
+                      <span
+                        key={m.id}
+                        className="boss-roster__membro"
+                      >
+                        {/*
+                          A COR DO LIDER, e nao um icone.
+                          *
+                          * O "voce" do painel ja diz que a expedicao e sua, e
+                          * um glifo a mais disputaria o canto do nome com a
+                          * contagem de membros
+                          */}
+                        {m.lider ? (
+                          <strong>{m.nome}</strong>
+                        ) : (
+                          m.nome
+                        )}
+                      </span>
+                    ))}
+                  </div>
+                )}
               </article>
             );
           })
@@ -694,12 +760,14 @@ export default function BossPanel({
              * mesma do meio, então o jogador confirma a escolha vendo a peça
              * grande ficar igual à pequena que ele apertou
              */}
-            <img
-              className="boss-faixa__arte"
-              src={arteDoChefe(c.id)}
-              alt={c.nome}
-              draggable={false}
-            />
+<img
+      className="boss-faixa__arte"
+      src={arteDoChefe(c.id)}
+      alt={c.nome}
+      draggable={false}
+      loading="lazy"
+      decoding="async"
+    />
           </button>
         ))}
       </div>
@@ -734,13 +802,15 @@ export default function BossPanel({
          * espaço reservado que ninguém preenche
          */}
         {arteDoChefe(chefe.id) ? (
-          <img
-            key={chefe.id}
-            className="boss-arte__gif"
-            src={arteDoChefe(chefe.id)}
-            alt={chefe.nome}
-            draggable={false}
-          />
+<img
+      key={chefe.id}
+      className="boss-arte__gif"
+      src={arteDoChefe(chefe.id)}
+      alt={chefe.nome}
+      draggable={false}
+      loading="lazy"
+      decoding="async"
+    />
         ) : null}
       </div>
 
